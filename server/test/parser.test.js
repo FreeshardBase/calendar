@@ -101,4 +101,32 @@ test('iCalendar parser suite', async (t) => {
     assert.match(ics, /DTEND;TZID=America\/New_York:20260709T130000/);
   });
 
+  await t.test('should parse and expand advanced recurrence rules (weekly on Mon, Wed)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:adv-recur-test',
+      'DTSTART:20260706T100000Z', // Monday July 6
+      'DTEND:20260706T110000Z',
+      'SUMMARY:Project Sync',
+      'RRULE:FREQ=WEEKLY;BYDAY=MO,WE',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    // Query range covers 2026-07-06 to 2026-07-12
+    const result = parseAndExpandEvent(ics, '2026-07-06T00:00:00Z', '2026-07-12T23:59:59Z');
+
+    // Expected occurrences: Monday July 6, Wednesday July 8, Monday July 13 (out of range), etc.
+    // Within range [July 6, July 12]: July 6 (Mon), July 8 (Wed) -> 2 instances
+    assert.strictEqual(result.length, 2);
+
+    assert.strictEqual(result[0].uid, 'adv-recur-test::2026-07-06T10:00:00Z');
+    assert.strictEqual(new Date(result[0].start).getDay(), 1); // Monday
+
+    assert.strictEqual(result[1].uid, 'adv-recur-test::2026-07-08T10:00:00Z');
+    assert.strictEqual(new Date(result[1].start).getDay(), 3); // Wednesday
+  });
+
 });

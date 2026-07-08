@@ -90,6 +90,18 @@ export function openCreateModal(defaultDate, callbacks) {
 
   populateCalendarSelect();
   populateTimezoneSelects();
+
+  // Pre-check the weekday of the start date
+  document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
+  const startDateVal = $('ev-start-date').value;
+  if (startDateVal) {
+    const d = new Date(startDateVal);
+    const dayCode = ['SU','MO','TU','WE','TH','FR','SA'][d.getDay()];
+    const cb = document.querySelector(`.recur-byday[value="${dayCode}"]`);
+    if (cb) cb.checked = true;
+  }
+  updateRecurrenceOptions();
+
   show();
 }
 
@@ -140,7 +152,31 @@ export function openEditModal(event, callbacks) {
   else if (rruleStr.includes('FREQ=YEARLY')) freq = 'YEARLY';
   $('ev-recurrence').value = freq;
 
+  // Reset checkboxes and radio buttons
+  document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
+  const byMonthDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYMONTHDAY"]');
+  if (byMonthDayRadio) byMonthDayRadio.checked = true;
+
+  if (freq === 'WEEKLY') {
+    const bydayMatch = rruleStr.match(/BYDAY=([^;]+)/);
+    if (bydayMatch) {
+      const days = bydayMatch[1].split(',');
+      days.forEach(day => {
+        const cb = document.querySelector(`.recur-byday[value="${day}"]`);
+        if (cb) cb.checked = true;
+      });
+    }
+  } else if (freq === 'MONTHLY') {
+    if (rruleStr.includes('BYDAY=')) {
+      const byDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYDAY"]');
+      if (byDayRadio) byDayRadio.checked = true;
+    } else {
+      if (byMonthDayRadio) byMonthDayRadio.checked = true;
+    }
+  }
+
   populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
+  updateRecurrenceOptions();
 
   show();
 }
@@ -157,6 +193,26 @@ function show() {
   setTimeout(() => $('ev-title').focus(), 50);
 }
 
+function updateRecurrenceOptions() {
+  const dateVal = $('ev-start-date').value;
+  if (!dateVal) return;
+
+  const date = new Date(dateVal);
+  if (isNaN(date.getTime())) return;
+
+  const day = date.getDate();
+  const dayName = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][date.getDay()];
+  const weekNum = Math.ceil(day / 7);
+  const weekWord = ['ersten', 'zweiten', 'dritten', 'vierten', 'fünften'][weekNum - 1];
+
+  $('recur-monthly-day-lbl').textContent = `Jeden Monat am ${day}. Tag`;
+  $('recur-monthly-dow-lbl').textContent = `Jeden Monat am ${weekWord} ${dayName}`;
+
+  const freq = $('ev-recurrence').value;
+  $('recur-weekly-days').classList.toggle('hidden', freq !== 'WEEKLY');
+  $('recur-monthly-opts').classList.toggle('hidden', freq !== 'MONTHLY');
+}
+
 function resetForm() {
   form().reset();
   $('ev-uid').value  = '';
@@ -165,6 +221,10 @@ function resetForm() {
   $('ev-recurrence').value = '';
   $('event-form-error').classList.add('hidden');
   $('ev-attendee-list').innerHTML = '';
+
+  document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
+  const byMonthDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYMONTHDAY"]');
+  if (byMonthDayRadio) byMonthDayRadio.checked = true;
 
   const now = new Date();
   $('ev-start-date').value = toInputDate(now);
@@ -278,6 +338,30 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   }
 
   const recurrenceVal = $('ev-recurrence').value;
+  let recurrence = null;
+  if (recurrenceVal === 'DAILY') {
+    recurrence = 'FREQ=DAILY';
+  } else if (recurrenceVal === 'YEARLY') {
+    recurrence = 'FREQ=YEARLY';
+  } else if (recurrenceVal === 'WEEKLY') {
+    const byday = [...document.querySelectorAll('.recur-byday:checked')].map(cb => cb.value).join(',');
+    recurrence = byday ? `FREQ=WEEKLY;BYDAY=${byday}` : 'FREQ=WEEKLY';
+  } else if (recurrenceVal === 'MONTHLY') {
+    const startD = new Date(startDateVal);
+    if (!isNaN(startD.getTime())) {
+      const type = document.querySelector('input[name="recur-monthly-type"]:checked').value;
+      if (type === 'BYMONTHDAY') {
+        recurrence = `FREQ=MONTHLY;BYMONTHDAY=${startD.getDate()}`;
+      } else if (type === 'BYDAY') {
+        const wd = ['SU','MO','TU','WE','TH','FR','SA'][startD.getDay()];
+        const weekNum = Math.ceil(startD.getDate() / 7);
+        recurrence = `FREQ=MONTHLY;BYDAY=${weekNum}${wd}`;
+      }
+    } else {
+      recurrence = 'FREQ=MONTHLY';
+    }
+  }
+
   const payload = {
     calendarId:  $('ev-calendar').value,
     title:       $('ev-title').value.trim(),
@@ -287,7 +371,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     location:    $('ev-location').value.trim()    || null,
     description: $('ev-description').value.trim() || null,
     attendees:   collectAttendees(),
-    recurrence:  recurrenceVal ? `FREQ=${recurrenceVal}` : null,
+    recurrence,
     startTimeZone: allDay ? null : startTimeZone,
     endTimeZone:   allDay ? null : endTimeZone
   };
@@ -388,6 +472,8 @@ export function initEventModal() {
   $('delete-event-btn').addEventListener('click', handleDelete);
 
   $('ev-allday').addEventListener('change', e => updateAlldayUI(e.target.checked));
+  $('ev-recurrence').addEventListener('change', updateRecurrenceOptions);
+  $('ev-start-date').addEventListener('change', updateRecurrenceOptions);
   $('add-attendee-btn').addEventListener('click', handleAddAttendee);
 
   // Remove attendee on click

@@ -1098,3 +1098,49 @@ textarea.form-input, .form-textarea {
 
 /* Search btn in old toolbar */
 .search-btn svg { width: 16px; height: 16px; display: block; }
+
+/* Advanced Recurrence Styling */
+.weekdays-checkgrid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.weekday-check {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 4px;
+  user-select: none;
+}
+.weekday-check:has(input:checked) {
+  border-color: var(--line);
+  background: rgba(0, 96, 112, 0.08);
+}
+.weekday-check input {
+  margin: 0;
+}
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.radio-option {
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.radio-option input {
+  margin: 0;
+}
+

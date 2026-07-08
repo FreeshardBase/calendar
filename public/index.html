@@ -292,6 +292,35 @@
           </select>
         </div>
 
+        <!-- Weekly days selector (hidden by default) -->
+        <div class="form-group hidden" id="recur-weekly-days">
+          <label class="form-label">Wiederholen am</label>
+          <div class="weekdays-checkgrid">
+            <label class="weekday-check"><input type="checkbox" value="MO" class="recur-byday"> Mo</label>
+            <label class="weekday-check"><input type="checkbox" value="TU" class="recur-byday"> Di</label>
+            <label class="weekday-check"><input type="checkbox" value="WE" class="recur-byday"> Mi</label>
+            <label class="weekday-check"><input type="checkbox" value="TH" class="recur-byday"> Do</label>
+            <label class="weekday-check"><input type="checkbox" value="FR" class="recur-byday"> Fr</label>
+            <label class="weekday-check"><input type="checkbox" value="SA" class="recur-byday"> Sa</label>
+            <label class="weekday-check"><input type="checkbox" value="SU" class="recur-byday"> So</label>
+          </div>
+        </div>
+
+        <!-- Monthly options selector (hidden by default) -->
+        <div class="form-group hidden" id="recur-monthly-opts">
+          <label class="form-label">Wiederholen am</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="recur-monthly-type" value="BYMONTHDAY" checked>
+              <span id="recur-monthly-day-lbl">Am gleichen Kalendertag</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="recur-monthly-type" value="BYDAY">
+              <span id="recur-monthly-dow-lbl">Am gleichen Wochentag</span>
+            </label>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label" for="ev-location">Ort</label>
           <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" />
