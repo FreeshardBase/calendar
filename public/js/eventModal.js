@@ -198,6 +198,7 @@ async function handleSubmit(e) {
   }
 
   const recurrenceVal = $('ev-recurrence').value;
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
   const payload = {
     calendarId:  $('ev-calendar').value,
     title:       $('ev-title').value.trim(),
@@ -207,7 +208,8 @@ async function handleSubmit(e) {
     location:    $('ev-location').value.trim()    || null,
     description: $('ev-description').value.trim() || null,
     attendees:   collectAttendees(),
-    recurrence:  recurrenceVal ? `FREQ=${recurrenceVal}` : null
+    recurrence:  recurrenceVal ? `FREQ=${recurrenceVal}` : null,
+    timeZone:    allDay ? null : timeZone
   };
 
   setButtonLoading('event-save-btn', true);

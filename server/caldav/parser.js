@@ -307,6 +307,13 @@ function parseICSToEvent(icsString, meta = {}) {
   const rrule = vevent.getFirstProperty('rrule');
   if (rrule) recurrence = rrule.getFirstValue().toString();
 
+  // Timezone ID
+  let timeZone = null;
+  const startProp = vevent.getFirstProperty('dtstart');
+  if (startProp) {
+    timeZone = startProp.getParameter('tzid') || null;
+  }
+
   return {
     uid:         ev.uid,
     title:       ev.summary   || '(No title)',
@@ -319,6 +326,7 @@ function parseICSToEvent(icsString, meta = {}) {
     attendees,
     organizer,
     recurrence,
+    timeZone,
     calendarId:  meta.calendarId  || null,
     accountId:   meta.accountId   || null,
     href:        meta.href        || null,
@@ -348,6 +356,9 @@ function eventToICS(event) {
   if (event.allDay) {
     lines.push(`DTSTART;VALUE=DATE:${fmtDate(event.start)}`);
     lines.push(`DTEND;VALUE=DATE:${fmtDate(event.end)}`);
+  } else if (event.timeZone) {
+    lines.push(`DTSTART;TZID=${event.timeZone}:${fmtDateTimeTzid(event.start, event.timeZone)}`);
+    lines.push(`DTEND;TZID=${event.timeZone}:${fmtDateTimeTzid(event.end, event.timeZone)}`);
   } else {
     lines.push(`DTSTART:${fmtDateTime(event.start)}`);
     lines.push(`DTEND:${fmtDateTime(event.end)}`);
@@ -392,6 +403,27 @@ function fmtDateTime(iso) {
   return new Date(iso).toISOString()
     .replace(/[-:]/g, '')
     .replace(/\.\d{3}/, '');
+}
+
+function fmtDateTimeTzid(iso, tzid) {
+  const date = new Date(iso);
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: tzid,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const parts = formatter.formatToParts(date);
+  const partMap = {};
+  for (const p of parts) partMap[p.type] = p.value;
+  
+  let hour = partMap.hour;
+  if (hour === '24') hour = '00';
+  return `${partMap.year}${partMap.month}${partMap.day}T${hour}${partMap.minute}${partMap.second}`;
 }
 
 function fmtDate(iso) {
