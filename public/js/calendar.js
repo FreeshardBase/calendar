@@ -482,10 +482,9 @@ function renderAgenda(container, events, currentDate, cb) {
     row.className = `agenda-day${isT ? ' today' : ''}`;
 
     row.innerHTML = `
-      <div class="agenda-day-label">
-        <div class="agenda-day-date">${d.getDate()}</div>
-        <div class="agenda-day-month">${MONTHS[d.getMonth()].slice(0,3)}</div>
-        <div class="agenda-day-dow">${DAYS[d.getDay()]}</div>
+      <div class="agenda-day-header">
+        <span class="agenda-day-date">${d.getDate()}. ${MONTHS[d.getMonth()]} ${d.getFullYear()}</span>
+        <span class="agenda-day-name">${DAYS[d.getDay()]}</span>
       </div>
       <div class="agenda-events">
         ${dayEvs.map(ev => agendaEventHtml(ev)).join('')}
@@ -514,7 +513,7 @@ function agendaEventHtml(ev) {
   return `
     <div class="agenda-event" data-event-uid="${ev.uid}" style="cursor:pointer">
       <div class="agenda-event-color" style="background:${color}"></div>
-      <div class="agenda-event-info">
+      <div class="agenda-event-body">
         <div class="agenda-event-title">${escHtml(ev.title)} ${recurIcon}</div>
         <div class="agenda-event-meta">
           <span class="agenda-event-time">
