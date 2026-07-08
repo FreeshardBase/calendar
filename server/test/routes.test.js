@@ -91,6 +91,17 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.ok(Array.isArray(body.shares));
   });
 
+  await t.test('GET /api/calendars/search-users should return matched users', async () => {
+    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=aar`, {
+      headers: { cookie: sessionCookie }
+    });
+    assert.strictEqual(res.status, 200);
+    const users = await res.json();
+    assert.ok(Array.isArray(users));
+    assert.ok(users.length > 0);
+    assert.strictEqual(users[0].displayname, 'Aaron Gryzia');
+  });
+
   await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async () => {
     // 1. Enable public link
     const enableRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/public-link`, {

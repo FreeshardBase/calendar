@@ -109,4 +109,39 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('.week-view')).toBeVisible();
   });
 
+  test('should open share dialog and autocomplete user search', async ({ page }) => {
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    page.on('pageerror', err => console.error('PAGE ERROR:', err.message));
+
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Wait for calendar list items
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible();
+
+    // Click on the share button of the first calendar item
+    const shareBtn = page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]');
+    await shareBtn.click();
+
+    // Verify share dialog is open
+    await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
+
+    // Fill "aar" in the search input
+    const searchInput = page.locator('#share-search-input');
+    await searchInput.fill('aar');
+
+    // Wait for autocomplete dropdown to become visible
+    const dropdown = page.locator('#share-autocomplete-dropdown');
+    await expect(dropdown).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Verify it contains Aaron Gryzia
+    await expect(dropdown).toContainText('Aaron Gryzia');
+
+    // Click the autocomplete item for Aaron Gryzia
+    await dropdown.locator('.autocomplete-item').first().click();
+
+    // Verify input value has updated to the email address
+    await expect(searchInput).toHaveValue('aaron@gryzia.de');
+  });
+
 });

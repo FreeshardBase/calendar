@@ -337,7 +337,7 @@ class CalDAVClient {
     }
 
     const text = await res.text();
-    const userBlocks = text.match(/<[^:>]*user[^>]*>([\s\S]*?)<\/[^>]*user>/gi) || [];
+    const userBlocks = text.match(/<([^:>]*:)?user[^>]*>([\s\S]*?)<\/([^:>]*:)?user>/gi) || [];
     const shares = [];
 
     const extractTagValue = (xml, tagName) => {
@@ -456,13 +456,14 @@ class CalDAVClient {
   </d:prop>
 </d:principal-property-search>`;
 
+    console.log('[searchUsers] Querying URL:', principalCollectionUrl);
     const res = await this._request('REPORT', principalCollectionUrl, {
       body: xml,
       headers: { Depth: '0' }
     });
 
     const parsePrincipalSearch = (xmlText) => {
-      const responses = xmlText.match(/<[^:>]*response[^>]*>([\s\S]*?)<\/[^>]*response>/gi) || [];
+      const responses = xmlText.match(/<([^:>]*:)?response[^>]*>([\s\S]*?)<\/([^:>]*:)?response>/gi) || [];
       const results = [];
 
       for (const resp of responses) {
@@ -476,19 +477,25 @@ class CalDAVClient {
       return results;
     };
 
+    const text = await res.text();
+    console.log('[searchUsers] Primary response status:', res.status, 'body length:', text.length, 'body:', text);
+
     if (!res.ok && res.status !== 207) {
-      // Fallback to searching on the home set or base URL directly
+      console.log('[searchUsers] Primary failed, attempting fallback on baseUrl:', this.baseUrl);
       const res2 = await this._request('REPORT', this.baseUrl, {
         body: xml,
         headers: { Depth: '0' }
       });
       if (!res2.ok && res2.status !== 207) {
+        console.log('[searchUsers] Fallback failed status:', res2.status);
         return [];
       }
-      return parsePrincipalSearch(await res2.text());
+      const text2 = await res2.text();
+      console.log('[searchUsers] Fallback response status:', res2.status, 'body:', text2);
+      return parsePrincipalSearch(text2);
     }
 
-    return parsePrincipalSearch(await res.text());
+    return parsePrincipalSearch(text);
   }
 
   /** Fetch custom DAV properties. */

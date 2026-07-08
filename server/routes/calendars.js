@@ -257,11 +257,15 @@ router.delete('/:id', async (req, res) => {
 router.get('/search-users', async (req, res) => {
   try {
     const { q, accountId } = req.query;
+    console.log('[search-users] Query:', q, 'AccountId:', accountId);
     if (!q) return res.status(400).json({ error: 'Search query q is required' });
 
     const accounts = req.session.accounts || [];
     const account = accountId ? accounts.find(a => a.id === accountId) : accounts[0];
-    if (!account) return res.status(404).json({ error: 'Account not found' });
+    if (!account) {
+      console.warn('[search-users] Account not found');
+      return res.status(404).json({ error: 'Account not found' });
+    }
 
     const client = new CalDAVClient({
       url: account.url,
@@ -270,9 +274,10 @@ router.get('/search-users', async (req, res) => {
     });
 
     const users = await client.searchUsers(q);
+    console.log('[search-users] Results found:', users);
     res.json(users);
   } catch (err) {
-    console.error('[search-users]', err.message);
+    console.error('[search-users ERROR]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
