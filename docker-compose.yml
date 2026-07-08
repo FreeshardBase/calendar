@@ -1,0 +1,18 @@
+services:
+  webcalendar:
+    build: .
+    image: freeshard/webcalendar:latest
+    container_name: freeshard-webcalendar
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    # Uncomment to use a named session volume (persists sessions across restarts):
+    # volumes:
+    #   - sessions:/app/sessions
+
+# volumes:
+#   sessions:

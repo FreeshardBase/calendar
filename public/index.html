@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FreeShard Calendar</title>
+  <meta name="description" content="FreeShard WebCalendar — CalDAV-Webclient, Daylight Instrument." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+
+<!-- ── Loading Screen ───────────────────────────────────────────────────────── -->
+<div id="loading-screen" class="loading-screen">
+  <div class="loading-logo">
+    <div class="loading-icon">
+      <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <rect width="40" height="40" rx="10" fill="var(--surface)" stroke="var(--border-cool)" stroke-width="1"/>
+        <rect x="10" y="14" width="20" height="16" rx="2" stroke="var(--line)" stroke-width="1.5"/>
+        <path d="M10 19h20" stroke="var(--line)" stroke-width="1.5"/>
+        <rect x="14" y="10" width="2" height="6" rx="1" fill="var(--line)"/>
+        <rect x="24" y="10" width="2" height="6" rx="1" fill="var(--line)"/>
+        <rect x="13" y="23" width="3" height="3" rx="0.5" fill="var(--data)"/>
+        <rect x="19" y="23" width="3" height="3" rx="0.5" fill="var(--data)"/>
+        <rect x="25" y="23" width="3" height="3" rx="0.5" fill="var(--accent)" opacity=".8"/>
+      </svg>
+    </div>
+    <span class="loading-title">FreeShard Calendar</span>
+  </div>
+  <div class="loading-spinner"></div>
+</div>
+
+<!-- ── Onboarding ───────────────────────────────────────────────────────────── -->
+<div id="onboarding" class="onboarding hidden">
+  <div class="onboarding-card">
+    <div class="onboarding-header">
+      <div class="onboarding-logo">
+        <svg viewBox="0 0 32 32" fill="none" width="32" height="32">
+          <rect width="32" height="32" rx="8" fill="var(--surface)" stroke="var(--border-cool)" stroke-width="1"/>
+          <rect x="8" y="11" width="16" height="13" rx="1.5" stroke="var(--line)" stroke-width="1.5"/>
+          <path d="M8 15h16" stroke="var(--line)" stroke-width="1.5"/>
+          <rect x="11" y="8" width="2" height="5" rx="1" fill="var(--line)"/>
+          <rect x="19" y="8" width="2" height="5" rx="1" fill="var(--line)"/>
+          <rect x="10" y="19" width="2.5" height="2.5" rx="0.4" fill="var(--data)"/>
+          <rect x="15" y="19" width="2.5" height="2.5" rx="0.4" fill="var(--accent)" opacity=".8"/>
+        </svg>
+        <span class="onboarding-logo-text">FreeShard Calendar</span>
+      </div>
+      <h1 class="onboarding-title">CalDAV-Konto verbinden</h1>
+      <p class="onboarding-subtitle">Verbinde dich mit einem CalDAV-kompatiblen Kalenderserver.</p>
+    </div>
+
+    <form id="onboarding-form" class="onboarding-form" novalidate>
+      <div class="form-group">
+        <label class="form-label" for="ob-url">CalDAV Server URL</label>
+        <input class="form-input" id="ob-url" type="url" name="url"
+               placeholder="https://dav.example.com/calendars/user/"
+               autocomplete="url" required />
+        <span class="form-hint">Vollständige URL deiner Kalender-Collection</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ob-username">Benutzername</label>
+        <input class="form-input" id="ob-username" type="text" name="username"
+               placeholder="user@example.com"
+               autocomplete="username" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ob-password">Passwort</label>
+        <div class="input-with-action">
+          <input class="form-input" id="ob-password" type="password" name="password"
+                 placeholder="••••••••••••"
+                 autocomplete="current-password" required />
+          <button type="button" class="toggle-password" data-target="ob-password"
+                  aria-label="Passwort anzeigen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ob-displayname">Anzeigename <span class="optional">(optional)</span></label>
+        <input class="form-input" id="ob-displayname" type="text" name="displayName"
+               placeholder="Mein Kalender"
+               autocomplete="off" />
+      </div>
+
+      <div id="onboarding-error" class="form-error hidden"></div>
+
+      <button type="submit" class="btn btn-primary btn-full" id="onboarding-submit">
+        <span class="btn-label">Verbinden</span>
+        <span class="btn-spinner hidden"></span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ── Main App ─────────────────────────────────────────────────────────────── -->
+<div id="app" class="app hidden">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+          <rect x="1" y="4" width="22" height="18" rx="3" stroke="var(--line)" stroke-width="1.5"/>
+          <path d="M1 9h22" stroke="var(--line)" stroke-width="1.5"/>
+          <rect x="7" y="1" width="2" height="5" rx="1" fill="var(--line)"/>
+          <rect x="15" y="1" width="2" height="5" rx="1" fill="var(--line)"/>
+          <rect x="5" y="13" width="3" height="3" rx="0.5" fill="var(--data)"/>
+          <rect x="11" y="13" width="3" height="3" rx="0.5" fill="var(--data)"/>
+          <rect x="17" y="13" width="3" height="3" rx="0.5" fill="var(--accent)" opacity=".8"/>
+        </svg>
+        <span class="sidebar-logo-name">FreeShard</span>
+      </div>
+      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Sidebar schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- New event button -->
+    <button class="sidebar-new-btn" id="new-event-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+      Neuer Termin
+    </button>
+
+    <!-- Mini Calendar -->
+    <div class="sidebar-section">
+      <div id="mini-calendar"></div>
+    </div>
+
+    <!-- Calendar List -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-title">Kalender</span>
+        <button class="icon-btn" id="add-calendar-btn" title="Kalender hinzufügen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+      </div>
+      <div id="calendar-list"></div>
+    </div>
+
+    <!-- Account List -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-title">Accounts</span>
+        <button class="icon-btn" id="add-account-btn" title="Account hinzufügen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+      </div>
+      <div id="account-list"></div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main" id="main-content">
+
+    <!-- Toolbar -->
+    <header class="toolbar">
+      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menü öffnen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M3 12h18M3 18h18"/>
+        </svg>
+      </button>
+
+      <div class="toolbar-nav">
+        <button class="toolbar-btn" id="prev-btn" aria-label="Zurück">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <button class="toolbar-today-btn" id="today-btn">Heute</button>
+        <button class="toolbar-btn" id="next-btn" aria-label="Vor">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
+      </div>
+
+      <h2 class="toolbar-title" id="toolbar-title"></h2>
+
+      <div class="view-tabs" role="group" aria-label="Ansicht wählen" style="margin-left:auto">
+        <button class="view-tab active" data-view="month"  id="view-month">Monat</button>
+        <button class="view-tab"        data-view="week"   id="view-week">Woche</button>
+        <button class="view-tab"        data-view="day"    id="view-day">Tag</button>
+        <button class="view-tab"        data-view="agenda" id="view-agenda">Agenda</button>
+      </div>
+
+      <div class="search-wrapper">
+        <span class="search-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+        </span>
+        <input type="text" id="search-input" class="search-input" placeholder="Suchen…" />
+      </div>
+    </header>
+
+    <!-- Calendar View Container -->
+    <div class="calendar-container" id="calendar-container">
+      <!-- Rendered by JS -->
+    </div>
+
+    <div class="status-bar" id="status-bar"></div>
+
+  </main>
+</div>
+
+<!-- ── Event Modal ──────────────────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="event-modal-backdrop">
+  <div class="modal" id="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
+    <div class="modal-header">
+      <h3 class="modal-title" id="event-modal-title">Neuer Termin</h3>
+      <button class="icon-btn modal-close" id="event-modal-close" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="event-form" novalidate>
+        <input type="hidden" id="ev-uid" />
+        <input type="hidden" id="ev-href" />
+        <input type="hidden" id="ev-etag" />
+
+        <div class="form-group">
+          <input class="form-input form-input-title" id="ev-title" type="text"
+                 placeholder="Titel des Termins" required />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group form-group-calendar">
+            <label class="form-label" for="ev-calendar">Kalender</label>
+            <select class="form-select" id="ev-calendar" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">
+              <input type="checkbox" id="ev-allday" class="form-checkbox" />
+              Ganztägig
+            </label>
+          </div>
+        </div>
+
+        <div class="form-row" id="ev-datetime-row">
+          <div class="form-group">
+            <label class="form-label" for="ev-start-date">Von</label>
+            <input class="form-input" id="ev-start-date" type="date" required />
+          </div>
+          <div class="form-group" id="ev-start-time-group">
+            <label class="form-label" for="ev-start-time">Uhrzeit</label>
+            <input class="form-input" id="ev-start-time" type="time" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ev-end-date">Bis</label>
+            <input class="form-input" id="ev-end-date" type="date" required />
+          </div>
+          <div class="form-group" id="ev-end-time-group">
+            <label class="form-label" for="ev-end-time">Uhrzeit</label>
+            <input class="form-input" id="ev-end-time" type="time" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ev-recurrence">Wiederholung</label>
+          <select class="form-select" id="ev-recurrence">
+            <option value="">Keine Wiederholung</option>
+            <option value="DAILY">Täglich</option>
+            <option value="WEEKLY">Wöchentlich</option>
+            <option value="MONTHLY">Monatlich</option>
+            <option value="YEARLY">Jährlich</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ev-location">Ort</label>
+          <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ev-description">Beschreibung</label>
+          <textarea class="form-input form-textarea" id="ev-description"
+                    placeholder="Optionale Beschreibung…" rows="3"></textarea>
+        </div>
+
+        <!-- Attendees -->
+        <div class="form-group">
+          <label class="form-label">Teilnehmer</label>
+          <div class="attendee-input-row">
+            <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" />
+            <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" />
+            <button type="button" class="btn btn-ghost" id="add-attendee-btn">Hinzufügen</button>
+          </div>
+          <ul class="attendee-list" id="ev-attendee-list"></ul>
+        </div>
+
+        <div id="event-form-error" class="form-error hidden"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-danger" id="delete-event-btn" style="display:none">
+            Löschen
+          </button>
+          <div class="modal-actions-right">
+            <button type="button" class="btn btn-ghost" id="event-cancel-btn">Abbrechen</button>
+            <button type="submit" class="btn btn-primary" id="event-save-btn">
+              <span class="btn-label">Speichern</span>
+              <span class="btn-spinner hidden"></span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Account Modal ────────────────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="account-modal-backdrop">
+  <div class="modal modal-sm" id="account-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3 class="modal-title">Account hinzufügen</h3>
+      <button class="icon-btn modal-close" id="account-modal-close" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="account-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="acc-url">CalDAV Server URL</label>
+          <input class="form-input" id="acc-url" type="url" name="url"
+                 placeholder="https://dav.example.com/calendars/user/" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="acc-username">Benutzername</label>
+          <input class="form-input" id="acc-username" type="text" name="username"
+                 autocomplete="username" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="acc-password">Passwort</label>
+          <div class="input-with-action">
+            <input class="form-input" id="acc-password" type="password" name="password"
+                   autocomplete="current-password" required />
+            <button type="button" class="toggle-password" data-target="acc-password">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="acc-displayname">Anzeigename <span class="optional">(optional)</span></label>
+          <input class="form-input" id="acc-displayname" type="text" name="displayName" />
+        </div>
+        <div id="account-form-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <div class="modal-actions-right">
+            <button type="button" class="btn btn-ghost" id="account-cancel-btn">Abbrechen</button>
+            <button type="submit" class="btn btn-primary" id="account-save-btn">
+              <span class="btn-label">Verbinden</span>
+              <span class="btn-spinner hidden"></span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Event Popover ────────────────────────────────────────────────────────── -->
+<div class="event-popover hidden" id="event-popover" role="tooltip"></div>
+
+<!-- ── Toast Notifications ──────────────────────────────────────────────────── -->
+<div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

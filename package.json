@@ -1,0 +1,22 @@
+{
+  "name": "freeshard-webcalendar",
+  "version": "1.0.0",
+  "description": "FreeShard WebCalendar — CalDAV web client",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.10",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "ical.js": "^1.5.0",
+    "uuid": "^11.0.0"
+  }
+}
