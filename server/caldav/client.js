@@ -404,7 +404,43 @@ class CalDAVClient {
 
   /** Search for other server principals by displayname or email. */
   async searchUsers(query) {
-    const principalsUrl = new URL('/remote.php/dav/principals/', this.baseUrl).href;
+    // 1. Resolve current-user-principal dynamically to find the parent principal collection
+    const propfindBody = `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop>
+    <d:current-user-principal/>
+  </d:prop>
+</d:propfind>`;
+
+    let principalCollectionUrl = new URL('/remote.php/dav/principals/users/', this.baseUrl).href; // Fallback
+
+    const propfindRes = await this._request('PROPFIND', this.baseUrl, {
+      body: propfindBody,
+      headers: { Depth: '0' }
+    });
+
+    const extractTagValue = (xml, tagName) => {
+      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const match = xml.match(regex);
+      return match ? match[2].trim() : null;
+    };
+
+    if (propfindRes.ok || propfindRes.status === 207) {
+      const xml = await propfindRes.text();
+      const principalBlock = extractTagValue(xml, 'current-user-principal');
+      if (principalBlock) {
+        let principalHref = extractTagValue(principalBlock, 'href') || '';
+        if (principalHref) {
+          const urlObj = new URL(principalHref, this.baseUrl);
+          const pathSegments = urlObj.pathname.split('/').filter(Boolean);
+          if (pathSegments.length > 0) {
+            pathSegments.pop(); // Remove username segment to get the parent principal collection
+            urlObj.pathname = '/' + pathSegments.join('/') + '/';
+            principalCollectionUrl = urlObj.href;
+          }
+        }
+      }
+    }
 
     const xml = `<?xml version="1.0" encoding="utf-8" ?>
 <d:principal-property-search xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
@@ -420,19 +456,14 @@ class CalDAVClient {
   </d:prop>
 </d:principal-property-search>`;
 
-    const res = await this._request('REPORT', principalsUrl, {
-      body: xml
+    const res = await this._request('REPORT', principalCollectionUrl, {
+      body: xml,
+      headers: { Depth: '0' }
     });
 
     const parsePrincipalSearch = (xmlText) => {
       const responses = xmlText.match(/<[^:>]*response[^>]*>([\s\S]*?)<\/[^>]*response>/gi) || [];
       const results = [];
-
-      const extractTagValue = (xml, tagName) => {
-        const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
-        const match = xml.match(regex);
-        return match ? match[2].trim() : null;
-      };
 
       for (const resp of responses) {
         const displayname = extractTagValue(resp, 'displayname') || '';
@@ -446,7 +477,11 @@ class CalDAVClient {
     };
 
     if (!res.ok && res.status !== 207) {
-      const res2 = await this._request('REPORT', this.baseUrl, { body: xml });
+      // Fallback to searching on the home set or base URL directly
+      const res2 = await this._request('REPORT', this.baseUrl, {
+        body: xml,
+        headers: { Depth: '0' }
+      });
       if (!res2.ok && res2.status !== 207) {
         return [];
       }
