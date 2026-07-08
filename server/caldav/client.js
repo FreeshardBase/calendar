@@ -17,13 +17,16 @@ class CalDAVClient {
   // ── Core request ────────────────────────────────────────────────────────────
 
   async _request(method, url, { body, headers = {} } = {}) {
+    const reqHeaders = {
+      Authorization: this._auth,
+      ...headers
+    };
+    if (body && !reqHeaders['Content-Type'] && !reqHeaders['content-type']) {
+      reqHeaders['Content-Type'] = 'application/xml; charset=utf-8';
+    }
     const response = await fetch(url, {
       method,
-      headers: {
-        Authorization: this._auth,
-        'Content-Type': 'application/xml; charset=utf-8',
-        ...headers
-      },
+      headers: reqHeaders,
       body
     });
     return response;
