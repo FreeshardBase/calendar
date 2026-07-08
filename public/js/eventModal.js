@@ -180,6 +180,26 @@ export function openEditModal(event, callbacks) {
     }
   }
 
+  // Parse Recurrence End
+  const untilMatch = rruleStr.match(/UNTIL=([^;]+)/);
+  const countMatch = rruleStr.match(/COUNT=(\d+)/);
+  if (untilMatch) {
+    const rawVal = untilMatch[1];
+    const year = rawVal.slice(0, 4);
+    const month = rawVal.slice(4, 6);
+    const day = rawVal.slice(6, 8);
+    $('recur-end-date').value = `${year}-${month}-${day}`;
+    const untilRadio = document.querySelector('input[name="recur-end-type"][value="UNTIL"]');
+    if (untilRadio) untilRadio.checked = true;
+  } else if (countMatch) {
+    $('recur-end-count').value = countMatch[1];
+    const countRadio = document.querySelector('input[name="recur-end-type"][value="COUNT"]');
+    if (countRadio) countRadio.checked = true;
+  } else {
+    const neverRadio = document.querySelector('input[name="recur-end-type"][value="NEVER"]');
+    if (neverRadio) neverRadio.checked = true;
+  }
+
   populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
   updateRecurrenceOptions(true);
 
@@ -220,6 +240,7 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
   const freq = $('ev-recurrence').value;
   $('recur-weekly-days').classList.toggle('hidden', freq !== 'WEEKLY');
   $('recur-monthly-opts').classList.toggle('hidden', freq !== 'MONTHLY');
+  $('recur-end-section').classList.toggle('hidden', freq === '');
 }
 
 function resetForm() {
@@ -234,6 +255,12 @@ function resetForm() {
   document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
   const byMonthDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYMONTHDAY"]');
   if (byMonthDayRadio) byMonthDayRadio.checked = true;
+
+  // Reset recurrence end controls
+  const neverRadio = document.querySelector('input[name="recur-end-type"][value="NEVER"]');
+  if (neverRadio) neverRadio.checked = true;
+  $('recur-end-date').value = '';
+  $('recur-end-count').value = '10';
 
   const now = new Date();
   $('ev-start-date').value = toInputDate(now);
@@ -368,6 +395,22 @@ function getUtcDate(dateStr, timeStr, timeZone) {
       }
     } else {
       recurrence = 'FREQ=MONTHLY';
+    }
+  }
+
+  if (recurrence) {
+    const endType = document.querySelector('input[name="recur-end-type"]:checked').value;
+    if (endType === 'UNTIL') {
+      const untilDateVal = $('recur-end-date').value;
+      if (untilDateVal) {
+        const datePart = untilDateVal.replace(/-/g, '');
+        recurrence += `;UNTIL=${datePart}T235959Z`;
+      }
+    } else if (endType === 'COUNT') {
+      const countVal = $('recur-end-count').value;
+      if (countVal && parseInt(countVal, 10) > 0) {
+        recurrence += `;COUNT=${parseInt(countVal, 10)}`;
+      }
     }
   }
 

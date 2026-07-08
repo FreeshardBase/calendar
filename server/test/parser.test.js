@@ -166,4 +166,48 @@ test('iCalendar parser suite', async (t) => {
     assert.match(ics, /RRULE:FREQ=MONTHLY;BYDAY=-1SU/);
   });
 
+  await t.test('should limit recurrence expansion using COUNT parameter', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:recur-count-limit',
+      'DTSTART:20260709T080000Z',
+      'DTEND:20260709T083000Z',
+      'SUMMARY:Limited Meeting',
+      'RRULE:FREQ=DAILY;COUNT=3', // Stops after 3 instances
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    // Query range is very long (July 9 to July 25)
+    const result = parseAndExpandEvent(ics, '2026-07-09T00:00:00Z', '2026-07-25T23:59:59Z');
+
+    // Should only yield 3 occurrences (July 9, 10, 11) despite long query range
+    assert.strictEqual(result.length, 3);
+    assert.strictEqual(result[0].uid, 'recur-count-limit::2026-07-09T08:00:00Z');
+    assert.strictEqual(result[2].uid, 'recur-count-limit::2026-07-11T08:00:00Z');
+  });
+
+  await t.test('should limit recurrence expansion using UNTIL parameter', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:recur-until-limit',
+      'DTSTART:20260709T080000Z',
+      'DTEND:20260709T083000Z',
+      'SUMMARY:Until Meeting',
+      'RRULE:FREQ=DAILY;UNTIL=20260711T235959Z', // Stops after July 11
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    // Query range is July 9 to July 25
+    const result = parseAndExpandEvent(ics, '2026-07-09T00:00:00Z', '2026-07-25T23:59:59Z');
+
+    // Should only yield 3 occurrences (July 9, 10, 11)
+    assert.strictEqual(result.length, 3);
+  });
+
 });

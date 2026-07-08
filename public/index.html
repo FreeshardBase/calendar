@@ -340,6 +340,32 @@
           </div>
         </div>
 
+        <!-- Recurrence End Section (hidden by default) -->
+        <div class="form-group hidden" id="recur-end-section">
+          <label class="form-label">Ende der Wiederholung</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="recur-end-type" value="NEVER" checked>
+              <span>Nie</span>
+            </label>
+            <div class="radio-option-row">
+              <label class="radio-option">
+                <input type="radio" name="recur-end-type" value="UNTIL">
+                Am:
+              </label>
+              <input class="form-input inline-input" type="date" id="recur-end-date">
+            </div>
+            <div class="radio-option-row">
+              <label class="radio-option">
+                <input type="radio" name="recur-end-type" value="COUNT">
+                Nach:
+              </label>
+              <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;">
+              <span>Wiederholungen</span>
+            </div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label" for="ev-location">Ort</label>
           <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" />

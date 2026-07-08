@@ -1156,4 +1156,12 @@ textarea.form-input, .form-textarea {
   height: 28px;
   font-size: 13px;
 }
+.radio-option-row .inline-input {
+  width: auto !important;
+  display: inline-block;
+  padding: 2px 8px;
+  height: 28px;
+  font-size: 13px;
+  margin: 0;
+}
 
