@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
+    "dev": "node --watch server/index.js",
+    "test": "node --test server/test/*.test.js"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.8.10",

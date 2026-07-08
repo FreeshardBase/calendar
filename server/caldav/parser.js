@@ -435,5 +435,6 @@ module.exports = {
   parseCalendarList,
   parseEventList,
   parseICSToEvent,
+  parseAndExpandEvent,
   eventToICS
 };
