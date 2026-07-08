@@ -103,7 +103,7 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
   }
 
   const first = new Date(year, month, 1);
-  const startDay = first.getDay();
+  const startDay = (first.getDay() + 6) % 7;
 
   let html = `
     <div class="mini-cal-header">
@@ -114,7 +114,7 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
       </div>
     </div>
     <div class="mini-cal-grid">
-      ${DAYS.map(d => `<div class="mini-cal-dow">${d}</div>`).join('')}
+      ${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => `<div class="mini-cal-dow">${d}</div>`).join('')}
   `;
 
   let day = 1;
@@ -158,14 +158,14 @@ function renderMonth(container, events, currentDate, cb) {
   const year   = currentDate.getFullYear();
 
   const first    = new Date(year, month, 1);
-  const startDay = first.getDay();
+  const startDay = (first.getDay() + 6) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const div = document.createElement('div');
   div.className = 'month-view';
 
   // Day-of-week header
-  div.innerHTML = `<div class="month-dow-header">${DAYS.map(d => `<div class="month-dow">${d}</div>`).join('')}</div>`;
+  div.innerHTML = `<div class="month-dow-header">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => `<div class="month-dow">${d}</div>`).join('')}</div>`;
 
   const grid = document.createElement('div');
   grid.className = 'month-grid';
@@ -607,7 +607,9 @@ function workweekTitle(date) {
 function weekStart(date) {
   const d = new Date(date);
   d.setHours(0,0,0,0);
-  d.setDate(d.getDate() - d.getDay());
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
   return d;
 }
 
