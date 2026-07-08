@@ -25,8 +25,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('should open event modal, create an event, view popover, and delete it', async ({ page }) => {
     await page.goto('/');
 
-    // Wait for app to be ready
+    // Wait for app to be ready and calendar list to populate
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
 
     // Click "Neuer Termin" button
     await page.click('#new-event-btn');

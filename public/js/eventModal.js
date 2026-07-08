@@ -16,6 +16,45 @@ const $ = id => document.getElementById(id);
 function backdrop()  { return $('event-modal-backdrop'); }
 function form()      { return $('event-form'); }
 
+const COMMON_TIMEZONES = [
+  'Europe/Berlin',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Zurich',
+  'Europe/Vienna',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'Asia/Tokyo',
+  'Asia/Shanghai',
+  'Asia/Kolkata',
+  'Australia/Sydney',
+  'UTC'
+];
+
+function populateTimezoneSelects(selectedStartTz, selectedEndTz) {
+  const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
+  const startTz = selectedStartTz || localTz;
+  const endTz   = selectedEndTz   || localTz;
+
+  const tzs = [...COMMON_TIMEZONES];
+  if (!tzs.includes(localTz)) tzs.push(localTz);
+  if (selectedStartTz && !tzs.includes(selectedStartTz)) tzs.push(selectedStartTz);
+  if (selectedEndTz && !tzs.includes(selectedEndTz)) tzs.push(selectedEndTz);
+
+  tzs.sort();
+
+  const startSel = $('ev-start-tz');
+  const endSel   = $('ev-end-tz');
+
+  startSel.innerHTML = tzs.map(tz => `<option value="${tz}">${tz}</option>`).join('');
+  endSel.innerHTML   = tzs.map(tz => `<option value="${tz}">${tz}</option>`).join('');
+
+  startSel.value = startTz;
+  endSel.value   = endTz;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function openCreateModal(defaultDate, callbacks) {
@@ -50,6 +89,7 @@ export function openCreateModal(defaultDate, callbacks) {
   }
 
   populateCalendarSelect();
+  populateTimezoneSelects();
   show();
 }
 
@@ -79,13 +119,13 @@ export function openEditModal(event, callbacks) {
 
   if (event.start) {
     const s = new Date(event.start);
-    $('ev-start-date').value = toInputDate(s);
-    if (!allDay) $('ev-start-time').value = toInputTime(s);
+    $('ev-start-date').value = toInputDate(s, event.startTimeZone);
+    if (!allDay) $('ev-start-time').value = toInputTime(s, event.startTimeZone);
   }
   if (event.end) {
     const e = new Date(event.end);
-    $('ev-end-date').value = toInputDate(e);
-    if (!allDay) $('ev-end-time').value = toInputTime(e);
+    $('ev-end-date').value = toInputDate(e, event.endTimeZone);
+    if (!allDay) $('ev-end-time').value = toInputTime(e, event.endTimeZone);
   }
 
   // Attendees
@@ -99,6 +139,8 @@ export function openEditModal(event, callbacks) {
   else if (rruleStr.includes('FREQ=MONTHLY')) freq = 'MONTHLY';
   else if (rruleStr.includes('FREQ=YEARLY')) freq = 'YEARLY';
   $('ev-recurrence').value = freq;
+
+  populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
 
   show();
 }
@@ -134,13 +176,16 @@ function resetForm() {
 function updateAlldayUI(allDay) {
   $('ev-start-time-group').style.display = allDay ? 'none' : '';
   $('ev-end-time-group').style.display   = allDay ? 'none' : '';
+  $('ev-start-tz-group').style.display   = allDay ? 'none' : '';
+  $('ev-end-tz-group').style.display     = allDay ? 'none' : '';
 }
 
 function populateCalendarSelect(selectedId) {
   const sel = $('ev-calendar');
-  const cals = store.get('calendars');
+  const cals = store.get('calendars') || [];
+  const targetId = selectedId || (cals[0] ? cals[0].id : '');
   sel.innerHTML = cals.map(c =>
-    `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
+    `<option value="${c.id}" ${c.id === targetId ? 'selected' : ''}>${c.name}</option>`
   ).join('') || '<option value="">— Kein Kalender verfügbar —</option>';
 }
 
@@ -188,28 +233,63 @@ async function handleSubmit(e) {
     return;
   }
 
-  let start, end;
+function getUtcDate(dateStr, timeStr, timeZone) {
+  const iso = `${dateStr}T${timeStr || '00:00'}:00.000Z`;
+  const temp = new Date(iso);
+  if (isNaN(temp.getTime())) return temp;
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  const parts = formatter.formatToParts(temp);
+  const partMap = {};
+  for (const p of parts) partMap[p.type] = p.value;
+  
+  let hour = partMap.hour;
+  if (hour === '24') hour = '00';
+  
+  const localIso = `${partMap.year}-${partMap.month}-${partMap.day}T${hour}:${partMap.minute}:${partMap.second}.000Z`;
+  const localTemp = new Date(localIso);
+  
+  const diff = temp.getTime() - localTemp.getTime();
+  return new Date(temp.getTime() + diff);
+}
+
+  let startUtc, endUtc;
+  const startTimeZone = $('ev-start-tz').value;
+  const endTimeZone   = $('ev-end-tz').value;
+
   if (allDay) {
-    start = startDateVal;
-    end   = endDateVal;
+    startUtc = startDateVal;
+    endUtc   = endDateVal;
   } else {
-    start = `${startDateVal}T${$('ev-start-time').value || '00:00'}:00`;
-    end   = `${endDateVal}T${$('ev-end-time').value   || '01:00'}:00`;
+    const startTimeVal = $('ev-start-time').value || '00:00';
+    const endTimeVal   = $('ev-end-time').value   || '01:00';
+    startUtc = getUtcDate(startDateVal, startTimeVal, startTimeZone).toISOString();
+    endUtc   = getUtcDate(endDateVal, endTimeVal, endTimeZone).toISOString();
   }
 
   const recurrenceVal = $('ev-recurrence').value;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
   const payload = {
     calendarId:  $('ev-calendar').value,
     title:       $('ev-title').value.trim(),
-    start:       allDay ? startDateVal : new Date(start).toISOString(),
-    end:         allDay ? endDateVal   : new Date(end).toISOString(),
+    start:       startUtc,
+    end:         endUtc,
     allDay,
     location:    $('ev-location').value.trim()    || null,
     description: $('ev-description').value.trim() || null,
     attendees:   collectAttendees(),
     recurrence:  recurrenceVal ? `FREQ=${recurrenceVal}` : null,
-    timeZone:    allDay ? null : timeZone
+    startTimeZone: allDay ? null : startTimeZone,
+    endTimeZone:   allDay ? null : endTimeZone
   };
 
   setButtonLoading('event-save-btn', true);
@@ -337,10 +417,36 @@ export function initEventModal() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function toInputDate(d) {
+function toInputDate(d, tzid) {
+  if (tzid) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzid,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const parts = formatter.formatToParts(d);
+    const partMap = {};
+    for (const p of parts) partMap[p.type] = p.value;
+    return `${partMap.year}-${partMap.month}-${partMap.day}`;
+  }
   return d.toLocaleDateString('sv-SE'); // YYYY-MM-DD
 }
-function toInputTime(d) {
+function toInputTime(d, tzid) {
+  if (tzid) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzid,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const partMap = {};
+    for (const p of parts) partMap[p.type] = p.value;
+    let hour = partMap.hour;
+    if (hour === '24') hour = '00';
+    return `${hour}:${partMap.minute}`;
+  }
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 function setButtonLoading(id, on) {

@@ -83,21 +83,22 @@ test('iCalendar parser suite', async (t) => {
     assert.match(ics, /RRULE:FREQ=WEEKLY/);
   });
 
-  await t.test('should serialize event with TZID and local time format when timezone is set', () => {
+  await t.test('should serialize event with independent start and end timezones', () => {
     const event = {
       uid: 'timezone-test-123',
-      title: 'Local Berlin Meeting',
+      title: 'Transatlantic Flight',
       start: '2026-07-09T11:00:00.000Z', // 13:00 in Berlin (CEST)
-      end: '2026-07-09T12:00:00.000Z',   // 14:00 in Berlin (CEST)
+      end: '2026-07-09T17:00:00.000Z',   // 13:00 in New York (EDT)
       allDay: false,
-      timeZone: 'Europe/Berlin'
+      startTimeZone: 'Europe/Berlin',
+      endTimeZone: 'America/New_York'
     };
 
     const ics = eventToICS(event);
 
     assert.match(ics, /UID:timezone-test-123/);
     assert.match(ics, /DTSTART;TZID=Europe\/Berlin:20260709T130000/);
-    assert.match(ics, /DTEND;TZID=Europe\/Berlin:20260709T140000/);
+    assert.match(ics, /DTEND;TZID=America\/New_York:20260709T130000/);
   });
 
 });

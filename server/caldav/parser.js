@@ -307,11 +307,17 @@ function parseICSToEvent(icsString, meta = {}) {
   const rrule = vevent.getFirstProperty('rrule');
   if (rrule) recurrence = rrule.getFirstValue().toString();
 
-  // Timezone ID
-  let timeZone = null;
+  // Timezone IDs
+  let startTimeZone = null;
   const startProp = vevent.getFirstProperty('dtstart');
   if (startProp) {
-    timeZone = startProp.getParameter('tzid') || null;
+    startTimeZone = startProp.getParameter('tzid') || null;
+  }
+
+  let endTimeZone = null;
+  const endProp = vevent.getFirstProperty('dtend');
+  if (endProp) {
+    endTimeZone = endProp.getParameter('tzid') || null;
   }
 
   return {
@@ -326,7 +332,8 @@ function parseICSToEvent(icsString, meta = {}) {
     attendees,
     organizer,
     recurrence,
-    timeZone,
+    startTimeZone,
+    endTimeZone,
     calendarId:  meta.calendarId  || null,
     accountId:   meta.accountId   || null,
     href:        meta.href        || null,
@@ -356,12 +363,18 @@ function eventToICS(event) {
   if (event.allDay) {
     lines.push(`DTSTART;VALUE=DATE:${fmtDate(event.start)}`);
     lines.push(`DTEND;VALUE=DATE:${fmtDate(event.end)}`);
-  } else if (event.timeZone) {
-    lines.push(`DTSTART;TZID=${event.timeZone}:${fmtDateTimeTzid(event.start, event.timeZone)}`);
-    lines.push(`DTEND;TZID=${event.timeZone}:${fmtDateTimeTzid(event.end, event.timeZone)}`);
   } else {
-    lines.push(`DTSTART:${fmtDateTime(event.start)}`);
-    lines.push(`DTEND:${fmtDateTime(event.end)}`);
+    if (event.startTimeZone) {
+      lines.push(`DTSTART;TZID=${event.startTimeZone}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
+    } else {
+      lines.push(`DTSTART:${fmtDateTime(event.start)}`);
+    }
+
+    if (event.endTimeZone) {
+      lines.push(`DTEND;TZID=${event.endTimeZone}:${fmtDateTimeTzid(event.end, event.endTimeZone)}`);
+    } else {
+      lines.push(`DTEND:${fmtDateTime(event.end)}`);
+    }
   }
 
   if (event.description) lines.push(`DESCRIPTION:${escIcal(event.description)}`);
