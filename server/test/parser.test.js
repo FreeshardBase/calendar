@@ -129,4 +129,41 @@ test('iCalendar parser suite', async (t) => {
     assert.strictEqual(new Date(result[1].start).getDay(), 3); // Wednesday
   });
 
+  await t.test('should parse and expand monthly recurrence rules (2nd Thursday of the month)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:monthly-recur-byday',
+      'DTSTART:20260702T100000Z', // Thursday July 2
+      'DTEND:20260702T110000Z',
+      'SUMMARY:Monthly Committee Meeting',
+      'RRULE:FREQ=MONTHLY;BYDAY=2TH', // Every 2nd Thursday
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    // Query range covers July 2026
+    const result = parseAndExpandEvent(ics, '2026-07-01T00:00:00Z', '2026-07-31T23:59:59Z');
+
+    // 2nd Thursday of July 2026 is July 9th
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].uid, 'monthly-recur-byday::2026-07-09T10:00:00Z');
+    assert.strictEqual(new Date(result[0].start).toISOString(), '2026-07-09T10:00:00.000Z');
+  });
+
+  await t.test('should serialize monthly custom recurrence rule (last Sunday)', () => {
+    const event = {
+      uid: 'serialization-monthly-test',
+      title: 'Last Sunday Service',
+      start: '2026-07-26T10:00:00.000Z',
+      end: '2026-07-26T11:00:00.000Z',
+      allDay: false,
+      recurrence: 'FREQ=MONTHLY;BYDAY=-1SU'
+    };
+
+    const ics = eventToICS(event);
+    assert.match(ics, /RRULE:FREQ=MONTHLY;BYDAY=-1SU/);
+  });
+
 });
