@@ -11,7 +11,7 @@ const session = require('express-session');
 const path = require('path');
 
 const accountsRouter = require('./routes/accounts');
-const calendarsRouter = require('./routes/calendars');
+const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
 const eventsRouter = require('./routes/events');
 
 const app = express();
@@ -63,9 +63,10 @@ function requireAuth(req, res, next) {
 app.use(express.static(path.join(__dirname, '../public')));
 
 // ── API Routes ────────────────────────────────────────────────────────────────
-app.use('/api/accounts',   accountsRouter);
-app.use('/api/calendars',  requireAuth, calendarsRouter);
-app.use('/api/events',     requireAuth, eventsRouter);
+app.use('/api/public/calendars', publicRouter);
+app.use('/api/accounts',          accountsRouter);
+app.use('/api/calendars',         requireAuth, calendarsRouter);
+app.use('/api/events',            requireAuth, eventsRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {

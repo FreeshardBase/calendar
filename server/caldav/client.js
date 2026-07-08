@@ -317,6 +317,196 @@ class CalDAVClient {
 
     return this.report(calendarUrl, body);
   }
+
+  /** Retrieve current share invitations of a calendar. */
+  async getCalendarShares(calendarUrl) {
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
+  <d:prop>
+    <cs:invite/>
+  </d:prop>
+</d:propfind>`;
+
+    const res = await this._request('PROPFIND', calendarUrl, {
+      body,
+      headers: { Depth: '0' }
+    });
+
+    if (!res.ok && res.status !== 207) {
+      return [];
+    }
+
+    const text = await res.text();
+    const userBlocks = text.match(/<[^:>]*user[^>]*>([\s\S]*?)<\/[^>]*user>/gi) || [];
+    const shares = [];
+
+    const extractTagValue = (xml, tagName) => {
+      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const match = xml.match(regex);
+      return match ? match[2].trim() : null;
+    };
+
+    for (const block of userBlocks) {
+      let href = extractTagValue(block, 'href') || '';
+      if (href.startsWith('mailto:')) href = href.slice(7);
+      const commonName = extractTagValue(block, 'commonname') || '';
+      
+      const accessBlock = extractTagValue(block, 'access') || '';
+      const readWrite = accessBlock.includes('read-write');
+      
+      const status = block.includes('invite-accepted') ? 'ACCEPTED'
+                   : block.includes('invite-declined') ? 'DECLINED'
+                   : 'NO_RESPONSE';
+
+      shares.push({ href, commonName, readWrite, status });
+    }
+
+    return shares;
+  }
+
+  /** Add or remove a share invitation. */
+  async updateCalendarShares(calendarUrl, { href, readWrite, remove = false }) {
+    let targetHref = href;
+    if (!targetHref.startsWith('mailto:') && !targetHref.startsWith('http://') && !targetHref.startsWith('https://') && targetHref.includes('@')) {
+      targetHref = 'mailto:' + targetHref;
+    }
+
+    let xml = `<?xml version="1.0" encoding="utf-8"?>
+<cs:share xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">`;
+
+    if (remove) {
+      xml += `
+  <cs:remove>
+    <d:href>${targetHref}</d:href>
+  </cs:remove>`;
+    } else {
+      xml += `
+  <cs:set>
+    <d:href>${targetHref}</d:href>
+    ${readWrite ? '<cs:read-write/>' : '<cs:read/>'}
+  </cs:set>`;
+    }
+
+    xml += `
+</cs:share>`;
+
+    const res = await this._request('POST', calendarUrl, {
+      body: xml
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Failed to update shares: ${res.status} ${txt.slice(0, 200)}`);
+    }
+
+    return true;
+  }
+
+  /** Search for other server principals by displayname or email. */
+  async searchUsers(query) {
+    const principalsUrl = new URL('/remote.php/dav/principals/', this.baseUrl).href;
+
+    const xml = `<?xml version="1.0" encoding="utf-8" ?>
+<d:principal-property-search xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
+  <d:property-search>
+    <d:prop>
+      <d:displayname />
+    </d:prop>
+    <d:match>${query}</d:match>
+  </d:property-search>
+  <d:prop>
+    <d:displayname />
+    <s:email-address />
+  </d:prop>
+</d:principal-property-search>`;
+
+    const res = await this._request('REPORT', principalsUrl, {
+      body: xml
+    });
+
+    const parsePrincipalSearch = (xmlText) => {
+      const responses = xmlText.match(/<[^:>]*response[^>]*>([\s\S]*?)<\/[^>]*response>/gi) || [];
+      const results = [];
+
+      const extractTagValue = (xml, tagName) => {
+        const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+        const match = xml.match(regex);
+        return match ? match[2].trim() : null;
+      };
+
+      for (const resp of responses) {
+        const displayname = extractTagValue(resp, 'displayname') || '';
+        const email = extractTagValue(resp, 'email-address') || '';
+        let href = extractTagValue(resp, 'href') || '';
+        if (displayname || email) {
+          results.push({ displayname, email, href });
+        }
+      }
+      return results;
+    };
+
+    if (!res.ok && res.status !== 207) {
+      const res2 = await this._request('REPORT', this.baseUrl, { body: xml });
+      if (!res2.ok && res2.status !== 207) {
+        return [];
+      }
+      return parsePrincipalSearch(await res2.text());
+    }
+
+    return parsePrincipalSearch(await res.text());
+  }
+
+  /** Fetch custom DAV properties. */
+  async getCustomProperty(url, namespace, propName) {
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:x="${namespace}">
+  <d:prop>
+    <x:${propName}/>
+  </d:prop>
+</d:propfind>`;
+
+    const res = await this._request('PROPFIND', url, {
+      body,
+      headers: { Depth: '0' }
+    });
+
+    if (!res.ok && res.status !== 207) return null;
+    const xml = await res.text();
+    const extractTagValue = (xml, tagName) => {
+      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const match = xml.match(regex);
+      return match ? match[2].trim() : null;
+    };
+    return extractTagValue(xml, propName);
+  }
+
+  /** Write custom DAV properties. */
+  async setCustomProperty(url, namespace, propName, value) {
+    let body = `<?xml version="1.0" encoding="utf-8"?>
+<d:propertyupdate xmlns:d="DAV:" xmlns:x="${namespace}">`;
+
+    if (value === null || value === undefined) {
+      body += `
+  <d:remove>
+    <d:prop>
+      <x:${propName}/>
+    </d:prop>
+  </d:remove>`;
+    } else {
+      body += `
+  <d:set>
+    <d:prop>
+      <x:${propName}>${escapeXML(value)}</x:${propName}>
+    </d:prop>
+  </d:set>`;
+    }
+
+    body += `
+</d:propertyupdate>`;
+
+    const res = await this._request('PROPPATCH', url, { body });
+    return res.ok || res.status === 207;
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

@@ -41,6 +41,13 @@ export const CalendarsAPI = {
   create: (data)          => request('POST',   '/api/calendars', data),
   update: (id, data)      => request('PATCH',  `/api/calendars/${encodeURIComponent(id)}`, data),
   remove: (id)            => request('DELETE', `/api/calendars/${encodeURIComponent(id)}`),
+  searchUsers: (q, accountId) => request('GET', `/api/calendars/search-users?q=${encodeURIComponent(q)}&accountId=${encodeURIComponent(accountId || '')}`),
+  getShares: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/shares`),
+  addShare: (id, sharee, readWrite) => request('POST', `/api/calendars/${encodeURIComponent(id)}/shares`, { sharee, readWrite }),
+  removeShare: (id, sharee) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/shares`, { sharee }),
+  getPublicLink: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/public-link`),
+  enablePublicLink: (id) => request('POST', `/api/calendars/${encodeURIComponent(id)}/public-link`),
+  disablePublicLink: (id) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/public-link`),
 };
 
 // ── Events ────────────────────────────────────────────────────────────────────
