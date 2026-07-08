@@ -3,3 +3,5 @@ node_modules/
 *.log
 sessions/
 .DS_Store
+test-results/
+playwright-report/
