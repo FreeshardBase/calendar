@@ -314,10 +314,29 @@
               <input type="radio" name="recur-monthly-type" value="BYMONTHDAY" checked>
               <span id="recur-monthly-day-lbl">Am gleichen Kalendertag</span>
             </label>
-            <label class="radio-option">
-              <input type="radio" name="recur-monthly-type" value="BYDAY">
-              <span id="recur-monthly-dow-lbl">Am gleichen Wochentag</span>
-            </label>
+            <div class="radio-option-row">
+              <label class="radio-option">
+                <input type="radio" name="recur-monthly-type" value="BYDAY">
+                Am:
+              </label>
+              <select class="form-select inline-select" id="recur-monthly-week-idx">
+                <option value="1">ersten</option>
+                <option value="2">zweiten</option>
+                <option value="3">dritten</option>
+                <option value="4">vierten</option>
+                <option value="5">fünften</option>
+                <option value="-1">letzten</option>
+              </select>
+              <select class="form-select inline-select" id="recur-monthly-weekday">
+                <option value="MO">Montag</option>
+                <option value="TU">Dienstag</option>
+                <option value="WE">Mittwoch</option>
+                <option value="TH">Donnerstag</option>
+                <option value="FR">Freitag</option>
+                <option value="SA">Samstag</option>
+                <option value="SU">Sonntag</option>
+              </select>
+            </div>
           </div>
         </div>
 

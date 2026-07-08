@@ -167,7 +167,12 @@ export function openEditModal(event, callbacks) {
       });
     }
   } else if (freq === 'MONTHLY') {
-    if (rruleStr.includes('BYDAY=')) {
+    const bydayMatch = rruleStr.match(/BYDAY=(-?\d)([A-Z]{2})/);
+    if (bydayMatch) {
+      const weekIdx = bydayMatch[1];
+      const weekday = bydayMatch[2];
+      $('recur-monthly-week-idx').value = weekIdx;
+      $('recur-monthly-weekday').value = weekday;
       const byDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYDAY"]');
       if (byDayRadio) byDayRadio.checked = true;
     } else {
@@ -176,7 +181,7 @@ export function openEditModal(event, callbacks) {
   }
 
   populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
-  updateRecurrenceOptions();
+  updateRecurrenceOptions(true);
 
   show();
 }
@@ -193,7 +198,7 @@ function show() {
   setTimeout(() => $('ev-title').focus(), 50);
 }
 
-function updateRecurrenceOptions() {
+function updateRecurrenceOptions(skipDefaultSelects = false) {
   const dateVal = $('ev-start-date').value;
   if (!dateVal) return;
 
@@ -203,10 +208,14 @@ function updateRecurrenceOptions() {
   const day = date.getDate();
   const dayName = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][date.getDay()];
   const weekNum = Math.ceil(day / 7);
-  const weekWord = ['ersten', 'zweiten', 'dritten', 'vierten', 'fünften'][weekNum - 1];
 
   $('recur-monthly-day-lbl').textContent = `Jeden Monat am ${day}. Tag`;
-  $('recur-monthly-dow-lbl').textContent = `Jeden Monat am ${weekWord} ${dayName}`;
+
+  if (!skipDefaultSelects) {
+    const wd = ['SU','MO','TU','WE','TH','FR','SA'][date.getDay()];
+    $('recur-monthly-week-idx').value = String(weekNum);
+    $('recur-monthly-weekday').value = wd;
+  }
 
   const freq = $('ev-recurrence').value;
   $('recur-weekly-days').classList.toggle('hidden', freq !== 'WEEKLY');
@@ -472,8 +481,8 @@ export function initEventModal() {
   $('delete-event-btn').addEventListener('click', handleDelete);
 
   $('ev-allday').addEventListener('change', e => updateAlldayUI(e.target.checked));
-  $('ev-recurrence').addEventListener('change', updateRecurrenceOptions);
-  $('ev-start-date').addEventListener('change', updateRecurrenceOptions);
+  $('ev-recurrence').addEventListener('change', () => updateRecurrenceOptions(false));
+  $('ev-start-date').addEventListener('change', () => updateRecurrenceOptions(false));
   $('add-attendee-btn').addEventListener('click', handleAddAttendee);
 
   // Remove attendee on click

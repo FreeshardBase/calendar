@@ -1143,4 +1143,17 @@ textarea.form-input, .form-textarea {
 .radio-option input {
   margin: 0;
 }
+.radio-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.radio-option-row .inline-select {
+  width: auto !important;
+  display: inline-block;
+  padding: 2px 8px;
+  height: 28px;
+  font-size: 13px;
+}
 
