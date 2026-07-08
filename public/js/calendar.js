@@ -20,7 +20,8 @@ export function renderView(container, events, view, currentDate, callbacks) {
   container.innerHTML = '';
   switch (view) {
     case 'month':  renderMonth(container, events, currentDate, callbacks); break;
-    case 'week':   renderWeek(container, events, currentDate, callbacks);  break;
+    case 'week':   renderWeek(container, events, currentDate, callbacks, 'week');  break;
+    case 'workweek': renderWeek(container, events, currentDate, callbacks, 'workweek'); break;
     case 'day':    renderDay(container, events, currentDate, callbacks);   break;
     case 'agenda': renderAgenda(container, events, currentDate, callbacks);break;
   }
@@ -30,6 +31,7 @@ export function getToolbarTitle(view, date) {
   switch (view) {
     case 'month':  return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
     case 'week':   return weekTitle(date);
+    case 'workweek': return workweekTitle(date);
     case 'day':    return `${DAYS[date.getDay()]}, ${date.getDate()}. ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
     case 'agenda': return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
   }
@@ -40,6 +42,7 @@ export function navigate(view, date, direction) {
   switch (view) {
     case 'month':  d.setMonth(d.getMonth() + direction);  break;
     case 'week':   d.setDate(d.getDate() + 7 * direction); break;
+    case 'workweek': d.setDate(d.getDate() + 7 * direction); break;
     case 'day':    d.setDate(d.getDate() + direction);     break;
     case 'agenda': d.setMonth(d.getMonth() + direction);  break;
   }
@@ -60,6 +63,11 @@ export function getDateRange(view, date) {
     case 'week': {
       start = weekStart(date);
       end   = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+      break;
+    }
+    case 'workweek': {
+      start = mondayStart(date);
+      end   = new Date(start); end.setDate(start.getDate() + 4); end.setHours(23, 59, 59, 999);
       break;
     }
     case 'day': {
@@ -228,10 +236,12 @@ function chipHtml(ev) {
 
 // ── Week View ─────────────────────────────────────────────────────────────────
 
-function renderWeek(container, events, currentDate, cb) {
+function renderWeek(container, events, currentDate, cb, view = 'week') {
+  const isWorkWeek = (view === 'workweek');
   const today = new Date(); today.setHours(0,0,0,0);
-  const ws    = weekStart(currentDate);
-  const days  = Array.from({length: 7}, (_, i) => {
+  const ws    = isWorkWeek ? mondayStart(currentDate) : weekStart(currentDate);
+  const numDays = isWorkWeek ? 5 : 7;
+  const days  = Array.from({length: numDays}, (_, i) => {
     const d = new Date(ws); d.setDate(ws.getDate() + i); return d;
   });
 
@@ -241,6 +251,7 @@ function renderWeek(container, events, currentDate, cb) {
   // Header row
   const header = document.createElement('div');
   header.className = 'week-header-row';
+  header.style.gridTemplateColumns = `60px repeat(${numDays}, 1fr)`;
   header.innerHTML = `<div class="week-time-gutter"></div>`;
   days.forEach(d => {
     const isToday = sameDay(d, today);
@@ -255,6 +266,7 @@ function renderWeek(container, events, currentDate, cb) {
   // Body
   const body = document.createElement('div');
   body.className = 'week-grid-body';
+  body.style.gridTemplateColumns = `60px repeat(${numDays}, 1fr)`;
 
   // Time column
   const timeCol = document.createElement('div');
@@ -269,6 +281,7 @@ function renderWeek(container, events, currentDate, cb) {
   cols.className = 'week-columns';
   cols.style.height = `${TOTAL_HOURS * HOUR_H}px`;
   cols.style.position = 'relative';
+  cols.style.gridColumn = `2 / span ${numDays}`;
 
   days.forEach(d => {
     const col = createTimeCol(events, d, cb);
@@ -572,6 +585,24 @@ function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() &&
          a.getMonth()    === b.getMonth()    &&
          a.getDate()     === b.getDate();
+}
+
+function mondayStart(date) {
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return d;
+}
+
+function workweekTitle(date) {
+  const ws = mondayStart(date);
+  const we = new Date(ws); we.setDate(ws.getDate() + 4);
+  if (ws.getMonth() === we.getMonth()) {
+    return `${ws.getDate()}. – ${we.getDate()}. ${MONTHS[we.getMonth()]} ${we.getFullYear()}`;
+  }
+  return `${ws.getDate()}. ${MONTHS[ws.getMonth()].slice(0,3)} – ${we.getDate()}. ${MONTHS[we.getMonth()].slice(0,3)} ${we.getFullYear()}`;
 }
 
 function weekStart(date) {

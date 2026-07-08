@@ -925,6 +925,59 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   .sidebar.open { transform: translateX(0); }
   .app { flex-direction: column; }
   .month-grid-header-day { font-size: 9px; }
+
+  /* Responsive Grid-based Toolbar Layout */
+  .toolbar {
+    height: auto;
+    padding: var(--sp-2) var(--sp-3);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto auto auto;
+    gap: 8px 4px;
+  }
+  .toolbar .menu-btn {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+  }
+  .toolbar-title {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    min-width: 0;
+    font-size: 14px;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: var(--sp-2);
+  }
+  .toolbar-nav {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    align-self: center;
+  }
+  .toolbar .view-tabs {
+    grid-column: 1 / span 3;
+    grid-row: 2;
+    display: flex;
+    width: 100%;
+    margin-left: 0 !important;
+  }
+  .toolbar .view-tab {
+    flex: 1;
+    text-align: center;
+    padding: 0;
+    font-size: 12px;
+  }
+  .toolbar .search-wrapper {
+    grid-column: 1 / span 3;
+    grid-row: 3;
+    max-width: none;
+    margin: 0;
+    width: 100%;
+  }
 }
 
 /* ── 21. Utility classes ──────────────────────────────────────────────────── */
