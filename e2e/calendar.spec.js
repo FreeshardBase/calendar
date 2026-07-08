@@ -67,4 +67,46 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(eventChip).not.toBeVisible();
   });
 
+  test('should switch views between month, week, workweek, day, and agenda on desktop', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // 1. Switch to Week View
+    await page.click('#view-week');
+    await expect(page.locator('.week-view')).toBeVisible();
+
+    // 2. Switch to Workweek View
+    await page.click('#view-workweek');
+    await expect(page.locator('.week-view')).toBeVisible();
+    const headerRow = page.locator('.week-header-row');
+    await expect(headerRow).toHaveAttribute('style', /repeat\(5,\s*1fr\)/);
+
+    // 3. Switch to Day View
+    await page.click('#view-day');
+    await expect(page.locator('.day-view')).toBeVisible();
+
+    // 4. Switch to Agenda View
+    await page.click('#view-agenda');
+    await expect(page.locator('.agenda-view')).toBeVisible();
+
+    // 5. Switch back to Month View
+    await page.click('#view-month');
+    await expect(page.locator('.month-grid')).toBeVisible();
+  });
+
+  test('should layout toolbar responsively and switch views on mobile viewport', async ({ page }) => {
+    // Set viewport to mobile size
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Verify mobile menu hamburger button is visible
+    const menuBtn = page.locator('#menu-btn');
+    await expect(menuBtn).toBeVisible();
+
+    // Switch view to Workweek on mobile
+    await page.click('#view-workweek');
+    await expect(page.locator('.week-view')).toBeVisible();
+  });
+
 });
