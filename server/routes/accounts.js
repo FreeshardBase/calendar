@@ -26,31 +26,32 @@ router.post('/', async (req, res) => {
 
   const client = new CalDAVClient({ url, username, password });
 
+  let discoveredUrl = url;
   try {
-    await client.testConnection();
+    discoveredUrl = await client.discover();
   } catch (e) {
     const msg = e.message === 'UNAUTHORIZED'
-      ? 'Invalid credentials.'
-      : e.message === 'NOT_FOUND'
-      ? 'CalDAV URL not found. Check the server URL.'
-      : `Could not connect: ${e.message}`;
+      ? 'Ungültige Zugangsdaten.'
+      : e.message === 'COULD_NOT_RESOLVE_CALDAV_ENDPOINT'
+      ? 'CalDAV-Server konnte nicht automatisch ermittelt werden. Bitte prüfe die URL.'
+      : `Verbindung fehlgeschlagen: ${e.message}`;
     return res.status(401).json({ error: msg });
   }
 
   if (!req.session.accounts) req.session.accounts = [];
 
-  // Avoid duplicates by URL+username
+  // Avoid duplicates by resolved URL + username
   const exists = req.session.accounts.some(
-    a => a.url === url && a.username === username
+    a => a.url === discoveredUrl && a.username === username
   );
   if (exists) {
-    return res.status(409).json({ error: 'This account is already configured.' });
+    return res.status(409).json({ error: 'Dieses Konto ist bereits eingerichtet.' });
   }
 
   const id = uuidv4();
   req.session.accounts.push({
     id,
-    url,
+    url:         discoveredUrl,
     username,
     password,
     displayName: displayName || username

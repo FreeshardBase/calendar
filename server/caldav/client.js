@@ -145,6 +145,115 @@ class CalDAVClient {
 
   // ── High-level helpers ──────────────────────────────────────────────────────
 
+  /**
+   * Run automated service discovery to resolve the user's calendar-home-set.
+   * Modifies this.baseUrl to the discovered home set URL.
+   */
+  async discover() {
+    let targetUrl = this.baseUrl;
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      targetUrl = 'https://' + targetUrl;
+    }
+
+    let currentUrl = targetUrl;
+    let xmlResponse = null;
+
+    const queryProps = async (url) => {
+      const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:current-user-principal/>
+    <c:calendar-home-set/>
+  </d:prop>
+</d:propfind>`;
+      
+      const res = await this._request('PROPFIND', url, {
+        body: xmlBody,
+        headers: { Depth: '0' }
+      });
+      
+      if (res.status === 401) throw new Error('UNAUTHORIZED');
+      if (!res.ok && res.status !== 207) return null;
+      return res.text();
+    };
+
+    const extractTagValue = (xml, tagName) => {
+      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const match = xml.match(regex);
+      if (!match) return null;
+      return match[2].trim();
+    };
+
+    // Phase 1: Try the provided URL directly
+    try {
+      xmlResponse = await queryProps(currentUrl);
+    } catch (e) {
+      if (e.message === 'UNAUTHORIZED') throw e;
+    }
+
+    // Phase 2: Try /.well-known/caldav fallback
+    if (!xmlResponse) {
+      try {
+        const u = new URL(currentUrl);
+        const wellKnownUrl = `${u.protocol}//${u.host}/.well-known/caldav`;
+        const redirectRes = await fetch(wellKnownUrl, {
+          method: 'PROPFIND',
+          headers: {
+            Authorization: this._auth,
+            Depth: '0'
+          }
+        });
+        if (redirectRes.status === 401) throw new Error('UNAUTHORIZED');
+        if (redirectRes.ok || redirectRes.status === 207) {
+          currentUrl = redirectRes.url;
+          xmlResponse = await queryProps(currentUrl);
+        }
+      } catch (e) {
+        if (e.message === 'UNAUTHORIZED') throw e;
+      }
+    }
+
+    if (!xmlResponse) {
+      throw new Error('COULD_NOT_RESOLVE_CALDAV_ENDPOINT');
+    }
+
+    // Phase 3: Parse response XML for calendar-home-set or principal
+    let homeSetHref = null;
+    const homeSetBlock = extractTagValue(xmlResponse, 'calendar-home-set');
+    if (homeSetBlock) {
+      homeSetHref = extractTagValue(homeSetBlock, 'href');
+    }
+    
+    if (!homeSetHref) {
+      const principalBlock = extractTagValue(xmlResponse, 'current-user-principal');
+      if (principalBlock) {
+        const principalHref = extractTagValue(principalBlock, 'href');
+        if (principalHref) {
+          const principalUrl = new URL(principalHref, currentUrl).href;
+          const principalXml = await queryProps(principalUrl);
+          if (principalXml) {
+            const innerHomeSetBlock = extractTagValue(principalXml, 'calendar-home-set');
+            if (innerHomeSetBlock) {
+              homeSetHref = extractTagValue(innerHomeSetBlock, 'href');
+            }
+          }
+        }
+      }
+    }
+
+    let resolvedHomeSet = null;
+    if (!homeSetHref) {
+      resolvedHomeSet = currentUrl;
+    } else {
+      resolvedHomeSet = new URL(homeSetHref, currentUrl).href;
+    }
+
+    if (!resolvedHomeSet.endsWith('/')) resolvedHomeSet += '/';
+
+    this.baseUrl = resolvedHomeSet;
+    return resolvedHomeSet;
+  }
+
   /** Verify credentials and URL by doing a minimal PROPFIND. */
   async testConnection() {
     const body = `<?xml version="1.0" encoding="utf-8"?>

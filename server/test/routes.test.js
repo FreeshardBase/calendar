@@ -1,4 +1,5 @@
 'use strict';
+require('dotenv').config();
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -51,4 +52,32 @@ test('HTTP Routes Integration Suite', async (t) => {
     const events = await res.json();
     assert.ok(Array.isArray(events));
   });
+
+  await t.test('POST /api/accounts with base domain should run discovery and add account', async (st) => {
+    if (!process.env.CALDAVURL || !process.env.CALDAV_USERNAME || !process.env.CALDAV_PASSWORD) {
+      st.skip('Missing CALDAV credentials in env');
+      return;
+    }
+
+    const urlObj = new URL(process.env.CALDAVURL);
+    const baseUrlOnly = `${urlObj.protocol}//${urlObj.host}`;
+
+    const res = await fetch(`${baseUrl}/api/accounts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        url: baseUrlOnly,
+        username: process.env.CALDAV_USERNAME,
+        password: process.env.CALDAV_PASSWORD,
+        displayName: 'Discovered Account'
+      })
+    });
+
+    // Since the auto-configured account is already in session,
+    // a successful discovery resolving to the same URL must yield a 409 Conflict.
+    assert.strictEqual(res.status, 409);
+  });
 });
+
