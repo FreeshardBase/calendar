@@ -11,15 +11,23 @@ const Db = require('../db');
 
 // Load/Generate Secret Key for Link Encryption
 let secretKey;
-const keyPath = path.join(__dirname, '../../.share_key');
+const keyPath = process.env.DATABASE_PATH
+  ? path.join(path.dirname(process.env.DATABASE_PATH), '.share_key')
+  : path.join(__dirname, '../../.share_key');
 if (process.env.SHARE_SECRET_KEY) {
   secretKey = crypto.createHash('sha256').update(process.env.SHARE_SECRET_KEY).digest();
 } else {
-  if (fs.existsSync(keyPath)) {
-    secretKey = fs.readFileSync(keyPath);
-  } else {
+  try {
+    if (fs.existsSync(keyPath)) {
+      secretKey = fs.readFileSync(keyPath);
+    } else {
+      secretKey = crypto.randomBytes(32);
+      fs.writeFileSync(keyPath, secretKey);
+    }
+  } catch (keyErr) {
+    console.error('[keyPath Error]', keyErr.message);
+    // Fallback to in-memory key to prevent crash (invalidates links on restart but stays online)
     secretKey = crypto.randomBytes(32);
-    fs.writeFileSync(keyPath, secretKey);
   }
 }
 

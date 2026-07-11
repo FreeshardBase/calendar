@@ -3,10 +3,16 @@ FROM python:3-slim
 # Install Radicale
 RUN pip install --no-cache-dir radicale
 
-# Copy configuration and helper
+# Copy plugin files
+WORKDIR /app
+COPY setup.py /app/setup.py
+COPY radicale_custom_auth.py /app/radicale_custom_auth.py
+
+# Install the custom auth plugin
+RUN pip install --no-cache-dir /app
+
+# Copy configuration
 COPY config /etc/radicale/config
-COPY auth_helper.py /etc/radicale/auth_helper.py
-RUN chmod +x /etc/radicale/auth_helper.py
 
 # Expose Radicale port
 EXPOSE 5232
