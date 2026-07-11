@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
-const dbPath = path.join(__dirname, '../webcalendar.db');
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../webcalendar.db');
 const db = new sqlite3.Database(dbPath);
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
@@ -30,6 +30,33 @@ db.serialize(() => {
       auth_type TEXT DEFAULT 'basic',
       access_token TEXT,
       expires_at INTEGER
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_passwords (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS calendar_shares (
+      token TEXT PRIMARY KEY,
+      calendar_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     )
   `);
   // Silent migrations for existing local databases
@@ -85,6 +112,34 @@ const Db = {
               expiresAt: row.expires_at
             }));
             resolve(mapped);
+          } catch (decryptionError) {
+            reject(decryptionError);
+          }
+        }
+      );
+    });
+  },
+
+  getAccountById(id) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT * FROM linked_accounts WHERE id = ?',
+        [id],
+        (err, row) => {
+          if (err) return reject(err);
+          if (!row) return resolve(null);
+          try {
+            resolve({
+              id: row.id,
+              userId: row.user_id,
+              url: row.url,
+              username: row.username,
+              password: decrypt(row.password_encrypted, row.iv),
+              displayName: row.display_name,
+              authType: row.auth_type || 'basic',
+              accessToken: row.access_token,
+              expiresAt: row.expires_at
+            });
           } catch (decryptionError) {
             reject(decryptionError);
           }
@@ -177,9 +232,124 @@ const Db = {
 
   clearAll() {
     return new Promise((resolve, reject) => {
-      db.run('DELETE FROM linked_accounts', (err) => {
+      db.serialize(() => {
+        db.run('DELETE FROM linked_accounts');
+        db.run('DELETE FROM app_passwords');
+        db.run('DELETE FROM calendar_shares');
+        db.run('DELETE FROM sync_queue', (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
+    });
+  },
+
+  // ── App-Specific Passwords (ASPs) ──────────────────────────────────────────
+  getAppPasswords(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        'SELECT id, label, created_at FROM app_passwords WHERE user_id = ? ORDER BY created_at DESC',
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(r => ({
+            id: r.id,
+            label: r.label,
+            createdAt: r.created_at
+          })));
+        }
+      );
+    });
+  },
+
+  addAppPassword(userId, label) {
+    return new Promise((resolve, reject) => {
+      const id = uuidv4();
+      const rawPassword = crypto.randomBytes(16).toString('hex'); // 32 hex chars, high entropy
+      const passwordHash = crypto.createHash('sha256').update(rawPassword).digest('hex');
+      const now = Date.now();
+
+      db.run(
+        'INSERT INTO app_passwords (id, user_id, label, password_hash, created_at) VALUES (?, ?, ?, ?, ?)',
+        [id, userId, label, passwordHash, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({ id, label, rawPassword, createdAt: now });
+        }
+      );
+    });
+  },
+
+  deleteAppPassword(id) {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM app_passwords WHERE id = ?', [id], (err) => {
         if (err) return reject(err);
         resolve();
+      });
+    });
+  },
+
+  // ── Multiple Public Shares (Token-based) ───────────────────────────────────
+  getCalendarShares(calendarId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        'SELECT token, label, created_at FROM calendar_shares WHERE calendar_id = ? ORDER BY created_at DESC',
+        [calendarId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(r => ({
+            token: r.token,
+            label: r.label,
+            createdAt: r.created_at
+          })));
+        }
+      );
+    });
+  },
+
+  addCalendarShare(calendarId, label) {
+    return new Promise((resolve, reject) => {
+      const token = crypto.randomBytes(24).toString('hex'); // unique random path token
+      const now = Date.now();
+
+      db.run(
+        'INSERT INTO calendar_shares (token, calendar_id, label, created_at) VALUES (?, ?, ?, ?)',
+        [token, calendarId, label, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({ token, calendarId, label, createdAt: now });
+        }
+      );
+    });
+  },
+
+  deleteCalendarShare(token) {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM calendar_shares WHERE token = ?', [token], (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+  },
+
+  // ── Sync Queue (vdirsyncer jobs) ───────────────────────────────────────────
+  addSyncJob(userId) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      const id = uuidv4();
+      
+      // Use SQLite UPSERT or simple REPLACE since sync_queue table is small.
+      // We enforce unique user_id by running a DELETE first or doing a manual check.
+      db.serialize(() => {
+        db.run('DELETE FROM sync_queue WHERE user_id = ? AND status = "PENDING"', [userId]);
+        db.run(
+          'INSERT INTO sync_queue (id, user_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+          [id, userId, 'PENDING', now, now],
+          (err) => {
+            if (err) return reject(err);
+            resolve({ id, userId, status: 'PENDING' });
+          }
+        );
       });
     });
   }

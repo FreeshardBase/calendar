@@ -1,0 +1,13 @@
+[server]
+hosts = 0.0.0.0:5232
+
+[auth]
+type = external_program
+external_program_command = python3 /etc/radicale/auth_helper.py
+
+[rights]
+type = owner_only
+
+[storage]
+type = filesystem
+filesystem_folder = /data/collections

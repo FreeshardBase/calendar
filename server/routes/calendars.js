@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList } = require('../caldav/parser');
+const Db = require('../db');
 
 // Load/Generate Secret Key for Link Encryption
 let secretKey;
@@ -49,7 +50,52 @@ const publicRouter = express.Router();
 
 publicRouter.get('/share/:token.ics', async (req, res) => {
   try {
-    const payload = decryptToken(req.params.token);
+    const Db = require('../db');
+    let payload = null;
+    let isDbShare = false;
+
+    // 1. Try DB-based share lookup
+    try {
+      const shareRecord = await new Promise((resolve, reject) => {
+        const sqlite3 = require('sqlite3');
+        const path = require('path');
+        const dbPath = path.join(__dirname, '../../webcalendar.db');
+        const dbCon = new sqlite3.Database(dbPath);
+        dbCon.get('SELECT * FROM calendar_shares WHERE token = ?', [req.params.token], (err, row) => {
+          dbCon.close();
+          if (err) return reject(err);
+          resolve(row);
+        });
+      });
+
+      if (shareRecord) {
+        const calendarId = shareRecord.calendar_id;
+        const sepIdx = calendarId.indexOf('::');
+        if (sepIdx !== -1) {
+          const accountId = calendarId.substring(0, sepIdx);
+          const calendarUrl = calendarId.substring(sepIdx + 2);
+          const account = await Db.getAccountById(accountId);
+          if (account) {
+            payload = {
+              id: account.id,
+              url: calendarUrl,
+              username: account.username,
+              password: account.password,
+              authType: account.authType
+            };
+            isDbShare = true;
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.error('[share lookup error]', dbErr.message);
+    }
+
+    // 2. Fallback to token decryption
+    if (!payload) {
+      payload = decryptToken(req.params.token);
+    }
+
     if (!payload) {
       return res.status(404).send('Calendar share not found or token invalid.');
     }
@@ -62,10 +108,12 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       authType: payload.authType
     });
 
-    // Verify token matches the custom property on the CalDAV calendar
-    const activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
-    if (!activeTokenId || activeTokenId !== payload.publicShareId) {
-      return res.status(404).send('This public calendar share has been disabled or regenerated.');
+    // Verify token matches the custom property on the CalDAV calendar (only for legacy encrypted shares)
+    if (!isDbShare) {
+      const activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
+      if (!activeTokenId || activeTokenId !== payload.publicShareId) {
+        return res.status(404).send('This public calendar share has been disabled or regenerated.');
+      }
     }
 
     const exportUrl = payload.url.endsWith('/') ? (payload.url + '?export') : (payload.url + '/?export');
@@ -158,6 +206,10 @@ router.post('/', async (req, res) => {
 
     await client.mkcalendar(calendarUrl, name, color || '#7c3aed');
 
+    if (req.session.userId) {
+      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+    }
+
     res.status(201).json({
       message: 'Calendar created',
       url: calendarUrl,
@@ -218,6 +270,10 @@ router.patch('/:id', async (req, res) => {
       throw new Error(`PROPPATCH ${patchRes.status}: ${text.slice(0, 200) || patchRes.statusText}`);
     }
 
+    if (req.session.userId) {
+      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+    }
+
     res.json({ message: 'Calendar updated', calendarId, name, color });
   } catch (err) {
     console.error('[calendars PATCH]', err.message);
@@ -236,6 +292,10 @@ router.delete('/:id', async (req, res) => {
     if (!delRes.ok && delRes.status !== 204) {
       const text = await delRes.text().catch(() => '');
       throw new Error(`DELETE ${delRes.status}: ${text.slice(0, 200) || delRes.statusText}`);
+    }
+
+    if (req.session.userId) {
+      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
     }
 
     res.json({ message: 'Calendar deleted', calendarId });
@@ -392,6 +452,54 @@ router.delete('/:id/public-link', async (req, res) => {
     res.json({ enabled: false, message: 'Public share link disabled.' });
   } catch (err) {
     console.error('[public-link DELETE]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Multiple Public Shares (Token-based) API ────────────────────────────────
+
+// GET /api/calendars/:id/shares-public — list all public share tokens
+router.get('/:id/shares-public', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const shares = await Db.getCalendarShares(calendarId);
+    res.json(shares.map(s => ({
+      token: s.token,
+      label: s.label,
+      createdAt: s.createdAt,
+      url: `${req.protocol}://${req.get('host')}/api/public/calendars/share/${s.token}.ics`
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/calendars/:id/shares-public — create a new public share token
+router.post('/:id/shares-public', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const { label } = req.body;
+    if (!label || !label.trim()) {
+      return res.status(400).json({ error: 'Bezeichnung ist erforderlich.' });
+    }
+    const share = await Db.addCalendarShare(calendarId, label.trim());
+    res.status(201).json({
+      token: share.token,
+      label: share.label,
+      createdAt: share.createdAt,
+      url: `${req.protocol}://${req.get('host')}/api/public/calendars/share/${share.token}.ics`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/calendars/:id/shares-public/:token — revoke/delete public share token
+router.delete('/:id/shares-public/:token', async (req, res) => {
+  try {
+    await Db.deleteCalendarShare(req.params.token);
+    res.json({ message: 'Freigabe-Link widerrufen.' });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

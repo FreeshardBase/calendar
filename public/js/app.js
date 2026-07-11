@@ -637,6 +637,57 @@ function openShareCalendarDialog(cal) {
 function renderSettings() {
   renderSettingsAccounts();
   renderSettingsCalendars();
+  renderSettingsAppPasswords();
+}
+
+async function renderSettingsAppPasswords() {
+  const list = $('settings-asp-list');
+  if (!list) return;
+
+  try {
+    list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Lade App-Passwörter...</div>';
+    const listData = await AccountsAPI.listAppPasswords();
+    if (!listData.length) {
+      list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine App-Passwörter eingerichtet.</div>';
+      return;
+    }
+
+    list.innerHTML = listData.map(asp => {
+      const dateStr = new Date(asp.createdAt).toLocaleDateString('de-DE');
+      return `
+        <div class="settings-item" style="padding: 6px 0">
+          <div class="settings-item-info" style="display:flex; flex-direction:column; align-items:flex-start">
+            <span style="font-weight: 500">${escHtml(asp.label)}</span>
+            <span style="font-size: 10px; color:var(--ink-muted)">Erstellt am ${dateStr}</span>
+          </div>
+          <div class="settings-item-actions">
+            <button class="settings-action-btn btn-danger" data-delete-asp="${escHtml(asp.id)}" title="Passwort löschen" style="padding:4px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+              </svg>
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('[data-delete-asp]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.deleteAsp;
+        if (!confirm('Dieses App-Passwort wirklich löschen? Externe Clients mit diesem Passwort verlieren den Zugriff.')) return;
+        try {
+          await AccountsAPI.removeAppPassword(id);
+          showToast('App-Passwort gelöscht.', 'info');
+          renderSettingsAppPasswords();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+
+  } catch (err) {
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--danger);padding:4px">Ladefehler: ${escHtml(err.message)}</div>`;
+  }
 }
 
 function renderSettingsAccounts() {
@@ -1045,6 +1096,21 @@ function attachListeners() {
   // Add calendar
   $('add-calendar-btn').addEventListener('click', () => openAddCalendarDialog());
   $('settings-add-calendar-btn').addEventListener('click', () => openAddCalendarDialog());
+
+  // Add App-Specific Password
+  $('settings-add-asp-btn').addEventListener('click', async () => {
+    const label = prompt('Bezeichnung für das neue App-Passwort (z. B. "Thunderbird"):');
+    if (label === null) return;
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    try {
+      const res = await AccountsAPI.addAppPassword(trimmed);
+      alert(`App-Passwort erfolgreich generiert!\n\nBezeichnung: ${res.label}\nPasswort: ${res.rawPassword}\n\nBitte kopiere das Passwort JETZT. Es wird aus Sicherheitsgründen nicht noch einmal angezeigt.`);
+      renderSettingsAppPasswords();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 
   // Mobile sidebar toggle
   $('menu-btn').addEventListener('click', () => $('sidebar').classList.add('open'));

@@ -13,9 +13,10 @@ RUN npm ci --omit=dev
 COPY server/  ./server/
 COPY public/  ./public/
 
-# Non-root user for security
-RUN addgroup -S calendar && adduser -S calendar -G calendar
-USER calendar
+# Create data directory and set permissions for SQLite volume
+USER root
+RUN mkdir -p /app/data && chown -R node:node /app/data && chmod -R 777 /app/data
+USER node
 
 EXPOSE 3000
 

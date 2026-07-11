@@ -5,6 +5,7 @@ const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseEventList, eventToICS } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
+const Db = require('../db');
 
 // ── GET /api/events?start=ISO&end=ISO ─────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -71,6 +72,10 @@ router.post('/', async (req, res) => {
     const eventUrl     = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
 
     const result = await client.put(eventUrl, ics, null);
+    
+    if (req.session.userId) {
+      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+    }
 
     res.status(201).json({
       ...event,
@@ -104,6 +109,11 @@ router.put('/:uid', async (req, res) => {
     const ifMatch  = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
 
     const result = await client.put(eventUrl, ics, ifMatch, 'text/calendar; charset=utf-8');
+    
+    if (req.session.userId) {
+      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+    }
+
     res.json({
       ...event,
       href,
@@ -136,6 +146,11 @@ router.delete('/:uid', async (req, res) => {
     const ifMatch  = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
 
     await client.delete(eventUrl, ifMatch);
+    
+    if (req.session.userId) {
+      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+    }
+
     res.json({ message: 'Event deleted.' });
   } catch (err) {
     console.error('[events DELETE]', err.message);

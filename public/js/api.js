@@ -33,6 +33,9 @@ export const AccountsAPI = {
   remove: (id)            => request('DELETE', `/api/accounts/${id}`),
   update: (id, data)      => request('PATCH',  `/api/accounts/${id}`, data),
   removeAll: ()           => request('DELETE', '/api/accounts'),
+  listAppPasswords: ()    => request('GET',    '/api/accounts/app-passwords'),
+  addAppPassword: (label) => request('POST',   '/api/accounts/app-passwords', { label }),
+  removeAppPassword: (id) => request('DELETE', `/api/accounts/app-passwords/${id}`),
 };
 
 // ── Calendars ─────────────────────────────────────────────────────────────────
@@ -48,6 +51,9 @@ export const CalendarsAPI = {
   getPublicLink: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/public-link`),
   enablePublicLink: (id) => request('POST', `/api/calendars/${encodeURIComponent(id)}/public-link`),
   disablePublicLink: (id) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/public-link`),
+  listPublicShares: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/shares-public`),
+  addPublicShare: (id, label) => request('POST', `/api/calendars/${encodeURIComponent(id)}/shares-public`, { label }),
+  removePublicShare: (id, token) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/shares-public/${token}`),
 };
 
 // ── Events ────────────────────────────────────────────────────────────────────

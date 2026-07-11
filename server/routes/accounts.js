@@ -110,4 +110,50 @@ router.delete('/', async (req, res) => {
   }
 });
 
+// ── App-Specific Passwords (ASPs) API ───────────────────────────────────────
+
+// GET /api/accounts/app-passwords — list ASPs
+router.get('/app-passwords', async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    const list = await Db.getAppPasswords(req.session.userId);
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/accounts/app-passwords — create new ASP
+router.post('/app-passwords', async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  const { label } = req.body;
+  if (!label || !label.trim()) {
+    return res.status(400).json({ error: 'Bezeichnung ist erforderlich.' });
+  }
+
+  try {
+    const result = await Db.addAppPassword(req.session.userId, label.trim());
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/accounts/app-passwords/:id — delete ASP
+router.delete('/app-passwords/:id', async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    await Db.deleteAppPassword(req.params.id);
+    res.json({ message: 'Passwort entfernt.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

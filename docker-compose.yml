@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   webcalendar:
     build: .
@@ -10,9 +12,43 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    # Uncomment to use a named session volume (persists sessions across restarts):
-    # volumes:
-    #   - sessions:/app/sessions
+      DATABASE_PATH: /app/data/webcalendar.db
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
+    volumes:
+      - shared-data:/app/data
 
-# volumes:
-#   sessions:
+  caldav-server:
+    build: ./radicale
+    image: freeshard/radicale:latest
+    container_name: freeshard-radicale
+    restart: unless-stopped
+    ports:
+      - "5232:5232"
+    environment:
+      DATABASE_PATH: /data/webcalendar.db
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
+    volumes:
+      - shared-data:/data
+      - radicale-collections:/data/collections
+
+  sync-worker:
+    build: ./sync-worker
+    image: freeshard/sync-worker:latest
+    container_name: freeshard-sync-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /data/webcalendar.db
+      STATUS_ROOT: /data/vdir_status
+      LOCAL_CALDAV_URL: http://caldav-server:5232
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
+    volumes:
+      - shared-data:/data
+      - vdir-status:/data/vdir_status
+
+volumes:
+  shared-data:
+  radicale-collections:
+  vdir-status:
