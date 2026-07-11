@@ -26,9 +26,16 @@ db.serialize(() => {
       username TEXT NOT NULL,
       password_encrypted TEXT NOT NULL,
       iv TEXT NOT NULL,
-      display_name TEXT NOT NULL
+      display_name TEXT NOT NULL,
+      auth_type TEXT DEFAULT 'basic',
+      access_token TEXT,
+      expires_at INTEGER
     )
   `);
+  // Silent migrations for existing local databases
+  db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
+  db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
+  db.run("ALTER TABLE linked_accounts ADD COLUMN expires_at INTEGER", () => {});
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_linked_accounts_user_id ON linked_accounts(user_id)
   `);
@@ -66,8 +73,11 @@ const Db = {
               id: row.id,
               url: row.url,
               username: row.username,
-              password: decrypt(row.password_encrypted, row.iv),
-              displayName: row.display_name
+              password: decrypt(row.password_encrypted, row.iv), // decrypts either password or refresh_token
+              displayName: row.display_name,
+              authType: row.auth_type || 'basic',
+              accessToken: row.access_token,
+              expiresAt: row.expires_at
             }));
             resolve(mapped);
           } catch (decryptionError) {
@@ -83,11 +93,39 @@ const Db = {
       const id = uuidv4();
       const { encrypted, iv } = encrypt(password);
       db.run(
-        'INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [id, userId, url, username, encrypted, iv, displayName || username],
+        'INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name, auth_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, userId, url, username, encrypted, iv, displayName || username, 'basic'],
         (err) => {
           if (err) return reject(err);
           resolve({ id, displayName: displayName || username });
+        }
+      );
+    });
+  },
+
+  addOAuthAccount(userId, { url, username, refreshToken, accessToken, expiresAt, displayName }) {
+    return new Promise((resolve, reject) => {
+      const id = uuidv4();
+      const { encrypted, iv } = encrypt(refreshToken);
+      db.run(
+        'INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name, auth_type, access_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, userId, url, username, encrypted, iv, displayName || username, 'oauth2', accessToken, expiresAt],
+        (err) => {
+          if (err) return reject(err);
+          resolve({ id, displayName: displayName || username });
+        }
+      );
+    });
+  },
+
+  updateOAuthTokens(id, { accessToken, expiresAt }) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE linked_accounts SET access_token = ?, expires_at = ? WHERE id = ?',
+        [accessToken, expiresAt, id],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
         }
       );
     });
@@ -129,6 +167,15 @@ const Db = {
           resolve();
         }
       );
+    });
+  },
+
+  clearAll() {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM linked_accounts', (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
     });
   }
 };

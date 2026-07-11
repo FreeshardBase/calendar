@@ -5,7 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const CalDAVClient = require('../caldav/client');
+const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList } = require('../caldav/parser');
 
 // Load/Generate Secret Key for Link Encryption
@@ -54,10 +54,12 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       return res.status(404).send('Calendar share not found or token invalid.');
     }
 
-    const client = new CalDAVClient({
+    const client = await getClientForAccount({
+      id: payload.id,
       url: payload.url,
       username: payload.username,
-      password: payload.password
+      password: payload.password,
+      authType: payload.authType
     });
 
     // Verify token matches the custom property on the CalDAV calendar
@@ -116,11 +118,7 @@ router.get('/', async (req, res) => {
 
   await Promise.allSettled(
     accounts.map(async (account) => {
-      const client = new CalDAVClient({
-        url:      account.url,
-        username: account.username,
-        password: account.password
-      });
+      const client = await getClientForAccount(account);
 
       const xml = await client.getCalendars();
       const calendars = parseCalendarList(xml, account.id, account.url, account.username);
@@ -150,11 +148,7 @@ router.post('/', async (req, res) => {
     const account = (req.session.accounts || []).find(a => a.id === accountId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    const client = new CalDAVClient({
-      url:      account.url,
-      username: account.username,
-      password: account.password
-    });
+    const client = await getClientForAccount(account);
 
     const slug = name.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip diacritics
@@ -176,7 +170,7 @@ router.post('/', async (req, res) => {
 });
 
 // ── Helper: resolve account + calendar URL from calendarId ──────────────────
-function resolveCalendar(req, calendarId) {
+async function resolveCalendar(req, calendarId) {
   const sep = calendarId.indexOf('::');
   if (sep === -1) return {};
   const accountId    = calendarId.slice(0, sep);
@@ -184,9 +178,7 @@ function resolveCalendar(req, calendarId) {
   const account = (req.session.accounts || []).find(a => a.id === accountId);
   if (!account) return {};
 
-  const client = new CalDAVClient({
-    url: account.url, username: account.username, password: account.password
-  });
+  const client = await getClientForAccount(account);
   const calendarUrl = calendarHref.startsWith('http')
     ? calendarHref
     : new URL(calendarHref, account.url).href;
@@ -204,7 +196,7 @@ router.patch('/:id', async (req, res) => {
       return res.status(400).json({ error: 'At least name or color is required' });
     }
 
-    const { client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const props = [];
@@ -237,7 +229,7 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const { client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const delRes = await client._request('DELETE', calendarUrl);
@@ -267,11 +259,7 @@ router.get('/search-users', async (req, res) => {
       return res.status(404).json({ error: 'Account not found' });
     }
 
-    const client = new CalDAVClient({
-      url: account.url,
-      username: account.username,
-      password: account.password
-    });
+    const client = await getClientForAccount(account);
 
     const users = await client.searchUsers(q);
     console.log('[search-users] Results found:', users);
@@ -286,7 +274,7 @@ router.get('/search-users', async (req, res) => {
 router.get('/:id/shares', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const { client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const shares = await client.getCalendarShares(calendarUrl);
@@ -304,7 +292,7 @@ router.post('/:id/shares', async (req, res) => {
     const { sharee, readWrite } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee is required' });
 
-    const { client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     await client.updateCalendarShares(calendarUrl, { href: sharee, readWrite: !!readWrite });
@@ -322,7 +310,7 @@ router.delete('/:id/shares', async (req, res) => {
     const { sharee } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee parameter is required in request body' });
 
-    const { client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     await client.updateCalendarShares(calendarUrl, { href: sharee, remove: true });
@@ -337,7 +325,7 @@ router.delete('/:id/shares', async (req, res) => {
 router.get('/:id/public-link', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const { account, client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { account, client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const activeTokenId = await client.getCustomProperty(calendarUrl, 'http://freeshard.de/ns/', 'public-share-token');
@@ -349,7 +337,9 @@ router.get('/:id/public-link', async (req, res) => {
       url: calendarUrl,
       username: account.username,
       password: account.password,
-      publicShareId: activeTokenId
+      publicShareId: activeTokenId,
+      id: account.id,
+      authType: account.authType
     });
 
     res.json({
@@ -366,7 +356,7 @@ router.get('/:id/public-link', async (req, res) => {
 router.post('/:id/public-link', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const { account, client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { account, client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const publicShareId = crypto.randomUUID();
@@ -376,7 +366,9 @@ router.post('/:id/public-link', async (req, res) => {
       url: calendarUrl,
       username: account.username,
       password: account.password,
-      publicShareId
+      publicShareId,
+      id: account.id,
+      authType: account.authType
     });
 
     res.json({
@@ -393,7 +385,7 @@ router.post('/:id/public-link', async (req, res) => {
 router.delete('/:id/public-link', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const { client, calendarUrl } = resolveCalendar(req, calendarId);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     await client.setCustomProperty(calendarUrl, 'http://freeshard.de/ns/', 'public-share-token', null);

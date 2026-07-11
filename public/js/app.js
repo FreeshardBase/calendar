@@ -974,6 +974,37 @@ function attachListeners() {
     }
   });
 
+  // Onboarding Google Link
+  $('btn-onboarding-link-google').addEventListener('click', () => {
+    const width = 600;
+    const height = 650;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+    const popup = window.open(
+      '/api/auth/google',
+      'google-oauth',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    );
+    if (popup) popup.focus();
+  });
+
+  // Global Message Listener for OAuth Popups
+  window.addEventListener('message', async e => {
+    if (e.data === 'google-account-linked') {
+      const modalBackdrop = $('account-modal-backdrop');
+      if (modalBackdrop && !modalBackdrop.classList.contains('hidden')) {
+        modalBackdrop.classList.add('hidden');
+      }
+      showToast('Google Kalender erfolgreich verknüpft!', 'success');
+
+      const accounts = await AccountsAPI.list();
+      store.set({ accounts });
+      showApp();
+      await loadCalendars();
+      await loadEvents();
+    }
+  });
+
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;

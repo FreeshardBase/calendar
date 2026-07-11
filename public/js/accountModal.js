@@ -26,6 +26,20 @@ export function initAccountModal() {
   $('account-modal-close').addEventListener('click', closeAccountModal);
   $('account-cancel-btn').addEventListener('click', closeAccountModal);
 
+  $('btn-link-google').addEventListener('click', () => {
+    const width = 600;
+    const height = 650;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+    const popup = window.open(
+      '/api/auth/google',
+      'google-oauth',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    );
+    if (popup) popup.focus();
+  });
+
+
   $('account-form').addEventListener('submit', async e => {
     e.preventDefault();
 

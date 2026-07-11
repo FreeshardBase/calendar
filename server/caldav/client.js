@@ -6,19 +6,23 @@
  * Uses Node.js 20 native fetch — no external HTTP dependency.
  */
 class CalDAVClient {
-  constructor({ url, username, password }) {
-    // Normalise base URL: remove trailing slash
+  constructor({ url, username, password, authType = 'basic', accessToken }) {
     this.baseUrl = url.replace(/\/+$/, '');
     this.username = username;
-    this.password = password;
-    this._auth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+    this.password = password; // refresh_token for oauth2
+    this.authType = authType;
+    this.accessToken = accessToken;
   }
 
   // ── Core request ────────────────────────────────────────────────────────────
 
   async _request(method, url, { body, headers = {} } = {}) {
+    const authHeader = this.authType === 'oauth2'
+      ? `Bearer ${this.accessToken}`
+      : 'Basic ' + Buffer.from(`${this.username}:${this.password}`).toString('base64');
+
     const reqHeaders = {
-      Authorization: this._auth,
+      Authorization: authHeader,
       ...headers
     };
     if (body && !reqHeaders['Content-Type'] && !reqHeaders['content-type']) {

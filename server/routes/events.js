@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const CalDAVClient = require('../caldav/client');
+const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseEventList, eventToICS } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 
@@ -27,11 +27,7 @@ router.get('/', async (req, res) => {
 
     await Promise.allSettled(
       accounts.map(async (account) => {
-        const client = new CalDAVClient({
-          url:      account.url,
-          username: account.username,
-          password: account.password
-        });
+        const client = await getClientForAccount(account);
 
         const calXml    = await client.getCalendars();
         const calendars = parseCalendarList(calXml, account.id, account.url, account.username);
@@ -62,7 +58,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'calendarId is required' });
     }
 
-    const { account, client } = resolveAccount(req, calendarId);
+    const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const uid = uuidv4();
@@ -97,7 +93,7 @@ router.put('/:uid', async (req, res) => {
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
-    const { account, client } = resolveAccount(req, calendarId);
+    const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const masterUid = req.params.uid.split('::')[0];
@@ -133,7 +129,7 @@ router.delete('/:uid', async (req, res) => {
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
-    const { account, client } = resolveAccount(req, calendarId);
+    const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const eventUrl = buildAbsoluteUrl(account.url, href);
@@ -154,16 +150,12 @@ router.delete('/:uid', async (req, res) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function resolveAccount(req, calendarId) {
+async function resolveAccount(req, calendarId) {
   const accountId = calendarId.split('::')[0];
   const account   = (req.session.accounts || []).find(a => a.id === accountId);
   if (!account) return { account: null, client: null };
 
-  const client = new CalDAVClient({
-    url:      account.url,
-    username: account.username,
-    password: account.password
-  });
+  const client = await getClientForAccount(account);
 
   return { account, client };
 }

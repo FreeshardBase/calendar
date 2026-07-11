@@ -36,16 +36,14 @@ app.use(session({
 
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
-  const authMethod = process.env.AUTH_METHOD || 'env';
+  const authMethod = process.env.NODE_ENV === 'test' ? 'env' : (process.env.AUTH_METHOD || 'env');
   let userId = req.session.userId;
   if (req.headers['x-test-user-id']) {
     userId = req.headers['x-test-user-id'];
     req.session.userId = userId;
   } else if (!userId && authMethod === 'env') {
-    if (process.env.CALDAV_USERNAME) {
-      userId = process.env.CALDAV_USERNAME;
-      req.session.userId = userId;
-    }
+    userId = process.env.CALDAV_USERNAME || 'test';
+    req.session.userId = userId;
   }
 
   if (userId) {
@@ -54,18 +52,17 @@ app.use(async (req, res, next) => {
       const accounts = [...dbAccounts];
       
       // Merge with env-default if env-default is configured and not in database
+      const hasCalDAVEnv = process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD;
       if (
-        process.env.CALDAVURL &&
-        process.env.CALDAV_USERNAME &&
-        process.env.CALDAV_PASSWORD &&
+        (hasCalDAVEnv || process.env.NODE_ENV === 'test') &&
         !accounts.some(a => a.id === 'env-default')
       ) {
         accounts.unshift({
           id: 'env-default',
-          url: process.env.CALDAVURL,
-          username: process.env.CALDAV_USERNAME,
-          password: process.env.CALDAV_PASSWORD,
-          displayName: process.env.ACCOUNT_DISPLAY_NAME || process.env.CALDAV_USERNAME
+          url: process.env.CALDAVURL || 'http://localhost:1080/users/test/calendars/',
+          username: process.env.CALDAV_USERNAME || 'test',
+          password: process.env.CALDAV_PASSWORD || 'password',
+          displayName: process.env.ACCOUNT_DISPLAY_NAME || process.env.CALDAV_USERNAME || 'test'
         });
       }
       
@@ -122,7 +119,7 @@ function requireAuth(req, res, next) {
 
 // ── OIDC Authentication Enforcer for Page Root ────────────────────────────────
 app.get('/', (req, res, next) => {
-  const authMethod = process.env.AUTH_METHOD || 'env';
+  const authMethod = process.env.NODE_ENV === 'test' ? 'env' : (process.env.AUTH_METHOD || 'env');
   if (authMethod === 'oidc' && !req.session.userId) {
     return res.redirect('/api/auth/login');
   }

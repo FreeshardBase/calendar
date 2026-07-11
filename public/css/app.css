@@ -1361,3 +1361,59 @@ textarea.form-input, .form-textarea {
   margin: 0;
 }
 
+/* OAuth Styles */
+.oauth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.btn-oauth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+}
+.btn-google:hover {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: #ccc;
+}
+[data-theme="dark"] .btn-google:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: #555;
+}
+.oauth-icon {
+  flex-shrink: 0;
+}
+.modal-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 16px 0;
+}
+.modal-divider::before,
+.modal-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--border);
+}
+.modal-divider:not(:empty)::before {
+  margin-right: .75em;
+}
+.modal-divider:not(:empty)::after {
+  margin-left: .75em;
+}
+
