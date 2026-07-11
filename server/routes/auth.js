@@ -170,8 +170,8 @@ router.get('/google/callback', async (req, res) => {
     const email = userinfo.email;
     const name = userinfo.name || email;
 
-    // Target CalDAV Endpoint
-    const googleCalDAVUrl = `https://apidata.googleusercontent.com/caldav/v2/${email}/user/`;
+    // Target CalDAV Endpoint (Google Calendar home-set URL)
+    const googleCalDAVUrl = `https://apidata.googleusercontent.com/caldav/v2/${email.replace('@', '%40')}/`;
 
     // Persist as oauth2 account
     await Db.addOAuthAccount(userId, {

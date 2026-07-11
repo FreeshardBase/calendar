@@ -140,43 +140,82 @@
       </button>
     </div>
 
-    <!-- New event button -->
-    <button class="sidebar-new-btn" id="new-event-btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 5v14M5 12h14"/>
-      </svg>
-      Neuer Termin
-    </button>
+    <!-- Sidebar Scrollable Content -->
+    <div class="sidebar-content">
+      <!-- New event button -->
+      <button class="sidebar-new-btn" id="new-event-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Neuer Termin
+      </button>
 
-    <!-- Mini Calendar -->
-    <div class="sidebar-section">
-      <div id="mini-calendar"></div>
+      <!-- Mini Calendar -->
+      <div class="sidebar-section">
+        <div id="mini-calendar"></div>
+      </div>
+
+      <!-- Calendar List -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="sidebar-section-title">Kalender</span>
+          <button class="icon-btn" id="add-calendar-btn" title="Kalender hinzufügen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+        </div>
+        <div id="calendar-list"></div>
+      </div>
     </div>
 
-    <!-- Calendar List -->
-    <div class="sidebar-section">
-      <div class="sidebar-section-header">
-        <span class="sidebar-section-title">Kalender</span>
-        <button class="icon-btn" id="add-calendar-btn" title="Kalender hinzufügen">
+    <!-- Sidebar Footer (Settings button) -->
+    <div class="sidebar-footer">
+      <button class="sidebar-settings-btn" id="sidebar-settings-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Einstellungen</span>
+      </button>
+    </div>
+
+    <!-- Settings Drawer -->
+    <div class="sidebar-settings-drawer" id="settings-drawer">
+      <div class="settings-drawer-header">
+        <h4>Einstellungen</h4>
+        <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14"/>
+            <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
       </div>
-      <div id="calendar-list"></div>
-    </div>
-
-    <!-- Account List -->
-    <div class="sidebar-section">
-      <div class="sidebar-section-header">
-        <span class="sidebar-section-title">Accounts</span>
-        <button class="icon-btn" id="add-account-btn" title="Account hinzufügen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-        </button>
+      <div class="settings-drawer-body">
+        <!-- Accounts Section -->
+        <div class="settings-section">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+            <h5 style="margin:0">Accounts verwalten</h5>
+            <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+            </button>
+          </div>
+          <div class="settings-list" id="settings-account-list"></div>
+        </div>
+        <!-- Calendars Section -->
+        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+            <h5 style="margin:0">Kalender löschen</h5>
+            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender erstellen" style="padding:2px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+            </button>
+          </div>
+          <div class="settings-list" id="settings-calendar-list"></div>
+        </div>
       </div>
-      <div id="account-list"></div>
     </div>
   </aside>
 

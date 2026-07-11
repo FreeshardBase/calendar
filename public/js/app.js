@@ -153,8 +153,8 @@ function getFilteredEvents() {
 }
 
 function renderSidebar() {
-  renderAccountList();
   renderCalendarList();
+  renderSettings();
 }
 
 function renderCalendarList() {
@@ -189,17 +189,6 @@ function renderCalendarList() {
             </svg>
           </button>`;
 
-    const deleteBtnHtml = c.isShared
-      ? ''
-      : `<button class="cal-action-btn cal-action-delete" data-delete-cal="${escHtml(c.id)}" title="Löschen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-              <path d="M10 11v6M14 11v6"/>
-              <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-            </svg>
-          </button>`;
-
     return `
       <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${c.id}">
         <div class="calendar-dot" style="background:${c.color}"></div>
@@ -210,7 +199,6 @@ function renderCalendarList() {
         <div class="cal-item-actions">
           ${shareBtnHtml}
           ${editBtnHtml}
-          ${deleteBtnHtml}
         </div>
         <div class="calendar-check" style="${checked ? 'background:' + c.color : ''}">
           <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
@@ -223,7 +211,7 @@ function renderCalendarList() {
   // Toggle visibility on main area click
   list.querySelectorAll('[data-cal-id]').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-delete-cal]') || e.target.closest('[data-share-cal]')) return;
+      if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]')) return;
       toggleCalendar(el.dataset.calId);
       renderCalendarList();
       renderCalendarView();
@@ -245,28 +233,6 @@ function renderCalendarList() {
       e.stopPropagation();
       const cal = store.get('calendars').find(c => c.id === btn.dataset.shareCal);
       if (cal) openShareCalendarDialog(cal);
-    });
-  });
-
-  // Delete
-  list.querySelectorAll('[data-delete-cal]').forEach(btn => {
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      const cal = store.get('calendars').find(c => c.id === btn.dataset.deleteCal);
-      if (!cal) return;
-      if (!confirm(`Kalender „${cal.name}" und alle darin enthaltenen Termine unwiderruflich löschen?`)) return;
-      try {
-        await CalendarsAPI.remove(cal.id);
-        // Remove from store
-        store.set({ calendars: store.get('calendars').filter(c => c.id !== cal.id) });
-        showToast(`Kalender „${cal.name}" gelöscht.`, 'info');
-        invalidateEventCache();
-        await loadEvents();
-        renderCalendarList();
-        renderCalendarView();
-      } catch (err) {
-        showToast('Fehler: ' + err.message, 'error');
-      }
     });
   });
 }
@@ -652,34 +618,156 @@ function openShareCalendarDialog(cal) {
   loadPublicLink();
 }
 
-function renderAccountList() {
-  const list     = $('account-list');
+function renderSettings() {
+  renderSettingsAccounts();
+  renderSettingsCalendars();
+}
+
+function renderSettingsAccounts() {
+  const list = $('settings-account-list');
+  if (!list) return;
   const accounts = store.get('accounts');
 
-  list.innerHTML = accounts.map(a => `
-    <div class="account-item" data-account-id="${a.id}">
-      <div class="account-dot"></div>
-      <span class="account-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
-      <button class="account-remove" data-remove-id="${a.id}" aria-label="Account entfernen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 6L6 18M6 6l12 12"/>
-        </svg>
-      </button>
-    </div>`
-  ).join('');
+  if (!accounts.length) {
+    list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine Accounts eingerichtet.</div>';
+    return;
+  }
 
-  list.querySelectorAll('[data-remove-id]').forEach(btn => {
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      const id = btn.dataset.removeId;
-      if (!confirm('Account wirklich entfernen?')) return;
+  list.innerHTML = accounts.map(a => {
+    const isEnvDefault = a.id === 'env-default';
+    const editBtn = isEnvDefault
+      ? ''
+      : `<button class="settings-action-btn" data-edit-acc="${escHtml(a.id)}" title="Umbenennen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+         </button>`;
+    const deleteBtn = isEnvDefault
+      ? ''
+      : `<button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+          </svg>
+         </button>`;
+
+    return `
+      <div class="settings-item">
+        <div class="settings-item-info">
+          <div class="account-dot" style="width:8px; height:8px; border-radius:50%; background:var(--line); flex-shrink:0"></div>
+          <span class="settings-item-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
+        </div>
+        <div class="settings-item-actions">
+          ${editBtn}
+          ${deleteBtn}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Edit Account
+  list.querySelectorAll('[data-edit-acc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.editAcc;
+      const acc = accounts.find(a => a.id === id);
+      if (!acc) return;
+      const newName = prompt('Neuer Name für diesen Account:', acc.displayName || acc.username);
+      if (newName === null) return;
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      try {
+        await AccountsAPI.update(id, { displayName: trimmed });
+        const updated = store.get('accounts').map(a => a.id === id ? { ...a, displayName: trimmed } : a);
+        store.set({ accounts: updated });
+        showToast('Account umbenannt.', 'success');
+        renderSidebar();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Delete Account
+  list.querySelectorAll('[data-delete-acc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.deleteAcc;
+      const acc = accounts.find(a => a.id === id);
+      if (!acc) return;
+      if (!confirm(`Möchtest du den Account „${acc.displayName || acc.username}" wirklich entfernen? Alle zugehörigen Kalender werden ausgeblendet.`)) return;
       try {
         await AccountsAPI.remove(id);
-        const accounts = store.get('accounts').filter(a => a.id !== id);
-        store.set({ accounts });
-        if (accounts.length === 0) showOnboarding();
-        else { renderSidebar(); await loadCalendars(); await loadEvents(); }
-      } catch(err) { showToast(err.message, 'error'); }
+        const updated = store.get('accounts').filter(a => a.id !== id);
+        store.set({ accounts: updated });
+        showToast('Account entfernt.', 'info');
+        if (updated.length === 0) {
+          $('settings-drawer').classList.remove('open');
+          showOnboarding();
+        } else {
+          renderSidebar();
+          await loadCalendars();
+          await loadEvents();
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+}
+
+function renderSettingsCalendars() {
+  const list = $('settings-calendar-list');
+  if (!list) return;
+  const cals = store.get('calendars');
+
+  if (!cals.length) {
+    list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine Kalender gefunden.</div>';
+    return;
+  }
+
+  list.innerHTML = cals.map(c => {
+    const deleteBtn = (c.isShared || c.readOnly || c.id.includes('env-default'))
+      ? ''
+      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="Kalender löschen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+          </svg>
+         </button>`;
+
+    return `
+      <div class="settings-item">
+        <div class="settings-item-info">
+          <div class="calendar-dot" style="background:${c.color}; width:8px; height:8px; border-radius:50%; flex-shrink:0"></div>
+          <span class="settings-item-name" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
+        </div>
+        <div class="settings-item-actions">
+          ${deleteBtn}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Delete Calendar from Settings
+  list.querySelectorAll('[data-delete-cal-settings]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.deleteCalSettings;
+      const cal = cals.find(c => c.id === id);
+      if (!cal) return;
+      if (!confirm(`Kalender „${cal.name}" und alle darin enthaltenen Termine unwiderruflich löschen?`)) return;
+      try {
+        await CalendarsAPI.remove(id);
+        store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
+        showToast(`Kalender „${cal.name}" gelöscht.`, 'info');
+        invalidateEventCache();
+        await loadEvents();
+        renderSidebar();
+        renderCalendarView();
+      } catch (err) {
+        showToast('Fehler: ' + err.message, 'error');
+      }
     });
   });
 }
@@ -775,6 +863,7 @@ function openAddCalendarDialog() {
       closeDialog();
       showToast(`Kalender „${name}" erstellt.`, 'success');
       await loadCalendars();
+      renderSidebar();
       renderCalendarView();
     } catch (err) {
       const errEl = document.getElementById('add-cal-error');
@@ -916,19 +1005,30 @@ function attachListeners() {
     openCreateModal(new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
   });
 
-  // Add account
-  $('add-account-btn').addEventListener('click', () => {
+  // Settings Drawer Toggle
+  $('sidebar-settings-btn').addEventListener('click', () => {
+    $('settings-drawer').classList.add('open');
+    renderSettings();
+  });
+  $('close-settings-btn').addEventListener('click', () => {
+    $('settings-drawer').classList.remove('open');
+  });
+
+  // Add account from settings
+  $('settings-add-account-btn').addEventListener('click', () => {
     openAccountModal({ onAdded: async () => {
       const accounts = await AccountsAPI.list();
       store.set({ accounts });
       showApp();
       await loadCalendars();
       await loadEvents();
+      renderSidebar();
     }});
   });
 
   // Add calendar
   $('add-calendar-btn').addEventListener('click', () => openAddCalendarDialog());
+  $('settings-add-calendar-btn').addEventListener('click', () => openAddCalendarDialog());
 
   // Mobile sidebar toggle
   $('menu-btn').addEventListener('click', () => $('sidebar').classList.add('open'));

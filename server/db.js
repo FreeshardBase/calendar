@@ -37,6 +37,11 @@ db.serialize(() => {
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN expires_at INTEGER", () => {});
   db.run(`
+    UPDATE linked_accounts 
+    SET url = 'https://apidata.googleusercontent.com/caldav/v2/' || replace(username, '@', '%40') || '/' 
+    WHERE auth_type = 'oauth2' AND url LIKE '%/user/'
+  `, () => {});
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_linked_accounts_user_id ON linked_accounts(user_id)
   `);
 });
