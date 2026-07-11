@@ -334,6 +334,47 @@ function openEditCalendarDialog(cal) {
 function openShareCalendarDialog(cal) {
   document.getElementById('share-cal-dialog-backdrop')?.remove();
 
+  const account = store.get('accounts').find(a => a.id === cal.accountId);
+  const isOAuth = account && account.authType === 'oauth2';
+  const serverHost = account ? new URL(account.url).host : '';
+
+  let caldavSharingHtml = '';
+  if (isOAuth) {
+    caldavSharingHtml = `
+      <!-- Section 1: CalDAV Sharing Excluded -->
+      <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
+        <h4 class="share-section-title">Mit anderen Benutzern teilen (CalDAV)</h4>
+        <div style="background: rgba(234, 67, 53, 0.06); color: #d93025; padding: 12px 14px; border-radius: var(--radius-control); font-size: 0.8rem; line-height: 1.45; border: 1px solid rgba(234, 67, 53, 0.15); margin-top: 8px;">
+          <strong>Teilen nicht möglich:</strong> Dieser Kalender wird über einen externen Server (${escHtml(serverHost)}) gehostet. Das direkte CalDAV-Teilen funktioniert nur mit Benutzern auf demselben CalDAV-Server. Nutze stattdessen unten die öffentliche Link-Freigabe.
+        </div>
+      </div>
+    `;
+  } else {
+    caldavSharingHtml = `
+      <!-- Section 1: CalDAV Sharing -->
+      <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
+        <h4 class="share-section-title">Mit anderen Benutzern teilen (CalDAV)</h4>
+        <p class="share-section-desc">Gib die E-Mail-Adresse oder den Namen eines Benutzers auf dem CalDAV-Server (${escHtml(serverHost)}) ein, um ihn einzuladen.</p>
+        
+        <div class="share-input-row">
+          <div class="autocomplete-container">
+            <input class="form-input" id="share-search-input" type="text" placeholder="Benutzer suchen oder E-Mail eingeben..." autocomplete="off" />
+            <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown"></div>
+          </div>
+          <select class="form-select" id="share-role-select" style="width:140px; flex-shrink:0;">
+            <option value="false">Nur Lesen</option>
+            <option value="true" selected>Lesen & Schreiben</option>
+          </select>
+          <button class="btn btn-primary" id="share-add-btn" style="flex-shrink:0;">Hinzufügen</button>
+        </div>
+        
+        <div class="share-list" id="share-list-container">
+          <div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade Freigaben...</div>
+        </div>
+      </div>
+    `;
+  }
+
   const backdrop = document.createElement('div');
   backdrop.id = 'share-cal-dialog-backdrop';
   backdrop.className = 'modal-backdrop';
@@ -349,27 +390,7 @@ function openShareCalendarDialog(cal) {
       </div>
       <div class="modal-body">
         
-        <!-- Section 1: CalDAV Sharing -->
-        <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
-          <h4 class="share-section-title">Mit anderen Benutzern teilen (CalDAV)</h4>
-          <p class="share-section-desc">Gib die E-Mail-Adresse oder den Namen eines Benutzers auf diesem Server ein, um ihn einzuladen.</p>
-          
-          <div class="share-input-row">
-            <div class="autocomplete-container">
-              <input class="form-input" id="share-search-input" type="text" placeholder="Benutzer suchen oder E-Mail eingeben..." autocomplete="off" />
-              <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown"></div>
-            </div>
-            <select class="form-select" id="share-role-select" style="width:140px; flex-shrink:0;">
-              <option value="false">Nur Lesen</option>
-              <option value="true" selected>Lesen & Schreiben</option>
-            </select>
-            <button class="btn btn-primary" id="share-add-btn" style="flex-shrink:0;">Hinzufügen</button>
-          </div>
-          
-          <div class="share-list" id="share-list-container">
-            <div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade Freigaben...</div>
-          </div>
-        </div>
+        ${caldavSharingHtml}
 
         <!-- Section 2: Public ICS Sharing -->
         <div class="share-section">
@@ -402,163 +423,158 @@ function openShareCalendarDialog(cal) {
   backdrop.querySelector('#share-cal-close').addEventListener('click', close);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
 
-  const searchInput = backdrop.querySelector('#share-search-input');
-  const autocompleteDropdown = backdrop.querySelector('#share-autocomplete-dropdown');
-  const addBtn = backdrop.querySelector('#share-add-btn');
-  const roleSelect = backdrop.querySelector('#share-role-select');
-  const listContainer = backdrop.querySelector('#share-list-container');
+  if (!isOAuth) {
+    const searchInput = backdrop.querySelector('#share-search-input');
+    const autocompleteDropdown = backdrop.querySelector('#share-autocomplete-dropdown');
+    const addBtn = backdrop.querySelector('#share-add-btn');
+    const roleSelect = backdrop.querySelector('#share-role-select');
+    const listContainer = backdrop.querySelector('#share-list-container');
 
-  const publicEnable = backdrop.querySelector('#public-link-enable');
-  const publicArea = backdrop.querySelector('#public-link-area');
-  const publicInput = backdrop.querySelector('#public-link-input');
-  const publicCopy = backdrop.querySelector('#public-link-copy-btn');
-  const publicRegen = backdrop.querySelector('#public-link-regen-btn');
-
-  const sepIdx = cal.id.indexOf('::');
-  const accountId = sepIdx !== -1 ? cal.id.substring(0, sepIdx) : '';
-
-  async function loadShares() {
-    listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade...</div>';
-    try {
-      const res = await CalendarsAPI.getShares(cal.id);
-      const shares = res.shares || [];
-      if (shares.length === 0) {
-        listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:12px;text-align:center;">Dieser Kalender ist aktuell mit niemandem geteilt.</div>';
+    addBtn.addEventListener('click', async () => {
+      const sharee = searchInput.value.trim();
+      if (!sharee) {
+        showToast('Bitte wähle einen Benutzer oder eine E-Mail-Adresse.', 'warning');
         return;
       }
-      
-      listContainer.innerHTML = shares.map(s => {
-        const badgeClass = s.status === 'ACCEPTED' ? 'accepted' : s.status === 'DECLINED' ? 'declined' : 'pending';
-        const badgeLabel = s.status === 'ACCEPTED' ? 'aktiv' : s.status === 'DECLINED' ? 'abgelehnt' : 'ausstehend';
-
-        let displayHref = s.href;
-        if (displayHref.startsWith('principal:')) {
-          const parts = displayHref.split('/');
-          displayHref = parts[parts.length - 1] || displayHref;
-        }
-
-        return `
-          <div class="share-user-item">
-            <div class="share-user-info">
-              <span class="share-user-name">${escHtml(s.commonName || displayHref)}</span>
-              <span class="share-user-email">${escHtml(displayHref)}</span>
-            </div>
-            <div class="share-user-actions">
-              <select class="form-select share-role-toggle" data-href="${escHtml(s.href)}" style="font-size:11px; padding: 2px 20px 2px 4px; width: auto; height: auto; flex-shrink: 0; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background-color: transparent; color: var(--ink);">
-                <option value="false" ${!s.readWrite ? 'selected' : ''}>Lesen</option>
-                <option value="true" ${s.readWrite ? 'selected' : ''}>Schreiben</option>
-              </select>
-              <span class="share-badge ${badgeClass}">${badgeLabel}</span>
-              <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="Entfernen" style="padding:4px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-                </svg>
-              </button>
-            </div>
-          </div>`;
-      }).join('');
-
-      listContainer.querySelectorAll('.share-role-toggle').forEach(select => {
-        select.addEventListener('change', async () => {
-          const href = select.dataset.href;
-          const readWrite = select.value === 'true';
-          try {
-            select.disabled = true;
-            await CalendarsAPI.addShare(cal.id, href, readWrite);
-            showToast('Freigaberechte aktualisiert.', 'success');
-            loadShares();
-          } catch (e) {
-            showToast('Rechte-Aktualisierung fehlgeschlagen: ' + e.message, 'error');
-            select.disabled = false;
-            select.value = (!readWrite).toString();
-          }
-        });
-      });
-
-      listContainer.querySelectorAll('.btn-revoke-share').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const href = btn.dataset.href;
-          if (!confirm(`Freigabe für „${href}“ entziehen?`)) return;
-          try {
-            btn.disabled = true;
-            await CalendarsAPI.removeShare(cal.id, href);
-            showToast('Freigabe entfernt.', 'info');
-            loadShares();
-          } catch (e) {
-            showToast('Fehler: ' + e.message, 'error');
-            btn.disabled = false;
-          }
-        });
-      });
-
-    } catch (e) {
-      listContainer.innerHTML = `<div style="font-size:0.8rem;color:var(--danger);padding:8px;text-align:center;">Ladefehler: ${escHtml(e.message)}</div>`;
-    }
-  }
-
-  addBtn.addEventListener('click', async () => {
-    const sharee = searchInput.value.trim();
-    if (!sharee) {
-      showToast('Bitte wähle einen Benutzer oder eine E-Mail-Adresse.', 'warning');
-      return;
-    }
-    const readWrite = roleSelect.value === 'true';
-    try {
-      addBtn.disabled = true;
-      await CalendarsAPI.addShare(cal.id, sharee, readWrite);
-      showToast('Freigabe-Einladung gesendet.', 'success');
-      searchInput.value = '';
-      loadShares();
-    } catch (e) {
-      showToast('Einladung fehlgeschlagen: ' + e.message, 'error');
-    } finally {
-      addBtn.disabled = false;
-    }
-  });
-
-  let searchTimeout = null;
-  searchInput.addEventListener('input', () => {
-    clearTimeout(searchTimeout);
-    const q = searchInput.value.trim();
-    if (q.length < 2) {
-      autocompleteDropdown.classList.add('hidden');
-      return;
-    }
-
-    searchTimeout = setTimeout(async () => {
+      const readWrite = roleSelect.value === 'true';
       try {
-        const users = await CalendarsAPI.searchUsers(q, accountId);
-        if (users.length === 0) {
-          autocompleteDropdown.classList.add('hidden');
+        addBtn.disabled = true;
+        await CalendarsAPI.addShare(cal.id, sharee, readWrite);
+        showToast('Freigabe-Einladung gesendet.', 'success');
+        searchInput.value = '';
+        loadShares();
+      } catch (e) {
+        showToast('Einladung fehlgeschlagen: ' + e.message, 'error');
+      } finally {
+        addBtn.disabled = false;
+      }
+    });
+
+    let searchTimeout = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      const q = searchInput.value.trim();
+      if (q.length < 2) {
+        autocompleteDropdown.classList.add('hidden');
+        return;
+      }
+
+      searchTimeout = setTimeout(async () => {
+        try {
+          const users = await CalendarsAPI.searchUsers(q, accountId);
+          if (users.length === 0) {
+            autocompleteDropdown.classList.add('hidden');
+            return;
+          }
+
+          autocompleteDropdown.innerHTML = users.map(u => `
+            <div class="autocomplete-item" data-value="${escHtml(u.email || u.href)}">
+              <strong>${escHtml(u.displayname)}</strong> (${escHtml(u.email || u.href)})
+            </div>
+          `).join('');
+
+          autocompleteDropdown.classList.remove('hidden');
+
+          autocompleteDropdown.querySelectorAll('.autocomplete-item').forEach(item => {
+            item.addEventListener('click', () => {
+              searchInput.value = item.dataset.value;
+              autocompleteDropdown.classList.add('hidden');
+            });
+          });
+        } catch (e) {
+          console.error('User search failed:', e);
+        }
+      }, 300);
+    });
+
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.autocomplete-container')) {
+        autocompleteDropdown.classList.add('hidden');
+      }
+    });
+
+    async function loadShares() {
+      listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade...</div>';
+      try {
+        const res = await CalendarsAPI.getShares(cal.id);
+        const shares = res.shares || [];
+        if (shares.length === 0) {
+          listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:12px;text-align:center;">Dieser Kalender ist aktuell mit niemandem geteilt.</div>';
           return;
         }
+        
+        listContainer.innerHTML = shares.map(s => {
+          const badgeClass = s.status === 'ACCEPTED' ? 'accepted' : s.status === 'DECLINED' ? 'declined' : 'pending';
+          const badgeLabel = s.status === 'ACCEPTED' ? 'aktiv' : s.status === 'DECLINED' ? 'abgelehnt' : 'ausstehend';
 
-        autocompleteDropdown.innerHTML = users.map(u => `
-          <div class="autocomplete-item" data-value="${escHtml(u.email || u.href)}">
-            <strong>${escHtml(u.displayname)}</strong> (${escHtml(u.email || u.href)})
-          </div>
-        `).join('');
+          let displayHref = s.href;
+          if (displayHref.startsWith('principal:')) {
+            const parts = displayHref.split('/');
+            displayHref = parts[parts.length - 1] || displayHref;
+          }
 
-        autocompleteDropdown.classList.remove('hidden');
+          return `
+            <div class="share-user-item">
+              <div class="share-user-info">
+                <span class="share-user-name">${escHtml(s.commonName || displayHref)}</span>
+                <span class="share-user-email">${escHtml(displayHref)}</span>
+              </div>
+              <div class="share-user-actions">
+                <select class="form-select share-role-toggle" data-href="${escHtml(s.href)}" style="font-size:11px; padding: 2px 20px 2px 4px; width: auto; height: auto; flex-shrink: 0; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background-color: transparent; color: var(--ink);">
+                  <option value="false" ${!s.readWrite ? 'selected' : ''}>Lesen</option>
+                  <option value="true" ${s.readWrite ? 'selected' : ''}>Schreiben</option>
+                </select>
+                <span class="share-badge ${badgeClass}">${badgeLabel}</span>
+                <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="Entfernen" style="padding:4px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                  </svg>
+                </button>
+              </div>
+            </div>`;
+        }).join('');
 
-        autocompleteDropdown.querySelectorAll('.autocomplete-item').forEach(item => {
-          item.addEventListener('click', () => {
-            searchInput.value = item.dataset.value;
-            autocompleteDropdown.classList.add('hidden');
+        listContainer.querySelectorAll('.share-role-toggle').forEach(select => {
+          select.addEventListener('change', async () => {
+            const href = select.dataset.href;
+            const readWrite = select.value === 'true';
+            try {
+              select.disabled = true;
+              await CalendarsAPI.addShare(cal.id, href, readWrite);
+              showToast('Freigaberechte aktualisiert.', 'success');
+              loadShares();
+            } catch (e) {
+              showToast('Rechte-Aktualisierung fehlgeschlagen: ' + e.message, 'error');
+              select.disabled = false;
+              select.value = (!readWrite).toString();
+            }
           });
         });
-      } catch (e) {
-        console.error('User search failed:', e);
-      }
-    }, 300);
-  });
 
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.autocomplete-container')) {
-      autocompleteDropdown.classList.add('hidden');
+        listContainer.querySelectorAll('.btn-revoke-share').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const href = btn.dataset.href;
+            if (!confirm(`Freigabe für „${href}“ entziehen?`)) return;
+            try {
+              btn.disabled = true;
+              await CalendarsAPI.removeShare(cal.id, href);
+              showToast('Freigabe entfernt.', 'info');
+              loadShares();
+            } catch (e) {
+              showToast('Fehler: ' + e.message, 'error');
+              btn.disabled = false;
+            }
+          });
+        });
+
+      } catch (e) {
+        listContainer.innerHTML = `<div style="font-size:0.8rem;color:var(--danger);padding:8px;text-align:center;">Ladefehler: ${escHtml(e.message)}</div>`;
+      }
     }
-  });
+
+    loadShares();
+  }
 
   async function loadPublicLink() {
     try {
