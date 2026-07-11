@@ -145,6 +145,7 @@ type = "caldav"
 url = "{local_url}"
 username = "{user_id}"
 password = "{SYSTEM_SYNC_SECRET}"
+verify = false
 """
 
     conn.close()

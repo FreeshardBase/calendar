@@ -9,6 +9,7 @@ process.on('unhandledRejection', (err) => {
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
+const fs = require('fs');
 const Db = require('./db');
 
 const accountsRouter = require('./routes/accounts');
@@ -164,9 +165,39 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT}`);
-  if (process.env.CALDAVURL) {
-    console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
+const http = require('http');
+const https = require('https');
+
+let server;
+const keyPath = process.env.SSL_KEY_PATH !== undefined ? process.env.SSL_KEY_PATH : path.join(__dirname, '../ssl/key.pem');
+const certPath = process.env.SSL_CERT_PATH !== undefined ? process.env.SSL_CERT_PATH : path.join(__dirname, '../ssl/cert.pem');
+
+if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  try {
+    const options = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
+    };
+    server = https.createServer(options, app);
+    server.listen(PORT, () => {
+      console.log(`🗓  FreeShard WebCalendar running securely on https://localhost:${PORT}`);
+      if (process.env.CALDAVURL) {
+        console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
+      }
+    });
+  } catch (sslErr) {
+    console.error('[SSL Startup Error]', sslErr.message);
+    server = http.createServer(app);
+    server.listen(PORT, () => {
+      console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT} (fallback)`);
+    });
   }
-});
+} else {
+  server = http.createServer(app);
+  server.listen(PORT, () => {
+    console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT}`);
+    if (process.env.CALDAVURL) {
+      console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
+    }
+  });
+}

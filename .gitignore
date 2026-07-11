@@ -6,3 +6,4 @@ sessions/
 test-results/
 playwright-report/
 .share_key
+ssl/

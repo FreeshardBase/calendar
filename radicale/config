@@ -1,5 +1,8 @@
 [server]
 hosts = 0.0.0.0:5232
+ssl = True
+certificate = /etc/radicale/ssl/cert.pem
+key = /etc/radicale/ssl/key.pem
 
 [auth]
 type = radicale_custom_auth
