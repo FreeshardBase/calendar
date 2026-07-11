@@ -18,6 +18,7 @@ async function boot() {
   // Init modals first (attach event listeners)
   initEventModal();
   initAccountModal();
+  initWelcomeModal();
 
   // Attach UI event listeners
   attachListeners();
@@ -33,6 +34,7 @@ async function boot() {
       showApp();
       await loadCalendars();
       await loadEvents();
+      checkWelcomePopup(accounts);
     }
   } catch (err) {
     console.error('Boot error:', err);
@@ -1239,6 +1241,39 @@ function fmt(iso) {
 
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Welcome Modal ────────────────────────────────────────────────────────────
+
+function initWelcomeModal() {
+  const closeWelcome = () => {
+    $('welcome-modal-backdrop').classList.add('hidden');
+    localStorage.setItem('welcome-popup-closed', 'true');
+  };
+
+  $('welcome-modal-close').addEventListener('click', closeWelcome);
+  $('welcome-btn-close').addEventListener('click', closeWelcome);
+
+  $('welcome-btn-add-account').addEventListener('click', () => {
+    closeWelcome();
+    openAccountModal({ onAdded: async () => {
+      const accounts = await AccountsAPI.list();
+      store.set({ accounts });
+      showApp();
+      await loadCalendars();
+      await loadEvents();
+      renderSidebar();
+    }});
+  });
+}
+
+function checkWelcomePopup(accounts) {
+  const onlyInternal = accounts.length === 1 && accounts[0].id === 'internal-caldav';
+  const hasClosed = localStorage.getItem('welcome-popup-closed') === 'true';
+  
+  if (onlyInternal && !hasClosed) {
+    $('welcome-modal-backdrop').classList.remove('hidden');
+  }
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────

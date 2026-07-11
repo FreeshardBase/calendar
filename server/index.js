@@ -66,6 +66,18 @@ app.use(async (req, res, next) => {
           displayName: process.env.ACCOUNT_DISPLAY_NAME || process.env.CALDAV_USERNAME || 'test'
         });
       }
+
+      // Always inject the internal CalDAV account (Radicale) except in test mode
+      if (process.env.NODE_ENV !== 'test' && !accounts.some(a => a.id === 'internal-caldav')) {
+        const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+        accounts.unshift({
+          id: 'internal-caldav',
+          url: `${localCalDAVCUrl}/${userId}/`,
+          username: userId,
+          password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+          displayName: 'Interner Kalender'
+        });
+      }
       
       req.session.accounts = accounts;
     } catch (e) {

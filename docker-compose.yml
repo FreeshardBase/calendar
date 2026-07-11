@@ -16,6 +16,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
       SSL_KEY_PATH: /app/ssl/key.pem
       SSL_CERT_PATH: /app/ssl/cert.pem
+      INTERNAL_CALDAV_URL: https://caldav-server:5232
     volumes:
       - shared-data:/app/data
       - ./ssl:/app/ssl:ro

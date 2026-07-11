@@ -568,6 +568,37 @@
   </div>
 </div>
 
+<!-- ── Welcome Modal ────────────────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="welcome-modal-backdrop">
+  <div class="modal modal-sm" id="welcome-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3 class="modal-title">Willkommen beim WebCalendar</h3>
+      <button class="icon-btn modal-close" id="welcome-modal-close" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body" style="text-align: center; padding: 20px 10px;">
+      <div style="font-size: 48px; margin-bottom: 16px;">🗓️</div>
+      <p style="margin-bottom: 16px; line-height: 1.5; color: var(--text-muted);">
+        Dein persönlicher Kalender auf unserem internen CalDAV-Server wurde automatisch für dich eingerichtet und ist sofort einsatzbereit.
+      </p>
+      <p style="margin-bottom: 24px; line-height: 1.5; color: var(--text-muted);">
+        Möchtest du zusätzlich externe Kalender (wie Google Calendar) verknüpfen?
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="welcome-btn-add-account" style="width: 100%;">
+          Konto hinzufügen
+        </button>
+        <button type="button" class="btn btn-ghost" id="welcome-btn-close" style="width: 100%;">
+          Später (jederzeit in den Einstellungen möglich)
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Event Popover ────────────────────────────────────────────────────────── -->
 <div class="event-popover hidden" id="event-popover" role="tooltip"></div>
 
