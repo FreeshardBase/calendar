@@ -9,10 +9,12 @@ process.on('unhandledRejection', (err) => {
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
+const Db = require('./db');
 
 const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
 const eventsRouter = require('./routes/events');
+const authRouter = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,24 +34,83 @@ app.use(session({
   }
 }));
 
-// ── Auto-configure account from .env if present and session is empty ──────────
-app.use((req, res, next) => {
-  if (
-    process.env.CALDAVURL &&
-    process.env.CALDAV_USERNAME &&
-    process.env.CALDAV_PASSWORD &&
-    (!req.session.accounts || req.session.accounts.length === 0)
-  ) {
-    req.session.accounts = [{
-      id: 'env-default',
-      url: process.env.CALDAVURL,
-      username: process.env.CALDAV_USERNAME,
-      password: process.env.CALDAV_PASSWORD,
-      displayName: process.env.ACCOUNT_DISPLAY_NAME || process.env.CALDAV_USERNAME
-    }];
+// ── Middleware to load accounts from SQLite database into req.session.accounts ──
+app.use(async (req, res, next) => {
+  const authMethod = process.env.AUTH_METHOD || 'env';
+  let userId = req.session.userId;
+  if (req.headers['x-test-user-id']) {
+    userId = req.headers['x-test-user-id'];
+    req.session.userId = userId;
+  } else if (!userId && authMethod === 'env') {
+    if (process.env.CALDAV_USERNAME) {
+      userId = process.env.CALDAV_USERNAME;
+      req.session.userId = userId;
+    }
+  }
+
+  if (userId) {
+    try {
+      const dbAccounts = await Db.getAccounts(userId);
+      const accounts = [...dbAccounts];
+      
+      // Merge with env-default if env-default is configured and not in database
+      if (
+        process.env.CALDAVURL &&
+        process.env.CALDAV_USERNAME &&
+        process.env.CALDAV_PASSWORD &&
+        !accounts.some(a => a.id === 'env-default')
+      ) {
+        accounts.unshift({
+          id: 'env-default',
+          url: process.env.CALDAVURL,
+          username: process.env.CALDAV_USERNAME,
+          password: process.env.CALDAV_PASSWORD,
+          displayName: process.env.ACCOUNT_DISPLAY_NAME || process.env.CALDAV_USERNAME
+        });
+      }
+      
+      req.session.accounts = accounts;
+    } catch (e) {
+      console.error('[db] Error loading accounts:', e.message);
+      req.session.accounts = [];
+    }
+  } else {
+    req.session.accounts = [];
   }
   next();
 });
+
+// ── Internal Hook Security Middleware ─────────────────────────────────────────
+function requireInternal(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress;
+  const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  const secret = req.headers['x-freeshard-secret'];
+  const expectedSecret = process.env.INTERNAL_WEBHOOK_SECRET;
+
+  if (isLocal || (expectedSecret && secret === expectedSecret)) {
+    return next();
+  }
+  return res.status(403).json({ error: 'Access denied: Internal only' });
+}
+
+// ── Mock CalDAV endpoint for testing ──────────────────────────────────────────
+if (process.env.NODE_ENV === 'test') {
+  app.all('/mock-dav*', (req, res) => {
+    res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/mock-dav/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:current-user-principal><d:href>/mock-dav/principal/test/</d:href></d:current-user-principal>
+        <c:calendar-home-set><d:href>/mock-dav/calendars/test/</d:href></c:calendar-home-set>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`);
+  });
+}
 
 // ── Auth guard for API routes ─────────────────────────────────────────────────
 function requireAuth(req, res, next) {
@@ -59,10 +120,37 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// ── OIDC Authentication Enforcer for Page Root ────────────────────────────────
+app.get('/', (req, res, next) => {
+  const authMethod = process.env.AUTH_METHOD || 'env';
+  if (authMethod === 'oidc' && !req.session.userId) {
+    return res.redirect('/api/auth/login');
+  }
+  next();
+});
+
 // ── Static files ──────────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../public')));
 
+// ── Webhook route (Only accessible internally / local connection) ──────────────
+app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) => {
+  const { user_id } = req.body;
+  if (!user_id) {
+    return res.status(400).json({ error: 'user_id is required' });
+  }
+
+  try {
+    await Db.deleteUserAccounts(user_id);
+    console.log(`[webhook] Cleaned up accounts for deleted user: ${user_id}`);
+    res.json({ message: `Successfully deleted accounts for user ${user_id}` });
+  } catch (err) {
+    console.error(`[webhook] Error deleting accounts for user ${user_id}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── API Routes ────────────────────────────────────────────────────────────────
+app.use('/api/auth',              authRouter);
 app.use('/api/public/calendars', publicRouter);
 app.use('/api/accounts',          accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);

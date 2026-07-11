@@ -65,6 +65,7 @@ export function openCreateModal(defaultDate, callbacks) {
   resetForm();
   $('event-modal-title').textContent = 'Neuer Termin';
   $('delete-event-btn').style.display = 'none';
+  $('event-save-btn').style.display = '';
 
   // Pre-fill date from defaultDate
   if (defaultDate) {
@@ -111,10 +112,33 @@ export function openEditModal(event, callbacks) {
   _onDeleted = callbacks?.onDeleted;
 
   $('event-modal-title').textContent = 'Termin bearbeiten';
-  $('delete-event-btn').style.display = 'block';
 
   resetForm();
   populateCalendarSelect(event.calendarId);
+
+  const cal = (store.get('calendars') || []).find(c => c.id === event.calendarId);
+  const isReadOnly = cal ? !!cal.readOnly : false;
+
+  $('event-save-btn').style.display = isReadOnly ? 'none' : '';
+  $('delete-event-btn').style.display = isReadOnly ? 'none' : 'block';
+
+  let warningEl = $('event-modal-warning');
+  if (!warningEl) {
+    warningEl = document.createElement('div');
+    warningEl.id = 'event-modal-warning';
+    warningEl.style.cssText = 'font-size:0.8rem;color:var(--danger);padding:8px 12px;background:#fee2e2;border-radius:4px;margin-bottom:12px;font-weight:600;line-height:1.4;';
+    const fm = form();
+    fm.parentNode.insertBefore(warningEl, fm);
+  }
+
+  if (isReadOnly) {
+    warningEl.textContent = 'Dieser Termin ist schreibgeschützt (Kalender wurde schreibgeschützt geteilt).';
+    warningEl.classList.remove('hidden');
+    setFormDisabled(true);
+  } else {
+    warningEl.classList.add('hidden');
+    setFormDisabled(false);
+  }
 
   // Fill form
   $('ev-uid').value   = event.uid   || '';
@@ -267,6 +291,10 @@ function resetForm() {
   $('ev-end-date').value   = toInputDate(now);
   updateAlldayUI(false);
   setButtonLoading('event-save-btn', false);
+
+  setFormDisabled(false);
+  const warningEl = $('event-modal-warning');
+  if (warningEl) warningEl.classList.add('hidden');
 }
 
 function updateAlldayUI(allDay) {
@@ -279,10 +307,28 @@ function updateAlldayUI(allDay) {
 function populateCalendarSelect(selectedId) {
   const sel = $('ev-calendar');
   const cals = store.get('calendars') || [];
-  const targetId = selectedId || (cals[0] ? cals[0].id : '');
-  sel.innerHTML = cals.map(c =>
-    `<option value="${c.id}" ${c.id === targetId ? 'selected' : ''}>${c.name}</option>`
-  ).join('') || '<option value="">— Kein Kalender verfügbar —</option>';
+  
+  // For creating a new event (selectedId is not provided), we should only show writable calendars!
+  const isEditing = !!_currentEvent;
+  const filteredCals = isEditing ? cals : cals.filter(c => !c.readOnly);
+  const targetId = selectedId || (filteredCals[0] ? filteredCals[0].id : '');
+
+  sel.innerHTML = filteredCals.map(c =>
+    `<option value="${c.id}" ${c.id === targetId ? 'selected' : ''}>${c.name}${c.readOnly ? ' (schreibgeschützt)' : ''}</option>`
+  ).join('') || '<option value="">— Kein beschreibbarer Kalender verfügbar —</option>';
+}
+
+function setFormDisabled(disabled) {
+  const formEl = form();
+  if (!formEl) return;
+  const elements = formEl.querySelectorAll('input, select, textarea, button:not(#event-cancel-btn):not(#event-modal-close)');
+  elements.forEach(el => {
+    if (disabled) {
+      el.setAttribute('disabled', 'disabled');
+    } else {
+      el.removeAttribute('disabled');
+    }
+  });
 }
 
 function renderAttendeeList(attendees) {

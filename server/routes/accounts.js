@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const CalDAVClient = require('../caldav/client');
-const { v4: uuidv4 } = require('uuid');
+const Db = require('../db');
 
 // GET /api/accounts — list accounts (passwords redacted)
 router.get('/', (req, res) => {
@@ -38,55 +38,76 @@ router.post('/', async (req, res) => {
     return res.status(401).json({ error: msg });
   }
 
-  if (!req.session.accounts) req.session.accounts = [];
-
-  // Avoid duplicates by resolved URL + username
-  const exists = req.session.accounts.some(
+  const accounts = req.session.accounts || [];
+  const exists = accounts.some(
     a => a.url === discoveredUrl && a.username === username
   );
   if (exists) {
     return res.status(409).json({ error: 'Dieses Konto ist bereits eingerichtet.' });
   }
 
-  const id = uuidv4();
-  req.session.accounts.push({
-    id,
-    url:         discoveredUrl,
-    username,
-    password,
-    displayName: displayName || username
-  });
-
-  res.status(201).json({ id, displayName: displayName || username, message: 'Account added.' });
+  try {
+    const userId = req.session.userId || username;
+    req.session.userId = userId;
+    const { id, displayName: finalDisplayName } = await Db.addAccount(userId, {
+      url: discoveredUrl,
+      username,
+      password,
+      displayName
+    });
+    res.status(201).json({ id, displayName: finalDisplayName, message: 'Account added.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // PATCH /api/accounts/:id — update display name
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
+  if (req.params.id === 'env-default') {
+    return res.status(403).json({ error: 'Systemkonto kann nicht geändert werden.' });
+  }
+
   const account = (req.session.accounts || []).find(a => a.id === req.params.id);
   if (!account) return res.status(404).json({ error: 'Account not found.' });
 
-  if (req.body.displayName) account.displayName = req.body.displayName;
-  res.json({ message: 'Updated.' });
+  try {
+    if (req.body.displayName) {
+      await Db.updateAccountDisplayName(req.params.id, req.body.displayName);
+    }
+    res.json({ message: 'Updated.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // DELETE /api/accounts/:id — remove account
-router.delete('/:id', (req, res) => {
-  if (!req.session.accounts) return res.status(404).json({ error: 'Account not found.' });
-
-  const before = req.session.accounts.length;
-  req.session.accounts = req.session.accounts.filter(a => a.id !== req.params.id);
-
-  if (req.session.accounts.length === before) {
-    return res.status(404).json({ error: 'Account not found.' });
+router.delete('/:id', async (req, res) => {
+  if (req.params.id === 'env-default') {
+    return res.status(403).json({ error: 'Systemkonto kann nicht gelöscht werden.' });
   }
 
-  res.json({ message: 'Account removed.' });
+  const account = (req.session.accounts || []).find(a => a.id === req.params.id);
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+
+  try {
+    await Db.deleteAccount(req.params.id);
+    res.json({ message: 'Account removed.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // DELETE /api/accounts — remove all (logout)
-router.delete('/', (req, res) => {
-  req.session.accounts = [];
-  res.json({ message: 'All accounts removed.' });
+router.delete('/', async (req, res) => {
+  try {
+    if (req.session.userId) {
+      await Db.deleteUserAccounts(req.session.userId);
+    }
+    req.session.userId = null;
+    res.json({ message: 'All accounts removed.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

@@ -123,7 +123,7 @@ router.get('/', async (req, res) => {
       });
 
       const xml = await client.getCalendars();
-      const calendars = parseCalendarList(xml, account.id, account.url);
+      const calendars = parseCalendarList(xml, account.id, account.url, account.username);
       allCalendars.push(...calendars);
     })
   ).then(results => {

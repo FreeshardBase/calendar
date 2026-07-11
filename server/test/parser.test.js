@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseICSToEvent, parseAndExpandEvent, eventToICS } = require('../caldav/parser');
+const { parseICSToEvent, parseAndExpandEvent, eventToICS, parseCalendarList } = require('../caldav/parser');
 
 test('iCalendar parser suite', async (t) => {
 
@@ -208,6 +208,76 @@ test('iCalendar parser suite', async (t) => {
 
     // Should only yield 3 occurrences (July 9, 10, 11)
     assert.strictEqual(result.length, 3);
+  });
+
+  await t.test('should parse calendar list and identify shared owner and read-only flags', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/">
+  <d:response>
+    <d:href>/remote.php/dav/calendars/test/personal/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>
+        <d:displayname>Persönlich</d:displayname>
+        <a:calendar-color>#ff0000</a:calendar-color>
+        <d:owner><d:href>/remote.php/dav/principals/users/test/</d:href></d:owner>
+        <d:share-access><d:not-shared/></d:share-access>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/calendars/test/shared-read-only/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>
+        <d:displayname>Shared Work</d:displayname>
+        <a:calendar-color>#00ff00</a:calendar-color>
+        <d:owner><d:href>/remote.php/dav/principals/users/aaron/</d:href></d:owner>
+        <d:share-access><d:read/></d:share-access>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/calendars/test/shared-read-write/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>
+        <d:displayname>Shared Play</d:displayname>
+        <a:calendar-color>#0000ff</a:calendar-color>
+        <d:owner><d:href>/remote.php/dav/principals/users/aaron/</d:href></d:owner>
+        <d:share-access><d:read-write/></d:share-access>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`;
+
+    const calendars = parseCalendarList(xml, 'acc-123', 'https://cloud.example.com', 'test');
+
+    assert.strictEqual(calendars.length, 3);
+
+    // 1. Personal owned calendar
+    const cal1 = calendars[0];
+    assert.strictEqual(cal1.name, 'Persönlich');
+    assert.strictEqual(cal1.isShared, false);
+    assert.strictEqual(cal1.owner, null);
+    assert.strictEqual(cal1.readOnly, false);
+
+    // 2. Shared read-only calendar
+    const cal2 = calendars[1];
+    assert.strictEqual(cal2.name, 'Shared Work');
+    assert.strictEqual(cal2.isShared, true);
+    assert.strictEqual(cal2.owner, 'aaron');
+    assert.strictEqual(cal2.readOnly, true);
+
+    // 3. Shared read-write calendar
+    const cal3 = calendars[2];
+    assert.strictEqual(cal3.name, 'Shared Play');
+    assert.strictEqual(cal3.isShared, true);
+    assert.strictEqual(cal3.owner, 'aaron');
+    assert.strictEqual(cal3.readOnly, false);
   });
 
 });

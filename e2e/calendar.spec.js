@@ -109,7 +109,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('.week-view')).toBeVisible();
   });
 
-  test('should open share dialog and autocomplete user search', async ({ page }) => {
+  test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
     page.on('console', msg => console.log('PAGE LOG:', msg.text()));
     page.on('pageerror', err => console.error('PAGE ERROR:', err.message));
 
@@ -142,6 +142,34 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Verify input value has updated to the email address
     await expect(searchInput).toHaveValue('aaron@gryzia.de');
+
+    // 1. Click "Hinzufügen" to add the share
+    const addBtn = page.locator('#share-add-btn');
+    await addBtn.click();
+
+    // 2. Verify share shows up in the list
+    const listContainer = page.locator('#share-list-container');
+    await expect(listContainer).toContainText('Aaron Gryzia', { timeout: 10000 });
+
+    // 3. Change role/permission of existing share to read-only ("false")
+    const roleToggle = listContainer.locator('.share-role-toggle').first();
+    await expect(roleToggle).toHaveValue('true');
+    await roleToggle.selectOption('false');
+
+    // Wait for the dropdown to be re-enabled (means update finished and reload occurred)
+    await expect(roleToggle).not.toBeDisabled({ timeout: 10000 });
+    await expect(roleToggle).toHaveValue('false');
+
+    // 4. Click delete / revoke button
+    const revokeBtn = listContainer.locator('.btn-revoke-share').first();
+    page.on('dialog', async dialog => {
+      expect(dialog.message()).toContain('entziehen');
+      await dialog.accept(); // Confirm revocation
+    });
+    await revokeBtn.click();
+
+    // 5. Verify share is removed from list
+    await expect(listContainer).not.toContainText('Aaron Gryzia', { timeout: 10000 });
   });
 
 });

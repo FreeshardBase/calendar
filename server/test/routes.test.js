@@ -1,8 +1,16 @@
 'use strict';
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert');
+
+// Clean up database before running tests
+const dbPath = path.join(__dirname, '../../webcalendar.db');
+if (fs.existsSync(dbPath)) {
+  fs.unlinkSync(dbPath);
+}
 
 test('HTTP Routes Integration Suite', async (t) => {
   const baseUrl = 'http://localhost:3000';
@@ -91,6 +99,70 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.ok(Array.isArray(body.shares));
   });
 
+  await t.test('POST, PUT/update and DELETE /api/calendars/:id/shares should manage calendar share permissions', async () => {
+    // 1. Add share (read-write)
+    const addRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: sessionCookie
+      },
+      body: JSON.stringify({ sharee: 'aaron@gryzia.de', readWrite: true })
+    });
+    assert.strictEqual(addRes.status, 200);
+
+    // 2. Verify share is added as read-write
+    const getRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
+      headers: { cookie: sessionCookie }
+    });
+    assert.strictEqual(getRes.status, 200);
+    const getBody = await getRes.json();
+    const share = getBody.shares.find(s => s.href.includes('aaron'));
+    assert.ok(share);
+    assert.strictEqual(share.readWrite, true);
+
+    // 3. Update share to read-only
+    const updateRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: sessionCookie
+      },
+      body: JSON.stringify({ sharee: share.href, readWrite: false })
+    });
+    assert.strictEqual(updateRes.status, 200);
+
+    // 4. Verify share is updated to read-only
+    const getRes2 = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
+      headers: { cookie: sessionCookie }
+    });
+    assert.strictEqual(getRes2.status, 200);
+    const getBody2 = await getRes2.json();
+    const share2 = getBody2.shares.find(s => s.href.includes('aaron'));
+    assert.ok(share2);
+    assert.strictEqual(share2.readWrite, false);
+
+    // 5. Remove share
+    const deleteRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: sessionCookie
+      },
+      body: JSON.stringify({ sharee: share.href })
+    });
+    assert.strictEqual(deleteRes.status, 200);
+
+    // 6. Verify share is removed
+    const getRes3 = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
+      headers: { cookie: sessionCookie }
+    });
+    assert.strictEqual(getRes3.status, 200);
+    const getBody3 = await getRes3.json();
+    const share3 = getBody3.shares.find(s => s.href.includes('aaron'));
+    assert.ok(!share3);
+  });
+
   await t.test('GET /api/calendars/search-users should return matched users', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/search-users?q=aar`, {
       headers: { cookie: sessionCookie }
@@ -141,6 +213,108 @@ test('HTTP Routes Integration Suite', async (t) => {
     // 5. Verify old link is now dead (returns 404)
     const deadRes = await fetch(enableData.url);
     assert.strictEqual(deadRes.status, 404);
+  });
+
+  await t.test('POST, PATCH, DELETE /api/accounts and POST /internal/webhooks/user-deleted should manage accounts and clean up via webhook', async () => {
+    const getSessRes = await fetch(`${baseUrl}/api/accounts`, {
+      headers: { 'x-test-user-id': 'webhook-test-user' }
+    });
+    const newSessionCookie = getSessRes.headers.get('set-cookie');
+
+    const headers = {
+      'Content-Type': 'application/json',
+      cookie: newSessionCookie,
+      'x-test-user-id': 'webhook-test-user'
+    };
+
+    // 1. Add a temporary account
+    const addAccRes = await fetch(`${baseUrl}/api/accounts`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        url: `${baseUrl}/mock-dav/`,
+        username: 'webhook-test-user',
+        password: 'some-password-123',
+        displayName: 'Webhook Test User'
+      })
+    });
+    assert.strictEqual(addAccRes.status, 201);
+    const addAccData = await addAccRes.json();
+    assert.ok(addAccData.id);
+
+    // 2. Verify account is present in list
+    const listRes = await fetch(`${baseUrl}/api/accounts`, {
+      headers: {
+        cookie: newSessionCookie,
+        'x-test-user-id': 'webhook-test-user'
+      }
+    });
+    assert.strictEqual(listRes.status, 200);
+    const listData = await listRes.json();
+    const foundAcc = listData.find(a => a.id === addAccData.id);
+    assert.ok(foundAcc);
+    assert.strictEqual(foundAcc.displayName, 'Webhook Test User');
+
+    // 3. Update account display name
+    const patchRes = await fetch(`${baseUrl}/api/accounts/${addAccData.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ displayName: 'Updated Webhook Name' })
+    });
+    assert.strictEqual(patchRes.status, 200);
+
+    // 4. Verify display name is updated
+    const listRes2 = await fetch(`${baseUrl}/api/accounts`, {
+      headers: {
+        cookie: newSessionCookie,
+        'x-test-user-id': 'webhook-test-user'
+      }
+    });
+    const listData2 = await listRes2.json();
+    const foundAcc2 = listData2.find(a => a.id === addAccData.id);
+    assert.strictEqual(foundAcc2.displayName, 'Updated Webhook Name');
+
+    // 5. Test webhook for a different user_id (should not delete our account)
+    const hookRes1 = await fetch(`${baseUrl}/internal/webhooks/user-deleted`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: 'non-existent-user' })
+    });
+    assert.strictEqual(hookRes1.status, 200);
+
+    const listRes3 = await fetch(`${baseUrl}/api/accounts`, {
+      headers: {
+        cookie: newSessionCookie,
+        'x-test-user-id': 'webhook-test-user'
+      }
+    });
+    const listData3 = await listRes3.json();
+    assert.ok(listData3.some(a => a.id === addAccData.id));
+
+    // 6. Test webhook for our user_id ('webhook-test-user')
+    const hookRes2 = await fetch(`${baseUrl}/internal/webhooks/user-deleted`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: 'webhook-test-user' })
+    });
+    assert.strictEqual(hookRes2.status, 200);
+
+    // 7. Verify account is deleted by webhook
+    const listRes4 = await fetch(`${baseUrl}/api/accounts`, {
+      headers: {
+        cookie: newSessionCookie,
+        'x-test-user-id': 'webhook-test-user'
+      }
+    });
+    const listData4 = await listRes4.json();
+    assert.ok(!listData4.some(a => a.id === addAccData.id));
+  });
+
+  await t.test('GET /api/auth/login should return 500 when OIDC config is missing', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/login`);
+    assert.strictEqual(res.status, 500);
+    const body = await res.text();
+    assert.ok(body.includes('OIDC-Konfiguration fehlt'));
   });
 });
 

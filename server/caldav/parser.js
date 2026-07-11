@@ -45,7 +45,7 @@ function firstText(node, localName) {
  * @param {string} accountId - Our internal account ID
  * @param {string} baseUrl   - Base URL of the CalDAV server (for resolving relative hrefs)
  */
-function parseCalendarList(xml, accountId, baseUrl) {
+function parseCalendarList(xml, accountId, baseUrl, username) {
   let doc;
   try {
     doc = xmlParser.parseFromString(xml, 'text/xml');
@@ -69,6 +69,8 @@ function parseCalendarList(xml, accountId, baseUrl) {
     let ctag         = null;
     let syncToken    = null;
     let supportsVEVENT = true;
+    let ownerHref    = null;
+    let shareAccess  = null;
 
     for (const ps of propstats) {
       const statusText = firstText(ps, 'status') || '';
@@ -92,6 +94,24 @@ function parseCalendarList(xml, accountId, baseUrl) {
 
       const st = firstText(prop, 'sync-token');
       if (st) syncToken = st;
+
+      const ownerEl = getByLocalName(prop, 'owner')[0];
+      if (ownerEl) {
+        ownerHref = firstText(ownerEl, 'href');
+      }
+
+      const shareAccessEl = getByLocalName(prop, 'share-access')[0];
+      if (shareAccessEl) {
+        if (getByLocalName(shareAccessEl, 'read-write').length > 0) {
+          shareAccess = 'read-write';
+        } else if (getByLocalName(shareAccessEl, 'read').length > 0) {
+          shareAccess = 'read';
+        } else if (getByLocalName(shareAccessEl, 'shared-owner').length > 0) {
+          shareAccess = 'shared-owner';
+        } else if (getByLocalName(shareAccessEl, 'not-shared').length > 0) {
+          shareAccess = 'not-shared';
+        }
+      }
 
       // Check supported-calendar-component-set
       const compSets = getByLocalName(prop, 'supported-calendar-component-set');
@@ -117,6 +137,21 @@ function parseCalendarList(xml, accountId, baseUrl) {
       ? href
       : resolveUrl(baseUrl, href);
 
+    let isShared = false;
+    let ownerName = null;
+    let readOnly = false;
+
+    if (ownerHref && username) {
+      const cleanOwnerHref = ownerHref.replace(/\/$/, '');
+      const segments = cleanOwnerHref.split('/');
+      const ownerUsername = segments[segments.length - 1];
+      if (ownerUsername && ownerUsername.toLowerCase() !== username.toLowerCase()) {
+        isShared = true;
+        ownerName = ownerUsername;
+        readOnly = (shareAccess !== 'read-write');
+      }
+    }
+
     calendars.push({
       id: `${accountId}::${href}`,
       accountId,
@@ -125,7 +160,10 @@ function parseCalendarList(xml, accountId, baseUrl) {
       name: displayName || 'Calendar',
       color: normaliseColor(color || ''),
       ctag,
-      syncToken
+      syncToken,
+      isShared,
+      owner: ownerName,
+      readOnly
     });
   }
 

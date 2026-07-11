@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
         });
 
         const calXml    = await client.getCalendars();
-        const calendars = parseCalendarList(calXml, account.id, account.url);
+        const calendars = parseCalendarList(calXml, account.id, account.url, account.username);
 
         await Promise.allSettled(
           calendars.map(async (cal) => {

@@ -169,32 +169,48 @@ function renderCalendarList() {
 
   list.innerHTML = cals.map(c => {
     const checked = !hidden.has(c.id);
-    return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${c.id}">
-        <div class="calendar-dot" style="background:${c.color}"></div>
-        <span class="calendar-name" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
-        <div class="cal-item-actions">
-          <button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link">
+    
+    const shareBtnHtml = c.isShared
+      ? ''
+      : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
               <polyline points="16 6 12 2 8 6"/>
               <line x1="12" y1="2" x2="12" y2="15"/>
             </svg>
-          </button>
-          <button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen">
+          </button>`;
+
+    const editBtnHtml = c.readOnly
+      ? ''
+      : `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
-          </button>
-          <button class="cal-action-btn cal-action-delete" data-delete-cal="${escHtml(c.id)}" title="Löschen">
+          </button>`;
+
+    const deleteBtnHtml = c.isShared
+      ? ''
+      : `<button class="cal-action-btn cal-action-delete" data-delete-cal="${escHtml(c.id)}" title="Löschen">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
               <path d="M10 11v6M14 11v6"/>
               <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
             </svg>
-          </button>
+          </button>`;
+
+    return `
+      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${c.id}">
+        <div class="calendar-dot" style="background:${c.color}"></div>
+        <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
+          <span class="calendar-name" style="flex: none;" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
+          ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">von ${escHtml(c.owner)}</span>` : ''}
+        </div>
+        <div class="cal-item-actions">
+          ${shareBtnHtml}
+          ${editBtnHtml}
+          ${deleteBtnHtml}
         </div>
         <div class="calendar-check" style="${checked ? 'background:' + c.color : ''}">
           <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
@@ -448,16 +464,24 @@ function openShareCalendarDialog(cal) {
       listContainer.innerHTML = shares.map(s => {
         const badgeClass = s.status === 'ACCEPTED' ? 'accepted' : s.status === 'DECLINED' ? 'declined' : 'pending';
         const badgeLabel = s.status === 'ACCEPTED' ? 'aktiv' : s.status === 'DECLINED' ? 'abgelehnt' : 'ausstehend';
-        const roleLabel = s.readWrite ? 'Schreiben' : 'Lesen';
+
+        let displayHref = s.href;
+        if (displayHref.startsWith('principal:')) {
+          const parts = displayHref.split('/');
+          displayHref = parts[parts.length - 1] || displayHref;
+        }
 
         return `
           <div class="share-user-item">
             <div class="share-user-info">
-              <span class="share-user-name">${escHtml(s.commonName || s.href)}</span>
-              <span class="share-user-email">${escHtml(s.href)}</span>
+              <span class="share-user-name">${escHtml(s.commonName || displayHref)}</span>
+              <span class="share-user-email">${escHtml(displayHref)}</span>
             </div>
             <div class="share-user-actions">
-              <span style="font-size:11px;color:var(--ink-muted);">${roleLabel}</span>
+              <select class="form-select share-role-toggle" data-href="${escHtml(s.href)}" style="font-size:11px; padding: 2px 20px 2px 4px; width: auto; height: auto; flex-shrink: 0; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background-color: transparent; color: var(--ink);">
+                <option value="false" ${!s.readWrite ? 'selected' : ''}>Lesen</option>
+                <option value="true" ${s.readWrite ? 'selected' : ''}>Schreiben</option>
+              </select>
               <span class="share-badge ${badgeClass}">${badgeLabel}</span>
               <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="Entfernen" style="padding:4px;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -468,6 +492,23 @@ function openShareCalendarDialog(cal) {
             </div>
           </div>`;
       }).join('');
+
+      listContainer.querySelectorAll('.share-role-toggle').forEach(select => {
+        select.addEventListener('change', async () => {
+          const href = select.dataset.href;
+          const readWrite = select.value === 'true';
+          try {
+            select.disabled = true;
+            await CalendarsAPI.addShare(cal.id, href, readWrite);
+            showToast('Freigaberechte aktualisiert.', 'success');
+            loadShares();
+          } catch (e) {
+            showToast('Rechte-Aktualisierung fehlgeschlagen: ' + e.message, 'error');
+            select.disabled = false;
+            select.value = (!readWrite).toString();
+          }
+        });
+      });
 
       listContainer.querySelectorAll('.btn-revoke-share').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -773,6 +814,12 @@ function showEventPopover(ev, mouseEvent) {
        </div>`
     : '';
 
+  const actionsHtml = cal.readOnly
+    ? `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Details</button>
+       <span style="font-size:11px;color:var(--danger);margin-left:auto;padding-right:8px;font-weight:600;">Schreibgeschützt</span>`
+    : `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Bearbeiten</button>
+       <button class="btn btn-ghost btn-sm btn-danger" id="popover-delete-btn">Löschen</button>`;
+
   popover.innerHTML = `
     <div class="popover-color-bar" style="background:${color}"></div>
     <div class="popover-title">${escHtml(ev.title)}</div>
@@ -788,8 +835,7 @@ function showEventPopover(ev, mouseEvent) {
       ${attHtml}
     </div>
     <div class="popover-actions">
-      <button class="btn btn-ghost btn-sm" id="popover-edit-btn">Bearbeiten</button>
-      <button class="btn btn-ghost btn-sm btn-danger" id="popover-delete-btn">Löschen</button>
+      ${actionsHtml}
     </div>`;
 
   // Position near mouse

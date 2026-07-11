@@ -321,9 +321,10 @@ class CalDAVClient {
   /** Retrieve current share invitations of a calendar. */
   async getCalendarShares(calendarUrl) {
     const body = `<?xml version="1.0" encoding="utf-8"?>
-<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
+<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:o="http://owncloud.org/ns">
   <d:prop>
     <cs:invite/>
+    <o:invite/>
   </d:prop>
 </d:propfind>`;
 
@@ -337,6 +338,17 @@ class CalDAVClient {
     }
 
     const text = await res.text();
+    
+    // Cache sharing type based on response property namespace
+    if (!this._sharingTypes) {
+      this._sharingTypes = {};
+    }
+    if (text.includes('xmlns:oc="http://owncloud.org/ns"') || text.includes('xmlns:o="http://owncloud.org/ns"') || text.includes('oc:invite') || text.includes('o:invite')) {
+      this._sharingTypes[calendarUrl] = 'owncloud';
+    } else {
+      this._sharingTypes[calendarUrl] = 'standard';
+    }
+
     const userBlocks = text.match(/<([^:>]*:)?user[^>]*>([\s\S]*?)<\/([^:>]*:)?user>/gi) || [];
     const shares = [];
 
@@ -349,7 +361,7 @@ class CalDAVClient {
     for (const block of userBlocks) {
       let href = extractTagValue(block, 'href') || '';
       if (href.startsWith('mailto:')) href = href.slice(7);
-      const commonName = extractTagValue(block, 'commonname') || '';
+      const commonName = extractTagValue(block, 'common-name') || extractTagValue(block, 'commonname') || '';
       
       const accessBlock = extractTagValue(block, 'access') || '';
       const readWrite = accessBlock.includes('read-write');
@@ -364,42 +376,136 @@ class CalDAVClient {
     return shares;
   }
 
-  /** Add or remove a share invitation. */
-  async updateCalendarShares(calendarUrl, { href, readWrite, remove = false }) {
-    let targetHref = href;
-    if (!targetHref.startsWith('mailto:') && !targetHref.startsWith('http://') && !targetHref.startsWith('https://') && targetHref.includes('@')) {
-      targetHref = 'mailto:' + targetHref;
+  async _detectSharingType(calendarUrl) {
+    if (this._sharingTypes && this._sharingTypes[calendarUrl]) {
+      return this._sharingTypes[calendarUrl];
+    }
+    if (!this._sharingTypes) {
+      this._sharingTypes = {};
     }
 
-    let xml = `<?xml version="1.0" encoding="utf-8"?>
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:o="http://owncloud.org/ns">
+  <d:prop>
+    <cs:invite/>
+    <o:invite/>
+  </d:prop>
+</d:propfind>`;
+
+    try {
+      const res = await this._request('PROPFIND', calendarUrl, {
+        body,
+        headers: { Depth: '0' }
+      });
+      if (res.ok || res.status === 207) {
+        const text = await res.text();
+        if (text.includes('xmlns:oc="http://owncloud.org/ns"') || text.includes('xmlns:o="http://owncloud.org/ns"') || text.includes('oc:invite') || text.includes('o:invite')) {
+          this._sharingTypes[calendarUrl] = 'owncloud';
+          return 'owncloud';
+        }
+      }
+    } catch (e) {
+      console.error('[detectSharingType] Failed to detect sharing type:', e);
+    }
+    
+    this._sharingTypes[calendarUrl] = 'standard';
+    return 'standard';
+  }
+
+  async resolveNextcloudPrincipal(href) {
+    if (href.startsWith('principal:')) {
+      return href.replace(/\/$/, '');
+    }
+    if (href.includes('principals/')) {
+      const match = href.match(/principals\/(users|groups|circles)\/[^/]+/);
+      if (match) {
+        return 'principal:' + match[0];
+      }
+    }
+    if (href.includes('@')) {
+      const email = href.startsWith('mailto:') ? href.slice(7) : href;
+      const matchedUsers = await this.searchUsers(email);
+      const user = matchedUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (user && user.href) {
+        const match = user.href.match(/principals\/(users|groups|circles)\/[^/]+/);
+        if (match) {
+          return 'principal:' + match[0];
+        }
+      }
+    }
+    return 'principal:principals/users/' + href;
+  }
+
+  /** Add or remove a share invitation. */
+  async updateCalendarShares(calendarUrl, { href, readWrite, remove = false }) {
+    const type = await this._detectSharingType(calendarUrl);
+    
+    if (type === 'owncloud') {
+      const resolvedHref = await this.resolveNextcloudPrincipal(href);
+      let xml = `<?xml version="1.0" encoding="utf-8"?>
+<o:share xmlns:o="http://owncloud.org/ns" xmlns:d="DAV:">`;
+
+      if (remove) {
+        xml += `
+  <o:remove>
+    <d:href>${resolvedHref}</d:href>
+  </o:remove>`;
+      } else {
+        xml += `
+  <o:set>
+    <d:href>${resolvedHref}</d:href>
+    ${readWrite ? '<o:read-write/>' : ''}
+  </o:set>`;
+      }
+      xml += `
+</o:share>`;
+
+      const res = await this._request('POST', calendarUrl, {
+        body: xml,
+        headers: { 'Content-Type': 'application/xml; charset=utf-8' }
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Failed to update shares: ${res.status} ${txt.slice(0, 200)}`);
+      }
+      return true;
+    } else {
+      let targetHref = href;
+      if (!targetHref.startsWith('mailto:') && !targetHref.startsWith('http://') && !targetHref.startsWith('https://') && targetHref.includes('@')) {
+        targetHref = 'mailto:' + targetHref;
+      }
+
+      let xml = `<?xml version="1.0" encoding="utf-8"?>
 <cs:share xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">`;
 
-    if (remove) {
-      xml += `
+      if (remove) {
+        xml += `
   <cs:remove>
     <d:href>${targetHref}</d:href>
   </cs:remove>`;
-    } else {
-      xml += `
+      } else {
+        xml += `
   <cs:set>
     <d:href>${targetHref}</d:href>
     ${readWrite ? '<cs:read-write/>' : '<cs:read/>'}
   </cs:set>`;
-    }
+      }
 
-    xml += `
+      xml += `
 </cs:share>`;
 
-    const res = await this._request('POST', calendarUrl, {
-      body: xml
-    });
+      const res = await this._request('POST', calendarUrl, {
+        body: xml,
+        headers: { 'Content-Type': 'application/xml; charset=utf-8' }
+      });
 
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`Failed to update shares: ${res.status} ${txt.slice(0, 200)}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Failed to update shares: ${res.status} ${txt.slice(0, 200)}`);
+      }
+      return true;
     }
-
-    return true;
   }
 
   /** Search for other server principals by displayname or email. */
