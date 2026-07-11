@@ -18,4 +18,4 @@ COPY config /etc/radicale/config
 EXPOSE 5232
 
 # Run Radicale
-CMD ["radicale", "--config", "/etc/radicale/config"]
+CMD ["radicale", "--config", "/etc/radicale/config", "--debug"]
