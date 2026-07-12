@@ -325,9 +325,7 @@ router.post('/', async (req, res) => {
 
     await client.mkcalendar(calendarUrl, name, color || '#7c3aed');
 
-    if (req.session.userId) {
-      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-    }
+    queueSyncForCalendar(calendarUrl, req.session.userId);
 
     res.status(201).json({
       message: 'Calendar created',
@@ -389,9 +387,7 @@ router.patch('/:id', async (req, res) => {
       throw new Error(`PROPPATCH ${patchRes.status}: ${text.slice(0, 200) || patchRes.statusText}`);
     }
 
-    if (req.session.userId) {
-      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-    }
+    queueSyncForCalendar(calendarId, req.session.userId);
 
     res.json({ message: 'Calendar updated', calendarId, name, color });
   } catch (err) {
@@ -413,9 +409,7 @@ router.delete('/:id', async (req, res) => {
       throw new Error(`DELETE ${delRes.status}: ${text.slice(0, 200) || delRes.statusText}`);
     }
 
-    if (req.session.userId) {
-      Db.addSyncJob(req.session.userId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-    }
+    queueSyncForCalendar(calendarId, req.session.userId);
 
     res.json({ message: 'Calendar deleted', calendarId });
   } catch (err) {
@@ -672,6 +666,29 @@ router.delete('/:id/shares-public/:token', async (req, res) => {
 
 function escXML(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function queueSyncForCalendar(calendarId, fallbackUserId) {
+  try {
+    const parts = calendarId.split('::');
+    const calendarHref = parts[1] || parts[0];
+    if (calendarHref) {
+      const segments = calendarHref.split('/').filter(Boolean);
+      const ownerUserId = segments.find(s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s));
+      if (ownerUserId) {
+        Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+        if (fallbackUserId && fallbackUserId !== ownerUserId) {
+          Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    console.error('[sync] Error parsing calendar owner for sync:', e.message);
+  }
+  if (fallbackUserId) {
+    Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+  }
 }
 
 module.exports = {
