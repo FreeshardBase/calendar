@@ -459,9 +459,9 @@ router.get('/search-users', async (req, res) => {
 router.get('/:id/shares', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const { accountId } = await resolveCalendar(req, calendarId);
+    const { account } = await resolveCalendar(req, calendarId);
 
-    if (accountId === 'internal-caldav') {
+    if (account?.id === 'internal-caldav') {
       const shares = await Db.getUserShares(calendarId);
       return res.json({ shares });
     }
@@ -484,9 +484,9 @@ router.post('/:id/shares', async (req, res) => {
     const { sharee, readWrite } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee is required' });
 
-    const { accountId } = await resolveCalendar(req, calendarId);
+    const { account } = await resolveCalendar(req, calendarId);
 
-    if (accountId === 'internal-caldav') {
+    if (account?.id === 'internal-caldav') {
       const shareeUserId = sharee.replace(/\//g, '');
       await Db.addUserShare(calendarId, shareeUserId, !!readWrite);
       return res.json({ message: 'Share invite sent.' });
@@ -510,9 +510,9 @@ router.delete('/:id/shares', async (req, res) => {
     const { sharee } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee parameter is required in request body' });
 
-    const { accountId } = await resolveCalendar(req, calendarId);
+    const { account } = await resolveCalendar(req, calendarId);
 
-    if (accountId === 'internal-caldav') {
+    if (account?.id === 'internal-caldav') {
       const shareeUserId = sharee.replace(/\//g, '');
       await Db.removeUserShare(calendarId, shareeUserId);
       return res.json({ message: 'Share removed.' });

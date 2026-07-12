@@ -1,42 +1,40 @@
 from radicale.rights import BaseRights
+from radicale import pathutils
 import sqlite3
 import os
 
 class Rights(BaseRights):
-    def authorized(self, user, path, permission):
-        # If not authenticated, deny access
+    def authorization(self, user, path):
+        # Verify authenticated user
         if not user:
-            return False
+            return ""
 
-        # Normalize requested path (strip leading/trailing slashes)
-        clean_path = path.strip("/")
+        sane_path = pathutils.strip_path(path)
         
-        # Allow authenticated users access to the root/discovery endpoints
-        if not clean_path or clean_path.startswith(".well-known"):
-            return True
+        # If accessing the root path, allow read-only (so principal discovery works)
+        if not sane_path:
+            return "R"
 
-        # Split path segments
-        segments = clean_path.split("/")
+        segments = sane_path.split("/")
         owner_id = segments[0]
 
-        # 1. If the logged-in user is the owner, allow all access (read/write)
+        # 1. Owner always gets full permissions
         if user.lower() == owner_id.lower():
-            return True
+            if len(segments) == 1:
+                return "RW"
+            return "rw"
 
-        # 2. Otherwise, check if this is a shared calendar request
-        # The path must look like "ownerId/calendarSlug" or "ownerId/calendarSlug/item.ics"
+        # 2. Accessing someone else's space
         if len(segments) < 2:
-            return False
+            # Can't read/write someone else's principal root directly
+            return ""
 
         calendar_slug = segments[1]
-        # Construct the full calendar ID that matches the database format:
-        # "internal-caldav::/ownerId/calendarSlug/"
         calendar_id = f"internal-caldav::/{owner_id}/{calendar_slug}/"
 
-        # Check SQLite database for share permissions
         db_path = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
         if not os.path.exists(db_path):
-            return False
+            return ""
 
         try:
             conn = sqlite3.connect(db_path)
@@ -49,12 +47,9 @@ class Rights(BaseRights):
             conn.close()
 
             if row is not None:
-                has_write_permission = bool(row[0])
-                if permission == "r":
-                    return True
-                elif permission == "w":
-                    return has_write_permission
+                has_write = bool(row[0])
+                return "rw" if has_write else "r"
 
-            return False
+            return ""
         except Exception:
-            return False
+            return ""
