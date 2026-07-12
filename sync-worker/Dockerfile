@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install vdirsyncer and cryptography library
-RUN pip install --no-cache-dir vdirsyncer cryptography
+# Install vdirsyncer with google support and cryptography library
+RUN pip install --no-cache-dir "vdirsyncer[google]" cryptography
 
 # Copy sync worker script
 WORKDIR /app

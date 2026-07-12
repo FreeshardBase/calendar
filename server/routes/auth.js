@@ -60,7 +60,17 @@ router.get('/callback', async (req, res) => {
 
     const claims = tokenSet.claims();
     const userId = claims.sub; // Authelia unique user subject
-    const username = claims.preferred_username || claims.username || userId;
+    let username = claims.preferred_username || claims.username || userId;
+
+    // Fetch userinfo if preferred_username is missing from the ID Token claims (typical for Authelia default policy)
+    if (username === userId && tokenSet.access_token) {
+      try {
+        const userinfo = await client.userinfo(tokenSet.access_token);
+        username = userinfo.preferred_username || userinfo.username || userinfo.sub || username;
+      } catch (uiErr) {
+        console.warn('[OIDC callback] Failed to fetch UserInfo claims:', uiErr.message);
+      }
+    }
 
     // Persist login to Express session
     req.session.userId = userId;

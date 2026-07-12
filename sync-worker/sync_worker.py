@@ -121,31 +121,60 @@ status_path = "{status_dir}"
         storage_google = f"google_{idx}"
         storage_local = f"local_{idx}"
 
-        google_url = acc["url"]
-        
-        # Local CalDAV URL in Radicale for this user
-        # Note: Radicale stores user collections under /remote.php/dav/calendars/username/ or simply /username/
-        # Since Radicale is configure as standard CalDAV, the calendar home-set is under http://caldav-server:5232/user_id/
+        # Write the token file for vdirsyncer google_calendar storage
+        token_file_path = f"/tmp/google_token_{user_id}_{idx}.json"
+        token_data = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "expires_at": expires_at / 1000.0 if expires_at else time.time() + 3600
+        }
+        try:
+            with open(token_file_path, "w") as tf:
+                json.dump(token_data, tf)
+            updated_accounts.append(token_file_path)
+        except Exception as write_err:
+            conn.close()
+            return False, f"Failed to write Google token file: {str(write_err)}"
+
+        # Determine SSL verification for local CalDAV server
+        cert_path = "/etc/ssl/certs/local/cert.pem"
+        fingerprint = None
+        if os.path.exists(cert_path):
+            try:
+                from cryptography import x509
+                from cryptography.hazmat.backends import default_backend
+                from cryptography.hazmat.primitives import hashes
+                with open(cert_path, "rb") as cf:
+                    cert_data = cf.read()
+                cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+                fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+            except Exception as fe:
+                print(f"[Sync-Worker] Error reading certificate fingerprint: {fe}")
+
+        verify_line = f'verify_fingerprint = "{fingerprint}"' if fingerprint else ""
+
         local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 
         config_content += f"""
 [pair {pair_name}]
 a = "{storage_google}"
 b = "{storage_local}"
-collections = ["from a", "from b"]
+collections = ["from a"]
 
 [storage {storage_google}]
-type = "caldav"
-url = "{google_url}"
-auth = "bearer"
-token = "{access_token}"
+type = "google_calendar"
+token_file = "{token_file_path}"
+client_id = "{GOOGLE_CLIENT_ID}"
+client_secret = "{GOOGLE_CLIENT_SECRET}"
 
 [storage {storage_local}]
 type = "caldav"
 url = "{local_url}"
 username = "{user_id}"
 password = "{SYSTEM_SYNC_SECRET}"
-verify = false
+{verify_line}
 """
 
     conn.close()
@@ -159,6 +188,7 @@ verify = false
         print(f"[Sync-Worker] Running discover for user {user_id}...")
         disc_res = subprocess.run(
             ["vdirsyncer", "-c", config_path, "discover"],
+            input="y\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\n",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
@@ -183,6 +213,9 @@ verify = false
     finally:
         if os.path.exists(config_path):
             os.remove(config_path)
+        for tf_path in updated_accounts:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
 
 def main():
     print("[Sync-Worker] Daemon started. Monitoring sqlite sync queue...")
