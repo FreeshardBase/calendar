@@ -492,7 +492,7 @@ function openShareCalendarDialog(cal) {
           }
 
           autocompleteDropdown.innerHTML = users.map(u => `
-            <div class="autocomplete-item" data-value="${escHtml(u.email || u.href)}">
+            <div class="autocomplete-item" data-value="${escHtml(u.href || u.email)}">
               <strong>${escHtml(u.displayname)}</strong> (${escHtml(u.email || u.href)})
             </div>
           `).join('');

@@ -470,6 +470,15 @@ const Db = {
         resolve(row.username);
       });
     });
+  },
+
+  getUserIdByUsername(username) {
+    return new Promise((resolve) => {
+      db.get('SELECT user_id FROM users WHERE username = ?', [username], (err, row) => {
+        if (err || !row) return resolve(null);
+        resolve(row.user_id);
+      });
+    });
   }
 };
 

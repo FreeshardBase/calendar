@@ -487,7 +487,16 @@ router.post('/:id/shares', async (req, res) => {
     const { account } = await resolveCalendar(req, calendarId);
 
     if (account?.id === 'internal-caldav') {
-      const shareeUserId = sharee.replace(/\//g, '');
+      let shareeUserId = sharee.replace(/\//g, '');
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(shareeUserId)) {
+        const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
+        if (resolvedUserId) {
+          shareeUserId = resolvedUserId;
+        } else {
+          return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
+        }
+      }
       await Db.addUserShare(calendarId, shareeUserId, !!readWrite);
       return res.json({ message: 'Share invite sent.' });
     }
@@ -513,7 +522,16 @@ router.delete('/:id/shares', async (req, res) => {
     const { account } = await resolveCalendar(req, calendarId);
 
     if (account?.id === 'internal-caldav') {
-      const shareeUserId = sharee.replace(/\//g, '');
+      let shareeUserId = sharee.replace(/\//g, '');
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(shareeUserId)) {
+        const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
+        if (resolvedUserId) {
+          shareeUserId = resolvedUserId;
+        } else {
+          return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
+        }
+      }
       await Db.removeUserShare(calendarId, shareeUserId);
       return res.json({ message: 'Share removed.' });
     }
