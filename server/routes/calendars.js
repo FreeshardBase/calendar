@@ -220,6 +220,61 @@ router.get('/', async (req, res) => {
     });
   });
 
+  // Fetch shared calendars for the logged-in user
+  const userId = req.session.userId;
+  const internalAccount = accounts.find(a => a.id === 'internal-caldav');
+  if (userId && internalAccount) {
+    try {
+      const sharedCals = await Db.getSharedCalendarsForUser(userId);
+      if (sharedCals.length > 0) {
+        const client = await getClientForAccount(internalAccount);
+        await Promise.allSettled(
+          sharedCals.map(async (share) => {
+            try {
+              const parts = share.calendar_id.split('::');
+              const calendarHref = parts[1];
+              
+              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+              const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
+              
+              const xmlRes = await client._request('PROPFIND', calendarUrl, {
+                body: `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:displayname/>
+    <c:calendar-color/>
+    <d:resourcetype/>
+  </d:prop>
+</d:propfind>`,
+                headers: { Depth: '0' }
+              });
+              
+              if (xmlRes.ok || xmlRes.status === 207) {
+                const xml = await xmlRes.text();
+                const parsed = parseCalendarList(xml, 'internal-caldav', calendarUrl, internalAccount.username);
+                if (parsed.length > 0) {
+                  const cal = parsed[0];
+                  cal.id = share.calendar_id;
+                  cal.readOnly = !share.read_write;
+                  cal.isShared = true;
+                  
+                  const ownerUuid = calendarHref.split('/').filter(Boolean)[0];
+                  cal.owner = await Db.getUsernameByUserId(ownerUuid);
+                  
+                  allCalendars.push(cal);
+                }
+              }
+            } catch (shareErr) {
+              console.error(`[calendars GET] Failed to load shared calendar ${share.calendar_id}:`, shareErr.message);
+            }
+          })
+        );
+      }
+    } catch (dbErr) {
+      console.error('[calendars GET] Failed to fetch shares from DB:', dbErr.message);
+    }
+  }
+
   // Post-process returned calendars to sanitize names and tag sources
   for (const cal of allCalendars) {
     const segments = cal.href.replace(/\/$/, '').split('/');
@@ -404,6 +459,13 @@ router.get('/search-users', async (req, res) => {
 router.get('/:id/shares', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const { accountId } = await resolveCalendar(req, calendarId);
+
+    if (accountId === 'internal-caldav') {
+      const shares = await Db.getUserShares(calendarId);
+      return res.json({ shares });
+    }
+
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
@@ -422,6 +484,14 @@ router.post('/:id/shares', async (req, res) => {
     const { sharee, readWrite } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee is required' });
 
+    const { accountId } = await resolveCalendar(req, calendarId);
+
+    if (accountId === 'internal-caldav') {
+      const shareeUserId = sharee.replace(/\//g, '');
+      await Db.addUserShare(calendarId, shareeUserId, !!readWrite);
+      return res.json({ message: 'Share invite sent.' });
+    }
+
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
@@ -439,6 +509,14 @@ router.delete('/:id/shares', async (req, res) => {
     const calendarId = decodeURIComponent(req.params.id);
     const { sharee } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee parameter is required in request body' });
+
+    const { accountId } = await resolveCalendar(req, calendarId);
+
+    if (accountId === 'internal-caldav') {
+      const shareeUserId = sharee.replace(/\//g, '');
+      await Db.removeUserShare(calendarId, shareeUserId);
+      return res.json({ message: 'Share removed.' });
+    }
 
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });

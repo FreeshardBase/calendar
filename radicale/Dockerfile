@@ -7,8 +7,9 @@ RUN pip install --no-cache-dir radicale
 WORKDIR /app
 COPY setup.py /app/setup.py
 COPY radicale_custom_auth.py /app/radicale_custom_auth.py
+COPY radicale_custom_rights.py /app/radicale_custom_rights.py
 
-# Install the custom auth plugin
+# Install the custom auth and rights plugins
 RUN pip install --no-cache-dir /app
 
 # Copy configuration

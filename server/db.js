@@ -65,6 +65,16 @@ db.serialize(() => {
       username TEXT UNIQUE NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_calendar_shares (
+      id TEXT PRIMARY KEY,
+      calendar_id TEXT NOT NULL,
+      sharee_user_id TEXT NOT NULL,
+      read_write INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      UNIQUE(calendar_id, sharee_user_id)
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -387,6 +397,78 @@ const Db = {
           })));
         }
       );
+    });
+  },
+
+  getUserShares(calendarId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT s.sharee_user_id, s.read_write, u.username
+         FROM user_calendar_shares s
+         LEFT JOIN users u ON s.sharee_user_id = u.user_id
+         WHERE s.calendar_id = ?`,
+        [calendarId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(row => ({
+            href: `/${row.sharee_user_id}/`,
+            commonName: row.username || row.sharee_user_id,
+            readWrite: !!row.read_write,
+            status: 'ACCEPTED'
+          })));
+        }
+      );
+    });
+  },
+
+  addUserShare(calendarId, shareeUserId, readWrite) {
+    return new Promise((resolve, reject) => {
+      const id = uuidv4();
+      const now = Date.now();
+      db.run(
+        `INSERT OR REPLACE INTO user_calendar_shares (id, calendar_id, sharee_user_id, read_write, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, calendarId, shareeUserId, readWrite ? 1 : 0, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  removeUserShare(calendarId, shareeUserId) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM user_calendar_shares WHERE calendar_id = ? AND sharee_user_id = ?`,
+        [calendarId, shareeUserId],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  getSharedCalendarsForUser(shareeUserId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT calendar_id, read_write FROM user_calendar_shares WHERE sharee_user_id = ?`,
+        [shareeUserId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows);
+        }
+      );
+    });
+  },
+
+  getUsernameByUserId(userId) {
+    return new Promise((resolve) => {
+      db.get('SELECT username FROM users WHERE user_id = ?', [userId], (err, row) => {
+        if (err || !row) return resolve(userId);
+        resolve(row.username);
+      });
     });
   }
 };

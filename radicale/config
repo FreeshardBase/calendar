@@ -8,7 +8,7 @@ key = /etc/radicale/ssl/key.pem
 type = radicale_custom_auth
 
 [rights]
-type = owner_only
+type = custom
 
 [storage]
 type = multifilesystem
