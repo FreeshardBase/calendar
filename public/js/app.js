@@ -485,7 +485,7 @@ function openShareCalendarDialog(cal) {
 
       searchTimeout = setTimeout(async () => {
         try {
-          const users = await CalendarsAPI.searchUsers(q, accountId);
+          const users = await CalendarsAPI.searchUsers(q, cal.accountId);
           if (users.length === 0) {
             autocompleteDropdown.classList.add('hidden');
             return;
