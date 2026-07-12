@@ -26,8 +26,12 @@ router.get('/', async (req, res) => {
     const accounts = req.session.accounts || [];
     const allEvents = [];
 
+    // Only query events from local/non-oauth accounts to avoid duplication,
+    // since oauth2 accounts are synced in the background.
+    const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
+
     await Promise.allSettled(
-      accounts.map(async (account) => {
+      activeAccounts.map(async (account) => {
         const client = await getClientForAccount(account);
 
         const calXml    = await client.getCalendars();
