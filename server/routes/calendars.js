@@ -9,6 +9,16 @@ const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList } = require('../caldav/parser');
 const Db = require('../db');
 
+function slugify(name) {
+  if (!name) return '';
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
 // Load/Generate Secret Key for Link Encryption
 let secretKey;
 const keyPath = process.env.DATABASE_PATH
@@ -171,6 +181,7 @@ router.get('/', async (req, res) => {
   const accounts = req.session.accounts || [];
   const allCalendars = [];
   const errors = [];
+  const googleSlugs = new Set();
 
   await Promise.allSettled(
     accounts.map(async (account) => {
@@ -178,9 +189,12 @@ router.get('/', async (req, res) => {
 
       const xml = await client.getCalendars();
       const calendars = parseCalendarList(xml, account.id, account.url, account.username);
-      // Only display calendars from local/non-oauth accounts to avoid duplication,
-      // since oauth2 accounts are synced in the background to local Radicale.
-      if (account.authType !== 'oauth2') {
+      
+      if (account.authType === 'oauth2') {
+        for (const cal of calendars) {
+          googleSlugs.add(slugify(cal.name));
+        }
+      } else {
         allCalendars.push(...calendars);
       }
     })
@@ -192,6 +206,31 @@ router.get('/', async (req, res) => {
       }
     });
   });
+
+  // Post-process returned calendars to sanitize names and tag sources
+  for (const cal of allCalendars) {
+    const segments = cal.href.replace(/\/$/, '').split('/');
+    const collectionName = segments[segments.length - 1];
+
+    const isGoogle = googleSlugs.has(collectionName) ||
+                     collectionName.startsWith('google-') ||
+                     collectionName.startsWith('feiertage-') ||
+                     collectionName.startsWith('family-') ||
+                     collectionName === 'family' ||
+                     collectionName === 'feiertage-in-deutschland';
+
+    cal.source = isGoogle ? 'google' : 'local';
+
+    // Strip UUID prefix if present in the display name
+    if (cal.name.includes('/')) {
+      const parts = cal.name.split('/');
+      cal.name = parts[parts.length - 1];
+    }
+    // Strip trailing "(Google)" if present
+    cal.name = cal.name.replace(/ \(Google\)$/, '');
+  }
+
+  console.log('[calendars route] Returning calendars:', allCalendars.map(c => `${c.accountId}::${c.name} (${c.source})`));
 
   res.json({ calendars: allCalendars, errors });
 });

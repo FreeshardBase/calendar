@@ -160,6 +160,10 @@ app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) =>
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────────
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
 app.use('/api/auth',              authRouter);
 app.use('/api/public/calendars', publicRouter);
 app.use('/api/accounts',          accountsRouter);
