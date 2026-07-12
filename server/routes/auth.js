@@ -66,6 +66,9 @@ router.get('/callback', async (req, res) => {
     req.session.userId = userId;
     req.session.username = username;
 
+    // Register mapping in database
+    await Db.upsertUser(userId, username);
+
     console.log(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
     res.redirect('/');
   } catch (err) {

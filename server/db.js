@@ -59,6 +59,12 @@ db.serialize(() => {
       updated_at INTEGER NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      user_id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -351,6 +357,19 @@ const Db = {
           }
         );
       });
+    });
+  },
+
+  upsertUser(userId, username) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        'INSERT OR REPLACE INTO users (user_id, username) VALUES (?, ?)',
+        [userId, username],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
     });
   }
 };
