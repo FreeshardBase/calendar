@@ -8,6 +8,7 @@ import subprocess
 import urllib.request
 import urllib.parse
 import json
+import xml.etree.ElementTree as ET
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -60,6 +61,64 @@ def refresh_google_token(refresh_token):
         # Access token and seconds until expiration
         return res_data["access_token"], int(time.time() + res_data.get("expires_in", 3600))
 
+def discover_google_collections(google_url, access_token):
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Depth": "1",
+        "Content-Type": "application/xml"
+    }
+    # PROPFIND body requesting displayname
+    body = """<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop>
+    <d:displayname />
+  </d:prop>
+</d:propfind>"""
+    
+    req = urllib.request.Request(
+        google_url,
+        data=body.encode("utf-8"),
+        headers=headers,
+        method="PROPFIND"
+    )
+    
+    try:
+        import ssl
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx) as res:
+            xml_str = res.read().decode("utf-8")
+            
+        collections = []
+        root = ET.fromstring(xml_str)
+        for resp in root.findall('.//{*}response'):
+            href_el = resp.find('{*}href')
+            if href_el is None or not href_el.text:
+                continue
+            href = href_el.text
+            
+            # Google CalDAV collections end with /events/
+            if not href.endswith('/events/'):
+                continue
+                
+            displayname = ""
+            disp_el = resp.find('.//{*}displayname')
+            if disp_el is not None and disp_el.text:
+                displayname = disp_el.text
+                
+            parts = href.split('/caldav/v2/')
+            if len(parts) > 1:
+                subparts = parts[1].split('/events/')
+                if subparts:
+                    cal_id = urllib.parse.unquote(subparts[0])
+                    collections.append({
+                        "id": cal_id,
+                        "name": displayname or cal_id
+                    })
+        return collections
+    except Exception as e:
+        print(f"[Sync-Worker] Error discovering collections via PROPFIND: {e}")
+        return []
+
 def sync_user(user_id):
     print(f"[Sync-Worker] Sync starting for user {user_id}...")
     conn = sqlite3.connect(DB_PATH)
@@ -101,7 +160,7 @@ status_path = "{status_dir}"
         access_token = acc["access_token"]
         expires_at = acc["expires_at"]
         
-        if not access_token or not expires_at or expires_at < time.time() + 300:
+        if not access_token or not expires_at or expires_at / 1000.0 < time.time() + 300:
             print(f"[Sync-Worker] Refreshing Google token for account {acc['username']}...")
             try:
                 access_token, new_expires = refresh_google_token(refresh_token)
@@ -138,6 +197,42 @@ status_path = "{status_dir}"
             conn.close()
             return False, f"Failed to write Google token file: {str(write_err)}"
 
+        # Discover Google collections to create friendly mapped slugs
+        google_collections = discover_google_collections(acc["url"], access_token)
+        collections_mapped = []
+        if google_collections:
+            for col in google_collections:
+                google_id = col["id"]
+                friendly_name = col["name"]
+                
+                # Slugify the display name
+                import re
+                import unicodedata
+                slug = unicodedata.normalize('NFKD', friendly_name).encode('ascii', 'ignore').decode('ascii')
+                slug = slug.lower()
+                slug = re.sub(r'[^a-z0-9]+', '-', slug)
+                slug = slug.strip('-')
+                
+                if not slug:
+                    slug = "calendar"
+                
+                # Deduplicate slugs
+                base_slug = slug
+                collision_idx = 1
+                while any(c[1] == slug for c in collections_mapped):
+                    slug = f"{base_slug}-{collision_idx}"
+                    collision_idx += 1
+                    
+                collections_mapped.append([google_id, slug])
+
+        if collections_mapped:
+            items = []
+            for item in collections_mapped:
+                items.append(f'["{item[1]}", "{item[0]}", "{item[1]}"]')
+            collections_toml = f"collections = [{', '.join(items)}]"
+        else:
+            collections_toml = 'collections = ["from a"]'
+
         # Determine SSL verification for local CalDAV server
         cert_path = "/etc/ssl/certs/local/cert.pem"
         fingerprint = None
@@ -161,7 +256,7 @@ status_path = "{status_dir}"
 [pair {pair_name}]
 a = "{storage_google}"
 b = "{storage_local}"
-collections = ["from a"]
+{collections_toml}
 
 [storage {storage_google}]
 type = "google_calendar"
