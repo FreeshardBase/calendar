@@ -371,6 +371,23 @@ const Db = {
         }
       );
     });
+  },
+
+  searchUsers(query) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        'SELECT user_id, username FROM users WHERE username LIKE ? LIMIT 10',
+        [`%${query}%`],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(row => ({
+            displayname: row.username,
+            email: row.username,
+            href: `/${row.user_id}/`
+          })));
+        }
+      );
+    });
   }
 };
 

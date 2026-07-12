@@ -383,10 +383,16 @@ router.get('/search-users', async (req, res) => {
       return res.status(404).json({ error: 'Account not found' });
     }
 
+    if (account.id === 'internal-caldav') {
+      const users = await Db.searchUsers(q);
+      console.log('[search-users] Local database results:', users);
+      return res.json(users);
+    }
+
     const client = await getClientForAccount(account);
 
     const users = await client.searchUsers(q);
-    console.log('[search-users] Results found:', users);
+    console.log('[search-users] CalDAV results found:', users);
     res.json(users);
   } catch (err) {
     console.error('[search-users ERROR]', err.message);
