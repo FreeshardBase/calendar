@@ -188,7 +188,20 @@ router.get('/', async (req, res) => {
       const client = await getClientForAccount(account);
 
       const xml = await client.getCalendars();
-      const calendars = parseCalendarList(xml, account.id, account.url, account.username);
+      let calendars = parseCalendarList(xml, account.id, account.url, account.username);
+      
+      // Auto-create default calendar for new users on internal-caldav
+      if (account.id === 'internal-caldav' && calendars.length === 0) {
+        console.log(`[calendars] Creating default calendar 'personal' for user: ${account.username}`);
+        try {
+          const defaultCalUrl = account.url.replace(/\/+$/, '') + '/personal/';
+          await client.mkcalendar(defaultCalUrl, 'Persönlich', '#7c3aed');
+          const newXml = await client.getCalendars();
+          calendars = parseCalendarList(newXml, account.id, account.url, account.username);
+        } catch (createErr) {
+          console.error('[calendars] Failed to create default calendar:', createErr.message);
+        }
+      }
       
       if (account.authType === 'oauth2') {
         for (const cal of calendars) {
