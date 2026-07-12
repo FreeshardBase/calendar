@@ -196,6 +196,14 @@ router.get('/google/callback', async (req, res) => {
       displayName: `Google Kalender (${name})`
     });
 
+    // Enqueue a sync job immediately to download calendars and events
+    try {
+      await Db.addSyncJob(userId);
+      console.log(`[Google OAuth callback] Enqueued sync job for user ${userId}`);
+    } catch (syncErr) {
+      console.error(`[Google OAuth callback] Failed to enqueue sync job:`, syncErr.message);
+    }
+
     console.log(`[Google OAuth callback] Google-Konto erfolgreich verknüpft: ${email} für User ${userId}`);
 
     // Return popup close message

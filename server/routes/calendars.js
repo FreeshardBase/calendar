@@ -178,7 +178,11 @@ router.get('/', async (req, res) => {
 
       const xml = await client.getCalendars();
       const calendars = parseCalendarList(xml, account.id, account.url, account.username);
-      allCalendars.push(...calendars);
+      // Only display calendars from local/non-oauth accounts to avoid duplication,
+      // since oauth2 accounts are synced in the background to local Radicale.
+      if (account.authType !== 'oauth2') {
+        allCalendars.push(...calendars);
+      }
     })
   ).then(results => {
     results.forEach((r, i) => {

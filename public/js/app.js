@@ -69,7 +69,10 @@ async function loadCalendars() {
   store.set({ loadingCalendars: true });
   try {
     const res = await CalendarsAPI.list();
-    store.set({ calendars: res.calendars || [] });
+    store.set({ 
+      calendars: res.calendars || [],
+      accountErrors: res.errors || []
+    });
     if (res.errors?.length) {
       res.errors.forEach(e => console.warn('[calendar load error]', e));
     }
@@ -78,6 +81,7 @@ async function loadCalendars() {
   } finally {
     store.set({ loadingCalendars: false });
     renderCalendarList();
+    renderSettingsAccounts();
   }
 }
 
@@ -702,8 +706,21 @@ function renderSettingsAccounts() {
     return;
   }
 
+  const errors = store.get('accountErrors') || [];
+
   list.innerHTML = accounts.map(a => {
     const isEnvDefault = a.id === 'env-default';
+    const errObj = errors.find(e => e.accountId === a.id);
+    const hasError = !!errObj;
+
+    const reconnectBtn = (hasError && a.url.includes('googleusercontent.com'))
+      ? `<button class="settings-action-btn" data-reconnect-acc="${escHtml(a.id)}" title="Verbindung wiederherstellen" style="color:var(--warning, #f59e0b)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/>
+          </svg>
+         </button>`
+      : '';
+
     const editBtn = isEnvDefault
       ? ''
       : `<button class="settings-action-btn" data-edit-acc="${escHtml(a.id)}" title="Umbenennen">
@@ -712,6 +729,7 @@ function renderSettingsAccounts() {
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
          </button>`;
+
     const deleteBtn = isEnvDefault
       ? ''
       : `<button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen">
@@ -723,13 +741,26 @@ function renderSettingsAccounts() {
           </svg>
          </button>`;
 
+    const errorHtml = hasError
+      ? `<div style="color:var(--danger, #ef4444); font-size:0.68rem; margin-top:2px; display:flex; align-items:center; gap:4px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="flex-shrink:0">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
+          </svg>
+          Verbindungsfehler
+         </div>`
+      : '';
+
     return `
       <div class="settings-item">
-        <div class="settings-item-info">
-          <div class="account-dot" style="width:8px; height:8px; border-radius:50%; background:var(--line); flex-shrink:0"></div>
-          <span class="settings-item-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
+        <div style="display:flex; flex-direction:column; min-width:0; flex:1;">
+          <div class="settings-item-info">
+            <div class="account-dot" style="width:8px; height:8px; border-radius:50%; background:var(--line); flex-shrink:0"></div>
+            <span class="settings-item-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
+          </div>
+          ${errorHtml}
         </div>
         <div class="settings-item-actions">
+          ${reconnectBtn}
           ${editBtn}
           ${deleteBtn}
         </div>
@@ -781,6 +812,21 @@ function renderSettingsAccounts() {
       } catch (err) {
         showToast(err.message, 'error');
       }
+    });
+  });
+
+  // Reconnect Account
+  list.querySelectorAll('[data-reconnect-acc]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const width = 500, height = 600;
+      const left = (window.screen.width / 2) - (width / 2);
+      const top = (window.screen.height / 2) - (height / 2);
+      const popup = window.open(
+        '/api/auth/google',
+        'Google OAuth Reconnect',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+      );
+      if (popup) popup.focus();
     });
   });
 }
