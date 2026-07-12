@@ -654,9 +654,6 @@ function openShareCalendarDialog(cal) {
     }
   });
 
-  if (!isOAuth) {
-    loadShares();
-  }
   loadPublicLink();
 }
 
