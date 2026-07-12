@@ -35,13 +35,40 @@ router.get('/', async (req, res) => {
         const client = await getClientForAccount(account);
 
         const calXml    = await client.getCalendars();
-        const calendars = parseCalendarList(calXml, account.id, account.url, account.username);
+        let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
+
+        // Fetch shared calendars for this user if this is the internal-caldav account
+        if (account.id === 'internal-caldav' && req.session.userId) {
+          try {
+            const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
+            for (const share of sharedCals) {
+              const parts = share.calendar_id.split('::');
+              const calendarHref = parts[1];
+              
+              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+              const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
+              
+              calendars.push({
+                id: share.calendar_id,
+                url: calendarUrl,
+                name: calendarHref,
+                color: '#cccccc'
+              });
+            }
+          } catch (dbErr) {
+            console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
+          }
+        }
 
         await Promise.allSettled(
           calendars.map(async (cal) => {
-            const eventsXml = await client.getEvents(cal.url, startDate, endDate);
-            const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
-            allEvents.push(...events);
+            try {
+              const eventsXml = await client.getEvents(cal.url, startDate, endDate);
+              const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
+              allEvents.push(...events);
+            } catch (eventErr) {
+              console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
+            }
           })
         );
       })
