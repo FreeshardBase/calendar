@@ -441,6 +441,12 @@ function openShareCalendarDialog(cal) {
   backdrop.querySelector('#share-cal-close').addEventListener('click', close);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
 
+  const publicEnable = backdrop.querySelector('#public-link-enable');
+  const publicArea   = backdrop.querySelector('#public-link-area');
+  const publicInput  = backdrop.querySelector('#public-link-input');
+  const publicCopy   = backdrop.querySelector('#public-link-copy-btn');
+  const publicRegen  = backdrop.querySelector('#public-link-regen-btn');
+
   if (!isOAuth) {
     const searchInput = backdrop.querySelector('#share-search-input');
     const autocompleteDropdown = backdrop.querySelector('#share-autocomplete-dropdown');
@@ -648,7 +654,9 @@ function openShareCalendarDialog(cal) {
     }
   });
 
-  loadShares();
+  if (!isOAuth) {
+    loadShares();
+  }
   loadPublicLink();
 }
 
