@@ -2,6 +2,12 @@ const { test, expect } = require('@playwright/test');
 
 test.describe('FreeShard WebCalendar E2E Suite', () => {
 
+  test.beforeEach(async ({ page }) => {
+    // The one-time welcome modal (shown when only the internal calendar account
+    // exists) would intercept clicks — mark it as already dismissed.
+    await page.addInitScript(() => localStorage.setItem('welcome-popup-closed', 'true'));
+  });
+
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {
     // Go to homepage
     await page.goto('/');
@@ -110,6 +116,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
+    // Autocompleting "Aaron Gryzia" requires a CalDAV server with real user
+    // principals — only runs against a configured external account.
+    test.skip(!process.env.CALDAVURL, 'No CALDAV credentials configured');
+
     page.on('console', msg => console.log('PAGE LOG:', msg.text()));
     page.on('pageerror', err => console.error('PAGE ERROR:', err.message));
 
