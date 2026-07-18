@@ -228,6 +228,25 @@ function parseEventList(xml, calendarId, accountId, calendarUrl, rangeStart, ran
   return events;
 }
 
+/**
+ * Extract the raw iCalendar payloads (calendar-data) from a REPORT response.
+ * Returns one ICS string per event resource, unmodified — recurrence rules,
+ * timezones etc. stay intact (unlike parseEventList, which expands instances).
+ */
+function parseEventDataList(xml) {
+  let doc;
+  try {
+    doc = xmlParser.parseFromString(xml, 'text/xml');
+  } catch (e) {
+    console.error('[parser] XML parse error:', e.message);
+    return [];
+  }
+
+  return getByLocalName(doc, 'calendar-data')
+    .map(el => (el.textContent || '').trim())
+    .filter(Boolean);
+}
+
 function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const jcal = ICAL.parse(icsString);
   const comp = new ICAL.Component(jcal);
@@ -517,6 +536,7 @@ function resolveUrl(base, href) {
 module.exports = {
   parseCalendarList,
   parseEventList,
+  parseEventDataList,
   parseICSToEvent,
   parseAndExpandEvent,
   eventToICS

@@ -342,6 +342,15 @@ const Db = {
     });
   },
 
+  getCalendarShareByToken(token) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT * FROM calendar_shares WHERE token = ?', [token], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  },
+
   deleteCalendarShare(token) {
     return new Promise((resolve, reject) => {
       db.run('DELETE FROM calendar_shares WHERE token = ?', [token], (err) => {
