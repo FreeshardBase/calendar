@@ -168,6 +168,27 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(chip).not.toBeVisible({ timeout: 10000 });
   });
 
+  test('should prefill CalDAV URL from provider preset in account modal', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Open settings drawer and the add-account modal
+    await page.click('#sidebar-settings-btn');
+    await page.click('#settings-add-account-btn');
+    await expect(page.locator('#account-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    // Selecting a preset fills the server URL and adapts the username hint
+    await page.selectOption('#acc-provider', 'mailboxorg');
+    await expect(page.locator('#acc-url')).toHaveValue('https://dav.mailbox.org');
+    await expect(page.locator('#acc-username')).toHaveAttribute('placeholder', 'deine@mailbox.org');
+
+    // Manual choice keeps the URL editable
+    await page.fill('#acc-url', 'https://my.own.server/dav');
+    await expect(page.locator('#acc-url')).toHaveValue('https://my.own.server/dav');
+
+    await page.click('#account-modal-close');
+  });
+
   test('should switch views between month, week, workweek, day, and agenda on desktop', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
