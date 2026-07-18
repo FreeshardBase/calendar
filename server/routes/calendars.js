@@ -68,35 +68,26 @@ const publicRouter = express.Router();
 
 publicRouter.get('/share/:token.ics', async (req, res) => {
   try {
-    const Db = require('../db');
     let payload = null;
     let isDbShare = false;
 
     // 1. Try DB-based share lookup
     try {
-      const shareRecord = await new Promise((resolve, reject) => {
-        const sqlite3 = require('sqlite3');
-        const path = require('path');
-        const dbPath = path.join(__dirname, '../../webcalendar.db');
-        const dbCon = new sqlite3.Database(dbPath);
-        dbCon.get('SELECT * FROM calendar_shares WHERE token = ?', [req.params.token], (err, row) => {
-          dbCon.close();
-          if (err) return reject(err);
-          resolve(row);
-        });
-      });
+      const shareRecord = await Db.getCalendarShareByToken(req.params.token);
 
       if (shareRecord) {
         const calendarId = shareRecord.calendar_id;
         const sepIdx = calendarId.indexOf('::');
         if (sepIdx !== -1) {
           const accountId = calendarId.substring(0, sepIdx);
-          const calendarUrl = calendarId.substring(sepIdx + 2);
-          const account = await Db.getAccountById(accountId);
+          const calendarHref = calendarId.substring(sepIdx + 2);
+          const account = await resolveShareAccount(accountId, calendarHref);
           if (account) {
             payload = {
               id: account.id,
-              url: calendarUrl,
+              url: /^https?:\/\//i.test(calendarHref)
+                ? calendarHref
+                : new URL(calendarHref, account.url).href,
               username: account.username,
               password: account.password,
               authType: account.authType
@@ -144,25 +135,25 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       return res.send(icsData);
     }
 
-    // Fallback: fetch events and serialize to ICS format
+    // Fallback: query events via REPORT and re-assemble a combined calendar
     const now = new Date();
-    const start = new Date(now.getFullYear() - 1, 0, 1).toISOString();
-    const end = new Date(now.getFullYear() + 5, 11, 31).toISOString();
+    const start = new Date(now.getFullYear() - 1, 0, 1);
+    const end = new Date(now.getFullYear() + 5, 11, 31);
 
-    const events = await client.getEvents(payload.url, start, end);
-    const { serializeEvent } = require('../caldav/parser');
+    const eventsXml = await client.getEvents(payload.url, start, end);
+    const { parseEventDataList } = require('../caldav/parser');
 
     let ics = `BEGIN:VCALENDAR\r
 VERSION:2.0\r
 PRODID:-//FreeShard WebCalendar//NONSGML v1.0//EN\r
 CALSCALE:GREGORIAN\r\n`;
 
-    for (const ev of events) {
-      const evIcs = serializeEvent(ev);
-      const cleanIcs = evIcs
-        .replace(/^BEGIN:VCALENDAR\r?\n?/i, '')
-        .replace(/END:VCALENDAR\r?\n?$/i, '');
-      ics += cleanIcs;
+    for (const evIcs of parseEventDataList(eventsXml)) {
+      // Keep only the components (VEVENT/VTIMEZONE) of each per-event calendar
+      const components = evIcs.match(/BEGIN:(VEVENT|VTIMEZONE)[\s\S]*?END:\1/g) || [];
+      for (const comp of components) {
+        ics += comp.replace(/\r?\n/g, '\r\n') + '\r\n';
+      }
     }
 
     ics += 'END:VCALENDAR\r\n';
@@ -175,6 +166,36 @@ CALSCALE:GREGORIAN\r\n`;
     res.status(500).send('Error generating calendar export: ' + err.message);
   }
 });
+
+/**
+ * Resolve the owning account for a DB-based public share. The `internal-caldav`
+ * and `env-default` accounts are injected into sessions from env and never
+ * stored in linked_accounts, so they are synthesized here the same way.
+ */
+async function resolveShareAccount(accountId, calendarHref) {
+  if (accountId === 'internal-caldav') {
+    const ownerId = calendarHref.split('/').filter(Boolean)[0];
+    if (!ownerId) return null;
+    return {
+      id: accountId,
+      url: process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232',
+      username: ownerId,
+      password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+      authType: 'basic'
+    };
+  }
+  if (accountId === 'env-default') {
+    if (!process.env.CALDAVURL) return null;
+    return {
+      id: accountId,
+      url: process.env.CALDAVURL,
+      username: process.env.CALDAV_USERNAME,
+      password: process.env.CALDAV_PASSWORD,
+      authType: 'basic'
+    };
+  }
+  return Db.getAccountById(accountId);
+}
 
 // GET /api/calendars — fetch all calendars from all accounts
 router.get('/', async (req, res) => {

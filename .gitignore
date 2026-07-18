@@ -7,3 +7,7 @@ test-results/
 playwright-report/
 .share_key
 ssl/
+*.swp
+webcalendar.db
+*.db
+data/

@@ -200,12 +200,8 @@ class CalDAVClient {
       try {
         const u = new URL(currentUrl);
         const wellKnownUrl = `${u.protocol}//${u.host}/.well-known/caldav`;
-        const redirectRes = await fetch(wellKnownUrl, {
-          method: 'PROPFIND',
-          headers: {
-            Authorization: this._auth,
-            Depth: '0'
-          }
+        const redirectRes = await this._request('PROPFIND', wellKnownUrl, {
+          headers: { Depth: '0' }
         });
         if (redirectRes.status === 401) throw new Error('UNAUTHORIZED');
         if (redirectRes.ok || redirectRes.status === 207) {

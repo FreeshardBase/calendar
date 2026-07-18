@@ -17,7 +17,10 @@ const ENCRYPTION_KEY = crypto.scryptSync(
 
 // Initialize table and index
 db.serialize(() => {
-  db.run('PRAGMA journal_mode = MEMORY');
+  // WAL: the DB file is shared with the Radicale plugins and the sync-worker;
+  // a MEMORY journal would risk corruption on concurrent multi-process writes.
+  db.run('PRAGMA journal_mode = WAL');
+  db.run('PRAGMA busy_timeout = 5000');
   db.run(`
     CREATE TABLE IF NOT EXISTS linked_accounts (
       id TEXT PRIMARY KEY,
@@ -336,6 +339,15 @@ const Db = {
           resolve({ token, calendarId, label, createdAt: now });
         }
       );
+    });
+  },
+
+  getCalendarShareByToken(token) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT * FROM calendar_shares WHERE token = ?', [token], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
     });
   },
 
