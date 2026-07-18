@@ -22,10 +22,10 @@
   --font-ui:   'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --fs-display: 34px; --fw-display: 600;
-  --fs-h1: 24px; --fs-h2: 18px; --fs-h3: 15px;
-  --fs-body: 14px; --fs-small: 13px;
+  --fs-h1: 26px; --fs-h2: 20px; --fs-h3: 16px;
+  --fs-body: 15px; --fs-small: 13px;
   --fs-label: 10px; --ls-label: 0.14em;
-  --fs-mono: 12px; --ls-mono: 0.04em;
+  --fs-mono: 13px; --ls-mono: 0.06em;
 
   /* Spacing */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
