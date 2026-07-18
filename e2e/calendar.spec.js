@@ -122,6 +122,52 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(movedChip).toHaveCount(0, { timeout: 10000 });
   });
 
+  test('should import a dropped ICS file and export a calendar as download', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    // Build an ICS with one event today and simulate dropping it on the sidebar
+    const title = `Imported E2E ${Date.now()}`;
+    const d = new Date();
+    const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0',
+      'BEGIN:VEVENT',
+      `UID:e2e-import-${Date.now()}`,
+      `DTSTART:${ymd}T090000Z`,
+      `DTEND:${ymd}T100000Z`,
+      `SUMMARY:${title}`,
+      'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n');
+
+    await page.evaluate((icsText) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([icsText], 'drop.ics', { type: 'text/calendar' }));
+      document.querySelector('.sidebar').dispatchEvent(
+        new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
+      );
+    }, ics);
+
+    await expect(page.locator('#import-dialog-backdrop')).toBeVisible();
+    await page.click('#import-confirm');
+
+    const chip = page.locator(`.event-chip:has-text("${title}")`).first();
+    await expect(chip).toBeVisible({ timeout: 10000 });
+
+    // Export button triggers a .ics download
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('#calendar-list [data-export-cal]').first().click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.ics$/);
+
+    // Clean up the imported event
+    await chip.click();
+    page.on('dialog', dialog => dialog.accept());
+    await page.click('#popover-delete-btn');
+    await expect(chip).not.toBeVisible({ timeout: 10000 });
+  });
+
   test('should switch views between month, week, workweek, day, and agenda on desktop', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });

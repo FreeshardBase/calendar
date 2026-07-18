@@ -1124,6 +1124,25 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   }
 }
 
+/* ── ICS Import Dropzone ─────────────────────────────────────────────────── */
+#ics-dropzone {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--border-w) dashed var(--border-cool);
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t), border-color var(--t), background var(--t);
+}
+#ics-dropzone:hover, #ics-dropzone.dragover {
+  color: var(--line);
+  border-color: var(--line);
+  background: var(--bg);
+}
+#ics-dropzone svg { flex-shrink: 0; }
+
 /* ── 21. Utility classes ──────────────────────────────────────────────────── */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
