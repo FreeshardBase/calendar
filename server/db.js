@@ -484,6 +484,14 @@ const Db = {
     });
   },
 
+  userIdExists(userId) {
+    return new Promise((resolve) => {
+      db.get('SELECT 1 FROM users WHERE user_id = ?', [userId], (err, row) => {
+        resolve(!err && !!row);
+      });
+    });
+  },
+
   getUserIdByUsername(username) {
     return new Promise((resolve) => {
       db.get('SELECT user_id FROM users WHERE username = ?', [username], (err, row) => {

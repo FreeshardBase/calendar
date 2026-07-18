@@ -8,9 +8,21 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `npm ci` — install (Node >= 20).
 - `npm start` — serve on :3000 (HTTPS if `ssl/key.pem`+`ssl/cert.pem` exist or `SSL_*_PATH` set, else HTTP).
 - `npm run dev` — same with `--watch`.
-- `NODE_ENV=test npm test` — node:test integration suite (`server/test/*.test.js`).
-  Tests fetch `http://localhost:3000`, so **start the server first** (`NODE_ENV=test node server/index.js`).
+- `NODE_ENV=test npm test` — node:test route suite (`server/test/*.test.js`).
+  Tests fetch `http://localhost:3000`; without a running server the suite skips
+  (reachability gate) and only unit tests run — cold `npm test` is always green.
   CalDAV-dependent subtests skip unless `CALDAVURL`/`CALDAV_USERNAME`/`CALDAV_PASSWORD` are set.
+- `npm run test:integration` — full suite (all 23 tests) against a real Radicale.
+  `scripts/integration-test.sh` builds + starts the Radicale container (shared
+  SQLite via bind-mounted `.testdata/`, wiped each run), generates throwaway TLS
+  certs if `ssl/` is missing, starts the app in test mode with
+  `INTERNAL_CALDAV_URL=https://localhost:5232`, seeds one calendar + two users
+  (`Aaron Gryzia` for search-users, `aaron@gryzia.de` for the shares test), runs
+  the suite, and tears everything down. Needs docker + free ports 3000/5232.
+  Note: Radicale runs as root in its container and chowns the bind mount — the
+  script fixes perms and cleans `.testdata/` via a throwaway alpine container.
+- CI: `.github/workflows/ci.yml` — `unit` job (cold `npm test`) + `integration`
+  job (`npm run test:integration`) on push to master and on PRs.
 - `npx playwright test` — e2e (`e2e/calendar.spec.js`), starts its own server via `playwright.config.js`
   (`reuseExistingServer: true`). Needs a reachable internal CalDAV server; local recipe:
   ```
@@ -40,6 +52,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete,
   user shares, public share links), `events` (range query across all accounts, CRUD with ETag
   conflict handling), `auth` (Authelia OIDC login + Google OAuth2 account linking).
+  Shares + user search are DB-backed (`users`/`user_calendar_shares`, enforced by the Radicale
+  rights plugin) for any account whose URL origin matches `INTERNAL_CALDAV_URL` — Radicale has
+  no CalDAV sharing extension; the CalDAV sharing dialects are only for external servers.
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)

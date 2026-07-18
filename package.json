@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test server/test/*.test.js"
+    "test": "node --test server/test/*.test.js",
+    "test:integration": "bash scripts/integration-test.sh"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.8.10",

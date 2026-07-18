@@ -359,6 +359,33 @@ router.post('/', async (req, res) => {
   }
 });
 
+// ── Helper: does this account point at the shard's own Radicale? ────────────
+// Shares and user search for the internal server are DB-backed (users +
+// user_calendar_shares, enforced by Radicale's rights plugin) — Radicale has
+// no CalDAV sharing extension.
+function isInternalAccount(account) {
+  if (!account) return false;
+  if (account.id === 'internal-caldav') return true;
+  const internalUrl = process.env.INTERNAL_CALDAV_URL;
+  if (!internalUrl || !account.url) return false;
+  try {
+    return new URL(account.url).origin === new URL(internalUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+// ── Helper: resolve a sharee (uuid, username or user_id) to a user_id ───────
+async function resolveShareeUserId(sharee) {
+  const candidate = sharee.replace(/\//g, '');
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(candidate)) return candidate;
+  const byUsername = await Db.getUserIdByUsername(candidate);
+  if (byUsername) return byUsername;
+  if (await Db.userIdExists(candidate)) return candidate;
+  return null;
+}
+
 // ── Helper: resolve account + calendar URL from calendarId ──────────────────
 async function resolveCalendar(req, calendarId) {
   const sep = calendarId.indexOf('::');
@@ -453,7 +480,7 @@ router.get('/search-users', async (req, res) => {
       return res.status(404).json({ error: 'Account not found' });
     }
 
-    if (account.id === 'internal-caldav') {
+    if (isInternalAccount(account)) {
       const users = await Db.searchUsers(q);
       console.log('[search-users] Local database results:', users);
       return res.json(users);
@@ -476,7 +503,7 @@ router.get('/:id/shares', async (req, res) => {
     const calendarId = decodeURIComponent(req.params.id);
     const { account } = await resolveCalendar(req, calendarId);
 
-    if (account?.id === 'internal-caldav') {
+    if (isInternalAccount(account)) {
       const shares = await Db.getUserShares(calendarId);
       return res.json({ shares });
     }
@@ -501,16 +528,10 @@ router.post('/:id/shares', async (req, res) => {
 
     const { account } = await resolveCalendar(req, calendarId);
 
-    if (account?.id === 'internal-caldav') {
-      let shareeUserId = sharee.replace(/\//g, '');
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(shareeUserId)) {
-        const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
-        if (resolvedUserId) {
-          shareeUserId = resolvedUserId;
-        } else {
-          return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
-        }
+    if (isInternalAccount(account)) {
+      const shareeUserId = await resolveShareeUserId(sharee);
+      if (!shareeUserId) {
+        return res.status(404).json({ error: `User "${sharee}" not found.` });
       }
       await Db.addUserShare(calendarId, shareeUserId, !!readWrite);
       return res.json({ message: 'Share invite sent.' });
@@ -536,16 +557,10 @@ router.delete('/:id/shares', async (req, res) => {
 
     const { account } = await resolveCalendar(req, calendarId);
 
-    if (account?.id === 'internal-caldav') {
-      let shareeUserId = sharee.replace(/\//g, '');
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(shareeUserId)) {
-        const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
-        if (resolvedUserId) {
-          shareeUserId = resolvedUserId;
-        } else {
-          return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
-        }
+    if (isInternalAccount(account)) {
+      const shareeUserId = await resolveShareeUserId(sharee);
+      if (!shareeUserId) {
+        return res.status(404).json({ error: `User "${sharee}" not found.` });
       }
       await Db.removeUserShare(calendarId, shareeUserId);
       return res.json({ message: 'Share removed.' });
