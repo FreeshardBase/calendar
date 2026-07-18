@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseICSToEvent, parseAndExpandEvent, eventToICS, parseCalendarList } = require('../caldav/parser');
+const { parseICSToEvent, parseAndExpandEvent, eventToICS, parseCalendarList, addOccurrenceException, upsertOccurrenceOverride } = require('../caldav/parser');
 
 test('iCalendar parser suite', async (t) => {
 
@@ -278,6 +278,94 @@ test('iCalendar parser suite', async (t) => {
     assert.strictEqual(cal3.isShared, true);
     assert.strictEqual(cal3.owner, 'aaron');
     assert.strictEqual(cal3.readOnly, false);
+  });
+
+  const weeklyIcs = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VEVENT',
+    'UID:weekly-master',
+    'DTSTART:20260706T080000Z',
+    'DTEND:20260706T090000Z',
+    'SUMMARY:Weekly Meeting',
+    'RRULE:FREQ=WEEKLY',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+  const range = ['2026-07-05T00:00:00Z', '2026-07-28T00:00:00Z'];
+
+  await t.test('should skip EXDATEd occurrences during expansion', () => {
+    const ics = weeklyIcs.replace('RRULE:FREQ=WEEKLY', 'RRULE:FREQ=WEEKLY\r\nEXDATE:20260713T080000Z');
+    const result = parseAndExpandEvent(ics, ...range);
+    assert.strictEqual(result.length, 3);
+    assert.ok(!result.some(i => i.start.startsWith('2026-07-13')));
+  });
+
+  await t.test('should apply detached RECURRENCE-ID overrides during expansion', () => {
+    const ics = weeklyIcs.replace('END:VCALENDAR', [
+      'BEGIN:VEVENT',
+      'UID:weekly-master',
+      'RECURRENCE-ID:20260720T080000Z',
+      'DTSTART:20260720T100000Z',
+      'DTEND:20260720T110000Z',
+      'SUMMARY:Moved Meeting',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n'));
+
+    const result = parseAndExpandEvent(ics, ...range);
+    assert.strictEqual(result.length, 4);
+
+    const moved = result.find(i => i.recurrenceId === '2026-07-20T08:00:00Z');
+    assert.ok(moved);
+    assert.strictEqual(moved.title, 'Moved Meeting');
+    assert.strictEqual(new Date(moved.start).toISOString(), '2026-07-20T10:00:00.000Z');
+    assert.strictEqual(moved.masterUid, 'weekly-master');
+
+    // Other occurrences keep the master data
+    assert.strictEqual(result.filter(i => i.title === 'Weekly Meeting').length, 3);
+  });
+
+  await t.test('addOccurrenceException should EXDATE the occurrence', () => {
+    const ics = addOccurrenceException(weeklyIcs, '2026-07-13T08:00:00Z');
+    assert.match(ics, /EXDATE:20260713T080000Z/);
+
+    const result = parseAndExpandEvent(ics, ...range);
+    assert.strictEqual(result.length, 3);
+    assert.ok(!result.some(i => i.start.startsWith('2026-07-13')));
+  });
+
+  await t.test('upsertOccurrenceOverride should create and replace a detached exception', () => {
+    const once = upsertOccurrenceOverride(weeklyIcs, '2026-07-20T08:00:00Z', {
+      title: 'Moved', start: '2026-07-20T10:00:00.000Z', end: '2026-07-20T11:00:00.000Z', allDay: false
+    });
+    assert.match(once, /RECURRENCE-ID:20260720T080000Z/);
+
+    let result = parseAndExpandEvent(once, ...range);
+    assert.strictEqual(result.find(i => i.recurrenceId === '2026-07-20T08:00:00Z').title, 'Moved');
+
+    // Upsert again — must replace, not duplicate
+    const twice = upsertOccurrenceOverride(once, '2026-07-20T08:00:00Z', {
+      title: 'Moved Again', start: '2026-07-20T12:00:00.000Z', end: '2026-07-20T13:00:00.000Z', allDay: false
+    });
+    assert.strictEqual((twice.match(/BEGIN:VEVENT/g) || []).length, 2);
+
+    result = parseAndExpandEvent(twice, ...range);
+    const inst = result.find(i => i.recurrenceId === '2026-07-20T08:00:00Z');
+    assert.strictEqual(inst.title, 'Moved Again');
+    assert.strictEqual(new Date(inst.start).toISOString(), '2026-07-20T12:00:00.000Z');
+  });
+
+  await t.test('addOccurrenceException should drop an existing override for that occurrence', () => {
+    const withOverride = upsertOccurrenceOverride(weeklyIcs, '2026-07-20T08:00:00Z', {
+      title: 'Moved', start: '2026-07-20T10:00:00.000Z', end: '2026-07-20T11:00:00.000Z', allDay: false
+    });
+    const ics = addOccurrenceException(withOverride, '2026-07-20T08:00:00Z');
+    assert.strictEqual((ics.match(/BEGIN:VEVENT/g) || []).length, 1);
+
+    const result = parseAndExpandEvent(ics, ...range);
+    assert.strictEqual(result.length, 3);
+    assert.ok(!result.some(i => i.recurrenceId === '2026-07-20T08:00:00Z'));
   });
 
 });

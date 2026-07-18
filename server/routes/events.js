@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
-const { parseCalendarList, parseEventList, eventToICS } = require('../caldav/parser');
+const { parseCalendarList, parseEventList, eventToICS, addOccurrenceException, upsertOccurrenceOverride } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 
@@ -122,7 +122,7 @@ router.post('/', async (req, res) => {
 // ── PUT /api/events/:uid — update an existing event ───────────────────────────
 router.put('/:uid', async (req, res) => {
   try {
-    const { calendarId, etag, href, ...eventData } = req.body;
+    const { calendarId, etag, href, scope, recurrenceId, ...eventData } = req.body;
 
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
@@ -132,12 +132,22 @@ router.put('/:uid', async (req, res) => {
 
     const masterUid = req.params.uid.split('::')[0];
     const event     = { ...eventData, uid: masterUid };
-    const ics   = eventToICS(event);
+    const eventUrl  = buildAbsoluteUrl(account.url, href);
 
-    const eventUrl = buildAbsoluteUrl(account.url, href);
-    const ifMatch  = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
+    let ics;
+    let ifMatch;
+    if (scope === 'occurrence' && recurrenceId) {
+      // Edit a single occurrence: write a detached exception VEVENT into the
+      // existing resource instead of replacing the whole series.
+      const current = await client.get(eventUrl);
+      ics     = upsertOccurrenceOverride(current.ics, recurrenceId, eventData);
+      ifMatch = current.etag;
+    } else {
+      ics     = eventToICS(event);
+      ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
+    }
 
-    const result = await client.put(eventUrl, ics, ifMatch, 'text/calendar; charset=utf-8');
+    const result = await client.put(eventUrl, ics, ifMatch);
     
     queueSyncForCalendar(calendarId, req.session.userId);
 
@@ -161,7 +171,7 @@ router.put('/:uid', async (req, res) => {
 // ── DELETE /api/events/:uid ───────────────────────────────────────────────────
 router.delete('/:uid', async (req, res) => {
   try {
-    const { calendarId, etag, href } = req.body;
+    const { calendarId, etag, href, scope, recurrenceId } = req.body;
 
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
@@ -170,6 +180,17 @@ router.delete('/:uid', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const eventUrl = buildAbsoluteUrl(account.url, href);
+
+    if (scope === 'occurrence' && recurrenceId) {
+      // Delete a single occurrence: EXDATE it in the master instead of
+      // deleting the whole series resource.
+      const current = await client.get(eventUrl);
+      const ics = addOccurrenceException(current.ics, recurrenceId);
+      await client.put(eventUrl, ics, current.etag);
+      queueSyncForCalendar(calendarId, req.session.userId);
+      return res.json({ message: 'Occurrence deleted.' });
+    }
+
     const ifMatch  = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
 
     await client.delete(eventUrl, ifMatch);

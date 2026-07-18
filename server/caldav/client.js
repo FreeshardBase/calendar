@@ -63,6 +63,20 @@ class CalDAVClient {
   }
 
   /**
+   * Fetch a single resource (event .ics) with its ETag.
+   */
+  async get(url) {
+    const res = await this._request('GET', url);
+    if (!res.ok) {
+      throw new Error(`GET ${res.status}: ${res.statusText}`);
+    }
+    return {
+      ics: await res.text(),
+      etag: res.headers.get('etag') || null
+    };
+  }
+
+  /**
    * Create or update an event.
    * @param {string} url        - Full event URL (.ics)
    * @param {string} icsData    - iCalendar text

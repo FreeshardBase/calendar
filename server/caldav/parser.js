@@ -250,15 +250,17 @@ function parseEventDataList(xml) {
 function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const jcal = ICAL.parse(icsString);
   const comp = new ICAL.Component(jcal);
-  const vevent = comp.getFirstSubcomponent('vevent');
-  if (!vevent) return [];
+  const vevents = comp.getAllSubcomponents('vevent');
+  if (vevents.length === 0) return [];
 
-  const event = parseICSToEvent(icsString, meta);
+  // A resource may hold the master VEVENT plus detached exception VEVENTs
+  // (same UID, RECURRENCE-ID) for modified single occurrences.
+  const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
+  const event = parseVEventToEvent(master, meta);
   if (!event) return [];
 
   // If there's no RRULE, it's a single non-recurring event
-  const rrule = vevent.getFirstProperty('rrule');
-  if (!rrule) {
+  if (!master.getFirstProperty('rrule')) {
     return [event];
   }
 
@@ -267,58 +269,134 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
     return [event];
   }
 
-  const dtstart = vevent.getFirstPropertyValue('dtstart');
-  const dtend = vevent.getFirstPropertyValue('dtend');
-  
-  let duration = 0;
-  if (dtstart && dtend) {
-    duration = dtend.toJSDate().getTime() - dtstart.toJSDate().getTime();
+  const icalEvent = new ICAL.Event(master);
+  for (const v of vevents) {
+    if (v !== master && v.getFirstProperty('recurrence-id')) {
+      icalEvent.relateException(new ICAL.Event(v));
+    }
   }
 
   const limitStart = new Date(rangeStart);
   const limitEnd = new Date(rangeEnd);
 
-  // Safety check: if dtstart is after limitEnd, it doesn't recur in this range
-  if (dtstart.toJSDate() > limitEnd) {
-    return [];
-  }
-
-  const expand = new ICAL.RecurExpansion({
-    component: vevent,
-    dtstart: dtstart
-  });
-
+  const iterator = icalEvent.iterator();
   const instances = [];
   let next;
   let count = 0;
   const maxCount = 500; // safety limit to prevent infinite loops
 
-  while ((next = expand.next()) && count < maxCount) {
+  while ((next = iterator.next()) && count < maxCount) {
     count++;
-    const occStart = next.toJSDate();
-    
-    // Stop expanding if the occurrence starts after our query range end
-    if (occStart.getTime() > limitEnd.getTime()) {
+    let details;
+    try {
+      // Applies detached exceptions: overridden occurrences get their own
+      // start/end/data while EXDATEs are skipped by the iterator itself.
+      details = icalEvent.getOccurrenceDetails(next);
+    } catch (e) {
+      continue;
+    }
+    const occStart = details.startDate.toJSDate();
+    const occEnd = details.endDate.toJSDate();
+
+    // Stop expanding if the base occurrence starts after our query range end
+    if (next.toJSDate().getTime() > limitEnd.getTime()) {
       break;
     }
 
-    const occEnd = new Date(occStart.getTime() + duration);
-
     // Collect the occurrence if it overlaps with our query range
-    if (occEnd.getTime() >= limitStart.getTime()) {
-      const instanceUid = `${event.uid}::${next.toString()}`;
+    if (occEnd.getTime() >= limitStart.getTime() && occStart.getTime() <= limitEnd.getTime()) {
+      const recurrenceId = details.recurrenceId.toString();
+      const isOverride = details.item.component !== master;
+      const base = isOverride ? parseVEventToEvent(details.item.component, meta) : event;
       instances.push({
-        ...event,
-        uid: instanceUid,
+        ...base,
+        uid: `${event.uid}::${recurrenceId}`,
         masterUid: event.uid,
         start: occStart.toISOString(),
         end: occEnd.toISOString(),
-        recurrenceId: next.toString()
+        recurrenceId,
+        recurrence: event.recurrence
       });
     }
   }
 
   return instances;
+}
+
+// ── Recurrence exception editing (EXDATE / RECURRENCE-ID) ────────────────────
+
+/** Resolve the master VEVENT of a parsed resource, or throw. */
+function getMasterVEvent(comp) {
+  const vevents = comp.getAllSubcomponents('vevent');
+  const master = vevents.find(v => !v.getFirstProperty('recurrence-id'));
+  if (!master) throw new Error('NO_MASTER_EVENT');
+  return master;
+}
+
+/** Build an ICAL.Time for an occurrence, matching the master DTSTART's type/zone. */
+function occurrenceTime(master, recurrenceId) {
+  const time = ICAL.Time.fromString(recurrenceId);
+  const dtstart = master.getFirstPropertyValue('dtstart');
+  if (dtstart && !time.isDate) time.zone = dtstart.zone;
+  return time;
+}
+
+/** Remove a detached exception VEVENT matching the given RECURRENCE-ID, if any. */
+function removeOverride(comp, recurrenceId) {
+  for (const v of comp.getAllSubcomponents('vevent')) {
+    const rid = v.getFirstPropertyValue('recurrence-id');
+    if (rid && rid.toString() === recurrenceId) {
+      comp.removeSubcomponent(v);
+    }
+  }
+}
+
+/**
+ * Delete a single occurrence of a recurring event: append the occurrence date
+ * to the master's EXDATE and drop any detached override for it.
+ * Returns the updated ICS string.
+ */
+function addOccurrenceException(icsString, recurrenceId) {
+  const comp = new ICAL.Component(ICAL.parse(icsString));
+  const master = getMasterVEvent(comp);
+
+  removeOverride(comp, recurrenceId);
+
+  const time = occurrenceTime(master, recurrenceId);
+  const prop = new ICAL.Property('exdate', master);
+  const dtstartProp = master.getFirstProperty('dtstart');
+  const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
+  if (tzid) prop.setParameter('tzid', tzid);
+  prop.setValue(time);
+  master.addProperty(prop);
+
+  return comp.toString();
+}
+
+/**
+ * Edit a single occurrence of a recurring event: replace/insert a detached
+ * exception VEVENT (same UID, RECURRENCE-ID = occurrence) built from
+ * eventData. Returns the updated ICS string.
+ */
+function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
+  const comp = new ICAL.Component(ICAL.parse(icsString));
+  const master = getMasterVEvent(comp);
+  const masterUid = master.getFirstPropertyValue('uid');
+
+  removeOverride(comp, recurrenceId);
+
+  const overrideIcs = eventToICS({ ...eventData, uid: masterUid, recurrence: null });
+  const override = new ICAL.Component(ICAL.parse(overrideIcs)).getFirstSubcomponent('vevent');
+
+  const rid = new ICAL.Property('recurrence-id', override);
+  const dtstartProp = master.getFirstProperty('dtstart');
+  const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
+  if (tzid) rid.setParameter('tzid', tzid);
+  rid.setValue(occurrenceTime(master, recurrenceId));
+  override.addProperty(rid);
+
+  comp.addSubcomponent(override);
+  return comp.toString();
 }
 
 // ── iCalendar → JSON ──────────────────────────────────────────────────────────
@@ -328,7 +406,10 @@ function parseICSToEvent(icsString, meta = {}) {
   const comp  = new ICAL.Component(jcal);
   const vevent = comp.getFirstSubcomponent('vevent');
   if (!vevent) return null;
+  return parseVEventToEvent(vevent, meta);
+}
 
+function parseVEventToEvent(vevent, meta = {}) {
   const ev = new ICAL.Event(vevent);
 
   const dtstart  = ev.startDate;
@@ -539,5 +620,7 @@ module.exports = {
   parseEventDataList,
   parseICSToEvent,
   parseAndExpandEvent,
+  addOccurrenceException,
+  upsertOccurrenceOverride,
   eventToICS
 };

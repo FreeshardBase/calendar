@@ -235,6 +235,34 @@ export function closeModal() {
   _currentEvent = null;
 }
 
+/**
+ * Ask whether an action on a recurring event applies to a single occurrence
+ * or the whole series. Resolves 'occurrence' | 'series' | null (cancelled).
+ */
+export function chooseRecurrenceScope(question) {
+  return new Promise(resolve => {
+    const bd = $('scope-dialog-backdrop');
+    $('scope-dialog-text').textContent = question;
+
+    const done = value => {
+      bd.classList.add('hidden');
+      $('scope-occurrence-btn').removeEventListener('click', onOccurrence);
+      $('scope-series-btn').removeEventListener('click', onSeries);
+      $('scope-cancel-btn').removeEventListener('click', onCancel);
+      resolve(value);
+    };
+    const onOccurrence = () => done('occurrence');
+    const onSeries     = () => done('series');
+    const onCancel     = () => done(null);
+
+    $('scope-occurrence-btn').addEventListener('click', onOccurrence);
+    $('scope-series-btn').addEventListener('click', onSeries);
+    $('scope-cancel-btn').addEventListener('click', onCancel);
+
+    bd.classList.remove('hidden');
+  });
+}
+
 // ── Internal ──────────────────────────────────────────────────────────────────
 
 function show() {
@@ -477,6 +505,19 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   setButtonLoading('event-save-btn', true);
   $('event-form-error').classList.add('hidden');
 
+  // Editing an instance of a recurring series: ask for the scope first
+  if (_currentEvent && _currentEvent.recurrenceId) {
+    setButtonLoading('event-save-btn', false);
+    const scope = await chooseRecurrenceScope('Diese Änderung anwenden auf:');
+    if (!scope) return;
+    if (scope === 'occurrence') {
+      payload.scope        = 'occurrence';
+      payload.recurrenceId = _currentEvent.recurrenceId;
+      payload.recurrence   = null; // a detached exception carries no RRULE
+    }
+    setButtonLoading('event-save-btn', true);
+  }
+
   try {
     if (_currentEvent) {
       // Update
@@ -507,7 +548,14 @@ function getUtcDate(dateStr, timeStr, timeZone) {
 
 async function handleDelete() {
   if (!_currentEvent) return;
-  if (!confirm(`„${_currentEvent.title}" wirklich löschen?`)) return;
+
+  let scope = 'series';
+  if (_currentEvent.recurrenceId) {
+    scope = await chooseRecurrenceScope(`„${_currentEvent.title}" löschen:`);
+    if (!scope) return;
+  } else {
+    if (!confirm(`„${_currentEvent.title}" wirklich löschen?`)) return;
+  }
 
   setButtonLoading('event-save-btn', true);
   try {
@@ -515,7 +563,8 @@ async function handleDelete() {
     await EventsAPI.remove(targetUid, {
       calendarId: _currentEvent.calendarId,
       etag:       _currentEvent.etag,
-      href:       _currentEvent.href
+      href:       _currentEvent.href,
+      ...(scope === 'occurrence' ? { scope, recurrenceId: _currentEvent.recurrenceId } : {})
     });
     closeModal();
     showToast('Termin gelöscht.', 'info');

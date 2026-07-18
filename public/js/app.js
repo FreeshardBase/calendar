@@ -6,7 +6,7 @@
 import { store, toggleCalendar, invalidateEventCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI } from './api.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar } from './calendar.js';
-import { initEventModal, openCreateModal, openEditModal, closeModal } from './eventModal.js';
+import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 
 // ── Element refs ──────────────────────────────────────────────────────────────
@@ -1088,10 +1088,19 @@ function showEventPopover(ev, mouseEvent) {
     openEditModal(ev, { onSaved: onEventSaved, onDeleted: onEventDeleted });
   };
   $('popover-delete-btn').onclick = async () => {
-    if (!confirm(`„${ev.title}" löschen?`)) return;
+    let scope = 'series';
+    if (ev.recurrenceId) {
+      scope = await chooseRecurrenceScope(`„${ev.title}" löschen:`);
+      if (!scope) return;
+    } else {
+      if (!confirm(`„${ev.title}" löschen?`)) return;
+    }
     try {
       const targetUid = ev.masterUid || ev.uid;
-      await EventsAPI.remove(targetUid, { calendarId: ev.calendarId, etag: ev.etag, href: ev.href });
+      await EventsAPI.remove(targetUid, {
+        calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
+        ...(scope === 'occurrence' ? { scope, recurrenceId: ev.recurrenceId } : {})
+      });
       closePopover();
       onEventDeleted(targetUid);
       showToast('Termin gelöscht.', 'info');
