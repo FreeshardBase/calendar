@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # No server running: the route suite's reachability gate skips, unit tests run.
+      - run: NODE_ENV=test npm test
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Full suite against a real Radicale. The script builds the
+      # freeshard/radicale image and runs it via `docker run -d`; a GH Actions
+      # `services:` container can't be used here because service images are
+      # pulled before any step runs, so a locally built image is not available.
+      - run: npm run test:integration
