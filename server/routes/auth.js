@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { Issuer } = require('openid-client');
 const Db = require('../db');
 
@@ -35,9 +36,11 @@ async function getOidcClient() {
 router.get('/login', async (req, res) => {
   try {
     const client = await getOidcClient();
+    const state = crypto.randomBytes(16).toString('hex');
+    req.session.oidcState = state;
     const authUrl = client.authorizationUrl({
       scope: 'openid profile email',
-      state: 'freeshard-session-state' // Simple static state for oauth flow check
+      state
     });
     res.redirect(authUrl);
   } catch (err) {
@@ -52,10 +55,12 @@ router.get('/callback', async (req, res) => {
     const client = await getOidcClient();
     const params = client.callbackParams(req);
     
+    const expectedState = req.session.oidcState;
+    delete req.session.oidcState;
     const tokenSet = await client.callback(
       process.env.OIDC_REDIRECT_URI,
       params,
-      { state: 'freeshard-session-state' }
+      { state: expectedState }
     );
 
     const claims = tokenSet.claims();
@@ -106,6 +111,9 @@ router.get('/google', (req, res) => {
     return res.status(500).send('Google OAuth-Konfiguration fehlt in den Umgebungsvariablen (.env)');
   }
 
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.googleOAuthState = state;
+
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   authUrl.searchParams.set('client_id', clientId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -113,14 +121,14 @@ router.get('/google', (req, res) => {
   authUrl.searchParams.set('scope', 'openid email profile https://www.googleapis.com/auth/calendar');
   authUrl.searchParams.set('access_type', 'offline'); // Requests refresh_token
   authUrl.searchParams.set('prompt', 'consent'); // Forces consent to guarantee refresh_token is returned
-  authUrl.searchParams.set('state', 'google-oauth-state');
+  authUrl.searchParams.set('state', state);
 
   res.redirect(authUrl.href);
 });
 
 // GET /api/auth/google/callback — Google redirects here with authorization code
 router.get('/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
 
   if (error) {
     console.error('[Google OAuth error callback]', error);
@@ -129,6 +137,12 @@ router.get('/google/callback', async (req, res) => {
 
   if (!code) {
     return res.status(400).send('Autorisierungscode fehlt.');
+  }
+
+  const expectedState = req.session.googleOAuthState;
+  delete req.session.googleOAuthState;
+  if (!expectedState || state !== expectedState) {
+    return res.status(400).send('Ungültiger OAuth-State. Bitte versuche es erneut.');
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
