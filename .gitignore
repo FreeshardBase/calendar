@@ -11,3 +11,4 @@ ssl/
 webcalendar.db
 *.db
 data/
+.testdata/

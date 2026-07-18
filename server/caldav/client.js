@@ -182,7 +182,7 @@ class CalDAVClient {
     };
 
     const extractTagValue = (xml, tagName) => {
-      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const regex = new RegExp(`<([\\w-]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([\\w-]+:)?${tagName}>`, 'i');
       const match = xml.match(regex);
       if (!match) return null;
       return match[2].trim();
@@ -353,7 +353,7 @@ class CalDAVClient {
     const shares = [];
 
     const extractTagValue = (xml, tagName) => {
-      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const regex = new RegExp(`<([\\w-]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([\\w-]+:)?${tagName}>`, 'i');
       const match = xml.match(regex);
       return match ? match[2].trim() : null;
     };
@@ -526,7 +526,7 @@ class CalDAVClient {
     });
 
     const extractTagValue = (xml, tagName) => {
-      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const regex = new RegExp(`<([\\w-]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([\\w-]+:)?${tagName}>`, 'i');
       const match = xml.match(regex);
       return match ? match[2].trim() : null;
     };
@@ -621,7 +621,7 @@ class CalDAVClient {
     if (!res.ok && res.status !== 207) return null;
     const xml = await res.text();
     const extractTagValue = (xml, tagName) => {
-      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
+      const regex = new RegExp(`<([\\w-]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([\\w-]+:)?${tagName}>`, 'i');
       const match = xml.match(regex);
       return match ? match[2].trim() : null;
     };
