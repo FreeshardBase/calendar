@@ -169,6 +169,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-direction: column;
   overflow-y: auto; overflow-x: hidden;
   height: 100%;
+  position: relative; /* containing block for .sidebar-settings-drawer */
 }
 
 .sidebar-header {
@@ -1418,11 +1419,12 @@ textarea.form-input, .form-textarea {
 }
 
 /* Sidebar Restructuring & Drawer */
+/* NOTE: must not set `position` here — this rule comes after the mobile media
+   query and would override the off-canvas `position: fixed` of the sidebar. */
 .sidebar {
   display: flex;
   flex-direction: column;
   height: 100%;
-  position: relative;
   overflow: hidden !important;
 }
 .sidebar-content {
