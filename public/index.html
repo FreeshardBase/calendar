@@ -599,6 +599,29 @@
   </div>
 </div>
 
+<!-- ── Recurrence Scope Dialog ─────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="scope-dialog-backdrop">
+  <div class="modal modal-sm" id="scope-dialog" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h3 class="modal-title">Wiederkehrender Termin</h3>
+    </div>
+    <div class="modal-body">
+      <p id="scope-dialog-text" style="margin-bottom: 20px; line-height: 1.5;"></p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="scope-occurrence-btn" style="width: 100%;">
+          Nur diesen Termin
+        </button>
+        <button type="button" class="btn btn-ghost" id="scope-series-btn" style="width: 100%;">
+          Alle Termine der Serie
+        </button>
+        <button type="button" class="btn btn-ghost" id="scope-cancel-btn" style="width: 100%;">
+          Abbrechen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Event Popover ────────────────────────────────────────────────────────── -->
 <div class="event-popover hidden" id="event-popover" role="tooltip"></div>
 

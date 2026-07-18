@@ -73,6 +73,55 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(eventChip).not.toBeVisible();
   });
 
+  test('should create recurring event, delete and edit single occurrences via scope dialog', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    // Create a weekly recurring event
+    await page.click('#new-event-btn');
+    const title = `Recurring E2E ${Date.now()}`;
+    await page.fill('#ev-title', title);
+    await page.selectOption('#ev-recurrence', 'WEEKLY');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+    const chips = page.locator(`.event-chip:has-text("${title}")`);
+    await expect(chips.first()).toBeVisible({ timeout: 10000 });
+    const countBefore = await chips.count();
+    expect(countBefore).toBeGreaterThan(1);
+
+    // Delete only the second occurrence
+    await chips.nth(1).click();
+    await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+    await page.click('#popover-delete-btn');
+    await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#scope-occurrence-btn');
+    await expect(chips).toHaveCount(countBefore - 1, { timeout: 10000 });
+
+    // Edit only the first occurrence (retitle)
+    const movedTitle = `Moved E2E ${Date.now()}`;
+    await chips.first().click();
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await page.fill('#ev-title', movedTitle);
+    await page.click('#event-save-btn');
+    await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#scope-occurrence-btn');
+
+    const movedChip = page.locator(`.event-chip:has-text("${movedTitle}")`);
+    await expect(movedChip).toHaveCount(1, { timeout: 10000 });
+    await expect(chips).toHaveCount(countBefore - 2, { timeout: 10000 });
+
+    // Clean up: delete the whole series (also removes the detached exception)
+    await chips.first().click();
+    await page.click('#popover-delete-btn');
+    await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#scope-series-btn');
+    await expect(chips).toHaveCount(0, { timeout: 10000 });
+    await expect(movedChip).toHaveCount(0, { timeout: 10000 });
+  });
+
   test('should switch views between month, week, workweek, day, and agenda on desktop', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
