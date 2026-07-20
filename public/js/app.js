@@ -19,6 +19,7 @@ async function boot() {
   initEventModal();
   initAccountModal();
   initWelcomeModal();
+  initIcsImport();
 
   // Attach UI event listeners
   attachListeners();
@@ -194,6 +195,15 @@ function renderCalendarList() {
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </button>`;
+
+    const exportBtnHtml =
+      `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="Als ICS exportieren">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>`;
           
     const googleBadge = c.source === 'google'
       ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" style="flex-shrink:0;" title="Mit Google Kalender synchronisiert">
@@ -217,6 +227,7 @@ function renderCalendarList() {
         <div class="cal-item-actions">
           ${shareBtnHtml}
           ${editBtnHtml}
+          ${exportBtnHtml}
         </div>
         <div class="calendar-check" style="${checked ? 'background:' + c.color : ''}">
           <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
@@ -229,7 +240,7 @@ function renderCalendarList() {
   // Toggle visibility on main area click
   list.querySelectorAll('[data-cal-id]').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]')) return;
+      if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]') || e.target.closest('[data-export-cal]')) return;
       toggleCalendar(el.dataset.calId);
       renderCalendarList();
       renderCalendarView();
@@ -252,6 +263,124 @@ function renderCalendarList() {
       const cal = store.get('calendars').find(c => c.id === btn.dataset.shareCal);
       if (cal) openShareCalendarDialog(cal);
     });
+  });
+
+  // Export as ICS download
+  list.querySelectorAll('[data-export-cal]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      window.location.href = CalendarsAPI.exportUrl(btn.dataset.exportCal);
+    });
+  });
+}
+
+// ── ICS Import (drag & drop) ─────────────────────────────────────────────────
+
+function initIcsImport() {
+  const zone = $('ics-dropzone');
+  if (!zone) return;
+
+  const sidebar = document.querySelector('.sidebar');
+
+  sidebar.addEventListener('dragover', e => {
+    if ([...(e.dataTransfer?.items || [])].some(i => i.kind === 'file')) {
+      e.preventDefault();
+      zone.classList.add('dragover');
+    }
+  });
+  sidebar.addEventListener('dragleave', e => {
+    if (!sidebar.contains(e.relatedTarget)) zone.classList.remove('dragover');
+  });
+  sidebar.addEventListener('drop', async e => {
+    const file = [...(e.dataTransfer?.files || [])].find(f => /\.ics$/i.test(f.name) || f.type === 'text/calendar');
+    if (!file) return;
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    openImportDialog(file.name, await file.text());
+  });
+
+  // Click on the zone opens a file picker as a fallback to drag & drop
+  zone.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.ics,text/calendar';
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (file) openImportDialog(file.name, await file.text());
+    });
+    input.click();
+  });
+}
+
+function openImportDialog(fileName, icsText) {
+  const eventCount = (icsText.match(/BEGIN:VEVENT/g) || []).length;
+  if (eventCount === 0) {
+    showToast('Die Datei enthält keine Termine.', 'error');
+    return;
+  }
+
+  const writableCals = (store.get('calendars') || []).filter(c => !c.readOnly && c.source !== 'google');
+  if (!writableCals.length) {
+    showToast('Kein beschreibbarer Kalender verfügbar.', 'error');
+    return;
+  }
+
+  document.getElementById('import-dialog-backdrop')?.remove();
+  const backdrop = document.createElement('div');
+  backdrop.id = 'import-dialog-backdrop';
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal modal-sm" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3 class="modal-title">ICS importieren</h3>
+        <button class="icon-btn" id="import-close" aria-label="Schließen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 14px; line-height: 1.5;">
+          <strong>${escHtml(fileName)}</strong> enthält ${eventCount} Termin${eventCount === 1 ? '' : 'e'}.
+        </p>
+        <div class="form-group">
+          <label class="fs-label" for="import-cal-select">Zielkalender</label>
+          <select id="import-cal-select" class="form-input">
+            ${writableCals.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 18px;">
+          <button type="button" class="btn btn-primary" id="import-confirm" style="flex: 1;">Importieren</button>
+          <button type="button" class="btn btn-ghost" id="import-cancel" style="flex: 1;">Abbrechen</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.querySelector('#import-close').addEventListener('click', close);
+  backdrop.querySelector('#import-cancel').addEventListener('click', close);
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+
+  backdrop.querySelector('#import-confirm').addEventListener('click', async () => {
+    const calId = backdrop.querySelector('#import-cal-select').value;
+    const btn = backdrop.querySelector('#import-confirm');
+    btn.disabled = true;
+    btn.textContent = 'Importiere…';
+    try {
+      const result = await CalendarsAPI.importICS(calId, icsText);
+      close();
+      const parts = [`${result.imported} importiert`];
+      if (result.skipped) parts.push(`${result.skipped} bereits vorhanden`);
+      if (result.failed) parts.push(`${result.failed} fehlgeschlagen`);
+      showToast(`Import abgeschlossen: ${parts.join(', ')}.`, result.failed ? 'error' : 'success');
+      invalidateEventCache();
+      loadEvents();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Importieren';
+      showToast(err.message, 'error');
+    }
   });
 }
 

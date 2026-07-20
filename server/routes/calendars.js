@@ -5,6 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const ICAL = require('ical.js');
 const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList } = require('../caldav/parser');
 const Db = require('../db');
@@ -125,39 +126,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       }
     }
 
-    const exportUrl = payload.url.endsWith('/') ? (payload.url + '?export') : (payload.url + '/?export');
-    const davRes = await client._request('GET', exportUrl);
-
-    if (davRes.ok) {
-      const icsData = await davRes.text();
-      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"`);
-      return res.send(icsData);
-    }
-
-    // Fallback: query events via REPORT and re-assemble a combined calendar
-    const now = new Date();
-    const start = new Date(now.getFullYear() - 1, 0, 1);
-    const end = new Date(now.getFullYear() + 5, 11, 31);
-
-    const eventsXml = await client.getEvents(payload.url, start, end);
-    const { parseEventDataList } = require('../caldav/parser');
-
-    let ics = `BEGIN:VCALENDAR\r
-VERSION:2.0\r
-PRODID:-//FreeShard WebCalendar//NONSGML v1.0//EN\r
-CALSCALE:GREGORIAN\r\n`;
-
-    for (const evIcs of parseEventDataList(eventsXml)) {
-      // Keep only the components (VEVENT/VTIMEZONE) of each per-event calendar
-      const components = evIcs.match(/BEGIN:(VEVENT|VTIMEZONE)[\s\S]*?END:\1/g) || [];
-      for (const comp of components) {
-        ics += comp.replace(/\r?\n/g, '\r\n') + '\r\n';
-      }
-    }
-
-    ics += 'END:VCALENDAR\r\n';
-
+    const ics = await fetchCalendarICS(client, payload.url);
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"`);
     res.send(ics);
@@ -166,6 +135,44 @@ CALSCALE:GREGORIAN\r\n`;
     res.status(500).send('Error generating calendar export: ' + err.message);
   }
 });
+
+/**
+ * Fetch a whole calendar collection as one ICS document. Tries a collection
+ * GET first (Radicale native, Nextcloud via ?export), falls back to a
+ * calendar-query REPORT re-assembled from the raw event payloads.
+ */
+async function fetchCalendarICS(client, calendarUrl) {
+  const exportUrl = calendarUrl.endsWith('/') ? (calendarUrl + '?export') : (calendarUrl + '/?export');
+  const davRes = await client._request('GET', exportUrl);
+
+  if (davRes.ok) {
+    return davRes.text();
+  }
+
+  // Fallback: query events via REPORT and re-assemble a combined calendar
+  const now = new Date();
+  const start = new Date(now.getFullYear() - 1, 0, 1);
+  const end = new Date(now.getFullYear() + 5, 11, 31);
+
+  const eventsXml = await client.getEvents(calendarUrl, start, end);
+  const { parseEventDataList } = require('../caldav/parser');
+
+  let ics = `BEGIN:VCALENDAR\r
+VERSION:2.0\r
+PRODID:-//FreeShard WebCalendar//NONSGML v1.0//EN\r
+CALSCALE:GREGORIAN\r\n`;
+
+  for (const evIcs of parseEventDataList(eventsXml)) {
+    // Keep only the components (VEVENT/VTIMEZONE) of each per-event calendar
+    const components = evIcs.match(/BEGIN:(VEVENT|VTIMEZONE)[\s\S]*?END:\1/g) || [];
+    for (const comp of components) {
+      ics += comp.replace(/\r?\n/g, '\r\n') + '\r\n';
+    }
+  }
+
+  ics += 'END:VCALENDAR\r\n';
+  return ics;
+}
 
 /**
  * Resolve the owning account for a DB-based public share. The `internal-caldav`
@@ -435,6 +442,86 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Calendar deleted', calendarId });
   } catch (err) {
     console.error('[calendars DELETE]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/calendars/:id/export — download the whole calendar as a .ics file
+router.get('/:id/export', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+    if (!client) return res.status(404).json({ error: 'Account not found' });
+
+    const ics = await fetchCalendarICS(client, calendarUrl);
+
+    const slug = new URL(calendarUrl).pathname.split('/').filter(Boolean).pop() || 'calendar';
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${slug}.ics"`);
+    res.send(ics);
+  } catch (err) {
+    console.error('[calendars export]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/calendars/:id/import — import events from an uploaded ICS document
+router.post('/:id/import', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const { ics } = req.body;
+    if (!ics || typeof ics !== 'string') {
+      return res.status(400).json({ error: 'ics (string) is required' });
+    }
+
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+    if (!client) return res.status(404).json({ error: 'Account not found' });
+
+    let comp;
+    try {
+      comp = new ICAL.Component(ICAL.parse(ics));
+    } catch (parseErr) {
+      return res.status(400).json({ error: 'Ungültige ICS-Datei: ' + parseErr.message });
+    }
+
+    const vevents = comp.getAllSubcomponents('vevent');
+    if (vevents.length === 0) {
+      return res.status(400).json({ error: 'Die Datei enthält keine Termine.' });
+    }
+    const vtimezones = comp.getAllSubcomponents('vtimezone');
+
+    // Group by UID — a series (master + detached exceptions) shares one resource
+    const byUid = new Map();
+    for (const v of vevents) {
+      const uid = v.getFirstPropertyValue('uid') || crypto.randomUUID();
+      if (!byUid.has(uid)) byUid.set(uid, []);
+      byUid.get(uid).push(v);
+    }
+
+    let imported = 0, skipped = 0, failed = 0;
+    for (const [uid, events] of byUid) {
+      const doc = new ICAL.Component(['vcalendar', [], []]);
+      doc.updatePropertyWithValue('version', '2.0');
+      doc.updatePropertyWithValue('prodid', '-//Freeshard//WebCalendar 1.0//EN');
+      for (const tz of vtimezones) doc.addSubcomponent(tz);
+      for (const v of events) doc.addSubcomponent(v);
+
+      const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
+      try {
+        // If-None-Match:* (set by put() for etag=null) skips already-existing UIDs
+        await client.put(resourceUrl, doc.toString(), null);
+        imported++;
+      } catch (putErr) {
+        if (putErr.message === 'ETAG_CONFLICT') skipped++;
+        else { failed++; console.error(`[calendars import] ${uid}:`, putErr.message); }
+      }
+    }
+
+    queueSyncForCalendar(calendarId, req.session.userId);
+
+    res.json({ imported, skipped, failed, total: byUid.size });
+  } catch (err) {
+    console.error('[calendars import]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
