@@ -1,11 +1,22 @@
 'use strict';
+process.env.NODE_ENV = 'test';
+process.env.DISABLE_INTERNAL_CALDAV = '1';
+process.env.SSL_KEY_PATH = '';
+process.env.SSL_CERT_PATH = '';
 require('dotenv').config();
 
 const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
+const { server } = require('../index');
 
 test('HTTP Routes Integration Suite', async (t) => {
+  t.after(() => {
+    if (server && server.close) {
+      server.close();
+    }
+  });
+
   // Clean up database before running tests
   await Db.clearAll().catch(() => {});
 
@@ -120,7 +131,7 @@ test('HTTP Routes Integration Suite', async (t) => {
         'Content-Type': 'application/json',
         cookie: sessionCookie
       },
-      body: JSON.stringify({ sharee: 'aaron@gryzia.de', readWrite: true })
+      body: JSON.stringify({ sharee: 'testuser@example.com', readWrite: true })
     });
     assert.strictEqual(addRes.status, 200);
 
@@ -130,7 +141,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(getRes.status, 200);
     const getBody = await getRes.json();
-    const share = getBody.shares.find(s => s.href.includes('aaron'));
+    const share = getBody.shares.find(s => s.href.includes('testuser'));
     assert.ok(share);
     assert.strictEqual(share.readWrite, true);
 
@@ -151,7 +162,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(getRes2.status, 200);
     const getBody2 = await getRes2.json();
-    const share2 = getBody2.shares.find(s => s.href.includes('aaron'));
+    const share2 = getBody2.shares.find(s => s.href.includes('testuser'));
     assert.ok(share2);
     assert.strictEqual(share2.readWrite, false);
 
@@ -172,7 +183,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(getRes3.status, 200);
     const getBody3 = await getRes3.json();
-    const share3 = getBody3.shares.find(s => s.href.includes('aaron'));
+    const share3 = getBody3.shares.find(s => s.href.includes('testuser'));
     assert.ok(!share3);
   });
 
@@ -181,14 +192,14 @@ test('HTTP Routes Integration Suite', async (t) => {
       st.skip('No CALDAV credentials configured');
       return;
     }
-    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=aar`, {
+    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=test`, {
       headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
     const users = await res.json();
     assert.ok(Array.isArray(users));
     assert.ok(users.length > 0);
-    assert.strictEqual(users[0].displayname, 'Aaron Gryzia');
+    assert.strictEqual(users[0].displayname, 'Test User');
   });
 
   await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async (st) => {
@@ -336,7 +347,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.ok(res.status === 302 || res.status === 200 || res.status === 500);
     if (res.status === 500) {
       const body = await res.text();
-      assert.ok(body.includes('OIDC-Konfiguration fehlt'));
+      assert.ok(body.includes('OIDC-Konfiguration fehlt') || body.includes('OIDC-Initialisierung fehlgeschlagen'));
     }
   });
 

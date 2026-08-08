@@ -488,7 +488,10 @@ router.post('/:id/shares', async (req, res) => {
         if (resolvedUserId) {
           shareeUserId = resolvedUserId;
         } else {
-          return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
+          const resolvedUsername = await Db.getUsernameByUserId(shareeUserId);
+          if (!resolvedUsername) {
+            return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
+          }
         }
       }
       await Db.addUserShare(calendarId, shareeUserId, !!readWrite);
@@ -523,7 +526,10 @@ router.delete('/:id/shares', async (req, res) => {
         if (resolvedUserId) {
           shareeUserId = resolvedUserId;
         } else {
-          return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
+          const resolvedUsername = await Db.getUsernameByUserId(shareeUserId);
+          if (!resolvedUsername) {
+            return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
+          }
         }
       }
       await Db.removeUserShare(calendarId, shareeUserId);

@@ -8,7 +8,8 @@ module.exports = defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    ignoreHTTPSErrors: true,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -19,7 +20,7 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: 'node server/index.js',
+    command: 'NODE_ENV=test NODE_TLS_REJECT_UNAUTHORIZED="0" SSL_KEY_PATH="" SSL_CERT_PATH="" node server/index.js',
     url: 'http://localhost:3000',
     reuseExistingServer: true,
     stdout: 'ignore',
