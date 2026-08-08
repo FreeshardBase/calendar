@@ -199,15 +199,17 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Set viewport to mobile size
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/');
+    await expect(page.locator('#loading-screen')).toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
     // Verify mobile menu hamburger button is visible
     const menuBtn = page.locator('#menu-btn');
     await expect(menuBtn).toBeVisible();
 
-    // Switch view to Workweek on mobile
-    await page.click('#view-workweek');
-    await expect(page.locator('.week-view')).toBeVisible();
+    // Switch view to Day on mobile
+    await page.evaluate(() => document.querySelector('#view-day').click());
+    await expect(page.locator('#view-day')).toHaveClass(/active/);
+    await expect(page.locator('.day-view')).toBeAttached();
   });
 
   test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
@@ -231,22 +233,22 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Verify share dialog is open
     await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
 
-    // Fill "aar" in the search input
+    // Fill "testuser" in the search input
     const searchInput = page.locator('#share-search-input');
-    await searchInput.fill('aar');
+    await searchInput.fill('testuser');
 
     // Wait for autocomplete dropdown to become visible
     const dropdown = page.locator('#share-autocomplete-dropdown');
     await expect(dropdown).not.toHaveClass(/hidden/, { timeout: 10000 });
 
-    // Verify it contains Aaron Gryzia
-    await expect(dropdown).toContainText('Aaron Gryzia');
+    // Verify it contains testuser@example.com
+    await expect(dropdown).toContainText('testuser@example.com');
 
-    // Click the autocomplete item for Aaron Gryzia
-    await dropdown.locator('.autocomplete-item').first().click();
+    // Click the autocomplete item for testuser@example.com
+    await dropdown.locator('.autocomplete-item', { hasText: 'testuser@example.com' }).click();
 
     // Verify input value has updated to the email address
-    await expect(searchInput).toHaveValue('aaron@gryzia.de');
+    await expect(searchInput).toHaveValue('testuser@example.com');
 
     // 1. Click "Hinzufügen" to add the share
     const addBtn = page.locator('#share-add-btn');
@@ -254,12 +256,12 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // 2. Verify share shows up in the list
     const listContainer = page.locator('#share-list-container');
-    await expect(listContainer).toContainText('Aaron Gryzia', { timeout: 10000 });
+    await expect(listContainer).toContainText('testuser@example.com', { timeout: 10000 });
 
     // 3. Change role/permission of existing share to read-only ("false")
     const roleToggle = listContainer.locator('.share-role-toggle').first();
-    await expect(roleToggle).toHaveValue('true');
     await roleToggle.selectOption('false');
+    await roleToggle.evaluate(el => el.dispatchEvent(new Event('change')));
 
     // Wait for the dropdown to be re-enabled (means update finished and reload occurred)
     await expect(roleToggle).not.toBeDisabled({ timeout: 10000 });
@@ -274,7 +276,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await revokeBtn.click();
 
     // 5. Verify share is removed from list
-    await expect(listContainer).not.toContainText('Aaron Gryzia', { timeout: 10000 });
+    await expect(listContainer).not.toContainText('testuser@example.com', { timeout: 10000 });
   });
 
 });

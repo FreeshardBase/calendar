@@ -49,6 +49,10 @@ app.use(async (req, res, next) => {
 
   if (userId) {
     try {
+      await Db.upsertUser(userId, userId);
+      if (process.env.NODE_ENV === 'test') {
+        await Db.upsertUser('testuser-id', 'testuser@example.com');
+      }
       const dbAccounts = await Db.getAccounts(userId);
       const accounts = [...dbAccounts];
       
@@ -67,9 +71,9 @@ app.use(async (req, res, next) => {
         });
       }
 
-      // Always inject the internal CalDAV account (Radicale) except in test mode
-      if (process.env.NODE_ENV !== 'test' && !accounts.some(a => a.id === 'internal-caldav')) {
-        const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+      // Inject the internal CalDAV account (Radicale) unless disabled
+      if (!process.env.DISABLE_INTERNAL_CALDAV && !accounts.some(a => a.id === 'internal-caldav')) {
+        const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://localhost:5232';
         accounts.unshift({
           id: 'internal-caldav',
           url: `${localCalDAVCUrl}/${userId}/`,
@@ -217,3 +221,6 @@ if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
     }
   });
 }
+
+module.exports = { app, server };
+

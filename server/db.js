@@ -405,7 +405,7 @@ const Db = {
           resolve(rows.map(row => ({
             displayname: row.username,
             email: row.username,
-            href: `/${row.user_id}/`
+            href: row.username
           })));
         }
       );

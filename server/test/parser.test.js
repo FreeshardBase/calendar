@@ -233,7 +233,7 @@ test('iCalendar parser suite', async (t) => {
         <d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>
         <d:displayname>Shared Work</d:displayname>
         <a:calendar-color>#00ff00</a:calendar-color>
-        <d:owner><d:href>/remote.php/dav/principals/users/aaron/</d:href></d:owner>
+        <d:owner><d:href>/remote.php/dav/principals/users/testuser/</d:href></d:owner>
         <d:share-access><d:read/></d:share-access>
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
@@ -246,7 +246,7 @@ test('iCalendar parser suite', async (t) => {
         <d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>
         <d:displayname>Shared Play</d:displayname>
         <a:calendar-color>#0000ff</a:calendar-color>
-        <d:owner><d:href>/remote.php/dav/principals/users/aaron/</d:href></d:owner>
+        <d:owner><d:href>/remote.php/dav/principals/users/testuser/</d:href></d:owner>
         <d:share-access><d:read-write/></d:share-access>
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
@@ -269,14 +269,14 @@ test('iCalendar parser suite', async (t) => {
     const cal2 = calendars[1];
     assert.strictEqual(cal2.name, 'Shared Work');
     assert.strictEqual(cal2.isShared, true);
-    assert.strictEqual(cal2.owner, 'aaron');
+    assert.strictEqual(cal2.owner, 'testuser');
     assert.strictEqual(cal2.readOnly, true);
 
     // 3. Shared read-write calendar
     const cal3 = calendars[2];
     assert.strictEqual(cal3.name, 'Shared Play');
     assert.strictEqual(cal3.isShared, true);
-    assert.strictEqual(cal3.owner, 'aaron');
+    assert.strictEqual(cal3.owner, 'testuser');
     assert.strictEqual(cal3.readOnly, false);
   });
 
