@@ -279,4 +279,74 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(listContainer).not.toContainText('testuser@example.com', { timeout: 10000 });
   });
 
+  test('should enable public share link, export valid ICS feed, regenerate link, and revoke public link', async ({ page, request }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+    // Open share dialog for the first calendar
+    const shareBtn = page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]');
+    await shareBtn.click();
+    await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
+
+    const publicEnableCheckbox = page.locator('#public-link-enable');
+    const publicArea = page.locator('#public-link-area');
+    const publicInput = page.locator('#public-link-input');
+
+    // 1. Enable public link if not already enabled
+    const isChecked = await publicEnableCheckbox.isChecked();
+    if (!isChecked) {
+      await publicEnableCheckbox.click();
+    }
+    await expect(publicArea).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // 2. Extract public ICS share URL
+    const publicUrl = await publicInput.inputValue();
+    expect(publicUrl).toContain('/api/public/calendars/share/');
+    expect(publicUrl).toContain('.ics');
+
+    // 3. Fetch ICS feed via HTTP GET and verify contents
+    const icsResponse = await request.get(publicUrl);
+    expect(icsResponse.status()).toBe(200);
+    expect(icsResponse.headers()['content-type']).toContain('text/calendar');
+    const icsText = await icsResponse.text();
+    expect(icsText).toContain('BEGIN:VCALENDAR');
+    expect(icsText).toContain('END:VCALENDAR');
+
+    // 4. Regenerate link
+    page.once('dialog', async dialog => {
+      await dialog.accept();
+    });
+    await page.click('#public-link-regen-btn');
+
+    // Wait for public input to update to new URL
+    await page.waitForFunction(
+      (oldUrl) => {
+        const input = document.querySelector('#public-link-input');
+        return input && input.value && input.value !== oldUrl;
+      },
+      publicUrl,
+      { timeout: 10000 }
+    );
+
+    const newPublicUrl = await publicInput.inputValue();
+    expect(newPublicUrl).not.toBe(publicUrl);
+    expect(newPublicUrl).toContain('/api/public/calendars/share/');
+
+    // 5. Verify regenerated link fetches valid ICS
+    const newIcsRes = await request.get(newPublicUrl);
+    expect(newIcsRes.status()).toBe(200);
+
+    // 6. Disable/revoke public link
+    await publicEnableCheckbox.click();
+    await expect(publicArea).toHaveClass(/hidden/);
+
+    // 7. Verify old and new public links return 404
+    const deadRes1 = await request.get(publicUrl);
+    expect(deadRes1.status()).toBe(404);
+    const deadRes2 = await request.get(newPublicUrl);
+    expect(deadRes2.status()).toBe(404);
+  });
+
 });
+
