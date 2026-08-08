@@ -13,13 +13,12 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_PATH: /app/data/webcalendar.db
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
-      SSL_KEY_PATH: /app/ssl/key.pem
-      SSL_CERT_PATH: /app/ssl/cert.pem
+      SSL_KEY_PATH: ""
+      SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: https://caldav-server:5232
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
     volumes:
-      - shared-data:/app/data
+      - ./data:/app/data
       - ./ssl:/app/ssl:ro
 
   caldav-server:
@@ -33,7 +32,7 @@ services:
       DATABASE_PATH: /data/webcalendar.db
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
     volumes:
-      - shared-data:/data
+      - ./data:/data
       - radicale-collections:/data/collections
       - ./ssl:/etc/radicale/ssl:ro
 
@@ -51,7 +50,7 @@ services:
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
     volumes:
-      - shared-data:/data
+      - ./data:/data
       - vdir-status:/data/vdir_status
       # If sync-worker needs to trust the self-signed certificate, we can mount it too
       - ./ssl:/etc/ssl/certs/local:ro

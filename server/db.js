@@ -357,15 +357,80 @@ const Db = {
       // Use SQLite UPSERT or simple REPLACE since sync_queue table is small.
       // We enforce unique user_id by running a DELETE first or doing a manual check.
       db.serialize(() => {
-        db.run('DELETE FROM sync_queue WHERE user_id = ? AND status = "PENDING"', [userId]);
-        db.run(
-          'INSERT INTO sync_queue (id, user_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-          [id, userId, 'PENDING', now, now],
-          (err) => {
-            if (err) return reject(err);
-            resolve({ id, userId, status: 'PENDING' });
-          }
-        );
+        db.run('DELETE FROM sync_queue WHERE user_id = ? AND status = "PENDING"', [userId], (err) => {
+          if (err) return reject(err);
+          db.run(
+            'INSERT INTO sync_queue (id, user_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+            [id, userId, 'PENDING', now, now],
+            (err) => {
+              if (err) return reject(err);
+              resolve({ id, userId, status: 'PENDING', createdAt: now, updatedAt: now });
+            }
+          );
+        });
+      });
+    });
+  },
+
+  getSyncJobs(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        'SELECT id, user_id, status, error_message, created_at, updated_at FROM sync_queue WHERE user_id = ? ORDER BY created_at DESC',
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            status: row.status,
+            errorMessage: row.error_message,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          })));
+        }
+      );
+    });
+  },
+
+  getPendingSyncJobs() {
+    return new Promise((resolve, reject) => {
+      db.all(
+        'SELECT id, user_id, status, error_message, created_at, updated_at FROM sync_queue WHERE status = "PENDING" ORDER BY created_at ASC',
+        [],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            status: row.status,
+            errorMessage: row.error_message,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          })));
+        }
+      );
+    });
+  },
+
+  updateSyncJobStatus(id, status, errorMessage = null) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(
+        'UPDATE sync_queue SET status = ?, error_message = ?, updated_at = ? WHERE id = ?',
+        [status, errorMessage, now, id],
+        function (err) {
+          if (err) return reject(err);
+          resolve({ id, status, errorMessage, updatedAt: now, changes: this.changes });
+        }
+      );
+    });
+  },
+
+  clearSyncJobsForUser(userId) {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`], (err) => {
+        if (err) return reject(err);
+        resolve();
       });
     });
   },

@@ -1,5 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
+process.env.PORT = process.env.PORT || '3099';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -20,7 +21,7 @@ test('HTTP Routes Integration Suite', async (t) => {
   // Clean up database before running tests
   await Db.clearAll().catch(() => {});
 
-  const baseUrl = 'http://localhost:3000';
+  const baseUrl = `http://localhost:${process.env.PORT}`;
   const hasCalDAV = !!(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
   let sessionCookie = '';
   let testCalendarId = '';
