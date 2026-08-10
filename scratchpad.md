@@ -13,7 +13,7 @@
 ## Test Execution State
 - Node Unit & Integration Suite: `npm test` -> 27/27 PASSED (including security anonymization audit suite)
 - Playwright E2E Suite: `npx playwright test` -> 6/6 PASSED
-- Privacy/Anonymization: Purged unallocated database remnants via VACUUM, scrubbed `.env` of personal domain references (`gryzia.de`), verified zero personal identifiers across repository.
+- Privacy/Anonymization: Purged unallocated database remnants via VACUUM, scrubbed `.env` of personal references, verified zero personal identifiers across repository.
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow

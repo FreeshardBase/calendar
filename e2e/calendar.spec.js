@@ -213,7 +213,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
-    // Autocompleting "Aaron Gryzia" requires a CalDAV server with real user
+    // Autocompleting "Test User" requires a CalDAV server with real user
     // principals — only runs against a configured external account.
     test.skip(!process.env.CALDAVURL, 'No CALDAV credentials configured');
 

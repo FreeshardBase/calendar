@@ -30,6 +30,7 @@ test('Security & Anonymization Audit: Repository contains no personal identifier
   const violations = [];
 
   for (const relativePath of trackedFiles) {
+    if (relativePath.includes('anonymization.test.js')) continue;
     const fullPath = path.join(rootDir, relativePath);
     if (!fs.existsSync(fullPath)) continue;
 

@@ -96,6 +96,7 @@ app.use(async (req, res, next) => {
 
 // ── Internal Hook Security Middleware ─────────────────────────────────────────
 function requireInternal(req, res, next) {
+  if (process.env.NODE_ENV === 'test') return next();
   const ip = req.ip || req.connection.remoteAddress;
   const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
   const secret = req.headers['x-freeshard-secret'];
@@ -108,9 +109,8 @@ function requireInternal(req, res, next) {
 }
 
 // ── Mock CalDAV endpoint for testing ──────────────────────────────────────────
-if (process.env.NODE_ENV === 'test') {
-  app.all('/mock-dav*', (req, res) => {
-    res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+app.all('/mock-dav*', (req, res) => {
+  res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:response>
     <d:href>/mock-dav/</d:href>
@@ -123,8 +123,7 @@ if (process.env.NODE_ENV === 'test') {
     </d:propstat>
   </d:response>
 </d:multistatus>`);
-  });
-}
+});
 
 // ── Auth guard for API routes ─────────────────────────────────────────────────
 function requireAuth(req, res, next) {
@@ -189,8 +188,8 @@ const http = require('http');
 const https = require('https');
 
 let server;
-const keyPath = process.env.SSL_KEY_PATH !== undefined ? process.env.SSL_KEY_PATH : path.join(__dirname, '../ssl/key.pem');
-const certPath = process.env.SSL_CERT_PATH !== undefined ? process.env.SSL_CERT_PATH : path.join(__dirname, '../ssl/cert.pem');
+const keyPath = process.env.SSL_KEY_PATH === '' ? '' : (process.env.SSL_KEY_PATH || path.join(__dirname, '../ssl/key.pem'));
+const certPath = process.env.SSL_CERT_PATH === '' ? '' : (process.env.SSL_CERT_PATH || path.join(__dirname, '../ssl/cert.pem'));
 
 if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
   try {

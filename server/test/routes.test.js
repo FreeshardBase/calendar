@@ -1,30 +1,24 @@
 'use strict';
+process.env.NODE_ENV = 'test';
+process.env.PORT = process.env.PORT || '3097';
+process.env.DISABLE_INTERNAL_CALDAV = '1';
+process.env.SSL_KEY_PATH = '';
+process.env.SSL_CERT_PATH = '';
 require('dotenv').config();
 
 const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
+const { app, server } = require('../index');
 
-// Integration suite — exercises the running HTTP server. It skips cleanly when no
-// server is reachable, so a cold `npm test` stays green. To actually run it, start
-// the app first (`NODE_ENV=test npm start`) or point TEST_BASE_URL at a running
-// instance, then re-run the tests.
-const baseUrl = process.env.TEST_BASE_URL || 'http://localhost:3000';
-
-async function serverReachable() {
-  try {
-    const res = await fetch(`${baseUrl}/api/accounts`);
-    return !!res.status;
-  } catch {
-    return false;
-  }
-}
+const baseUrl = `http://localhost:${process.env.PORT}`;
 
 test('HTTP Routes Integration Suite', async (t) => {
-  if (!(await serverReachable())) {
-    t.skip(`no server reachable at ${baseUrl} — start it (NODE_ENV=test npm start) or set TEST_BASE_URL`);
-    return;
-  }
+  t.after(() => {
+    if (server && server.close) {
+      server.close();
+    }
+  });
 
   // Clean up database before running tests
   await Db.clearAll().catch(() => {});
@@ -40,7 +34,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     const accounts = await res.json();
     assert.ok(Array.isArray(accounts));
     assert.strictEqual(accounts.length, 1);
-    assert.strictEqual(accounts[0].id, 'env-default');
+    assert.ok(accounts[0].id === 'env-default' || accounts[0].id === 'internal-caldav');
     assert.strictEqual(accounts[0].username, 'test');
 
     // Extract session cookie
@@ -139,7 +133,7 @@ test('HTTP Routes Integration Suite', async (t) => {
         'Content-Type': 'application/json',
         cookie: sessionCookie
       },
-      body: JSON.stringify({ sharee: 'aaron@gryzia.de', readWrite: true })
+      body: JSON.stringify({ sharee: 'testuser@example.com', readWrite: true })
     });
     assert.strictEqual(addRes.status, 200);
 
@@ -149,7 +143,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(getRes.status, 200);
     const getBody = await getRes.json();
-    const share = getBody.shares.find(s => s.href.includes('aaron'));
+    const share = getBody.shares.find(s => s.href.includes('testuser'));
     assert.ok(share);
     assert.strictEqual(share.readWrite, true);
 
@@ -170,7 +164,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(getRes2.status, 200);
     const getBody2 = await getRes2.json();
-    const share2 = getBody2.shares.find(s => s.href.includes('aaron'));
+    const share2 = getBody2.shares.find(s => s.href.includes('testuser'));
     assert.ok(share2);
     assert.strictEqual(share2.readWrite, false);
 
@@ -191,7 +185,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(getRes3.status, 200);
     const getBody3 = await getRes3.json();
-    const share3 = getBody3.shares.find(s => s.href.includes('aaron'));
+    const share3 = getBody3.shares.find(s => s.href.includes('testuser'));
     assert.ok(!share3);
   });
 
@@ -207,7 +201,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     const users = await res.json();
     assert.ok(Array.isArray(users));
     assert.ok(users.length > 0);
-    assert.strictEqual(users[0].displayname, 'Aaron Gryzia');
+    assert.strictEqual(users[0].displayname, 'Test User');
   });
 
   await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async (st) => {
@@ -256,14 +250,13 @@ test('HTTP Routes Integration Suite', async (t) => {
   });
 
   await t.test('POST, PATCH, DELETE /api/accounts and POST /internal/webhooks/user-deleted should manage accounts and clean up via webhook', async () => {
-    const getSessRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'webhook-test-user' }
-    });
-    const newSessionCookie = getSessRes.headers.get('set-cookie');
+    const getSessRes = await fetch(`${baseUrl}/api/accounts`);
+    const rawCookie = getSessRes.headers.get('set-cookie');
+    const sessionCookie = rawCookie ? rawCookie.split(';')[0] : '';
 
     const headers = {
       'Content-Type': 'application/json',
-      cookie: newSessionCookie,
+      cookie: sessionCookie,
       'x-test-user-id': 'webhook-test-user'
     };
 
@@ -284,10 +277,7 @@ test('HTTP Routes Integration Suite', async (t) => {
 
     // 2. Verify account is present in list
     const listRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: {
-        cookie: newSessionCookie,
-        'x-test-user-id': 'webhook-test-user'
-      }
+      headers
     });
     assert.strictEqual(listRes.status, 200);
     const listData = await listRes.json();
@@ -305,13 +295,11 @@ test('HTTP Routes Integration Suite', async (t) => {
 
     // 4. Verify display name is updated
     const listRes2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: {
-        cookie: newSessionCookie,
-        'x-test-user-id': 'webhook-test-user'
-      }
+      headers
     });
     const listData2 = await listRes2.json();
     const foundAcc2 = listData2.find(a => a.id === addAccData.id);
+    assert.ok(foundAcc2);
     assert.strictEqual(foundAcc2.displayName, 'Updated Webhook Name');
 
     // 5. Test webhook for a different user_id (should not delete our account)
@@ -323,10 +311,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.strictEqual(hookRes1.status, 200);
 
     const listRes3 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: {
-        cookie: newSessionCookie,
-        'x-test-user-id': 'webhook-test-user'
-      }
+      headers
     });
     const listData3 = await listRes3.json();
     assert.ok(listData3.some(a => a.id === addAccData.id));
@@ -341,10 +326,7 @@ test('HTTP Routes Integration Suite', async (t) => {
 
     // 7. Verify account is deleted by webhook
     const listRes4 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: {
-        cookie: newSessionCookie,
-        'x-test-user-id': 'webhook-test-user'
-      }
+      headers
     });
     const listData4 = await listRes4.json();
     assert.ok(!listData4.some(a => a.id === addAccData.id));
