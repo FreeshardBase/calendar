@@ -18,6 +18,7 @@ const eventsRouter = require('./routes/events');
 const tasksRouter = require('./routes/tasks');
 const authRouter = require('./routes/auth');
 const msgraphRouter = require('./routes/msgraph');
+const resourcesRouter = require('./routes/resources');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -176,6 +177,7 @@ app.use('/api/calendars',         requireAuth, calendarsRouter);
 app.use('/api/events',            requireAuth, eventsRouter);
 app.use('/api/tasks',             requireAuth, tasksRouter);
 app.use('/api/msgraph',           requireAuth, msgraphRouter);
+app.use('/api/resources',         requireAuth, resourcesRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {

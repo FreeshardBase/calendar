@@ -15,9 +15,22 @@ import { initInvitations } from './invitations.js';
 // ── Element refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
+window.__appStore = store;
+window.__checkAndTriggerAlarms = checkAndTriggerAlarms;
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 async function boot() {
+  const params = new URLSearchParams(window.location.search);
+  const dateParam = params.get('date');
+  if (dateParam) {
+    const parsed = new Date(dateParam);
+    if (!isNaN(parsed.getTime())) {
+      parsed.setHours(0, 0, 0, 0);
+      store.set({ currentDate: parsed });
+    }
+  }
+
   // Init modals first (attach event listeners)
   initEventModal();
   initAccountModal();
@@ -391,6 +404,14 @@ function openImportDialog(fileName, icsText) {
             ${writableCals.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.name)}</option>`).join('')}
           </select>
         </div>
+        <div class="form-group" style="margin-top: 12px;">
+          <label class="fs-label" for="import-strategy-select">Konflikt- & Duplikat-Handhabung</label>
+          <select id="import-strategy-select" class="form-input">
+            <option value="SKIP" selected>Duplikate überspringen (Empfohlen)</option>
+            <option value="OVERWRITE">Existierende Termine überschreiben</option>
+            <option value="CREATE_NEW">Als neue Kopie anlegen</option>
+          </select>
+        </div>
         <div style="display: flex; gap: 10px; margin-top: 18px;">
           <button type="button" class="btn btn-primary" id="import-confirm" style="flex: 1;">Importieren</button>
           <button type="button" class="btn btn-ghost" id="import-cancel" style="flex: 1;">Abbrechen</button>
@@ -406,14 +427,15 @@ function openImportDialog(fileName, icsText) {
 
   backdrop.querySelector('#import-confirm').addEventListener('click', async () => {
     const calId = backdrop.querySelector('#import-cal-select').value;
+    const strategy = backdrop.querySelector('#import-strategy-select').value;
     const btn = backdrop.querySelector('#import-confirm');
     btn.disabled = true;
     btn.textContent = 'Importiere…';
     try {
-      const result = await CalendarsAPI.importICS(calId, icsText);
+      const result = await CalendarsAPI.importICS(calId, icsText, null, strategy);
       close();
       const parts = [`${result.imported} importiert`];
-      if (result.skipped) parts.push(`${result.skipped} bereits vorhanden`);
+      if (result.skipped) parts.push(`${result.skipped} übersprungen`);
       if (result.failed) parts.push(`${result.failed} fehlgeschlagen`);
       showToast(`Import abgeschlossen: ${parts.join(', ')}.`, result.failed ? 'error' : 'success');
       invalidateEventCache();
@@ -1324,9 +1346,49 @@ function attachListeners() {
     loadEvents();
   });
 
+  const exportPdfBtn = $('export-pdf-btn');
+  if (exportPdfBtn) {
+    exportPdfBtn.addEventListener('click', async () => {
+      const view = store.get('view');
+      const currentDate = store.get('currentDate') || new Date();
+      const events = getFilteredEvents();
+      const exportView = (view === 'week' || view === 'workweek') ? 'week' : 'month';
+
+      try {
+        const res = await fetch('/api/calendars/export/pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            view: exportView,
+            year: currentDate.getFullYear(),
+            month: currentDate.getMonth() + 1,
+            events: events,
+            title: $('toolbar-title').textContent || 'Calendar Export',
+            orientation: 'landscape'
+          })
+        });
+
+        if (!res.ok) throw new Error('PDF export failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `calendar-${exportView}-${Date.now()}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('[PDF Export Error]', err);
+        window.print();
+      }
+    });
+  }
+
+
   // New event button
   $('new-event-btn').addEventListener('click', () => {
-    openCreateModal(new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
+    openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
   });
 
   // Settings Drawer Toggle
@@ -1448,7 +1510,7 @@ function attachListeners() {
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
     switch (e.key) {
-      case 'n': openCreateModal(new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted }); break;
+      case 'n': openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted }); break;
       case 't': { const t = new Date(); t.setHours(0,0,0,0); store.set({ currentDate: t }); loadEvents(); break; }
       case 'ArrowLeft':  $('prev-btn').click(); break;
       case 'ArrowRight': $('next-btn').click(); break;

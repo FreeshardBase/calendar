@@ -1837,6 +1837,61 @@ textarea.form-input, .form-textarea {
   background: #d3382a;
 }
 
+/* ── Print & Vector PDF Export Styles ─────────────────────────────────────── */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .sidebar,
+  .toolbar-nav,
+  .view-tabs,
+  .search-wrapper,
+  #export-pdf-btn,
+  #invitations-btn,
+  #sidebar-toggle,
+  .status-bar,
+  .modal-backdrop,
+  .popover {
+    display: none !important;
+  }
+  .app {
+    display: block !important;
+  }
+  .main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  .toolbar {
+    border-bottom: 2px solid #000 !important;
+    padding: 10px 0 !important;
+    margin-bottom: 15px !important;
+  }
+  .toolbar-title {
+    font-size: 22px !important;
+    font-weight: bold !important;
+    color: #000 !important;
+  }
+  .calendar-container,
+  .month-grid,
+  .week-grid {
+    width: 100% !important;
+    height: auto !important;
+    border: 1px solid #000 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .event-chip {
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    background: #f0f0f0 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+
 
 
 

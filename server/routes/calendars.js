@@ -8,6 +8,7 @@ const path = require('path');
 const ICAL = require('ical.js');
 const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseSyncCollectionResponse } = require('../caldav/parser');
+const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictResolver');
 const Db = require('../db');
 
 function slugify(name) {
@@ -465,8 +466,51 @@ router.get('/:id/export', async (req, res) => {
   }
 });
 
-// POST /api/calendars/:id/import — import events from an uploaded ICS document
-router.post('/:id/import', async (req, res) => {
+// POST /api/calendars/export/pdf — export vector PDF for month or week view
+router.post('/export/pdf', async (req, res) => {
+  try {
+    const { generateCalendarPDF } = require('../utils/pdfExport');
+    const { view, year, month, week, events, title, orientation } = req.body || {};
+    if (!view || (view !== 'month' && view !== 'week')) {
+      return res.status(400).json({ error: 'Missing or invalid view parameter (must be "month" or "week")' });
+    }
+
+    const pdfBuffer = generateCalendarPDF({
+      view,
+      year: parseInt(year, 10) || new Date().getFullYear(),
+      month: parseInt(month, 10) || (new Date().getMonth() + 1),
+      week: parseInt(week, 10) || 1,
+      events: Array.isArray(events) ? events : [],
+      title: title || (view === 'month' ? `Monatsansicht - ${month || ''}/${year || ''}` : `Wochenansicht - KW ${week || 1}`),
+      orientation: orientation || 'landscape'
+    });
+
+    const filename = `calendar-${view}-${Date.now()}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[calendars export pdf]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+async function fetchExistingCalendarEvents(client, calendarId, accountId, calendarUrl) {
+  try {
+    const startDate = new Date(Date.now() - 365 * 24 * 3600 * 1000);
+    const endDate = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+    const eventsXml = await client.getEvents(calendarUrl, startDate, endDate);
+    const { parseEventList } = require('../caldav/parser');
+    return parseEventList(eventsXml, calendarId, accountId, calendarUrl, startDate, endDate);
+  } catch (err) {
+    console.error('[fetchExistingCalendarEvents]', err.message);
+    return [];
+  }
+}
+
+// POST /api/calendars/:id/import/detect — detect conflicts & duplicates before import
+router.post('/:id/import/detect', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
     const { ics } = req.body;
@@ -474,7 +518,29 @@ router.post('/:id/import', async (req, res) => {
       return res.status(400).json({ error: 'ics (string) is required' });
     }
 
-    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+    const { client, account, calendarUrl } = await resolveCalendar(req, calendarId);
+    if (!client) return res.status(404).json({ error: 'Account not found' });
+
+    const existingEvents = await fetchExistingCalendarEvents(client, calendarId, account ? account.id : 'internal-caldav', calendarUrl);
+    const result = detectICSConflicts(ics, existingEvents);
+
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[calendars import detect]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/calendars/:id/import — import events from an uploaded ICS document with conflict resolution
+router.post('/:id/import', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const { ics, resolutions, defaultStrategy } = req.body;
+    if (!ics || typeof ics !== 'string') {
+      return res.status(400).json({ error: 'ics (string) is required' });
+    }
+
+    const { client, account, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     let comp;
@@ -490,7 +556,45 @@ router.post('/:id/import', async (req, res) => {
     }
     const vtimezones = comp.getAllSubcomponents('vtimezone');
 
-    // Group by UID — a series (master + detached exceptions) shares one resource
+    // If resolution strategy is provided, process conflicts explicitly
+    if (resolutions || defaultStrategy) {
+      const existingEvents = await fetchExistingCalendarEvents(client, calendarId, account ? account.id : 'internal-caldav', calendarUrl);
+      const resolvedItems = resolveICSImport(ics, existingEvents, resolutions || defaultStrategy);
+
+      let imported = 0, skipped = 0, failed = 0;
+      for (const item of resolvedItems) {
+        if (item.action === 'SKIP') {
+          skipped++;
+          continue;
+        }
+
+        const doc = new ICAL.Component(['vcalendar', [], []]);
+        doc.updatePropertyWithValue('version', '2.0');
+        doc.updatePropertyWithValue('prodid', '-//Freeshard//WebCalendar 1.0//EN');
+        if (Array.isArray(item.vtimezones)) {
+          for (const tz of item.vtimezones) doc.addSubcomponent(tz);
+        } else {
+          for (const tz of vtimezones) doc.addSubcomponent(tz);
+        }
+        doc.addSubcomponent(item.veventComp);
+
+        const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(item.uid) + '.ics';
+        try {
+          // FORCE put for OVERWRITE (etag=true or undefined), or etag=null for NEW
+          const etagVal = item.action === 'OVERWRITE' ? true : null;
+          await client.put(resourceUrl, doc.toString(), etagVal);
+          imported++;
+        } catch (putErr) {
+          if (putErr.message === 'ETAG_CONFLICT') skipped++;
+          else { failed++; console.error(`[calendars import resolved] ${item.uid}:`, putErr.message); }
+        }
+      }
+
+      queueSyncForCalendar(calendarId, req.session.userId);
+      return res.json({ imported, skipped, failed, total: resolvedItems.length });
+    }
+
+    // Default import behavior (group by UID)
     const byUid = new Map();
     for (const v of vevents) {
       const uid = v.getFirstPropertyValue('uid') || crypto.randomUUID();
@@ -508,7 +612,6 @@ router.post('/:id/import', async (req, res) => {
 
       const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
       try {
-        // If-None-Match:* (set by put() for etag=null) skips already-existing UIDs
         await client.put(resourceUrl, doc.toString(), null);
         imported++;
       } catch (putErr) {

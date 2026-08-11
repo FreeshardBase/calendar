@@ -29,11 +29,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should open event modal, create an event, view popover, and delete it', async ({ page }) => {
-    await page.goto('/');
-
-    // Wait for app to be ready and calendar list to populate
+    await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+
 
     // Click "Neuer Termin" button
     await page.click('#new-event-btn');
@@ -123,13 +123,15 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should import a dropped ICS file and export a calendar as download', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
 
-    // Build an ICS with one event today and simulate dropping it on the sidebar
+
+
+    // Build an ICS with one event on 2026-07-06 and simulate dropping it on the sidebar
     const title = `Imported E2E ${Date.now()}`;
-    const d = new Date();
+    const d = new Date('2026-07-06T10:00:00Z');
     const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
     const ics = [
       'BEGIN:VCALENDAR', 'VERSION:2.0',
@@ -349,7 +351,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with a VALARM reminder and edit alarm setting', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
 
@@ -382,11 +384,19 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.selectOption('#ev-alarm', '-PT1H');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+    // Clean up test 9 event
+    await chip.click();
+    page.on('dialog', dialog => dialog.accept());
+    await page.click('#popover-delete-btn');
+    await expect(chip).not.toBeVisible({ timeout: 10000 });
   });
+
 
   test('should trigger desktop push notification and UI toast displaying event title, time, and location when VALARM is due', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.waitForFunction(() => !!window.__appStore);
 
     // Mock HTML5 Notification API in page context
     await page.evaluate(() => {
@@ -406,11 +416,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const title = `Push Reminder ${Date.now()}`;
     const location = 'Conference Room B';
 
-    await page.evaluate(async ({ title, location }) => {
-      const { store } = await import('/js/store.js');
-      const { checkAndTriggerAlarms, resetNotifiedAlarms } = await import('/js/notifications.js');
-      resetNotifiedAlarms();
-
+    await page.evaluate(({ title, location }) => {
+      const store = window.__appStore;
       const events = store.get('events') || [];
       const now = new Date().toISOString();
       events.push({
@@ -422,7 +429,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         alarms: [{ action: 'DISPLAY', trigger: 'PT0S', description: 'Erinnerungssitzung' }]
       });
       store.set({ events });
-      checkAndTriggerAlarms();
+      if (typeof window.__checkAndTriggerAlarms === 'function') {
+        window.__checkAndTriggerAlarms();
+      }
     }, { title, location });
 
     // Verify UI Toast appears displaying title, time, and location
@@ -504,7 +513,19 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#invitations-modal-backdrop')).toHaveClass(/hidden/);
   });
 
+  test('should trigger PDF vector export download via export-pdf-btn', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#export-pdf-btn')).toBeVisible({ timeout: 10000 });
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('#export-pdf-btn');
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+  });
+
 });
+
 
 
 

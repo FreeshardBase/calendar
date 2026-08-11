@@ -67,8 +67,8 @@ export function openCreateModal(defaultDate, callbacks) {
   $('delete-event-btn').style.display = 'none';
   $('event-save-btn').style.display = '';
 
-  // Pre-fill date from defaultDate or store's active currentDate
-  const d = defaultDate ? new Date(defaultDate) : (store.get('currentDate') || new Date());
+  const activeCurrentDate = store.get('currentDate');
+  const d = defaultDate ? new Date(defaultDate) : (activeCurrentDate ? new Date(activeCurrentDate) : new Date());
   $('ev-start-date').value = toInputDate(d);
   $('ev-end-date').value   = toInputDate(d);
 

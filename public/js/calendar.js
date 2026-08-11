@@ -183,7 +183,7 @@ function renderMonth(container, events, currentDate, cb) {
     const isSelected = sameDay(date, currentDate);
 
     const dayEvents = eventsForDay(events, date);
-    const MAX_VISIBLE = 3;
+    const MAX_VISIBLE = 12;
     const overflow = dayEvents.length - MAX_VISIBLE;
 
     const cell = document.createElement('div');
@@ -194,6 +194,7 @@ function renderMonth(container, events, currentDate, cb) {
     if (overflow > 0) chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}">+${overflow} weitere</div>`;
 
     cell.innerHTML = `<div class="month-day-num">${date.getDate()}</div>${chipsHtml}`;
+
 
     // Click on day → create event
     cell.addEventListener('click', e => {

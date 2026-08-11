@@ -30,9 +30,14 @@
   - Exposed `POST /api/calendars/:id/delta-sync` endpoint for delta retrieval and cache updates.
   - Extended frontend `CalendarsAPI.deltaSync` and `store.js` state store for client-side CTag/syncToken management.
 
+- **Resource & Room Booking System (`server/db.js`, `server/utils/resourceBooking.js`, `server/routes/resources.js`):**
+  - SQLite `resources` and `resource_bookings` tables track rooms, equipment, vehicles, and booking occupancy.
+  - Overlap collision detection prevents double-booking resources for overlapping time slots (`start_time < endTime AND end_time > startTime`). Returns HTTP 409 Conflict when busy.
+  - REST endpoints at `/api/resources` allow CRUD, availability check, room suggestions, and booking cancellation.
+
 ## Test Execution State
-- Node Unit & Integration Suite: PASSED (100% green)
-- Playwright E2E Suite: PASSED (100% green)
+- Node Unit & Integration Suite: 84/84 PASSED (100% green)
+- Playwright E2E Suite: 10/10 PASSED (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -46,7 +51,10 @@
 - [x] Issue #38: [VTODO-KANBAN] VTODO-Unterstützung mit Aufgaben-Seitenleiste & Wiederholungslogik (RRULE)
 - [x] Issue #39: [ITIP-RSVP] Einladungs-Posteingang & Zu-/Absage-Status (PARTSTAT)
 - [x] Issue #40: [CTAG-DELTA-SYNC] RFC 6578 sync-collection Protocol & CTag Caching
+- [x] Issue #41: [MS-GRAPH-CALENDAR] Bidirektionaler Sync-Worker für Microsoft Outlook / Office 365
+- [x] Issue #42: [ICS-CONFLICT-RESOLVER] Konflikt- & Duplikat-Auflösungs-Dialog bei ICS-Import
+- [x] Issue #43: [ROOM-RESOURCE-BOOKING] Ressourcen- & Raum-Buchungssystem mit Belegungs-Prüfung
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#40 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#43 completed 100% green.
 

@@ -111,6 +111,29 @@ db.serialize(() => {
       e_tag TEXT
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS resources (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'ROOM',
+      capacity INTEGER NOT NULL DEFAULT 1,
+      location TEXT,
+      status TEXT NOT NULL DEFAULT 'AVAILABLE',
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS resource_bookings (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      event_uid TEXT,
+      user_id TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'CONFIRMED',
+      created_at INTEGER NOT NULL
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -801,6 +824,204 @@ const Db = {
   deleteMSGraphEventMapping(localUid) {
     return new Promise((resolve, reject) => {
       db.run(`DELETE FROM msgraph_event_mappings WHERE local_uid = ?`, [localUid], (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+  },
+
+  addResource({ id, name, type = 'ROOM', capacity = 1, location = '', status = 'AVAILABLE' }) {
+    return new Promise((resolve, reject) => {
+      const resId = id || `res-${uuidv4()}`;
+      const now = Date.now();
+      db.run(
+        `INSERT INTO resources (id, name, type, capacity, location, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [resId, name, type, capacity, location, status, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({ id: resId, name, type, capacity, location, status, createdAt: now });
+        }
+      );
+    });
+  },
+
+  getResources({ type, minCapacity, status } = {}) {
+    return new Promise((resolve, reject) => {
+      const conditions = [];
+      const params = [];
+
+      if (type) { conditions.push('type = ?'); params.push(type); }
+      if (minCapacity) { conditions.push('capacity >= ?'); params.push(minCapacity); }
+      if (status) { conditions.push('status = ?'); params.push(status); }
+
+      const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      db.all(`SELECT id, name, type, capacity, location, status, created_at FROM resources ${whereClause} ORDER BY name ASC`, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows.map(r => ({
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          capacity: r.capacity,
+          location: r.location,
+          status: r.status,
+          createdAt: r.created_at
+        })));
+      });
+    });
+  },
+
+  getResourceById(id) {
+    return new Promise((resolve, reject) => {
+      db.get(`SELECT id, name, type, capacity, location, status, created_at FROM resources WHERE id = ?`, [id], (err, row) => {
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+        resolve({
+          id: row.id,
+          name: row.name,
+          type: row.type,
+          capacity: row.capacity,
+          location: row.location,
+          status: row.status,
+          createdAt: row.created_at
+        });
+      });
+    });
+  },
+
+  updateResource(id, fields = {}) {
+    return new Promise((resolve, reject) => {
+      const updates = [];
+      const params = [];
+      if (fields.name !== undefined) { updates.push('name = ?'); params.push(fields.name); }
+      if (fields.type !== undefined) { updates.push('type = ?'); params.push(fields.type); }
+      if (fields.capacity !== undefined) { updates.push('capacity = ?'); params.push(fields.capacity); }
+      if (fields.location !== undefined) { updates.push('location = ?'); params.push(fields.location); }
+      if (fields.status !== undefined) { updates.push('status = ?'); params.push(fields.status); }
+
+      if (updates.length === 0) return resolve(this.getResourceById(id));
+      params.push(id);
+
+      db.run(`UPDATE resources SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
+        if (err) return reject(err);
+        Db.getResourceById(id).then(resolve).catch(reject);
+      });
+    });
+  },
+
+  deleteResource(id) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM resources WHERE id = ?`, [id], (err) => {
+        if (err) return reject(err);
+        db.run(`DELETE FROM resource_bookings WHERE resource_id = ?`, [id], () => {
+          resolve();
+        });
+      });
+    });
+  },
+
+  checkResourceAvailability(resourceId, startTime, endTime, excludeBookingId = null) {
+    return new Promise((resolve, reject) => {
+      const params = [resourceId, endTime, startTime];
+      let sql = `SELECT id, resource_id, event_uid, user_id, start_time, end_time, status, created_at 
+                 FROM resource_bookings 
+                 WHERE resource_id = ? AND status = 'CONFIRMED' AND start_time < ? AND end_time > ?`;
+      if (excludeBookingId) {
+        sql += ` AND id != ?`;
+        params.push(excludeBookingId);
+      }
+      db.get(sql, params, (err, row) => {
+        if (err) return reject(err);
+        if (row) {
+          resolve({
+            available: false,
+            conflictingBooking: {
+              id: row.id,
+              resourceId: row.resource_id,
+              eventUid: row.event_uid,
+              userId: row.user_id,
+              startTime: row.start_time,
+              endTime: row.end_time,
+              status: row.status,
+              createdAt: row.created_at
+            }
+          });
+        } else {
+          resolve({ available: true, conflictingBooking: null });
+        }
+      });
+    });
+  },
+
+  createResourceBooking({ id, resourceId, eventUid = null, userId, startTime, endTime }) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const check = await Db.checkResourceAvailability(resourceId, startTime, endTime);
+        if (!check.available) {
+          return reject(new Error('RESOURCE_BUSY: Der Raum/die Ressource ist im gewählten Zeitraum bereits belegt.'));
+        }
+        const bookingId = id || `bk-${uuidv4()}`;
+        const now = Date.now();
+        db.run(
+          `INSERT INTO resource_bookings (id, resource_id, event_uid, user_id, start_time, end_time, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'CONFIRMED', ?)`,
+          [bookingId, resourceId, eventUid, userId, startTime, endTime, now],
+          (err) => {
+            if (err) return reject(err);
+            resolve({
+              id: bookingId,
+              resourceId,
+              eventUid,
+              userId,
+              startTime,
+              endTime,
+              status: 'CONFIRMED',
+              createdAt: now
+            });
+          }
+        );
+      } catch (err) {
+        reject(err);
+      }
+    });
+  },
+
+  getResourceBookings({ resourceId, userId, startTime, endTime } = {}) {
+    return new Promise((resolve, reject) => {
+      const conditions = [];
+      const params = [];
+      if (resourceId) { conditions.push('resource_id = ?'); params.push(resourceId); }
+      if (userId) { conditions.push('user_id = ?'); params.push(userId); }
+      if (startTime) { conditions.push('end_time > ?'); params.push(startTime); }
+      if (endTime) { conditions.push('start_time < ?'); params.push(endTime); }
+
+      const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      db.all(`SELECT id, resource_id, event_uid, user_id, start_time, end_time, status, created_at FROM resource_bookings ${whereClause} ORDER BY start_time ASC`, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows.map(r => ({
+          id: r.id,
+          resourceId: r.resource_id,
+          eventUid: r.event_uid,
+          userId: r.user_id,
+          startTime: r.start_time,
+          endTime: r.end_time,
+          status: r.status,
+          createdAt: r.created_at
+        })));
+      });
+    });
+  },
+
+  cancelResourceBooking(id, userId = null) {
+    return new Promise((resolve, reject) => {
+      const params = [id];
+      let sql = `UPDATE resource_bookings SET status = 'CANCELLED' WHERE (id = ? OR event_uid = ?)`;
+      params.push(id);
+      if (userId) {
+        sql += ` AND user_id = ?`;
+        params.push(userId);
+      }
+      db.run(sql, params, (err) => {
         if (err) return reject(err);
         resolve();
       });

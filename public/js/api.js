@@ -51,7 +51,8 @@ export const CalendarsAPI = {
   getPublicLink: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/public-link`),
   enablePublicLink: (id) => request('POST', `/api/calendars/${encodeURIComponent(id)}/public-link`),
   disablePublicLink: (id) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/public-link`),
-  importICS: (id, ics) => request('POST', `/api/calendars/${encodeURIComponent(id)}/import`, { ics }),
+  importICS: (id, ics, resolutions, defaultStrategy) => request('POST', `/api/calendars/${encodeURIComponent(id)}/import`, { ics, resolutions, defaultStrategy }),
+  detectICSConflicts: (id, ics) => request('POST', `/api/calendars/${encodeURIComponent(id)}/import/detect`, { ics }),
   exportUrl: (id) => `/api/calendars/${encodeURIComponent(id)}/export`,
   listPublicShares: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/shares-public`),
   addPublicShare: (id, label) => request('POST', `/api/calendars/${encodeURIComponent(id)}/shares-public`, { label }),
@@ -82,5 +83,20 @@ export const TasksAPI = {
   update: (uid, data) => request('PUT',    `/api/tasks/${encodeURIComponent(uid)}`, data),
   remove: (uid, data) => request('DELETE', `/api/tasks/${encodeURIComponent(uid)}`, data),
 };
+
+// ── Resources & Room Booking ──────────────────────────────────────────────────
+export const ResourcesAPI = {
+  list:   (type, minCapacity) => request('GET', `/api/resources?type=${encodeURIComponent(type || '')}&minCapacity=${minCapacity || ''}`),
+  create: (data)              => request('POST', '/api/resources', data),
+  get:    (id)                => request('GET', `/api/resources/${encodeURIComponent(id)}`),
+  update: (id, data)          => request('PATCH', `/api/resources/${encodeURIComponent(id)}`, data),
+  remove: (id)                => request('DELETE', `/api/resources/${encodeURIComponent(id)}`),
+  checkAvailability: (data)   => request('POST', '/api/resources/check-availability', data),
+  suggest: (data)             => request('POST', '/api/resources/suggest', data),
+  getBookings: (resourceId)   => request('GET', `/api/resources/bookings?resourceId=${encodeURIComponent(resourceId || '')}`),
+  createBooking: (data)       => request('POST', '/api/resources/bookings', data),
+  cancelBooking: (id)         => request('DELETE', `/api/resources/bookings/${encodeURIComponent(id)}`),
+};
+
 
 
