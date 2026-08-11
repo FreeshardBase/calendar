@@ -35,9 +35,14 @@
   - Overlap collision detection prevents double-booking resources for overlapping time slots (`start_time < endTime AND end_time > startTime`). Returns HTTP 409 Conflict when busy.
   - REST endpoints at `/api/resources` allow CRUD, availability check, room suggestions, and booking cancellation.
 
+- **PDF Print Engine & Vector Export (`server/utils/pdfExport.js`, `server/routes/calendars.js`):**
+  - Custom vector PDF 1.4 builder generates structured month and week calendar grids with text, lines, header boxes, and event blocks.
+  - REST endpoint `POST /api/calendars/export/pdf` streams attachment downloads.
+  - Frontend export action triggered via `#export-pdf-btn`.
+
 ## Test Execution State
-- Node Unit & Integration Suite: 84/84 PASSED (100% green)
-- Playwright E2E Suite: 10/10 PASSED (100% green)
+- Node Unit & Integration Suite: 89/89 PASSED (100% green)
+- Playwright E2E Suite: 12/12 PASSED (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -54,7 +59,8 @@
 - [x] Issue #41: [MS-GRAPH-CALENDAR] Bidirektionaler Sync-Worker für Microsoft Outlook / Office 365
 - [x] Issue #42: [ICS-CONFLICT-RESOLVER] Konflikt- & Duplikat-Auflösungs-Dialog bei ICS-Import
 - [x] Issue #43: [ROOM-RESOURCE-BOOKING] Ressourcen- & Raum-Buchungssystem mit Belegungs-Prüfung
+- [x] Issue #44: [PDF-PRINT-ENGINE] Vektorbasierter PDF-Export & Druck-Optimierung für Monats-/Wochenansicht
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#43 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#44 completed 100% green.
 
