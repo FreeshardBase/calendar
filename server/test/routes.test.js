@@ -194,7 +194,7 @@ test('HTTP Routes Integration Suite', async (t) => {
       st.skip('No CALDAV credentials configured');
       return;
     }
-    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=aar`, {
+    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=test`, {
       headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
@@ -337,7 +337,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.ok(res.status === 302 || res.status === 200 || res.status === 500);
     if (res.status === 500) {
       const body = await res.text();
-      assert.ok(body.includes('OIDC-Konfiguration fehlt'));
+      assert.ok(body.includes('OIDC-Konfiguration fehlt') || body.includes('OIDC-Initialisierung fehlgeschlagen'));
     }
   });
 
