@@ -348,5 +348,163 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(deadRes2.status()).toBe(404);
   });
 
+  test('should create an event with a VALARM reminder and edit alarm setting', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    // Open create modal
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    const title = `VALARM Reminder Event ${Date.now()}`;
+    await page.fill('#ev-title', title);
+
+    // Select 15 minutes before alarm
+    await page.selectOption('#ev-alarm', '-PT15M');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+    // Verify event chip appears
+    const chip = page.locator(`.event-chip:has-text("${title}")`).first();
+    await expect(chip).toBeVisible({ timeout: 10000 });
+
+    // Click popover and edit
+    await chip.click();
+    await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    // Verify ev-alarm selected value is -PT15M
+    const alarmVal = await page.locator('#ev-alarm').inputValue();
+    expect(alarmVal).toBe('-PT15M');
+
+    // Update alarm to 1 hour before
+    await page.selectOption('#ev-alarm', '-PT1H');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+  });
+
+  test('should trigger desktop push notification and UI toast displaying event title, time, and location when VALARM is due', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Mock HTML5 Notification API in page context
+    await page.evaluate(() => {
+      window.desktopNotifications = [];
+      window.Notification = class {
+        constructor(title, options) {
+          window.desktopNotifications.push({ title, options });
+        }
+        static permission = 'granted';
+        static requestPermission() {
+          return Promise.resolve('granted');
+        }
+      };
+    });
+
+    // Inject event into store and trigger checkAndTriggerAlarms
+    const title = `Push Reminder ${Date.now()}`;
+    const location = 'Conference Room B';
+
+    await page.evaluate(async ({ title, location }) => {
+      const { store } = await import('/js/store.js');
+      const { checkAndTriggerAlarms, resetNotifiedAlarms } = await import('/js/notifications.js');
+      resetNotifiedAlarms();
+
+      const events = store.get('events') || [];
+      const now = new Date().toISOString();
+      events.push({
+        uid: `valarm-e2e-${Date.now()}`,
+        title,
+        location,
+        start: now,
+        end: now,
+        alarms: [{ action: 'DISPLAY', trigger: 'PT0S', description: 'Erinnerungssitzung' }]
+      });
+      store.set({ events });
+      checkAndTriggerAlarms();
+    }, { title, location });
+
+    // Verify UI Toast appears displaying title, time, and location
+    const alarmToast = page.locator('#toast-container .toast', { hasText: title });
+    await expect(alarmToast).toBeVisible({ timeout: 5000 });
+    await expect(alarmToast).toContainText('Ort: Conference Room B');
+
+    // Verify mock Notification API received desktop push notification
+    const notifications = await page.evaluate(() => window.desktopNotifications);
+    const targetNotif = notifications.find(n => n.title && n.title.includes(title));
+    expect(targetNotif).toBeTruthy();
+    expect(targetNotif.options.body).toContain('Ort: Conference Room B');
+  });
+
+
+  test('should create a VTODO task with RRULE, view in sidebar and Kanban board, and complete it', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    // Open task create modal
+    await page.click('#new-task-btn');
+    await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    const taskTitle = `E2E VTODO Task ${Date.now()}`;
+    await page.fill('#task-title', taskTitle);
+    await page.fill('#task-description', 'Testing VTODO Kanban and RRULE advancement');
+    await page.selectOption('#task-priority', '1');
+    await page.selectOption('#task-recurrence', 'FREQ=WEEKLY');
+
+    // Save task
+    await page.click('#task-save-btn');
+    await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
+
+    // Verify task is listed in sidebar tasks section
+    const sidebarList = page.locator('#sidebar-task-list');
+    await expect(sidebarList).toContainText(taskTitle, { timeout: 10000 });
+
+    // Switch to Kanban View
+    await page.click('#view-kanban');
+    await expect(page.locator('.kanban-board')).toBeVisible();
+
+    // Verify task card appears in 'Zu erledigen' column
+    const card = page.locator(`.kanban-card:has-text("${taskTitle}")`);
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card).toContainText('Hoch');
+    await expect(card).toContainText('FREQ=WEEKLY');
+
+    // Move task to 'In Bearbeitung' via ➡️
+    await card.locator('.btn-status-next').click();
+    const cardInProcess = page.locator('#kanban-cards-in-process .kanban-card', { hasText: taskTitle });
+    await expect(cardInProcess).toBeVisible({ timeout: 10000 });
+
+    // Complete recurring task via ✓ -> should advance next due date and reset to 'Zu erledigen'
+    await cardInProcess.locator('.btn-complete').click();
+    const cardResetted = page.locator('#kanban-cards-todo .kanban-card', { hasText: taskTitle });
+    await expect(cardResetted).toBeVisible({ timeout: 10000 });
+
+    // Clean up: delete task
+    page.on('dialog', dialog => dialog.accept());
+    await cardResetted.locator('.btn-delete').click();
+    await expect(page.locator(`.kanban-card:has-text("${taskTitle}")`)).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test('should open invitations modal and inspect iTIP/RSVP inbox', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#invitations-btn')).toBeVisible({ timeout: 10000 });
+
+    // Open invitations modal
+    await page.click('#invitations-btn');
+    await expect(page.locator('#invitations-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    // Verify modal header title
+    await expect(page.locator('#invitations-modal .modal-title')).toContainText('Einladungen');
+
+    // Close invitations modal
+    await page.click('#invitations-modal-close');
+    await expect(page.locator('#invitations-modal-backdrop')).toHaveClass(/hidden/);
+  });
+
 });
+
+
 

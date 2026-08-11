@@ -368,4 +368,31 @@ test('iCalendar parser suite', async (t) => {
     assert.ok(!result.some(i => i.recurrenceId === '2026-07-20T08:00:00Z'));
   });
 
+  await t.test('server/utils/ical.js module should expose ical & valarm utilities', () => {
+    const icalUtil = require('../utils/ical');
+    assert.strictEqual(typeof icalUtil.parseICSToEvent, 'function');
+    assert.strictEqual(typeof icalUtil.parseTriggerOffsetMs, 'function');
+    assert.strictEqual(typeof icalUtil.calculateAlarmTime, 'function');
+
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:utils-ical-test-1',
+      'DTSTART:20260811T120000Z',
+      'SUMMARY:Direct Utils Test',
+      'BEGIN:VALARM',
+      'ACTION:DISPLAY',
+      'TRIGGER:-PT15M',
+      'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n');
+
+    const event = icalUtil.parseICSToEvent(ics);
+    assert.strictEqual(event.title, 'Direct Utils Test');
+    assert.strictEqual(event.alarms.length, 1);
+    assert.strictEqual(event.alarms[0].trigger, '-PT15M');
+  });
+
 });
+
+

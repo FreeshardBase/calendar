@@ -15,7 +15,9 @@ const Db = require('./db');
 const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
 const eventsRouter = require('./routes/events');
+const tasksRouter = require('./routes/tasks');
 const authRouter = require('./routes/auth');
+const msgraphRouter = require('./routes/msgraph');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -59,7 +61,7 @@ app.use(async (req, res, next) => {
       // Merge with env-default if env-default is configured and not in database
       const hasCalDAVEnv = process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD;
       if (
-        (hasCalDAVEnv || process.env.NODE_ENV === 'test') &&
+        (hasCalDAVEnv || (process.env.NODE_ENV === 'test' && process.env.DISABLE_INTERNAL_CALDAV)) &&
         !accounts.some(a => a.id === 'env-default')
       ) {
         accounts.unshift({
@@ -172,6 +174,8 @@ app.use('/api/public/calendars', publicRouter);
 app.use('/api/accounts',          accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);
 app.use('/api/events',            requireAuth, eventsRouter);
+app.use('/api/tasks',             requireAuth, tasksRouter);
+app.use('/api/msgraph',           requireAuth, msgraphRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {

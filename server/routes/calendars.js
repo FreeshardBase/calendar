@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const ICAL = require('ical.js');
 const { getClientForAccount } = require('../caldav/helper');
-const { parseCalendarList } = require('../caldav/parser');
+const { parseCalendarList, parseSyncCollectionResponse } = require('../caldav/parser');
 const Db = require('../db');
 
 function slugify(name) {
@@ -775,6 +775,56 @@ router.delete('/:id/shares-public/:token', async (req, res) => {
     res.json({ message: 'Freigabe-Link widerrufen.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/calendars/:id/delta-sync — RFC 6578 sync-collection delta sync endpoint
+router.post('/:id/delta-sync', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const accounts = req.session.accounts || [];
+    const sepIdx = calendarId.indexOf('::');
+    if (sepIdx === -1) {
+      return res.status(400).json({ error: 'Ungültiges Kalender-ID Format.' });
+    }
+
+    const accountId = calendarId.substring(0, sepIdx);
+    const calendarHref = calendarId.substring(sepIdx + 2);
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) {
+      return res.status(404).json({ error: 'Konto nicht gefunden.' });
+    }
+
+    const client = await getClientForAccount(account);
+    const calendarUrl = /^https?:\/\//i.test(calendarHref)
+      ? calendarHref
+      : new URL(calendarHref, account.url).href;
+
+    const cached = await Db.getCalendarSyncCache(calendarId);
+    const tokenToUse = req.body?.syncToken || cached?.syncToken || null;
+
+    const xml = await client.syncCollection(calendarUrl, tokenToUse);
+    const { syncToken, updated, deleted } = parseSyncCollectionResponse(
+      xml,
+      calendarId,
+      accountId,
+      calendarUrl
+    );
+
+    if (syncToken) {
+      await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, syncToken);
+    }
+
+    res.json({
+      calendarId,
+      ctagChanged: true,
+      syncToken,
+      updated,
+      deleted
+    });
+  } catch (err) {
+    console.error('[delta-sync] Error executing delta sync:', err.message);
+    res.status(500).json({ error: 'Delta-Sync fehlgeschlagen: ' + err.message });
   }
 });
 

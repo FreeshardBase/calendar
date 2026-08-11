@@ -328,9 +328,48 @@ class CalDAVClient {
     </c:comp-filter>
   </c:filter>
 </c:calendar-query>`;
+    return this.report(calendarUrl, body);
+  }
+
+  /** Fetch tasks (VTODO) from a specific calendar URL. */
+  async getTasks(calendarUrl) {
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:getetag/>
+    <c:calendar-data/>
+  </d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR">
+      <c:comp-filter name="VTODO"/>
+    </c:comp-filter>
+  </c:filter>
+</c:calendar-query>`;
 
     return this.report(calendarUrl, body);
   }
+
+  /**
+   * RFC 6578 sync-collection REPORT to retrieve delta changes.
+   * @param {string} calendarUrl
+   * @param {string|null} syncToken
+   * @param {string} syncLevel
+   */
+  async syncCollection(calendarUrl, syncToken = null, syncLevel = '1') {
+    const tokenTag = syncToken ? `<d:sync-token>${escapeXML(syncToken)}</d:sync-token>` : `<d:sync-token/>`;
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<d:sync-collection xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  ${tokenTag}
+  <d:sync-level>${syncLevel}</d:sync-level>
+  <d:prop>
+    <d:getetag/>
+    <c:calendar-data/>
+  </d:prop>
+</d:sync-collection>`;
+
+    return this.report(calendarUrl, body);
+  }
+
 
   /** Retrieve current share invitations of a calendar. */
   async getCalendarShares(calendarUrl) {

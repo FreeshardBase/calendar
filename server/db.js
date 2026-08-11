@@ -78,6 +78,39 @@ db.serialize(() => {
       UNIQUE(calendar_id, sharee_user_id)
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS calendar_sync_cache (
+      calendar_id TEXT PRIMARY KEY,
+      ctag TEXT,
+      sync_token TEXT,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS msgraph_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT DEFAULT 'common',
+      client_id TEXT,
+      account_email TEXT NOT NULL,
+      access_token TEXT,
+      refresh_token TEXT,
+      expires_at INTEGER,
+      delta_link TEXT,
+      target_calendar_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS msgraph_event_mappings (
+      local_uid TEXT PRIMARY KEY,
+      graph_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      last_synced_at INTEGER NOT NULL,
+      e_tag TEXT
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -554,6 +587,222 @@ const Db = {
       db.get('SELECT user_id FROM users WHERE username = ?', [username], (err, row) => {
         if (err || !row) return resolve(null);
         resolve(row.user_id);
+      });
+    });
+  },
+
+  getCalendarSyncCache(calendarId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT calendar_id, ctag, sync_token, updated_at FROM calendar_sync_cache WHERE calendar_id = ?', [calendarId], (err, row) => {
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+        resolve({
+          calendarId: row.calendar_id,
+          ctag: row.ctag,
+          syncToken: row.sync_token,
+          updatedAt: row.updated_at
+        });
+      });
+    });
+  },
+
+  upsertCalendarSyncCache(calendarId, ctag, syncToken) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(
+        `INSERT OR REPLACE INTO calendar_sync_cache (calendar_id, ctag, sync_token, updated_at) VALUES (?, ?, ?, ?)`,
+        [calendarId, ctag, syncToken, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  addMSGraphAccount(accountData) {
+    return new Promise((resolve, reject) => {
+      const id = accountData.id || uuidv4();
+      const now = Date.now();
+      db.run(
+        `INSERT INTO msgraph_accounts 
+         (id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          accountData.userId,
+          accountData.tenantId || 'common',
+          accountData.clientId || '',
+          accountData.accountEmail,
+          accountData.accessToken || '',
+          accountData.refreshToken || '',
+          accountData.expiresAt || 0,
+          accountData.deltaLink || '',
+          accountData.targetCalendarId || '',
+          now,
+          now
+        ],
+        (err) => {
+          if (err) return reject(err);
+          resolve({ id, ...accountData, createdAt: now, updatedAt: now });
+        }
+      );
+    });
+  },
+
+  getMSGraphAccounts(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at
+         FROM msgraph_accounts WHERE user_id = ? ORDER BY created_at ASC`,
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(r => ({
+            id: r.id,
+            userId: r.user_id,
+            tenantId: r.tenant_id,
+            clientId: r.client_id,
+            accountEmail: r.account_email,
+            accessToken: r.access_token,
+            refreshToken: r.refresh_token,
+            expiresAt: r.expires_at,
+            deltaLink: r.delta_link,
+            targetCalendarId: r.target_calendar_id,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at
+          })));
+        }
+      );
+    });
+  },
+
+  getMSGraphAccountById(accountId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at
+         FROM msgraph_accounts WHERE id = ?`,
+        [accountId],
+        (err, r) => {
+          if (err) return reject(err);
+          if (!r) return resolve(null);
+          resolve({
+            id: r.id,
+            userId: r.user_id,
+            tenantId: r.tenant_id,
+            clientId: r.client_id,
+            accountEmail: r.account_email,
+            accessToken: r.access_token,
+            refreshToken: r.refresh_token,
+            expiresAt: r.expires_at,
+            deltaLink: r.delta_link,
+            targetCalendarId: r.target_calendar_id,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at
+          });
+        }
+      );
+    });
+  },
+
+  updateMSGraphAccount(accountId, updates) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      const fields = [];
+      const values = [];
+
+      if (updates.accessToken !== undefined) { fields.push('access_token = ?'); values.push(updates.accessToken); }
+      if (updates.refreshToken !== undefined) { fields.push('refresh_token = ?'); values.push(updates.refreshToken); }
+      if (updates.expiresAt !== undefined) { fields.push('expires_at = ?'); values.push(updates.expiresAt); }
+      if (updates.deltaLink !== undefined) { fields.push('delta_link = ?'); values.push(updates.deltaLink); }
+      if (updates.targetCalendarId !== undefined) { fields.push('target_calendar_id = ?'); values.push(updates.targetCalendarId); }
+      
+      fields.push('updated_at = ?');
+      values.push(now);
+      values.push(accountId);
+
+      db.run(
+        `UPDATE msgraph_accounts SET ${fields.join(', ')} WHERE id = ?`,
+        values,
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  deleteMSGraphAccount(accountId) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM msgraph_accounts WHERE id = ?`, [accountId], (err) => {
+        if (err) return reject(err);
+        db.run(`DELETE FROM msgraph_event_mappings WHERE account_id = ?`, [accountId], () => {
+          resolve();
+        });
+      });
+    });
+  },
+
+  upsertMSGraphEventMapping(localUid, graphId, accountId, eTag) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(
+        `INSERT OR REPLACE INTO msgraph_event_mappings (local_uid, graph_id, account_id, last_synced_at, e_tag)
+         VALUES (?, ?, ?, ?, ?)`,
+        [localUid, graphId, accountId, now, eTag || ''],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  getMSGraphEventMapping(localUid) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT local_uid, graph_id, account_id, last_synced_at, e_tag FROM msgraph_event_mappings WHERE local_uid = ?`,
+        [localUid],
+        (err, row) => {
+          if (err) return reject(err);
+          if (!row) return resolve(null);
+          resolve({
+            localUid: row.local_uid,
+            graphId: row.graph_id,
+            accountId: row.account_id,
+            lastSyncedAt: row.last_synced_at,
+            eTag: row.e_tag
+          });
+        }
+      );
+    });
+  },
+
+  getMSGraphEventMappingByGraphId(graphId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT local_uid, graph_id, account_id, last_synced_at, e_tag FROM msgraph_event_mappings WHERE graph_id = ?`,
+        [graphId],
+        (err, row) => {
+          if (err) return reject(err);
+          if (!row) return resolve(null);
+          resolve({
+            localUid: row.local_uid,
+            graphId: row.graph_id,
+            accountId: row.account_id,
+            lastSyncedAt: row.last_synced_at,
+            eTag: row.e_tag
+          });
+        }
+      );
+    });
+  },
+
+  deleteMSGraphEventMapping(localUid) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM msgraph_event_mappings WHERE local_uid = ?`, [localUid], (err) => {
+        if (err) return reject(err);
+        resolve();
       });
     });
   }

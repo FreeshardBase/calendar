@@ -56,6 +56,7 @@ export const CalendarsAPI = {
   listPublicShares: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/shares-public`),
   addPublicShare: (id, label) => request('POST', `/api/calendars/${encodeURIComponent(id)}/shares-public`, { label }),
   removePublicShare: (id, token) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/shares-public/${token}`),
+  deltaSync: (id, syncToken, ctag) => request('POST', `/api/calendars/${encodeURIComponent(id)}/delta-sync`, { syncToken, ctag }),
 };
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -64,4 +65,22 @@ export const EventsAPI = {
   create: (data)          => request('POST',   '/api/events', data),
   update: (uid, data)     => request('PUT',    `/api/events/${encodeURIComponent(uid)}`, data),
   remove: (uid, data)     => request('DELETE', `/api/events/${encodeURIComponent(uid)}`, data),
+  rsvp:   (uid, data)     => request('POST',   `/api/events/${encodeURIComponent(uid)}/rsvp`, data),
+  invitations: ()         => request('GET',    '/api/events/invitations'),
 };
+
+// ── Invitations (iTIP/RSVP) ───────────────────────────────────────────────────
+export const InvitationsAPI = {
+  list: ()        => request('GET',  '/api/events/invitations'),
+  rsvp: (uid, d) => request('POST', `/api/events/${encodeURIComponent(uid)}/rsvp`, d),
+};
+
+// ── Tasks (VTODO) ─────────────────────────────────────────────────────────────
+export const TasksAPI = {
+  list:   ()          => request('GET',    '/api/tasks'),
+  create: (data)      => request('POST',   '/api/tasks', data),
+  update: (uid, data) => request('PUT',    `/api/tasks/${encodeURIComponent(uid)}`, data),
+  remove: (uid, data) => request('DELETE', `/api/tasks/${encodeURIComponent(uid)}`, data),
+};
+
+

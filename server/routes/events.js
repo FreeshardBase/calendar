@@ -3,9 +3,61 @@
 const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
-const { parseCalendarList, parseEventList, eventToICS, addOccurrenceException, upsertOccurrenceOverride } = require('../caldav/parser');
+const {
+  parseCalendarList,
+  parseEventList,
+  parseICSToEvent,
+  eventToICS,
+  addOccurrenceException,
+  upsertOccurrenceOverride,
+  updateAttendeePartstat,
+  buildItipReply
+} = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
+
+// ── GET /api/events/invitations ───────────────────────────────────────────────
+router.get('/invitations', async (req, res) => {
+  try {
+    const accounts = req.session.accounts || [];
+    const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
+    const invitations = [];
+
+    const now = new Date();
+    const startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const endDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    await Promise.allSettled(
+      activeAccounts.map(async (account) => {
+        const client = await getClientForAccount(account);
+        const calXml = await client.getCalendars();
+        const calendars = parseCalendarList(calXml, account.id, account.url, account.username);
+
+        await Promise.allSettled(
+          calendars.map(async (cal) => {
+            try {
+              const eventsXml = await client.getEvents(cal.url, startDate, endDate);
+              const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
+              for (const ev of events) {
+                if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
+                  invitations.push(ev);
+                }
+              }
+            } catch (e) {
+              console.error(`[invitations GET] Error for ${cal.id}:`, e.message);
+            }
+          })
+        );
+      })
+    );
+
+    res.json(invitations);
+  } catch (err) {
+    console.error('[invitations GET]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ── GET /api/events?start=ISO&end=ISO ─────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -208,6 +260,42 @@ router.delete('/:uid', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── POST /api/events/:uid/rsvp ────────────────────────────────────────────────
+router.post('/:uid/rsvp', async (req, res) => {
+  try {
+    const { calendarId, href, email, status } = req.body;
+
+    if (!href || !calendarId || !email || !status) {
+      return res.status(400).json({ error: 'calendarId, href, email, and status are required' });
+    }
+
+    const { account, client } = await resolveAccount(req, calendarId);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const eventUrl = buildAbsoluteUrl(account.url, href);
+    const current = await client.get(eventUrl);
+
+    const updatedIcs = updateAttendeePartstat(current.ics, email, status);
+    const result = await client.put(eventUrl, updatedIcs, current.etag);
+
+    const parsedEv = parseICSToEvent(updatedIcs);
+    const itipReply = buildItipReply(parsedEv || { uid: req.params.uid, title: 'Event' }, email, status);
+
+    queueSyncForCalendar(calendarId, req.session.userId);
+
+    res.json({
+      success: true,
+      status,
+      etag: result.etag ? result.etag.replace(/"/g, '') : null,
+      itipReply
+    });
+  } catch (err) {
+    console.error('[events RSVP]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

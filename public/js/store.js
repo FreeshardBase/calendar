@@ -55,8 +55,12 @@ export const store = createStore({
   eventCache:      new Map(),
 
   // Current view state
-  view:            'month',   // 'month' | 'week' | 'day' | 'agenda'
+  view:            'month',   // 'month' | 'week' | 'workweek' | 'day' | 'agenda' | 'kanban'
   currentDate:     new Date(today), // date the view is centered on
+
+  // Tasks state (VTODO)
+  tasks:           [],
+  loadingTasks:    false,
 
   // Loading state
   loadingEvents:   false,
@@ -65,6 +69,9 @@ export const store = createStore({
   // Search
   searchQuery:     '',
   searchResults:   [],
+
+  // CTag & RFC 6578 Delta Sync Cache: Map<calendarId, { ctag, syncToken }>
+  calendarSyncCache: new Map(),
 });
 
 // ── Derived helpers ───────────────────────────────────────────────────────────
@@ -97,4 +104,16 @@ export function getCachedEvents(cacheKey) {
 
 export function invalidateEventCache() {
   store.set({ eventCache: new Map() });
+}
+
+export function setCalendarSyncCache(calendarId, ctag, syncToken) {
+  const syncCache = store.get('calendarSyncCache') || new Map();
+  const nextCache = new Map(syncCache);
+  nextCache.set(calendarId, { ctag, syncToken });
+  store.set({ calendarSyncCache: nextCache });
+}
+
+export function getCalendarSyncCache(calendarId) {
+  const syncCache = store.get('calendarSyncCache') || new Map();
+  return syncCache.get(calendarId) || null;
 }

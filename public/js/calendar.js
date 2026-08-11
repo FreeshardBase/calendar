@@ -80,6 +80,11 @@ export function getDateRange(view, date) {
       end   = new Date(date); end.setMonth(end.getMonth() + 3); end.setHours(23, 59, 59, 999);
       break;
     }
+    default: {
+      start = new Date(date); start.setDate(1); start.setHours(0, 0, 0, 0);
+      end   = new Date(date); end.setMonth(end.getMonth() + 1); end.setHours(23, 59, 59, 999);
+      break;
+    }
   }
   return { start, end };
 }

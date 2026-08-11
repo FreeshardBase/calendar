@@ -10,6 +10,17 @@
 const { DOMParser } = require('@xmldom/xmldom');
 const ICAL = require('ical.js');
 const { v4: uuidv4 } = require('uuid');
+const {
+  parseTriggerOffsetMs,
+  calculateAlarmTime,
+  parseValarms,
+  parseVEventToEvent,
+  parseICSToEvent,
+  parseAndExpandEvent,
+  eventToICS,
+  addOccurrenceException,
+  upsertOccurrenceOverride
+} = require('../utils/ical');
 
 const xmlParser = new DOMParser({
   // Suppress non-fatal xmldom warnings in production
@@ -247,297 +258,7 @@ function parseEventDataList(xml) {
     .filter(Boolean);
 }
 
-function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
-  const jcal = ICAL.parse(icsString);
-  const comp = new ICAL.Component(jcal);
-  const vevents = comp.getAllSubcomponents('vevent');
-  if (vevents.length === 0) return [];
 
-  // A resource may hold the master VEVENT plus detached exception VEVENTs
-  // (same UID, RECURRENCE-ID) for modified single occurrences.
-  const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
-  const event = parseVEventToEvent(master, meta);
-  if (!event) return [];
-
-  // If there's no RRULE, it's a single non-recurring event
-  if (!master.getFirstProperty('rrule')) {
-    return [event];
-  }
-
-  // If we don't have range start/end specified, fallback to just returning the master event
-  if (!rangeStart || !rangeEnd) {
-    return [event];
-  }
-
-  const icalEvent = new ICAL.Event(master);
-  for (const v of vevents) {
-    if (v !== master && v.getFirstProperty('recurrence-id')) {
-      icalEvent.relateException(new ICAL.Event(v));
-    }
-  }
-
-  const limitStart = new Date(rangeStart);
-  const limitEnd = new Date(rangeEnd);
-
-  const iterator = icalEvent.iterator();
-  const instances = [];
-  let next;
-  let count = 0;
-  const maxCount = 500; // safety limit to prevent infinite loops
-
-  while ((next = iterator.next()) && count < maxCount) {
-    count++;
-    let details;
-    try {
-      // Applies detached exceptions: overridden occurrences get their own
-      // start/end/data while EXDATEs are skipped by the iterator itself.
-      details = icalEvent.getOccurrenceDetails(next);
-    } catch (e) {
-      continue;
-    }
-    const occStart = details.startDate.toJSDate();
-    const occEnd = details.endDate.toJSDate();
-
-    // Stop expanding if the base occurrence starts after our query range end
-    if (next.toJSDate().getTime() > limitEnd.getTime()) {
-      break;
-    }
-
-    // Collect the occurrence if it overlaps with our query range
-    if (occEnd.getTime() >= limitStart.getTime() && occStart.getTime() <= limitEnd.getTime()) {
-      const recurrenceId = details.recurrenceId.toString();
-      const isOverride = details.item.component !== master;
-      const base = isOverride ? parseVEventToEvent(details.item.component, meta) : event;
-      instances.push({
-        ...base,
-        uid: `${event.uid}::${recurrenceId}`,
-        masterUid: event.uid,
-        start: occStart.toISOString(),
-        end: occEnd.toISOString(),
-        recurrenceId,
-        recurrence: event.recurrence
-      });
-    }
-  }
-
-  return instances;
-}
-
-// ── Recurrence exception editing (EXDATE / RECURRENCE-ID) ────────────────────
-
-/** Resolve the master VEVENT of a parsed resource, or throw. */
-function getMasterVEvent(comp) {
-  const vevents = comp.getAllSubcomponents('vevent');
-  const master = vevents.find(v => !v.getFirstProperty('recurrence-id'));
-  if (!master) throw new Error('NO_MASTER_EVENT');
-  return master;
-}
-
-/** Build an ICAL.Time for an occurrence, matching the master DTSTART's type/zone. */
-function occurrenceTime(master, recurrenceId) {
-  const time = ICAL.Time.fromString(recurrenceId);
-  const dtstart = master.getFirstPropertyValue('dtstart');
-  if (dtstart && !time.isDate) time.zone = dtstart.zone;
-  return time;
-}
-
-/** Remove a detached exception VEVENT matching the given RECURRENCE-ID, if any. */
-function removeOverride(comp, recurrenceId) {
-  for (const v of comp.getAllSubcomponents('vevent')) {
-    const rid = v.getFirstPropertyValue('recurrence-id');
-    if (rid && rid.toString() === recurrenceId) {
-      comp.removeSubcomponent(v);
-    }
-  }
-}
-
-/**
- * Delete a single occurrence of a recurring event: append the occurrence date
- * to the master's EXDATE and drop any detached override for it.
- * Returns the updated ICS string.
- */
-function addOccurrenceException(icsString, recurrenceId) {
-  const comp = new ICAL.Component(ICAL.parse(icsString));
-  const master = getMasterVEvent(comp);
-
-  removeOverride(comp, recurrenceId);
-
-  const time = occurrenceTime(master, recurrenceId);
-  const prop = new ICAL.Property('exdate', master);
-  const dtstartProp = master.getFirstProperty('dtstart');
-  const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
-  if (tzid) prop.setParameter('tzid', tzid);
-  prop.setValue(time);
-  master.addProperty(prop);
-
-  return comp.toString();
-}
-
-/**
- * Edit a single occurrence of a recurring event: replace/insert a detached
- * exception VEVENT (same UID, RECURRENCE-ID = occurrence) built from
- * eventData. Returns the updated ICS string.
- */
-function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
-  const comp = new ICAL.Component(ICAL.parse(icsString));
-  const master = getMasterVEvent(comp);
-  const masterUid = master.getFirstPropertyValue('uid');
-
-  removeOverride(comp, recurrenceId);
-
-  const overrideIcs = eventToICS({ ...eventData, uid: masterUid, recurrence: null });
-  const override = new ICAL.Component(ICAL.parse(overrideIcs)).getFirstSubcomponent('vevent');
-
-  const rid = new ICAL.Property('recurrence-id', override);
-  const dtstartProp = master.getFirstProperty('dtstart');
-  const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
-  if (tzid) rid.setParameter('tzid', tzid);
-  rid.setValue(occurrenceTime(master, recurrenceId));
-  override.addProperty(rid);
-
-  comp.addSubcomponent(override);
-  return comp.toString();
-}
-
-// ── iCalendar → JSON ──────────────────────────────────────────────────────────
-
-function parseICSToEvent(icsString, meta = {}) {
-  const jcal = ICAL.parse(icsString);
-  const comp  = new ICAL.Component(jcal);
-  const vevent = comp.getFirstSubcomponent('vevent');
-  if (!vevent) return null;
-  return parseVEventToEvent(vevent, meta);
-}
-
-function parseVEventToEvent(vevent, meta = {}) {
-  const ev = new ICAL.Event(vevent);
-
-  const dtstart  = ev.startDate;
-  const dtend    = ev.endDate;
-  const isAllDay = dtstart && dtstart.isDate;
-
-  // Attendees
-  const attendees = [];
-  for (const prop of vevent.getAllProperties('attendee')) {
-    const val   = prop.getFirstValue();
-    const email = (typeof val === 'string' ? val : '').replace(/^mailto:/i, '');
-    attendees.push({
-      name:   prop.getParameter('cn')      || '',
-      email,
-      status: prop.getParameter('partstat') || 'NEEDS-ACTION',
-      rsvp:   prop.getParameter('rsvp')    === 'TRUE'
-    });
-  }
-
-  // Organizer
-  let organizer = null;
-  const orgProp = vevent.getFirstProperty('organizer');
-  if (orgProp) {
-    const val = orgProp.getFirstValue();
-    organizer = {
-      name:  orgProp.getParameter('cn') || '',
-      email: (typeof val === 'string' ? val : '').replace(/^mailto:/i, '')
-    };
-  }
-
-  // Recurrence rule (keep as string for now)
-  let recurrence = null;
-  const rrule = vevent.getFirstProperty('rrule');
-  if (rrule) recurrence = rrule.getFirstValue().toString();
-
-  // Timezone IDs
-  let startTimeZone = null;
-  const startProp = vevent.getFirstProperty('dtstart');
-  if (startProp) {
-    startTimeZone = startProp.getParameter('tzid') || null;
-  }
-
-  let endTimeZone = null;
-  const endProp = vevent.getFirstProperty('dtend');
-  if (endProp) {
-    endTimeZone = endProp.getParameter('tzid') || null;
-  }
-
-  return {
-    uid:         ev.uid,
-    title:       ev.summary   || '(No title)',
-    start:       dtstart      ? dtstart.toJSDate().toISOString() : null,
-    end:         dtend        ? dtend.toJSDate().toISOString()   : null,
-    allDay:      isAllDay,
-    location:    ev.location  || null,
-    description: ev.description || null,
-    status:      vevent.getFirstPropertyValue('status') || null,
-    attendees,
-    organizer,
-    recurrence,
-    startTimeZone,
-    endTimeZone,
-    calendarId:  meta.calendarId  || null,
-    accountId:   meta.accountId   || null,
-    href:        meta.href        || null,
-    etag:        meta.etag        || null
-  };
-}
-
-// ── JSON → iCalendar ──────────────────────────────────────────────────────────
-
-function eventToICS(event) {
-  const uid      = event.uid || `${uuidv4()}@freeshard.webcalendar`;
-  const dtstamp  = fmtDateTime(new Date().toISOString());
-
-  const lines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Freeshard//WebCalendar 1.0//EN',
-    'CALSCALE:GREGORIAN',
-    // NOTE: RFC 4791 §4.1 prohibits METHOD in CalDAV objects — do not add it
-    'BEGIN:VEVENT',
-    `UID:${uid}`,
-    `DTSTAMP:${dtstamp}`,
-    `LAST-MODIFIED:${dtstamp}`,
-    `SUMMARY:${escIcal(event.title || 'Untitled')}`
-  ];
-
-  if (event.allDay) {
-    lines.push(`DTSTART;VALUE=DATE:${fmtDate(event.start)}`);
-    lines.push(`DTEND;VALUE=DATE:${fmtDate(event.end)}`);
-  } else {
-    if (event.startTimeZone) {
-      lines.push(`DTSTART;TZID=${event.startTimeZone}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
-    } else {
-      lines.push(`DTSTART:${fmtDateTime(event.start)}`);
-    }
-
-    if (event.endTimeZone) {
-      lines.push(`DTEND;TZID=${event.endTimeZone}:${fmtDateTimeTzid(event.end, event.endTimeZone)}`);
-    } else {
-      lines.push(`DTEND:${fmtDateTime(event.end)}`);
-    }
-  }
-
-  if (event.description) lines.push(`DESCRIPTION:${escIcal(event.description)}`);
-  if (event.location)    lines.push(`LOCATION:${escIcal(event.location)}`);
-  if (event.status)      lines.push(`STATUS:${event.status}`);
-
-  if (event.organizer?.email) {
-    const cn = event.organizer.name ? `;CN="${event.organizer.name}"` : '';
-    lines.push(`ORGANIZER${cn}:mailto:${event.organizer.email}`);
-  }
-
-  for (const att of (event.attendees || [])) {
-    if (!att.email) continue;
-    const cn      = att.name   ? `;CN="${att.name}"`           : '';
-    const partstat = `;PARTSTAT=${att.status || 'NEEDS-ACTION'}`;
-    lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn}${partstat};RSVP=TRUE:mailto:${att.email}`);
-  }
-
-  if (event.recurrence) lines.push(`RRULE:${event.recurrence}`);
-
-  lines.push('END:VEVENT', 'END:VCALENDAR');
-
-  // Join with \n, then foldLines handles CRLF conversion
-  return foldLines(lines.join('\n')) + '\r\n';
-}
 
 // ── Utility Functions ─────────────────────────────────────────────────────────
 
@@ -614,6 +335,260 @@ function resolveUrl(base, href) {
   }
 }
 
+function parseICSToTask(icsString, meta = {}) {
+  const jcal = ICAL.parse(icsString);
+  const comp  = new ICAL.Component(jcal);
+  const vtodo = comp.getFirstSubcomponent('vtodo');
+  if (!vtodo) return null;
+  return parseVTodoToTask(vtodo, meta);
+}
+
+function parseVTodoToTask(vtodo, meta = {}) {
+  const uid = vtodo.getFirstPropertyValue('uid');
+  const title = vtodo.getFirstPropertyValue('summary') || '(No title)';
+  const description = vtodo.getFirstPropertyValue('description') || null;
+  const status = (vtodo.getFirstPropertyValue('status') || 'NEEDS-ACTION').toString().toUpperCase();
+
+  const dueProp = vtodo.getFirstProperty('due');
+  let due = null;
+  if (dueProp) {
+    const val = dueProp.getFirstValue();
+    due = val ? val.toJSDate().toISOString() : null;
+  }
+
+  const dtstartProp = vtodo.getFirstProperty('dtstart');
+  let dtstart = null;
+  if (dtstartProp) {
+    const val = dtstartProp.getFirstValue();
+    dtstart = val ? val.toJSDate().toISOString() : null;
+  }
+
+  const completedProp = vtodo.getFirstProperty('completed');
+  let completed = null;
+  if (completedProp) {
+    const val = completedProp.getFirstValue();
+    completed = val ? val.toJSDate().toISOString() : null;
+  }
+
+  const prioVal = vtodo.getFirstPropertyValue('priority');
+  const priority = (prioVal !== null && prioVal !== undefined) ? parseInt(prioVal, 10) : null;
+
+  const pctVal = vtodo.getFirstPropertyValue('percent-complete');
+  const percentComplete = (pctVal !== null && pctVal !== undefined) ? parseInt(pctVal, 10) : null;
+
+  let recurrence = null;
+  const rrule = vtodo.getFirstProperty('rrule');
+  if (rrule) recurrence = rrule.getFirstValue().toString();
+
+  return {
+    uid,
+    title,
+    description,
+    status,
+    due,
+    dtstart,
+    completed,
+    priority,
+    percentComplete,
+    recurrence,
+    calendarId: meta.calendarId || null,
+    accountId:  meta.accountId  || null,
+    href:       meta.href       || null,
+    etag:       meta.etag       || null
+  };
+}
+
+function parseTaskList(xml, calendarId, accountId, calendarUrl) {
+  let doc;
+  try {
+    doc = xmlParser.parseFromString(xml, 'text/xml');
+  } catch (e) {
+    console.error('[parser] XML parse error:', e.message);
+    return [];
+  }
+
+  const responses = getByLocalName(doc, 'response');
+  const tasks = [];
+
+  for (const response of responses) {
+    const href = firstText(response, 'href');
+    if (!href) continue;
+
+    const propstats = getByLocalName(response, 'propstat');
+    let calendarData = null;
+    let etag = null;
+
+    for (const ps of propstats) {
+      const status = firstText(ps, 'status') || '';
+      if (status.includes('200')) {
+        calendarData = firstText(ps, 'calendar-data');
+        etag = firstText(ps, 'getetag');
+        break;
+      }
+    }
+
+    if (!calendarData) continue;
+
+    try {
+      const task = parseICSToTask(calendarData, {
+        calendarId,
+        accountId,
+        href,
+        etag: etag ? etag.replace(/"/g, '') : null
+      });
+      if (task) tasks.push(task);
+    } catch (e) {
+      console.warn(`[parser] Failed to parse task ${href}:`, e.message);
+    }
+  }
+
+  return tasks;
+}
+
+function taskToICS(task) {
+  const uid     = task.uid || `${uuidv4()}@freeshard.webcalendar`;
+  const dtstamp = fmtDateTime(new Date().toISOString());
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Freeshard//WebCalendar 1.0//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VTODO',
+    `UID:${uid}`,
+    `DTSTAMP:${dtstamp}`,
+    `LAST-MODIFIED:${dtstamp}`,
+    `SUMMARY:${escIcal(task.title || 'Untitled')}`
+  ];
+
+  if (task.description) lines.push(`DESCRIPTION:${escIcal(task.description)}`);
+  if (task.status)      lines.push(`STATUS:${task.status}`);
+
+  if (task.due) {
+    lines.push(`DUE:${fmtDateTime(task.due)}`);
+  }
+  if (task.dtstart) {
+    lines.push(`DTSTART:${fmtDateTime(task.dtstart)}`);
+  }
+  if (task.completed) {
+    lines.push(`COMPLETED:${fmtDateTime(task.completed)}`);
+  }
+  if (task.priority !== null && task.priority !== undefined) {
+    lines.push(`PRIORITY:${task.priority}`);
+  }
+  if (task.percentComplete !== null && task.percentComplete !== undefined) {
+    lines.push(`PERCENT-COMPLETE:${task.percentComplete}`);
+  }
+  if (task.recurrence) {
+    lines.push(`RRULE:${task.recurrence}`);
+  }
+
+  lines.push('END:VTODO', 'END:VCALENDAR');
+
+  return foldLines(lines.join('\n')) + '\r\n';
+}
+
+function advanceRecurringTask(task) {
+  if (!task || !task.recurrence) return task;
+
+  const rrule = String(task.recurrence).toUpperCase();
+  let baseDate = task.due ? new Date(task.due) : new Date();
+  if (isNaN(baseDate.getTime())) baseDate = new Date();
+
+  let interval = 1;
+  const matchInterval = rrule.match(/INTERVAL=(\d+)/);
+  if (matchInterval) {
+    interval = parseInt(matchInterval[1], 10) || 1;
+  }
+
+  const nextDate = new Date(baseDate.getTime());
+  if (rrule.includes('FREQ=DAILY')) {
+    nextDate.setDate(nextDate.getDate() + interval);
+  } else if (rrule.includes('FREQ=WEEKLY')) {
+    nextDate.setDate(nextDate.getDate() + (7 * interval));
+  } else if (rrule.includes('FREQ=MONTHLY')) {
+    nextDate.setMonth(nextDate.getMonth() + interval);
+  } else if (rrule.includes('FREQ=YEARLY')) {
+    nextDate.setFullYear(nextDate.getFullYear() + interval);
+  } else {
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+
+  return {
+    ...task,
+    due: nextDate.toISOString(),
+    status: 'NEEDS-ACTION',
+    completed: null,
+    percentComplete: 0
+  };
+}
+
+function updateAttendeePartstat(icsString, attendeeEmail, status) {
+  const jcal = ICAL.parse(icsString);
+  const comp = new ICAL.Component(jcal);
+  const vevents = comp.getAllSubcomponents('vevent');
+  if (vevents.length === 0) return icsString;
+
+  const targetEmail = (attendeeEmail || '').toLowerCase().replace(/^mailto:/i, '');
+  const newPartstat = (status || 'NEEDS-ACTION').toUpperCase();
+
+  for (const vevent of vevents) {
+    const attendees = vevent.getAllProperties('attendee');
+    let found = false;
+    for (const prop of attendees) {
+      const val = prop.getFirstValue();
+      const email = (typeof val === 'string' ? val : '').toLowerCase().replace(/^mailto:/i, '');
+      if (email === targetEmail) {
+        prop.setParameter('partstat', newPartstat);
+        found = true;
+      }
+    }
+    if (!found && targetEmail) {
+      const newProp = new ICAL.Property('attendee');
+      newProp.setValue(`mailto:${targetEmail}`);
+      newProp.setParameter('partstat', newPartstat);
+      newProp.setParameter('cutype', 'INDIVIDUAL');
+      newProp.setParameter('rsvp', 'TRUE');
+      vevent.addProperty(newProp);
+    }
+  }
+
+  return comp.toString();
+}
+
+function buildItipReply(event, attendeeEmail, status) {
+  const uid = event.uid || `${uuidv4()}@freeshard.webcalendar`;
+  const dtstamp = fmtDateTime(new Date().toISOString());
+  const partstat = (status || 'ACCEPTED').toUpperCase();
+  const email = (attendeeEmail || '').replace(/^mailto:/i, '');
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Freeshard//WebCalendar iTIP//EN',
+    'METHOD:REPLY',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${dtstamp}`,
+    `SUMMARY:${escIcal(event.title || 'Event Reply')}`
+  ];
+
+  if (event.start) lines.push(`DTSTART:${fmtDateTime(event.start)}`);
+  if (event.end) lines.push(`DTEND:${fmtDateTime(event.end)}`);
+
+  if (event.organizer?.email) {
+    const cn = event.organizer.name ? `;CN="${event.organizer.name}"` : '';
+    lines.push(`ORGANIZER${cn}:mailto:${event.organizer.email}`);
+  }
+
+  const att = (event.attendees || []).find(a => a.email?.toLowerCase() === email.toLowerCase());
+  const cn = (att && att.name) ? `;CN="${att.name}"` : '';
+  lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn};PARTSTAT=${partstat}:mailto:${email}`);
+
+  lines.push('END:VEVENT', 'END:VCALENDAR');
+  return foldLines(lines.join('\n')) + '\r\n';
+}
+
 module.exports = {
   parseCalendarList,
   parseEventList,
@@ -622,5 +597,106 @@ module.exports = {
   parseAndExpandEvent,
   addOccurrenceException,
   upsertOccurrenceOverride,
-  eventToICS
+  eventToICS,
+  parseICSToTask,
+  parseVTodoToTask,
+  parseTaskList,
+  taskToICS,
+  advanceRecurringTask,
+  updateAttendeePartstat,
+  buildItipReply
 };
+
+/**
+ * Parse RFC 6578 sync-collection REPORT response.
+ */
+function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl, rangeStart, rangeEnd) {
+  let doc;
+  try {
+    doc = xmlParser.parseFromString(xml, 'text/xml');
+  } catch (e) {
+    console.error('[parser] XML parse error:', e.message);
+    return { syncToken: null, updated: [], deleted: [] };
+  }
+
+  const syncToken = firstText(doc, 'sync-token');
+  const responses = getByLocalName(doc, 'response');
+  const updated = [];
+  const deleted = [];
+
+  for (const response of responses) {
+    const href = firstText(response, 'href');
+    if (!href) continue;
+
+    let is404 = false;
+    const topStatus = firstText(response, 'status') || '';
+    if (topStatus.includes('404') || topStatus.includes('410')) {
+      is404 = true;
+    }
+
+    if (is404) {
+      deleted.push(href);
+      continue;
+    }
+
+    const propstats = getByLocalName(response, 'propstat');
+    let calendarData = null;
+    let etag = null;
+
+    for (const ps of propstats) {
+      const status = firstText(ps, 'status') || '';
+      if (status.includes('404') || status.includes('410')) {
+        is404 = true;
+        break;
+      }
+      if (status.includes('200')) {
+        calendarData = firstText(ps, 'calendar-data');
+        etag = firstText(ps, 'getetag');
+      }
+    }
+
+    if (is404) {
+      deleted.push(href);
+      continue;
+    }
+
+    if (calendarData) {
+      try {
+        const parsed = parseICSToEvent(calendarData, {
+          calendarId,
+          accountId,
+          href,
+          etag: etag ? etag.replace(/"/g, '') : null
+        });
+        if (parsed) {
+          updated.push(parsed);
+        }
+      } catch (e) {
+        console.warn(`[parser] Failed to parse delta event ${href}:`, e.message);
+      }
+    }
+  }
+
+  return { syncToken: syncToken || null, updated, deleted };
+}
+
+module.exports = {
+  parseCalendarList,
+  parseEventList,
+  parseEventDataList,
+  parseICSToEvent,
+  parseAndExpandEvent,
+  addOccurrenceException,
+  upsertOccurrenceOverride,
+  eventToICS,
+  parseICSToTask,
+  parseVTodoToTask,
+  parseTaskList,
+  taskToICS,
+  advanceRecurringTask,
+  updateAttendeePartstat,
+  buildItipReply,
+  parseSyncCollectionResponse
+};
+
+

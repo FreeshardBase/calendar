@@ -4,10 +4,13 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI } from './api.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
+import { initNotificationService, checkAndTriggerAlarms } from './notifications.js';
+import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from './tasks.js';
+import { initInvitations } from './invitations.js';
 
 // ── Element refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -20,6 +23,10 @@ async function boot() {
   initAccountModal();
   initWelcomeModal();
   initIcsImport();
+  initNotificationService();
+  initTaskUI({ onTaskChanged: loadTasks });
+  initInvitations();
+
 
   // Attach UI event listeners
   attachListeners();
@@ -35,6 +42,7 @@ async function boot() {
       showApp();
       await loadCalendars();
       await loadEvents();
+      await loadTasks();
       checkWelcomePopup(accounts);
     }
   } catch (err) {
@@ -99,6 +107,7 @@ async function loadEvents() {
     // Merge into store (replace for current view range)
     store.set({ events });
     renderCalendarView();
+    checkAndTriggerAlarms();
     const count = events.length;
     setStatus(`${count} Termin${count !== 1 ? 'e' : ''} geladen.`);
     setTimeout(() => setStatus(''), 3000);
@@ -110,6 +119,29 @@ async function loadEvents() {
   }
 }
 
+async function loadTasks() {
+  store.set({ loadingTasks: true });
+  try {
+    const tasks = await TasksAPI.list();
+    store.set({ tasks });
+    renderTaskSidebar();
+    if (store.get('view') === 'kanban') {
+      renderCalendarView();
+    }
+  } catch (err) {
+    console.error('Fehler beim Laden der Aufgaben:', err.message);
+  } finally {
+    store.set({ loadingTasks: false });
+  }
+}
+
+function renderTaskSidebar() {
+  const container = $('sidebar-task-list');
+  const countBadge = $('sidebar-task-count');
+  const tasks = store.get('tasks') || [];
+  renderSidebarTasks(container, countBadge, tasks, { onTaskChanged: loadTasks });
+}
+
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 function renderCalendarView() {
@@ -117,6 +149,15 @@ function renderCalendarView() {
   const view       = store.get('view');
   const date       = store.get('currentDate');
   const events     = getFilteredEvents();
+
+  if (view === 'kanban') {
+    $('toolbar-title').textContent = 'Aufgaben (Kanban)';
+    document.querySelectorAll('.view-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === 'kanban');
+    });
+    renderKanbanBoard(container, store.get('tasks') || [], { onTaskChanged: loadTasks });
+    return;
+  }
 
   // Toolbar title
   $('toolbar-title').textContent = getToolbarTitle(view, date);
@@ -161,6 +202,7 @@ function getFilteredEvents() {
 
 function renderSidebar() {
   renderCalendarList();
+  renderTaskSidebar();
   renderSettings();
 }
 

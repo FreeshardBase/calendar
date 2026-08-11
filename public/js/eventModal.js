@@ -67,26 +67,23 @@ export function openCreateModal(defaultDate, callbacks) {
   $('delete-event-btn').style.display = 'none';
   $('event-save-btn').style.display = '';
 
-  // Pre-fill date from defaultDate
-  if (defaultDate) {
-    const d = new Date(defaultDate);
-    $('ev-start-date').value = toInputDate(d);
-    $('ev-end-date').value   = toInputDate(d);
+  // Pre-fill date from defaultDate or store's active currentDate
+  const d = defaultDate ? new Date(defaultDate) : (store.get('currentDate') || new Date());
+  $('ev-start-date').value = toInputDate(d);
+  $('ev-end-date').value   = toInputDate(d);
 
-    // If hour is set (not midnight), pre-fill time
-    if (d.getHours() !== 0) {
-      $('ev-start-time').value = toInputTime(d);
-      const end = new Date(d); end.setHours(end.getHours() + 1);
-      $('ev-end-time').value   = toInputTime(end);
-    } else {
-      // Default to next full hour from now
-      const now = new Date();
-      now.setMinutes(0, 0, 0);
-      now.setHours(now.getHours() + 1);
-      $('ev-start-time').value = toInputTime(now);
-      const end = new Date(now); end.setHours(end.getHours() + 1);
-      $('ev-end-time').value   = toInputTime(end);
-    }
+  if (defaultDate && d.getHours() !== 0) {
+    $('ev-start-time').value = toInputTime(d);
+    const end = new Date(d); end.setHours(end.getHours() + 1);
+    $('ev-end-time').value   = toInputTime(end);
+  } else {
+    // Default to next full hour from now
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    $('ev-start-time').value = toInputTime(now);
+    const end = new Date(now); end.setHours(end.getHours() + 1);
+    $('ev-end-time').value   = toInputTime(end);
   }
 
   populateCalendarSelect();
@@ -227,6 +224,10 @@ export function openEditModal(event, callbacks) {
   populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
   updateRecurrenceOptions(true);
 
+  // Alarms
+  const firstAlarm = (event.alarms && event.alarms.length > 0) ? event.alarms[0] : null;
+  $('ev-alarm').value = firstAlarm ? (firstAlarm.trigger || '') : '';
+
   show();
 }
 
@@ -241,6 +242,9 @@ export function closeModal() {
  */
 export function chooseRecurrenceScope(question) {
   return new Promise(resolve => {
+    const popover = document.getElementById('event-popover');
+    if (popover) popover.classList.add('hidden');
+
     const bd = $('scope-dialog-backdrop');
     $('scope-dialog-text').textContent = question;
 
@@ -301,6 +305,7 @@ function resetForm() {
   $('ev-href').value = '';
   $('ev-etag').value = '';
   $('ev-recurrence').value = '';
+  if ($('ev-alarm')) $('ev-alarm').value = '';
   $('event-form-error').classList.add('hidden');
   $('ev-attendee-list').innerHTML = '';
 
@@ -488,6 +493,9 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     }
   }
 
+  const alarmTrigger = $('ev-alarm') ? $('ev-alarm').value : '';
+  const alarms = alarmTrigger ? [{ action: 'DISPLAY', trigger: alarmTrigger, description: $('ev-title').value.trim() || 'Erinnerung' }] : [];
+
   const payload = {
     calendarId:  $('ev-calendar').value,
     title:       $('ev-title').value.trim(),
@@ -498,6 +506,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     description: $('ev-description').value.trim() || null,
     attendees:   collectAttendees(),
     recurrence,
+    alarms,
     startTimeZone: allDay ? null : startTimeZone,
     endTimeZone:   allDay ? null : endTimeZone
   };
