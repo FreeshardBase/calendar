@@ -1509,6 +1509,10 @@ function attachListeners() {
     });
   }
 
+  if (window.WorkingHoursModule) {
+    window.WorkingHoursModule.init();
+  }
+
   // Mobile sidebar toggle
   $('menu-btn').addEventListener('click', () => $('sidebar').classList.add('open'));
   $('sidebar-toggle').addEventListener('click', () => $('sidebar').classList.remove('open'));

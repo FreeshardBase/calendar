@@ -61,9 +61,14 @@
   - Utility `delegatePermissions.js` checks delegation roles, private event visibility, invitation handling permissions, and decorates event payloads with `sentBy` / `onBehalfOf` / `X-DELEGATE-BY` audit metadata.
   - REST endpoints at `/api/delegates` support granting, updating, revoking, listing delegate permissions, and switching active delegation session context (`/api/delegates/act-as`).
 
+- **Working Hours Policy & OOO Auto-Decline Engine (`server/db.js`, `server/utils/workingHoursPolicy.js`, `server/routes/workingHours.js`, `public/js/workingHours.js`, `e2e/calendar.spec.js`):**
+  - SQLite `working_hours_policy` table stores configurable work hours (start/end), work days array, auto-decline toggle, OOO status, OOO date range, and custom decline messages.
+  - Evaluation helper `evaluateWorkingHoursPolicy` checks date/time ranges against schedule and out-of-office dates, generating automatic rejection responses.
+  - Settings drawer UI and REST endpoints (`/api/working-hours`, `/api/working-hours/evaluate`) allow users to save and test rules.
+
 ## Test Execution State
-- Node Unit & Integration Suite: 106 PASSED (100% green)
-- Playwright E2E Suite: 15 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 107 PASSED (100% green)
+- Playwright E2E Suite: 16 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -85,7 +90,9 @@
 - [x] Issue #46: [AVAILABILITY-SLOTS-BOOKING] Öffentliche Termin-Buchungsseite für freie Zeitslots
 - [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
 - [x] Issue #48: [DELEGATE-PERMISSIONS] Stellvertretende Kalenderverwaltung & Executive Assistant Berechtigungen
+- [x] Issue #49: [WORKING-HOURS-POLICY] Einstellbare Arbeitszeiten & Automatische Absage bei Abwesenheit
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#48 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#49 completed 100% green.
+
 

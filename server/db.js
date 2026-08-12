@@ -175,6 +175,21 @@ db.serialize(() => {
       UNIQUE(principal_user_id, delegate_user_id, calendar_id)
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS working_hours_policy (
+      user_id TEXT PRIMARY KEY,
+      start_hour INTEGER NOT NULL DEFAULT 9,
+      end_hour INTEGER NOT NULL DEFAULT 17,
+      work_days TEXT NOT NULL DEFAULT '1,2,3,4,5',
+      auto_decline INTEGER NOT NULL DEFAULT 0,
+      ooo_enabled INTEGER NOT NULL DEFAULT 0,
+      ooo_start TEXT,
+      ooo_end TEXT,
+      ooo_message TEXT DEFAULT 'Out of Office / Abwesend',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -1303,6 +1318,81 @@ const Db = {
         if (err) return reject(err);
         resolve({ deleted: this.changes });
       });
+    });
+  },
+
+  getWorkingHoursPolicy(userId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT user_id, start_hour, end_hour, work_days, auto_decline, ooo_enabled, ooo_start, ooo_end, ooo_message, created_at, updated_at
+         FROM working_hours_policy WHERE user_id = ?`,
+        [userId],
+        (err, row) => {
+          if (err) return reject(err);
+          if (!row) {
+            return resolve({
+              userId,
+              startHour: 9,
+              endHour: 17,
+              workDays: '1,2,3,4,5',
+              autoDecline: 0,
+              oooEnabled: 0,
+              oooStart: '',
+              oooEnd: '',
+              oooMessage: 'Out of Office / Abwesend'
+            });
+          }
+          resolve({
+            userId: row.user_id,
+            startHour: row.start_hour,
+            endHour: row.end_hour,
+            workDays: row.work_days,
+            autoDecline: row.auto_decline,
+            oooEnabled: row.ooo_enabled,
+            oooStart: row.ooo_start || '',
+            oooEnd: row.ooo_end || '',
+            oooMessage: row.ooo_message || 'Out of Office / Abwesend',
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          });
+        }
+      );
+    });
+  },
+
+  upsertWorkingHoursPolicy(userId, policy) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      const startHour = policy.startHour !== undefined ? Number(policy.startHour) : 9;
+      const endHour = policy.endHour !== undefined ? Number(policy.endHour) : 17;
+      const workDays = policy.workDays || '1,2,3,4,5';
+      const autoDecline = policy.autoDecline ? 1 : 0;
+      const oooEnabled = policy.oooEnabled ? 1 : 0;
+      const oooStart = policy.oooStart || '';
+      const oooEnd = policy.oooEnd || '';
+      const oooMessage = policy.oooMessage || 'Out of Office / Abwesend';
+
+      db.run(
+        `INSERT OR REPLACE INTO working_hours_policy
+         (user_id, start_hour, end_hour, work_days, auto_decline, ooo_enabled, ooo_start, ooo_end, ooo_message, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM working_hours_policy WHERE user_id = ?), ?), ?)`,
+        [userId, startHour, endHour, workDays, autoDecline, oooEnabled, oooStart, oooEnd, oooMessage, userId, now, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({
+            userId,
+            startHour,
+            endHour,
+            workDays,
+            autoDecline,
+            oooEnabled,
+            oooStart,
+            oooEnd,
+            oooMessage,
+            updatedAt: now
+          });
+        }
+      );
     });
   }
 };

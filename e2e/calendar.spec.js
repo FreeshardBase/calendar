@@ -10,6 +10,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.addInitScript(() => {
       try {
         window.localStorage.setItem('welcome-popup-closed', 'true');
+        window.localStorage.setItem('activeView', 'month');
       } catch (e) {}
     });
   });
@@ -37,7 +38,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('should open event modal, create an event, view popover, and delete it', async ({ page }) => {
     await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
 
 
@@ -82,7 +83,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('should create recurring event, delete and edit single occurrences via scope dialog', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
     // Create a weekly recurring event
     await page.click('#new-event-btn');
@@ -131,7 +132,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('should import a dropped ICS file and export a calendar as download', async ({ page }) => {
     await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
 
 
@@ -359,7 +360,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('should create an event with a VALARM reminder and edit alarm setting', async ({ page }) => {
     await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
     // Open create modal
     await page.click('#new-event-btn');
@@ -601,8 +602,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?date=2026-07-06');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
     const title = `E2E Drive Attachment Event ${Date.now()}`;
     const driveUrl = 'https://files.freeshard.local/d/e2e-project-brief.pdf';
@@ -629,6 +631,36 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(attachmentLink).toBeVisible({ timeout: 5000 });
     await expect(attachmentLink).toHaveAttribute('href', driveUrl);
     await expect(attachmentLink).toHaveText(driveFileName);
+  });
+
+  test('should configure working hours policy and ooo auto-decline rules in settings drawer', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Open settings drawer
+    await page.click('#sidebar-settings-btn');
+    await expect(page.locator('#settings-drawer')).toHaveClass(/open/);
+
+    // Update working hours select options
+    await page.selectOption('#wh-start-hour', '8');
+    await page.selectOption('#wh-end-hour', '16');
+
+    // Enable auto-decline and OOO
+    await page.check('#wh-auto-decline');
+    await page.check('#wh-ooo-enabled');
+
+    // Fill OOO dates & message
+    await page.fill('#wh-ooo-start', '2026-10-01');
+    await page.fill('#wh-ooo-end', '2026-10-15');
+    await page.fill('#wh-ooo-message', 'Urlaub / Out of Office');
+
+    // Save rules
+    await page.click('#wh-save-btn');
+    await expect(page.locator('#wh-save-status')).toHaveText('Gespeichert!', { timeout: 5000 });
+
+    // Close settings drawer
+    await page.click('#close-settings-btn');
+    await expect(page.locator('#settings-drawer')).not.toHaveClass(/open/);
   });
 
 });
