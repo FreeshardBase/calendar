@@ -228,6 +228,11 @@ export function openEditModal(event, callbacks) {
   const firstAlarm = (event.alarms && event.alarms.length > 0) ? event.alarms[0] : null;
   $('ev-alarm').value = firstAlarm ? (firstAlarm.trigger || '') : '';
 
+  // Attachments
+  const firstAttach = (event.attachments && event.attachments.length > 0) ? event.attachments[0] : null;
+  if ($('ev-attachment-url')) $('ev-attachment-url').value = firstAttach ? (firstAttach.url || '') : '';
+  if ($('ev-attachment-name')) $('ev-attachment-name').value = firstAttach ? (firstAttach.name || '') : '';
+
   show();
 }
 
@@ -306,6 +311,8 @@ function resetForm() {
   $('ev-etag').value = '';
   $('ev-recurrence').value = '';
   if ($('ev-alarm')) $('ev-alarm').value = '';
+  if ($('ev-attachment-url')) $('ev-attachment-url').value = '';
+  if ($('ev-attachment-name')) $('ev-attachment-name').value = '';
   $('event-form-error').classList.add('hidden');
   $('ev-attendee-list').innerHTML = '';
 
@@ -496,6 +503,10 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   const alarmTrigger = $('ev-alarm') ? $('ev-alarm').value : '';
   const alarms = alarmTrigger ? [{ action: 'DISPLAY', trigger: alarmTrigger, description: $('ev-title').value.trim() || 'Erinnerung' }] : [];
 
+  const attachUrl = $('ev-attachment-url') ? $('ev-attachment-url').value.trim() : '';
+  const attachName = $('ev-attachment-name') ? $('ev-attachment-name').value.trim() : '';
+  const attachments = attachUrl ? [{ url: attachUrl, name: attachName || attachUrl.split('/').pop() || 'Anhang' }] : [];
+
   const payload = {
     calendarId:  $('ev-calendar').value,
     title:       $('ev-title').value.trim(),
@@ -507,6 +518,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     attendees:   collectAttendees(),
     recurrence,
     alarms,
+    attachments,
     startTimeZone: allDay ? null : startTimeZone,
     endTimeZone:   allDay ? null : endTimeZone
   };

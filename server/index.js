@@ -19,6 +19,7 @@ const tasksRouter = require('./routes/tasks');
 const authRouter = require('./routes/auth');
 const msgraphRouter = require('./routes/msgraph');
 const resourcesRouter = require('./routes/resources');
+const availabilityRouter = require('./routes/availability');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -178,6 +179,7 @@ app.use('/api/events',            requireAuth, eventsRouter);
 app.use('/api/tasks',             requireAuth, tasksRouter);
 app.use('/api/msgraph',           requireAuth, msgraphRouter);
 app.use('/api/resources',         requireAuth, resourcesRouter);
+app.use('/api',                   availabilityRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {

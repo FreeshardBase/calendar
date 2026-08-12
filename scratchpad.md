@@ -45,9 +45,20 @@
   - Client-side `calendar.js` and `app.js` render dual time zone gutters and dual hour labels (primary/secondary) in week and day views.
   - Settings drawer controls (`#show-secondary-tz-toggle`, `#primary-tz-select`, `#secondary-tz-select`) persist preferences to `localStorage` and `store.js`.
 
+- **Public Availability Slots Booking Engine (`server/db.js`, `server/utils/availabilityBooking.js`, `server/routes/availability.js`, `public/js/availability.js`, `public/booking.html`):**
+  - SQLite `availability_pages` and `slot_bookings` tables manage user booking page slugs, duration, working hours, and guest slot bookings.
+  - `calculateFreeSlots` utility extracts existing events/bookings and computes available time slots.
+  - Public booking page (`/booking.html?slug=...`) allows guests to inspect slots and book appointments, returning 409 Conflict on double-booking.
+
+- **Drive Attachment Link Integration (`server/utils/ical.js`, `public/js/eventModal.js`, `public/js/app.js`):**
+  - iCalendar parser extracts `ATTACH` properties into `attachments` array with `url`, `name` (`X-FILENAME`), and `mimeType` (`FMTTYPE`).
+  - `eventToICS` serializes `attachments` back into standard RFC 5545 `ATTACH` properties.
+  - Modal input fields (`#ev-attachment-url`, `#ev-attachment-name`) capture drive file links; popover renders clickable links with `.attachment-drive-link`.
+  - Fixed HTML nesting defect in `public/index.html` where unclosed `#invitations-modal-backdrop` container intercepted click events.
+
 ## Test Execution State
-- Node Unit & Integration Suite: 95 PASSED (100% green)
-- Playwright E2E Suite: 13 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 105 PASSED (100% green)
+- Playwright E2E Suite: 15 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -66,7 +77,9 @@
 - [x] Issue #43: [ROOM-RESOURCE-BOOKING] Ressourcen- & Raum-Buchungssystem mit Belegungs-Prüfung
 - [x] Issue #44: [PDF-PRINT-ENGINE] Vektorbasierter PDF-Export & Druck-Optimierung für Monats-/Wochenansicht
 - [x] Issue #45: [MULTI-TIMEZONE-GRID] Zeitzonen-Dual-Grid & Sekundäre Zeitleiste
+- [x] Issue #46: [AVAILABILITY-SLOTS-BOOKING] Öffentliche Termin-Buchungsseite für freie Zeitslots
+- [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#45 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#47 completed 100% green.
 

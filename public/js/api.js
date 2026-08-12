@@ -98,5 +98,15 @@ export const ResourcesAPI = {
   cancelBooking: (id)         => request('DELETE', `/api/resources/bookings/${encodeURIComponent(id)}`),
 };
 
+// ── Availability Slots Booking ────────────────────────────────────────────────
+export const AvailabilityAPI = {
+  getPages: () => request('GET', '/api/availability-slots'),
+  createPage: (data) => request('POST', '/api/availability-slots', data),
+  deletePage: (id) => request('DELETE', `/api/availability-slots/${encodeURIComponent(id)}`),
+  getPublicPage: (slug, date) => request('GET', `/api/public/availability/${encodeURIComponent(slug)}?date=${encodeURIComponent(date || '')}`),
+  bookPublicSlot: (slug, bookingData) => request('POST', `/api/public/availability/${encodeURIComponent(slug)}/book`, bookingData),
+};
+
+
 
 

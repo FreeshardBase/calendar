@@ -3,9 +3,15 @@ const { test, expect } = require('@playwright/test');
 test.describe('FreeShard WebCalendar E2E Suite', () => {
 
   test.beforeEach(async ({ page }) => {
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    page.on('pageerror', err => console.log('PAGE ERROR:', err));
     // The one-time welcome modal (shown when only the internal calendar account
     // exists) would intercept clicks — mark it as already dismissed.
-    await page.addInitScript(() => localStorage.setItem('welcome-popup-closed', 'true'));
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem('welcome-popup-closed', 'true');
+      } catch (e) {}
+    });
   });
 
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {
@@ -553,7 +559,80 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(dualLabels.first()).toBeVisible({ timeout: 5000 });
   });
 
+  test('should open availability booking modal, create a booking page, navigate to public booking link, and book a free slot', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#loading-screen')).toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    // Open availability booking modal
+    await page.click('#availability-btn');
+    await expect(page.locator('#availability-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    const slug = `e2e-slot-${Date.now()}`;
+    await page.fill('#ap-title', 'E2E Public Consultation');
+    await page.fill('#ap-slug', slug);
+    await page.click('#ap-save-btn');
+
+    // Verify created page appears in list
+    const pageCard = page.locator(`.availability-page-card:has-text("${slug}")`);
+    await expect(pageCard).toBeVisible({ timeout: 10000 });
+
+    // Navigate to public booking page
+    await page.goto(`/booking.html?slug=${slug}`);
+    await expect(page.locator('#page-title')).toHaveText('E2E Public Consultation', { timeout: 10000 });
+
+    // Select first slot
+    const slotBtn = page.locator('.slot-btn').first();
+    await expect(slotBtn).toBeVisible({ timeout: 10000 });
+    await slotBtn.click();
+
+    // Fill guest booking form
+    await expect(page.locator('#booking-form-wrapper')).not.toHaveClass(/hidden/);
+    await page.fill('#guest-name', 'Test User Guest');
+    await page.fill('#guest-email', 'testuser@example.com');
+    await page.fill('#guest-notes', 'E2E public booking test notes');
+
+    // Submit booking
+    await page.click('#confirm-booking-btn');
+
+    // Confirmation box should appear
+    await expect(page.locator('#booking-success')).not.toHaveClass(/hidden/, { timeout: 10000 });
+  });
+
+  test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    const title = `E2E Drive Attachment Event ${Date.now()}`;
+    const driveUrl = 'https://files.freeshard.local/d/e2e-project-brief.pdf';
+    const driveFileName = 'e2e-project-brief.pdf';
+
+    // Click quick add or new event button
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    await page.fill('#ev-title', title);
+    await page.fill('#ev-attachment-url', driveUrl);
+    await page.fill('#ev-attachment-name', driveFileName);
+
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Click the newly created event block
+    const eventBlock = page.locator(`.event-chip:has-text("${title}"), .event-block:has-text("${title}")`).first();
+    await expect(eventBlock).toBeVisible({ timeout: 10000 });
+    await eventBlock.click();
+
+    // Verify popover displays attachment link
+    const attachmentLink = page.locator('.attachment-drive-link');
+    await expect(attachmentLink).toBeVisible({ timeout: 5000 });
+    await expect(attachmentLink).toHaveAttribute('href', driveUrl);
+    await expect(attachmentLink).toHaveText(driveFileName);
+  });
+
 });
+
 
 
 

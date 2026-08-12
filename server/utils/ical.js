@@ -121,6 +121,21 @@ function parseVEventToEvent(vevent, meta = {}) {
   // Alarms (VALARM)
   const alarms = parseValarms(vevent);
 
+  // Attachments (ATTACH)
+  const attachments = [];
+  for (const prop of vevent.getAllProperties('attach')) {
+    const val = prop.getFirstValue();
+    const url = typeof val === 'string' ? val : (val && val.toString ? val.toString() : '');
+    if (!url) continue;
+    let name = prop.getParameter('x-filename') || prop.getParameter('filename') || prop.getParameter('cn') || null;
+    if (!name) {
+      const parts = url.split('/');
+      name = parts[parts.length - 1] || 'Attachment';
+    }
+    const mimeType = prop.getParameter('fmttype') || null;
+    attachments.push({ url, name, mimeType });
+  }
+
   return {
     uid:         ev.uid,
     title:       ev.summary   || '(No title)',
@@ -136,6 +151,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     startTimeZone,
     endTimeZone,
     alarms,
+    attachments,
     calendarId:  meta.calendarId  || null,
     accountId:   meta.accountId   || null,
     href:        meta.href        || null,
@@ -280,6 +296,18 @@ function eventToICS(event) {
       lines.push(`DESCRIPTION:${escIcal(alarm.description)}`);
     }
     lines.push('END:VALARM');
+  }
+
+  const attachments = Array.isArray(event.attachments) ? event.attachments : [];
+  for (const att of attachments) {
+    if (!att) continue;
+    const url = typeof att === 'string' ? att : att.url;
+    if (!url) continue;
+    const name = typeof att === 'object' && att.name ? att.name : null;
+    const mimeType = typeof att === 'object' && att.mimeType ? att.mimeType : null;
+    const fmt = mimeType ? `;FMTTYPE=${mimeType}` : '';
+    const fn = name ? `;X-FILENAME="${escIcal(name)}"` : '';
+    lines.push(`ATTACH${fmt}${fn}:${url}`);
   }
 
   lines.push('END:VEVENT', 'END:VCALENDAR');

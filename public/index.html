@@ -360,6 +360,14 @@
         <span>PDF / Druck</span>
       </button>
 
+      <button class="toolbar-btn" id="availability-btn" title="Termin-Buchung" style="margin-left: 8px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>Termin-Buchung</span>
+      </button>
+
 
       <div class="search-wrapper">
         <span class="search-icon">
@@ -547,6 +555,17 @@
         <div class="form-group">
           <label class="form-label" for="ev-location">Ort</label>
           <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="ev-attachment-url">Dateianhang / Drive Link</label>
+            <input class="form-input" id="ev-attachment-url" type="url" placeholder="https://files.freeshard.local/d/..." />
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="ev-attachment-name">Dateiname (optional)</label>
+            <input class="form-input" id="ev-attachment-name" type="text" placeholder="z. B. Dokument.pdf" />
+          </div>
         </div>
 
         <div class="form-group">
@@ -808,6 +827,7 @@
       <p class="empty-state">Keine ausstehenden Einladungen vorhanden.</p>
     </div>
   </div>
+</div>
 <!-- ── MS Graph / Office 365 Modal ────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="msgraph-modal-backdrop">
   <div class="modal modal-sm" id="msgraph-modal" role="dialog" aria-modal="true">
@@ -840,6 +860,64 @@
       </div>
       <div id="msgraph-accounts-list">
         <p class="empty-state">Keine Office 365 Konten verbunden.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Availability Booking Modal ────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="availability-modal-backdrop">
+  <div class="modal" id="availability-modal" style="max-width: 650px;">
+    <div class="modal-header">
+      <h3 class="modal-title">Öffentliche Termin-Buchungsseiten</h3>
+      <button class="icon-btn modal-close" id="availability-modal-close" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body" style="padding: 16px;">
+      <form id="availability-form" style="margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px;">
+        <h4 style="margin-top:0; margin-bottom:12px;">Neue Buchungsseite erstellen</h4>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="ap-title">Titel / Name</label>
+            <input class="form-input" id="ap-title" type="text" placeholder="z. B. 30 Min. Erstberatung" required />
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="ap-slug">Kürzel (Slug)</label>
+            <input class="form-input" id="ap-slug" type="text" placeholder="beratung-30m" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="ap-calendar">Ziel-Kalender</label>
+            <select class="form-select" id="ap-calendar" required></select>
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="ap-duration">Dauer (Minuten)</label>
+            <input class="form-input" id="ap-duration" type="number" value="30" min="15" step="15" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="ap-start-hour">Start-Uhrzeit (Std.)</label>
+            <input class="form-input" id="ap-start-hour" type="number" value="9" min="0" max="23" required />
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="ap-end-hour">End-Uhrzeit (Std.)</label>
+            <input class="form-input" id="ap-end-hour" type="number" value="17" min="1" max="24" required />
+          </div>
+        </div>
+        <div class="modal-footer" style="padding-top:8px;">
+          <button type="submit" class="btn btn-primary" id="ap-save-btn">Buchungsseite erstellen</button>
+        </div>
+      </form>
+      <div>
+        <h4 style="margin-top:0; margin-bottom:12px;">Bestehende Buchungsseiten</h4>
+        <div id="availability-pages-list">
+          <p class="empty-state">Noch keine Buchungsseiten vorhanden.</p>
+        </div>
       </div>
     </div>
   </div>

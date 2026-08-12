@@ -11,6 +11,7 @@ import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms } from './notifications.js';
 import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
+import { initAvailabilityManager } from './availability.js';
 
 // ── Element refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -61,6 +62,7 @@ async function boot() {
   initNotificationService();
   initTaskUI({ onTaskChanged: loadTasks });
   initInvitations();
+  initAvailabilityManager();
 
 
   // Attach UI event listeners
@@ -1273,6 +1275,17 @@ function showEventPopover(ev, mouseEvent) {
        </div>`
     : '';
 
+  const attachHtml = (Array.isArray(ev.attachments) && ev.attachments.length > 0)
+    ? `<div class="popover-row popover-attachments" id="popover-attachments">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          ${ev.attachments.map(a => `
+            <a href="${escHtml(a.url)}" target="_blank" rel="noopener" class="attachment-drive-link" style="color:var(--accent); font-size:12px; text-decoration:underline;">${escHtml(a.name || a.url)}</a>
+          `).join('')}
+        </div>
+       </div>`
+    : '';
+
   const actionsHtml = cal.readOnly
     ? `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Details</button>
        <span style="font-size:11px;color:var(--danger);margin-left:auto;padding-right:8px;font-weight:600;">Schreibgeschützt</span>`
@@ -1292,6 +1305,7 @@ function showEventPopover(ev, mouseEvent) {
         <span>${escHtml(ev.location)}</span>
       </div>` : ''}
       ${attHtml}
+      ${attachHtml}
     </div>
     <div class="popover-actions">
       ${actionsHtml}

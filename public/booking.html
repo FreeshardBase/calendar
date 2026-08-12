@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Termin buchen — FreeShard Calendar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <style>
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .booking-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 600px;
+      padding: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+    .booking-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+    .booking-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 0 8px 0;
+    }
+    .booking-meta {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    .slot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .slot-btn {
+      padding: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-hover);
+      color: var(--text);
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+    .slot-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--surface);
+    }
+    .slot-btn.selected {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .booking-form-section {
+      margin-top: 24px;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+    .success-box {
+      background: #e6f4ea;
+      border: 1px solid #ceead6;
+      color: #137333;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="booking-card">
+  <div id="booking-loading" style="text-align:center; padding: 40px;">
+    <div class="loading-spinner" style="margin:0 auto 16px auto;"></div>
+    <p>Buchungsseite wird geladen…</p>
+  </div>
+
+  <div id="booking-error" class="hidden" style="text-align:center; color: var(--danger); padding: 20px;">
+    <h3>Seite nicht gefunden</h3>
+    <p id="error-message">Die angeforderte Buchungsseite existiert nicht oder wurde entfernt.</p>
+  </div>
+
+  <div id="booking-content" class="hidden">
+    <div class="booking-header">
+      <h1 class="booking-title" id="page-title">Termin buchen</h1>
+      <div class="booking-meta" id="page-meta">Dauer: 30 Minuten</div>
+    </div>
+
+    <div>
+      <label class="form-label" for="booking-date">Datum auswählen</label>
+      <input type="date" id="booking-date" class="form-input" style="max-width: 220px; margin-bottom: 16px;" />
+    </div>
+
+    <div>
+      <label class="form-label">Verfügbare Zeitslots</label>
+      <div class="slot-grid" id="slots-container">
+        <p class="empty-state">Lade verfügbare Zeitslots…</p>
+      </div>
+    </div>
+
+    <div id="booking-form-wrapper" class="booking-form-section hidden">
+      <h3 style="margin-top:0; margin-bottom: 16px; font-size: 16px;">Deine Kontaktdaten</h3>
+      <form id="public-booking-form">
+        <input type="hidden" id="selected-start-time" />
+        <div class="form-group">
+          <label class="form-label" for="guest-name">Dein Name</label>
+          <input class="form-input" id="guest-name" type="text" placeholder="Max Mustermann" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="guest-email">E-Mail-Adresse</label>
+          <input class="form-input" id="guest-email" type="email" placeholder="max@example.com" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="guest-notes">Notizen / Anliegen <span class="optional">(optional)</span></label>
+          <textarea class="form-input" id="guest-notes" rows="3" placeholder="Kurze Beschreibung des Anliegens…"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="confirm-booking-btn">Termin verbindlich buchen</button>
+      </form>
+    </div>
+
+    <div id="booking-success" class="success-box hidden" style="margin-top: 20px;">
+      <h3 style="margin-top:0; font-size: 18px;">Termin erfolgreich gebucht!</h3>
+      <p style="margin-bottom:0;">Vielen Dank. Die Bestätigung für deinen Termin wurde gespeichert.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { AvailabilityAPI } from '/js/api.js';
+
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('slug') || window.location.pathname.split('/').pop();
+
+  const loadingEl = document.getElementById('booking-loading');
+  const errorEl = document.getElementById('booking-error');
+  const contentEl = document.getElementById('booking-content');
+  const dateInput = document.getElementById('booking-date');
+  const slotsContainer = document.getElementById('slots-container');
+  const formWrapper = document.getElementById('booking-form-wrapper');
+  const successBox = document.getElementById('booking-success');
+  const bookingForm = document.getElementById('public-booking-form');
+
+  // Default to today's date
+  const today = new Date().toISOString().split('T')[0];
+  dateInput.value = today;
+  dateInput.min = today;
+
+  let selectedSlotTime = null;
+
+  async function loadSlots() {
+    try {
+      slotsContainer.innerHTML = '<p class="empty-state">Zeitslots werden geladen…</p>';
+      const data = await AvailabilityAPI.getPublicPage(slug, dateInput.value);
+
+      loadingEl.classList.add('hidden');
+      contentEl.classList.remove('hidden');
+
+      document.getElementById('page-title').textContent = data.title;
+      document.getElementById('page-meta').textContent = `Dauer: ${data.durationMinutes} Minuten`;
+
+      if (!data.availableSlots || data.availableSlots.length === 0) {
+        slotsContainer.innerHTML = '<p class="empty-state">An diesem Tag sind keine freien Zeitslots verfügbar.</p>';
+        formWrapper.classList.add('hidden');
+        return;
+      }
+
+      slotsContainer.innerHTML = data.availableSlots.map(slot => {
+        const timeLabel = new Date(slot.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        return `<button class="slot-btn" data-time="${slot.startTime}">${timeLabel} Uhr</button>`;
+      }).join('');
+
+      slotsContainer.querySelectorAll('.slot-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          slotsContainer.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selectedSlotTime = btn.getAttribute('data-time');
+          document.getElementById('selected-start-time').value = selectedSlotTime;
+          formWrapper.classList.remove('hidden');
+          formWrapper.scrollIntoView({ behavior: 'smooth' });
+        });
+      });
+    } catch (err) {
+      loadingEl.classList.add('hidden');
+      errorEl.classList.remove('hidden');
+      document.getElementById('error-message').textContent = err.message || 'Buchungsseite konnte nicht geladen werden.';
+    }
+  }
+
+  dateInput.addEventListener('change', () => {
+    formWrapper.classList.add('hidden');
+    selectedSlotTime = null;
+    loadSlots();
+  });
+
+  bookingForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!selectedSlotTime) return;
+
+    const guestName = document.getElementById('guest-name').value;
+    const guestEmail = document.getElementById('guest-email').value;
+    const notes = document.getElementById('guest-notes').value;
+
+    try {
+      const confirmBtn = document.getElementById('confirm-booking-btn');
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Wird gebucht…';
+
+      await AvailabilityAPI.bookPublicSlot(slug, {
+        startTime: selectedSlotTime,
+        guestName,
+        guestEmail,
+        notes
+      });
+
+      formWrapper.classList.add('hidden');
+      slotsContainer.innerHTML = '';
+      successBox.classList.remove('hidden');
+    } catch (err) {
+      alert(err.message || 'Fehler bei der Buchung');
+      const confirmBtn = document.getElementById('confirm-booking-btn');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Termin verbindlich buchen';
+    }
+  });
+
+  loadSlots();
+</script>
+</body>
+</html>

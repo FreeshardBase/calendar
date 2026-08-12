@@ -134,6 +134,33 @@ db.serialize(() => {
       created_at INTEGER NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS availability_pages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      slug TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      duration_minutes INTEGER NOT NULL DEFAULT 30,
+      start_hour INTEGER NOT NULL DEFAULT 9,
+      end_hour INTEGER NOT NULL DEFAULT 17,
+      days_of_week TEXT NOT NULL DEFAULT '1,2,3,4,5',
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS slot_bookings (
+      id TEXT PRIMARY KEY,
+      page_id TEXT NOT NULL,
+      guest_name TEXT NOT NULL,
+      guest_email TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      notes TEXT,
+      event_uid TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -311,6 +338,8 @@ const Db = {
         db.run('DELETE FROM linked_accounts');
         db.run('DELETE FROM app_passwords');
         db.run('DELETE FROM calendar_shares');
+        db.run('DELETE FROM availability_pages');
+        db.run('DELETE FROM slot_bookings');
         db.run('DELETE FROM sync_queue', (err) => {
           if (err) return reject(err);
           resolve();
@@ -1024,6 +1053,149 @@ const Db = {
       db.run(sql, params, (err) => {
         if (err) return reject(err);
         resolve();
+      });
+    });
+  },
+
+  // ── Availability Slots Booking Engine ──────────────────────────────────
+  createAvailabilityPage({ id, userId, slug, title, calendarId, durationMinutes = 30, startHour = 9, endHour = 17, daysOfWeek = '1,2,3,4,5' }) {
+    return new Promise((resolve, reject) => {
+      const pageId = id || `ap-${uuidv4()}`;
+      const now = Date.now();
+      db.run(
+        `INSERT INTO availability_pages (id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [pageId, userId, slug, title, calendarId, durationMinutes, startHour, endHour, daysOfWeek, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({
+            id: pageId,
+            userId,
+            slug,
+            title,
+            calendarId,
+            durationMinutes,
+            startHour,
+            endHour,
+            daysOfWeek,
+            createdAt: now
+          });
+        }
+      );
+    });
+  },
+
+  getAvailabilityPages(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, created_at
+         FROM availability_pages WHERE user_id = ? ORDER BY created_at DESC`,
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(r => ({
+            id: r.id,
+            userId: r.user_id,
+            slug: r.slug,
+            title: r.title,
+            calendarId: r.calendar_id,
+            durationMinutes: r.duration_minutes,
+            startHour: r.start_hour,
+            endHour: r.end_hour,
+            daysOfWeek: r.days_of_week,
+            createdAt: r.created_at
+          })));
+        }
+      );
+    });
+  },
+
+  getAvailabilityPageBySlug(slug) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, created_at
+         FROM availability_pages WHERE slug = ?`,
+        [slug],
+        (err, r) => {
+          if (err) return reject(err);
+          if (!r) return resolve(null);
+          resolve({
+            id: r.id,
+            userId: r.user_id,
+            slug: r.slug,
+            title: r.title,
+            calendarId: r.calendar_id,
+            durationMinutes: r.duration_minutes,
+            startHour: r.start_hour,
+            endHour: r.end_hour,
+            daysOfWeek: r.days_of_week,
+            createdAt: r.created_at
+          });
+        }
+      );
+    });
+  },
+
+  deleteAvailabilityPage(id, userId) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM availability_pages WHERE id = ? AND user_id = ?`,
+        [id, userId],
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  createSlotBooking({ id, pageId, guestName, guestEmail, startTime, endTime, notes = '', eventUid = null }) {
+    return new Promise((resolve, reject) => {
+      const bookingId = id || `sb-${uuidv4()}`;
+      const now = Date.now();
+      db.run(
+        `INSERT INTO slot_bookings (id, page_id, guest_name, guest_email, start_time, end_time, notes, event_uid, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [bookingId, pageId, guestName, guestEmail, startTime, endTime, notes, eventUid, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({
+            id: bookingId,
+            pageId,
+            guestName,
+            guestEmail,
+            startTime,
+            endTime,
+            notes,
+            eventUid,
+            createdAt: now
+          });
+        }
+      );
+    });
+  },
+
+  getSlotBookingsForPage(pageId, dateStr = null) {
+    return new Promise((resolve, reject) => {
+      let sql = `SELECT id, page_id, guest_name, guest_email, start_time, end_time, notes, event_uid, created_at FROM slot_bookings WHERE page_id = ?`;
+      const params = [pageId];
+      if (dateStr) {
+        sql += ` AND start_time LIKE ?`;
+        params.push(`${dateStr}%`);
+      }
+      db.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows.map(r => ({
+          id: r.id,
+          pageId: r.page_id,
+          guestName: r.guest_name,
+          guestEmail: r.guest_email,
+          startTime: r.start_time,
+          endTime: r.end_time,
+          notes: r.notes,
+          eventUid: r.event_uid,
+          createdAt: r.created_at
+        })));
       });
     });
   }
