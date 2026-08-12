@@ -7,6 +7,7 @@ import { store, toggleCalendar, invalidateEventCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI } from './api.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
+import { wirePresetSelect } from './caldavPresets.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms } from './notifications.js';
 import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from './tasks.js';
@@ -1387,6 +1388,7 @@ function attachListeners() {
   });
 
   // Onboarding form
+  wirePresetSelect($('ob-provider'), $('ob-url'), $('ob-username'));
   $('onboarding-form').addEventListener('submit', async e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData($('onboarding-form')));

@@ -4,6 +4,7 @@
 
 import { AccountsAPI } from './api.js';
 import { showToast } from './app.js';
+import { wirePresetSelect } from './caldavPresets.js';
 
 let _onAdded = null;
 
@@ -25,6 +26,8 @@ export function closeAccountModal() {
 export function initAccountModal() {
   $('account-modal-close').addEventListener('click', closeAccountModal);
   $('account-cancel-btn').addEventListener('click', closeAccountModal);
+
+  wirePresetSelect($('acc-provider'), $('acc-url'), $('acc-username'));
 
   $('btn-link-google').addEventListener('click', () => {
     const width = 600;
