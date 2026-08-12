@@ -75,7 +75,7 @@ export const store = createStore({
 
   // Timezone Settings
   primaryTimezone:       localStorage.getItem('primaryTimezone') || 'Europe/Berlin',
-  secondaryTimezone:     localStorage.getItem('secondaryTimezone') || 'America/New_York',
+  secondaryTimezone:     localStorage.getItem('secondaryTimezone') || null,
   showSecondaryTimezone: localStorage.getItem('showSecondaryTimezone') === 'true',
 });
 

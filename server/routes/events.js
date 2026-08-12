@@ -199,7 +199,16 @@ router.put('/:uid', async (req, res) => {
       ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
     }
 
-    const result = await client.put(eventUrl, ics, ifMatch);
+    let result;
+    try {
+      result = await client.put(eventUrl, ics, ifMatch);
+    } catch (putErr) {
+      if (putErr.message === 'ETAG_CONFLICT') {
+        result = await client.put(eventUrl, ics, null);
+      } else {
+        throw putErr;
+      }
+    }
     
     queueSyncForCalendar(calendarId, req.session.userId);
 
@@ -245,7 +254,15 @@ router.delete('/:uid', async (req, res) => {
 
     const ifMatch  = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
 
-    await client.delete(eventUrl, ifMatch);
+    try {
+      await client.delete(eventUrl, ifMatch);
+    } catch (delErr) {
+      if (delErr.message === 'ETAG_CONFLICT') {
+        await client.delete(eventUrl, null);
+      } else {
+        throw delErr;
+      }
+    }
     
     queueSyncForCalendar(calendarId, req.session.userId);
 

@@ -882,13 +882,17 @@ function renderSettings() {
 }
 
 function renderSettingsTimezone() {
-  const showToggle = $('show-secondary-tz-toggle');
-  const priSelect  = $('primary-tz-select');
-  const secSelect  = $('secondary-tz-select');
+  const showToggle      = $('show-secondary-tz-toggle');
+  const priSelect       = $('primary-tz-select');
+  const secSelect       = $('secondary-tz-select');
+  const headerSecSelect = $('header-secondary-tz-select');
 
-  if (showToggle) showToggle.checked = store.get('showSecondaryTimezone') === true;
+  const currentSecTz = store.get('secondaryTimezone') || '';
+
+  if (showToggle) showToggle.checked = store.get('showSecondaryTimezone') === true || Boolean(currentSecTz);
   if (priSelect)  priSelect.value  = store.get('primaryTimezone') || 'Europe/Berlin';
-  if (secSelect)  secSelect.value  = store.get('secondaryTimezone') || 'America/New_York';
+  if (secSelect)  secSelect.value  = currentSecTz;
+  if (headerSecSelect) headerSecSelect.value = currentSecTz;
 }
 
 async function renderSettingsAppPasswords() {
@@ -1479,13 +1483,41 @@ function attachListeners() {
   });
 
   // Timezone Settings Controls
+  function updateSecondaryTimezone(tzVal) {
+    const val = tzVal || null;
+    if (val) {
+      localStorage.setItem('secondaryTimezone', val);
+      localStorage.setItem('showSecondaryTimezone', 'true');
+    } else {
+      localStorage.removeItem('secondaryTimezone');
+      localStorage.setItem('showSecondaryTimezone', 'false');
+    }
+    store.set({
+      secondaryTimezone: val,
+      showSecondaryTimezone: Boolean(val)
+    });
+
+    const showTzToggle    = $('show-secondary-tz-toggle');
+    const secTzSelect     = $('secondary-tz-select');
+    const headerSecSelect = $('header-secondary-tz-select');
+    if (showTzToggle) showTzToggle.checked = Boolean(val);
+    if (secTzSelect) secTzSelect.value = val || '';
+    if (headerSecSelect) headerSecSelect.value = val || '';
+
+    renderCalendarView();
+  }
+
   const showTzToggle = $('show-secondary-tz-toggle');
   if (showTzToggle) {
     showTzToggle.addEventListener('change', e => {
       const enabled = e.target.checked;
       localStorage.setItem('showSecondaryTimezone', enabled ? 'true' : 'false');
-      store.set({ showSecondaryTimezone: enabled });
-      renderCalendarView();
+      if (!enabled) {
+        updateSecondaryTimezone(null);
+      } else {
+        const cur = store.get('secondaryTimezone') || 'America/New_York';
+        updateSecondaryTimezone(cur);
+      }
     });
   }
 
@@ -1502,10 +1534,14 @@ function attachListeners() {
   const secTzSelect = $('secondary-tz-select');
   if (secTzSelect) {
     secTzSelect.addEventListener('change', e => {
-      const tz = e.target.value;
-      localStorage.setItem('secondaryTimezone', tz);
-      store.set({ secondaryTimezone: tz });
-      renderCalendarView();
+      updateSecondaryTimezone(e.target.value);
+    });
+  }
+
+  const headerSecTzSelect = $('header-secondary-tz-select');
+  if (headerSecTzSelect) {
+    headerSecTzSelect.addEventListener('change', e => {
+      updateSecondaryTimezone(e.target.value);
     });
   }
 

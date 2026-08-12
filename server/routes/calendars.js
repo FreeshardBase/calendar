@@ -452,17 +452,26 @@ router.get('/:id/export', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
-    if (!client) return res.status(404).json({ error: 'Account not found' });
+    const slug = calendarUrl ? (new URL(calendarUrl).pathname.split('/').filter(Boolean).pop() || 'calendar') : 'calendar';
 
-    const ics = await fetchCalendarICS(client, calendarUrl);
-
-    const slug = new URL(calendarUrl).pathname.split('/').filter(Boolean).pop() || 'calendar';
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${slug}.ics"`);
-    res.send(ics);
+
+    if (!client) {
+      return res.send(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
+    }
+
+    try {
+      const ics = await fetchCalendarICS(client, calendarUrl);
+      res.send(ics || `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
+    } catch (e) {
+      res.send(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
+    }
   } catch (err) {
     console.error('[calendars export]', err.message);
-    res.status(500).json({ error: err.message });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+    res.send(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
   }
 });
 

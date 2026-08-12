@@ -22,7 +22,7 @@ module.exports = defineConfig({
   webServer: {
     command: 'NODE_ENV=test NODE_TLS_REJECT_UNAUTHORIZED="0" SSL_KEY_PATH="" SSL_CERT_PATH="" node server/index.js',
     url: 'http://localhost:3000',
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     stdout: 'ignore',
     stderr: 'pipe',
   },

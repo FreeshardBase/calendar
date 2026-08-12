@@ -295,8 +295,9 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   });
 
   const primaryTz = store.get('primaryTimezone') || 'Europe/Berlin';
-  const secondaryTz = store.get('secondaryTimezone') || 'America/New_York';
-  const showSecondary = store.get('showSecondaryTimezone') === true;
+  const rawSecTz  = store.get('secondaryTimezone');
+  const showSecondary = (rawSecTz !== null && rawSecTz !== undefined && rawSecTz !== '') || store.get('showSecondaryTimezone') === true;
+  const secondaryTz  = rawSecTz || 'America/New_York';
 
   const gutterW = showSecondary ? '110px' : '60px';
   const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);
@@ -378,8 +379,9 @@ function renderDay(container, events, currentDate, cb) {
   const isToday = sameDay(currentDate, today);
 
   const primaryTz = store.get('primaryTimezone') || 'Europe/Berlin';
-  const secondaryTz = store.get('secondaryTimezone') || 'America/New_York';
-  const showSecondary = store.get('showSecondaryTimezone') === true;
+  const rawSecTz  = store.get('secondaryTimezone');
+  const showSecondary = (rawSecTz !== null && rawSecTz !== undefined && rawSecTz !== '') || store.get('showSecondaryTimezone') === true;
+  const secondaryTz  = rawSecTz || 'America/New_York';
 
   const gutterW = showSecondary ? '110px' : '60px';
   const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);

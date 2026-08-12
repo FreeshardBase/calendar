@@ -297,13 +297,14 @@
           <div class="form-group" style="margin-bottom:4px;">
             <label class="form-label" for="secondary-tz-select" style="font-size:11px;">Sekundäre Zeitzone</label>
             <select class="form-select" id="secondary-tz-select" style="width:100%; font-size:12px; padding:4px 6px;">
-              <option value="America/New_York">New York (EST/EDT)</option>
-              <option value="Europe/Berlin">Berlin (MEZ/MESZ)</option>
-              <option value="Europe/London">London (GMT/BST)</option>
-              <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
-              <option value="Asia/Tokyo">Tokio (JST)</option>
-              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+              <option value="">Keine sekundäre Zeitzone</option>
               <option value="UTC">UTC (Koordinierte Weltzeit)</option>
+              <option value="America/New_York">New York (EST/EDT)</option>
+              <option value="Asia/Tokyo">Tokio (JST)</option>
+              <option value="Europe/London">London (GMT/BST)</option>
+              <option value="Europe/Berlin">Berlin (MEZ/MESZ)</option>
+              <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
             </select>
           </div>
         </div>
@@ -438,6 +439,19 @@
         </svg>
         <span>Termin-Buchung</span>
       </button>
+
+      <div class="toolbar-tz-select-wrapper" style="margin-left: 8px;">
+        <select class="form-select toolbar-tz-select" id="header-secondary-tz-select" title="Sekundäre Zeitzone" style="font-size: 0.78rem; padding: 4px 8px; height: 32px; border-radius: var(--radius-control); background: var(--surface); color: var(--text); border: 1px solid var(--border-cool); cursor: pointer;">
+          <option value="">Zeitzone 2: Keine</option>
+          <option value="UTC">UTC</option>
+          <option value="America/New_York">New York (EST/EDT)</option>
+          <option value="Asia/Tokyo">Tokio (JST)</option>
+          <option value="Europe/London">London (GMT/BST)</option>
+          <option value="Europe/Berlin">Berlin (MEZ/MESZ)</option>
+          <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+          <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+        </select>
+      </div>
 
 
       <div class="search-wrapper">

@@ -326,9 +326,10 @@ function resetForm() {
   $('recur-end-date').value = '';
   $('recur-end-count').value = '10';
 
-  const now = new Date();
-  $('ev-start-date').value = toInputDate(now);
-  $('ev-end-date').value   = toInputDate(now);
+  const activeCurrentDate = store.get('currentDate');
+  const d = activeCurrentDate ? new Date(activeCurrentDate) : new Date();
+  $('ev-start-date').value = toInputDate(d);
+  $('ev-end-date').value   = toInputDate(d);
   updateAlldayUI(false);
   setButtonLoading('event-save-btn', false);
 

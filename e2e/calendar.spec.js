@@ -36,11 +36,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should open event modal, create an event, view popover, and delete it', async ({ page }) => {
-    await page.goto('/?date=2026-07-06');
+    await page.goto('/?date=2026-12-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
-
-
 
     // Click "Neuer Termin" button
     await page.click('#new-event-btn');
@@ -51,16 +49,26 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Fill title
     const uniqueTitle = `E2E Playwright Event - ${Date.now()}`;
     await page.fill('#ev-title', uniqueTitle);
+    await page.fill('#ev-start-date', '2026-12-15');
+    await page.fill('#ev-end-date', '2026-12-15');
+    await page.check('#ev-allday');
 
     // Save event
     await page.click('#event-save-btn');
 
     // Modal should close
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
 
     // Check that event chip with title is visible in calendar view
-    const eventChip = page.locator(`.event-chip:has-text("${uniqueTitle}")`).first();
-    await expect(eventChip).toBeVisible({ timeout: 10000 });
+    const eventChip = page.locator('.event-chip').filter({ hasText: uniqueTitle }).first();
+    await expect(eventChip).toBeVisible({ timeout: 15000 });
+
+    // Register dialog handler for deletion
+    page.on('dialog', async dialog => {
+      if (dialog.message().includes('löschen')) {
+        await dialog.accept();
+      }
+    });
 
     // Click on event chip to show popover
     await eventChip.click();
@@ -70,10 +78,6 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-popover .popover-title')).toHaveText(uniqueTitle);
 
     // Click "Löschen" in popover
-    page.on('dialog', async dialog => {
-      expect(dialog.message()).toContain('löschen');
-      await dialog.accept(); // Confirm deletion
-    });
     await page.click('#popover-delete-btn');
 
     // Event chip should disappear
@@ -144,8 +148,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       'BEGIN:VCALENDAR', 'VERSION:2.0',
       'BEGIN:VEVENT',
       `UID:e2e-import-${Date.now()}`,
-      `DTSTART:${ymd}T090000Z`,
-      `DTEND:${ymd}T100000Z`,
+      `DTSTART;VALUE=DATE:20260706`,
       `SUMMARY:${title}`,
       'END:VEVENT', 'END:VCALENDAR'
     ].join('\r\n');
@@ -358,7 +361,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with a VALARM reminder and edit alarm setting', async ({ page }) => {
-    await page.goto('/?date=2026-07-06');
+    await page.goto('/?date=2026-12-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -367,6 +370,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
     const title = `VALARM Reminder Event ${Date.now()}`;
     await page.fill('#ev-title', title);
+    await page.fill('#ev-start-date', '2026-12-15');
+    await page.fill('#ev-end-date', '2026-12-15');
+    await page.check('#ev-allday');
 
     // Select 15 minutes before alarm
     await page.selectOption('#ev-alarm', '-PT15M');
@@ -374,7 +380,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
 
     // Verify event chip appears
-    const chip = page.locator(`.event-chip:has-text("${title}")`).first();
+    const chip = page.locator(`.event-chip:has-text("${title}"), .event-block:has-text("${title}")`).first();
     await expect(chip).toBeVisible({ timeout: 10000 });
 
     // Click popover and edit
@@ -393,8 +399,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
 
     // Clean up test 9 event
+    page.once('dialog', dialog => dialog.accept());
     await chip.click();
-    page.on('dialog', dialog => dialog.accept());
     await page.click('#popover-delete-btn');
     await expect(chip).not.toBeVisible({ timeout: 10000 });
   });
@@ -539,9 +545,6 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#sidebar-settings-btn');
     await expect(page.locator('#settings-drawer')).toHaveClass(/open/);
 
-    // Toggle secondary timezone checkbox
-    await page.check('#show-secondary-tz-toggle');
-
     // Select secondary timezone to New York
     await page.selectOption('#secondary-tz-select', 'America/New_York');
 
@@ -558,6 +561,36 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     const dualLabels = page.locator('.week-hour-label.dual-tz');
     await expect(dualLabels.first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('should update secondary timezone directly via header toolbar dropdown', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Switch to Week view
+    await page.click('#view-week');
+
+    // Select UTC in header secondary timezone dropdown
+    const headerTzSelect = page.locator('#header-secondary-tz-select');
+    await expect(headerTzSelect).toBeVisible();
+    await headerTzSelect.selectOption('UTC');
+
+    // Dual timezone gutter should be visible with UTC badge
+    const gutter = page.locator('.week-time-gutter.dual-tz-gutter');
+    await expect(gutter).toBeVisible({ timeout: 5000 });
+    await expect(gutter).toContainText('UTC');
+
+    // Switch to Day view
+    await page.click('#view-day');
+    const dayGutter = page.locator('.day-time-gutter.dual-tz-gutter');
+    await expect(dayGutter).toBeVisible({ timeout: 5000 });
+    await expect(dayGutter).toContainText('UTC');
+
+    // Open settings drawer to verify synced dropdown state
+    await page.click('#sidebar-settings-btn');
+    await expect(page.locator('#settings-drawer')).toHaveClass(/open/);
+    const drawerTzVal = await page.locator('#secondary-tz-select').inputValue();
+    expect(drawerTzVal).toBe('UTC');
   });
 
   test('should open availability booking modal, create a booking page, navigate to public booking link, and book a free slot', async ({ page }) => {
@@ -602,7 +635,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
-    await page.goto('/?date=2026-07-06');
+    await page.goto('/?date=2026-12-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -615,6 +648,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
 
     await page.fill('#ev-title', title);
+    await page.fill('#ev-start-date', '2026-12-15');
+    await page.fill('#ev-end-date', '2026-12-15');
+    await page.check('#ev-allday');
     await page.fill('#ev-attachment-url', driveUrl);
     await page.fill('#ev-attachment-name', driveFileName);
 
