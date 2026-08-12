@@ -72,6 +72,11 @@ export const store = createStore({
 
   // CTag & RFC 6578 Delta Sync Cache: Map<calendarId, { ctag, syncToken }>
   calendarSyncCache: new Map(),
+
+  // Timezone Settings
+  primaryTimezone:       localStorage.getItem('primaryTimezone') || 'Europe/Berlin',
+  secondaryTimezone:     localStorage.getItem('secondaryTimezone') || 'America/New_York',
+  showSecondaryTimezone: localStorage.getItem('showSecondaryTimezone') === 'true',
 });
 
 // ── Derived helpers ───────────────────────────────────────────────────────────

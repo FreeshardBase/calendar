@@ -240,6 +240,49 @@ function chipHtml(ev) {
           </div>`;
 }
 
+// ── Timezone Helpers ──────────────────────────────────────────────────────────
+
+function getTimezoneOffsetMinsClient(tzName, date) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzName,
+      timeZoneName: 'longOffset',
+      year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric'
+    });
+    const parts = fmt.formatToParts(date);
+    const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
+    if (tzPart === 'GMT' || tzPart === 'UTC') return 0;
+    const m = tzPart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+    if (!m) return 0;
+    const sign = m[1] === '-' ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10));
+  } catch (e) {
+    return 0;
+  }
+}
+
+function getTimezoneAbbrClient(tzName, date) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'short' });
+    const parts = fmt.formatToParts(date);
+    return parts.find(p => p.type === 'timeZoneName')?.value || tzName;
+  } catch (e) {
+    return tzName;
+  }
+}
+
+function getDualHourLabelClient(baseHour, date, primaryTz, secondaryTz) {
+  const priOffset = getTimezoneOffsetMinsClient(primaryTz, date);
+  const secOffset = getTimezoneOffsetMinsClient(secondaryTz, date);
+  const diffMins = secOffset - priOffset;
+  const secHour = (baseHour + Math.floor(diffMins / 60) + 24) % 24;
+  return {
+    priStr: fmtHour(baseHour),
+    secStr: fmtHour(secHour)
+  };
+}
+
 // ── Week View ─────────────────────────────────────────────────────────────────
 
 function renderWeek(container, events, currentDate, cb, view = 'week') {
@@ -251,14 +294,29 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
     const d = new Date(ws); d.setDate(ws.getDate() + i); return d;
   });
 
+  const primaryTz = store.get('primaryTimezone') || 'Europe/Berlin';
+  const secondaryTz = store.get('secondaryTimezone') || 'America/New_York';
+  const showSecondary = store.get('showSecondaryTimezone') === true;
+
+  const gutterW = showSecondary ? '110px' : '60px';
+  const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);
+  const secAbbr = getTimezoneAbbrClient(secondaryTz, currentDate);
+
+  const gutterHtml = showSecondary
+    ? `<div class="week-time-gutter dual-tz-gutter" title="${primaryTz} / ${secondaryTz}">
+         <span class="tz-badge pri">${priAbbr}</span>
+         <span class="tz-badge sec">${secAbbr}</span>
+       </div>`
+    : `<div class="week-time-gutter"></div>`;
+
   const wrap = document.createElement('div');
   wrap.className = 'week-view';
 
   // Header row
   const header = document.createElement('div');
   header.className = 'week-header-row';
-  header.style.gridTemplateColumns = `60px repeat(${numDays}, 1fr)`;
-  header.innerHTML = `<div class="week-time-gutter"></div>`;
+  header.style.gridTemplateColumns = `${gutterW} repeat(${numDays}, 1fr)`;
+  header.innerHTML = gutterHtml;
   days.forEach(d => {
     const isToday = sameDay(d, today);
     header.innerHTML += `
@@ -272,13 +330,21 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   // Body
   const body = document.createElement('div');
   body.className = 'week-grid-body';
-  body.style.gridTemplateColumns = `60px repeat(${numDays}, 1fr)`;
+  body.style.gridTemplateColumns = `${gutterW} repeat(${numDays}, 1fr)`;
 
   // Time column
   const timeCol = document.createElement('div');
-  timeCol.className = 'week-time-col';
+  timeCol.className = `week-time-col${showSecondary ? ' dual-tz' : ''}`;
   for (let h = 0; h <= TOTAL_HOURS; h++) {
-    timeCol.innerHTML += `<div class="week-hour-label" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
+    if (showSecondary && h > 0 && h < TOTAL_HOURS) {
+      const { priStr, secStr } = getDualHourLabelClient(h, currentDate, primaryTz, secondaryTz);
+      timeCol.innerHTML += `<div class="week-hour-label dual-tz" style="top:${h*HOUR_H}px">
+        <span class="pri-time">${priStr}</span>
+        <span class="sec-time">${secStr}</span>
+      </div>`;
+    } else {
+      timeCol.innerHTML += `<div class="week-hour-label" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
+    }
   }
   body.appendChild(timeCol);
 
@@ -311,13 +377,29 @@ function renderDay(container, events, currentDate, cb) {
   const today = new Date(); today.setHours(0,0,0,0);
   const isToday = sameDay(currentDate, today);
 
+  const primaryTz = store.get('primaryTimezone') || 'Europe/Berlin';
+  const secondaryTz = store.get('secondaryTimezone') || 'America/New_York';
+  const showSecondary = store.get('showSecondaryTimezone') === true;
+
+  const gutterW = showSecondary ? '110px' : '60px';
+  const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);
+  const secAbbr = getTimezoneAbbrClient(secondaryTz, currentDate);
+
+  const gutterHtml = showSecondary
+    ? `<div class="day-time-gutter dual-tz-gutter" title="${primaryTz} / ${secondaryTz}">
+         <span class="tz-badge pri">${priAbbr}</span>
+         <span class="tz-badge sec">${secAbbr}</span>
+       </div>`
+    : `<div class="day-time-gutter"></div>`;
+
   const wrap = document.createElement('div');
   wrap.className = 'day-view';
 
   const header = document.createElement('div');
   header.className = 'day-header-row';
+  header.style.gridTemplateColumns = `${gutterW} 1fr`;
   header.innerHTML = `
-    <div class="day-time-gutter"></div>
+    ${gutterHtml}
     <div class="week-day-header${isToday ? ' today' : ''}">
       <div class="week-day-label">${DAYS[currentDate.getDay()]}</div>
       <div class="week-day-num">${currentDate.getDate()}</div>
@@ -326,11 +408,20 @@ function renderDay(container, events, currentDate, cb) {
 
   const body = document.createElement('div');
   body.className = 'day-grid-body';
+  body.style.gridTemplateColumns = `${gutterW} 1fr`;
 
   const timeCol = document.createElement('div');
-  timeCol.className = 'day-time-col';
+  timeCol.className = `day-time-col${showSecondary ? ' dual-tz' : ''}`;
   for (let h = 0; h <= TOTAL_HOURS; h++) {
-    timeCol.innerHTML += `<div class="day-hour-label" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
+    if (showSecondary && h > 0 && h < TOTAL_HOURS) {
+      const { priStr, secStr } = getDualHourLabelClient(h, currentDate, primaryTz, secondaryTz);
+      timeCol.innerHTML += `<div class="day-hour-label dual-tz" style="top:${h*HOUR_H}px">
+        <span class="pri-time">${priStr}</span>
+        <span class="sec-time">${secStr}</span>
+      </div>`;
+    } else {
+      timeCol.innerHTML += `<div class="day-hour-label" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
+    }
   }
   body.appendChild(timeCol);
 

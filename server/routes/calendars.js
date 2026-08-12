@@ -580,8 +580,8 @@ router.post('/:id/import', async (req, res) => {
 
         const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(item.uid) + '.ics';
         try {
-          // FORCE put for OVERWRITE (etag=true or undefined), or etag=null for NEW
-          const etagVal = item.action === 'OVERWRITE' ? true : null;
+          // FORCE put for OVERWRITE (etag=undefined), or etag=null for NEW
+          const etagVal = item.action === 'OVERWRITE' ? undefined : null;
           await client.put(resourceUrl, doc.toString(), etagVal);
           imported++;
         } catch (putErr) {

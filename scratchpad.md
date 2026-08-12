@@ -40,9 +40,14 @@
   - REST endpoint `POST /api/calendars/export/pdf` streams attachment downloads.
   - Frontend export action triggered via `#export-pdf-btn`.
 
+- **Multi-Timezone Grid Engine & Secondary Timeline (`server/utils/timezoneGrid.js`, `public/js/calendar.js`):**
+  - Backend utility `timezoneGrid.js` provides `SUPPORTED_TIMEZONES`, `getTimezoneOffsetMinutes`, `getTimezoneAbbr`, `formatTimezoneHeader`, and `getDualHourLabel` for standard IANA timezones.
+  - Client-side `calendar.js` and `app.js` render dual time zone gutters and dual hour labels (primary/secondary) in week and day views.
+  - Settings drawer controls (`#show-secondary-tz-toggle`, `#primary-tz-select`, `#secondary-tz-select`) persist preferences to `localStorage` and `store.js`.
+
 ## Test Execution State
-- Node Unit & Integration Suite: 89/89 PASSED (100% green)
-- Playwright E2E Suite: 12/12 PASSED (100% green)
+- Node Unit & Integration Suite: 95 PASSED (100% green)
+- Playwright E2E Suite: 13 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -60,7 +65,8 @@
 - [x] Issue #42: [ICS-CONFLICT-RESOLVER] Konflikt- & Duplikat-Auflösungs-Dialog bei ICS-Import
 - [x] Issue #43: [ROOM-RESOURCE-BOOKING] Ressourcen- & Raum-Buchungssystem mit Belegungs-Prüfung
 - [x] Issue #44: [PDF-PRINT-ENGINE] Vektorbasierter PDF-Export & Druck-Optimierung für Monats-/Wochenansicht
+- [x] Issue #45: [MULTI-TIMEZONE-GRID] Zeitzonen-Dual-Grid & Sekundäre Zeitleiste
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#44 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#45 completed 100% green.
 

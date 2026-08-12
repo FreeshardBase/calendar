@@ -84,9 +84,9 @@ class CalDAVClient {
    */
   async put(url, icsData, etag = null) {
     const headers = { 'Content-Type': 'text/calendar; charset=utf-8' };
-    if (etag) {
-      headers['If-Match'] = etag;
-    } else {
+    if (typeof etag === 'string' && etag) {
+      headers['If-Match'] = etag.startsWith('"') ? etag : `"${etag}"`;
+    } else if (etag === null) {
       headers['If-None-Match'] = '*'; // Fail if resource already exists
     }
 

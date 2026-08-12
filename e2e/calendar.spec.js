@@ -524,6 +524,35 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(download.suggestedFilename()).toMatch(/\.pdf$/);
   });
 
+  test('should enable secondary timezone dual grid and update hour labels in week view', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+    // Open settings drawer
+    await page.click('#sidebar-settings-btn');
+    await expect(page.locator('#settings-drawer')).toHaveClass(/open/);
+
+    // Toggle secondary timezone checkbox
+    await page.check('#show-secondary-tz-toggle');
+
+    // Select secondary timezone to New York
+    await page.selectOption('#secondary-tz-select', 'America/New_York');
+
+    // Close settings drawer
+    await page.click('#close-settings-btn');
+    await expect(page.locator('#settings-drawer')).not.toHaveClass(/open/);
+
+    // Switch to Week view
+    await page.click('#view-week');
+
+    // Verify dual timezone gutter header and dual hour labels exist
+    const gutter = page.locator('.week-time-gutter.dual-tz-gutter');
+    await expect(gutter).toBeVisible({ timeout: 5000 });
+
+    const dualLabels = page.locator('.week-hour-label.dual-tz');
+    await expect(dualLabels.first()).toBeVisible({ timeout: 5000 });
+  });
+
 });
 
 

@@ -273,6 +273,40 @@
           </div>
           <div class="settings-list" id="settings-asp-list"></div>
         </div>
+        <!-- Timezone Settings Section -->
+        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <h5 style="margin:0 0 8px 0">Zeitzonen-Grid</h5>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
+              <input type="checkbox" id="show-secondary-tz-toggle" />
+              Sekundäre Zeitleiste anzeigen
+            </label>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label" for="primary-tz-select" style="font-size:11px;">Haupt-Zeitzone</label>
+            <select class="form-select" id="primary-tz-select" style="width:100%; font-size:12px; padding:4px 6px;">
+              <option value="Europe/Berlin">Berlin (MEZ/MESZ)</option>
+              <option value="Europe/London">London (GMT/BST)</option>
+              <option value="America/New_York">New York (EST/EDT)</option>
+              <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+              <option value="Asia/Tokyo">Tokio (JST)</option>
+              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+              <option value="UTC">UTC (Koordinierte Weltzeit)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:4px;">
+            <label class="form-label" for="secondary-tz-select" style="font-size:11px;">Sekundäre Zeitzone</label>
+            <select class="form-select" id="secondary-tz-select" style="width:100%; font-size:12px; padding:4px 6px;">
+              <option value="America/New_York">New York (EST/EDT)</option>
+              <option value="Europe/Berlin">Berlin (MEZ/MESZ)</option>
+              <option value="Europe/London">London (GMT/BST)</option>
+              <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+              <option value="Asia/Tokyo">Tokio (JST)</option>
+              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+              <option value="UTC">UTC (Koordinierte Weltzeit)</option>
+            </select>
+          </div>
+        </div>
       </div>
     </div>
   </aside>

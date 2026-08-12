@@ -586,6 +586,24 @@ a { color: inherit; text-decoration: none; }
   color: var(--ink-muted); letter-spacing: var(--ls-mono);
   transform: translateY(-50%);
 }
+.week-hour-label.dual-tz, .day-hour-label.dual-tz {
+  display: flex; justify-content: space-between; padding: 0 6px;
+}
+.week-hour-label.dual-tz .pri-time {
+  font-weight: 500; color: var(--ink);
+}
+.week-hour-label.dual-tz .sec-time {
+  color: var(--ink-muted); opacity: 0.75;
+}
+.dual-tz-gutter {
+  display: flex; align-items: center; justify-content: space-around; padding: 0 4px;
+}
+.tz-badge {
+  font: 500 9px var(--font-mono); padding: 2px 4px; border-radius: 3px; background: var(--surface-hover); color: var(--ink-muted);
+}
+.tz-badge.pri {
+  font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .week-columns, .day-columns {
   position: relative;
   grid-column: 2 / span 7;
