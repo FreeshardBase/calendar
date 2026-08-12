@@ -161,6 +161,20 @@ db.serialize(() => {
       created_at INTEGER NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS delegate_permissions (
+      id TEXT PRIMARY KEY,
+      principal_user_id TEXT NOT NULL,
+      delegate_user_id TEXT NOT NULL,
+      calendar_id TEXT,
+      role TEXT NOT NULL DEFAULT 'DELEGATE_WRITE',
+      can_manage_invitations INTEGER NOT NULL DEFAULT 1,
+      can_view_private INTEGER NOT NULL DEFAULT 0,
+      can_manage_delegates INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      UNIQUE(principal_user_id, delegate_user_id, calendar_id)
+    )
+  `);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -1196,6 +1210,98 @@ const Db = {
           eventUid: r.event_uid,
           createdAt: r.created_at
         })));
+      });
+    });
+  },
+
+  upsertDelegatePermission({ id, principalUserId, delegateUserId, calendarId = null, role = 'DELEGATE_WRITE', canManageInvitations = 1, canViewPrivate = 0, canManageDelegates = 0 }) {
+    return new Promise((resolve, reject) => {
+      const calId = calendarId || null;
+      db.get(
+        `SELECT id FROM delegate_permissions WHERE principal_user_id = ? AND delegate_user_id = ? AND (calendar_id IS ? OR calendar_id = ?)`,
+        [principalUserId, delegateUserId, calId, calId],
+        (err, existing) => {
+          if (err) return reject(err);
+          const permId = id || (existing ? existing.id : `del-${uuidv4()}`);
+          const now = Date.now();
+          db.run(
+            `INSERT INTO delegate_permissions (id, principal_user_id, delegate_user_id, calendar_id, role, can_manage_invitations, can_view_private, can_manage_delegates, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(principal_user_id, delegate_user_id, calendar_id) DO UPDATE SET
+               role = excluded.role,
+               can_manage_invitations = excluded.can_manage_invitations,
+               can_view_private = excluded.can_view_private,
+               can_manage_delegates = excluded.can_manage_delegates`,
+            [permId, principalUserId, delegateUserId, calId, role, canManageInvitations ? 1 : 0, canViewPrivate ? 1 : 0, canManageDelegates ? 1 : 0, now],
+            function(err) {
+              if (err) return reject(err);
+              resolve({
+                id: permId,
+                principal_user_id: principalUserId,
+                delegate_user_id: delegateUserId,
+                calendar_id: calId,
+                role,
+                can_manage_invitations: canManageInvitations ? 1 : 0,
+                can_view_private: canViewPrivate ? 1 : 0,
+                can_manage_delegates: canManageDelegates ? 1 : 0,
+                created_at: now
+              });
+            }
+          );
+        }
+      );
+    });
+  },
+
+  getDelegatesForPrincipal(principalUserId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, principal_user_id, delegate_user_id, calendar_id, role, can_manage_invitations, can_view_private, can_manage_delegates, created_at
+         FROM delegate_permissions WHERE principal_user_id = ? ORDER BY created_at DESC`,
+        [principalUserId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        }
+      );
+    });
+  },
+
+  getPrincipalsForDelegate(delegateUserId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, principal_user_id, delegate_user_id, calendar_id, role, can_manage_invitations, can_view_private, can_manage_delegates, created_at
+         FROM delegate_permissions WHERE delegate_user_id = ? ORDER BY created_at DESC`,
+        [delegateUserId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        }
+      );
+    });
+  },
+
+  getDelegatePermission(principalUserId, delegateUserId, calendarId = null) {
+    return new Promise((resolve, reject) => {
+      let sql = `SELECT id, principal_user_id, delegate_user_id, calendar_id, role, can_manage_invitations, can_view_private, can_manage_delegates, created_at
+                 FROM delegate_permissions WHERE principal_user_id = ? AND delegate_user_id = ?`;
+      const params = [principalUserId, delegateUserId];
+      if (calendarId) {
+        sql += ` AND (calendar_id IS NULL OR calendar_id = ?)`;
+        params.push(calendarId);
+      }
+      db.get(sql, params, (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  },
+
+  deleteDelegatePermission(id) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM delegate_permissions WHERE id = ?`, [id], function(err) {
+        if (err) return reject(err);
+        resolve({ deleted: this.changes });
       });
     });
   }

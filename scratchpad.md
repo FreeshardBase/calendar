@@ -56,8 +56,13 @@
   - Modal input fields (`#ev-attachment-url`, `#ev-attachment-name`) capture drive file links; popover renders clickable links with `.attachment-drive-link`.
   - Fixed HTML nesting defect in `public/index.html` where unclosed `#invitations-modal-backdrop` container intercepted click events.
 
+- **Delegate Permissions & Executive Assistant Management (`server/db.js`, `server/utils/delegatePermissions.js`, `server/routes/delegates.js`, `public/js/delegates.js`):**
+  - SQLite `delegate_permissions` table stores delegation rules (`principal_user_id`, `delegate_user_id`, `calendar_id`, `role`, `can_manage_invitations`, `can_view_private`, `can_manage_delegates`).
+  - Utility `delegatePermissions.js` checks delegation roles, private event visibility, invitation handling permissions, and decorates event payloads with `sentBy` / `onBehalfOf` / `X-DELEGATE-BY` audit metadata.
+  - REST endpoints at `/api/delegates` support granting, updating, revoking, listing delegate permissions, and switching active delegation session context (`/api/delegates/act-as`).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 105 PASSED (100% green)
+- Node Unit & Integration Suite: 106 PASSED (100% green)
 - Playwright E2E Suite: 15 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
@@ -79,7 +84,8 @@
 - [x] Issue #45: [MULTI-TIMEZONE-GRID] Zeitzonen-Dual-Grid & Sekundäre Zeitleiste
 - [x] Issue #46: [AVAILABILITY-SLOTS-BOOKING] Öffentliche Termin-Buchungsseite für freie Zeitslots
 - [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
+- [x] Issue #48: [DELEGATE-PERMISSIONS] Stellvertretende Kalenderverwaltung & Executive Assistant Berechtigungen
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#47 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#48 completed 100% green.
 
