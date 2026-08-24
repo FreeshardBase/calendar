@@ -296,11 +296,19 @@
   - Added theme-aware grid shading CSS rules in `public/css/app.css` (`.time-slot-click-area.non-working-hour`, `.week-day-col.non-working-day`).
   - Added unit test suite `server/test/working_hours_grid.test.js` (4 tests, 100% green).
 
+- **Issue #20 — Keyboard Shortcuts Engine for Power-User Navigation (`public/js/shortcuts.js`, `public/js/app.js`, `public/index.html`, `public/css/app.css`, `server/test/keyboard_shortcuts.test.js`):**
+  - Created `public/js/shortcuts.js` module exporting `parseShortcutAction(eventPayload, isModalOpen)` and `getShortcutHelpList()`.
+  - Implemented view switching shortcuts (`m`/`1` -> Month, `w`/`2` -> Week, `d`/`3` -> Day, `a`/`4` -> Agenda, `k`/`5` -> Kanban), navigation shortcuts (`t` -> Today, `j`/`ArrowRight` -> Next, `p`/`ArrowLeft` -> Prev), event creation (`n`/`c`), search focus (`/`/`s`), help toggle (`?`/`h`), and dialog closing (`Escape`).
+  - Enforced input element protection (Issue #126: ignoring shortcuts when typing in `INPUT`, `TEXTAREA`, `SELECT`, `BUTTON`, or `[contenteditable]`, or when modifier keys `Ctrl`, `Alt`, `Meta` are active, or when modal backdrops are active).
+  - Added Keyboard Shortcuts help modal (`#shortcuts-modal-backdrop`) and CSS styling (`.shortcut-row`, `.shortcut-badge`).
+  - Added unit test suite `server/test/keyboard_shortcuts.test.js` (8 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 402 tests, 395 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 410 tests, 403 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T19:01:00+02:00
+- Last Verified: 2026-08-24T19:05:00+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+
 

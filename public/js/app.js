@@ -1389,13 +1389,30 @@ function attachListeners() {
     });
   }
 
+  function switchView(viewName) {
+    document.querySelectorAll('.view-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.view === viewName);
+    });
+    store.set({ view: viewName });
+    loadEvents();
+  }
+
+  function renderShortcutsHelp() {
+    const container = $('shortcuts-list');
+    if (!container || typeof Shortcuts === 'undefined') return;
+    const list = Shortcuts.getShortcutHelpList();
+    container.innerHTML = list.map(item => `
+      <div class="shortcut-row">
+        <span class="shortcut-desc">${escHtml(item.desc)}</span>
+        <span class="shortcut-key"><kbd class="shortcut-badge">${escHtml(item.key)}</kbd></span>
+      </div>
+    `).join('');
+  }
+
   // View switcher
   document.querySelectorAll('.view-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.view-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      store.set({ view: btn.dataset.view });
-      loadEvents();
+      switchView(btn.dataset.view);
     });
   });
 
@@ -1641,14 +1658,90 @@ function attachListeners() {
     }
   });
 
-  // Keyboard shortcuts
+  // ── Keyboard Shortcuts Integration ──────────────────────────────────────────
+  renderShortcutsHelp();
+
+  const shortcutsCloseBtn = $('shortcuts-modal-close');
+  if (shortcutsCloseBtn) {
+    shortcutsCloseBtn.addEventListener('click', () => {
+      $('shortcuts-modal-backdrop')?.classList.add('hidden');
+    });
+  }
+
   document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-    switch (e.key) {
-      case 'n': openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted }); break;
-      case 't': { const t = new Date(); t.setHours(0,0,0,0); store.set({ currentDate: t }); loadEvents(); break; }
-      case 'ArrowLeft':  $('prev-btn').click(); break;
-      case 'ArrowRight': $('next-btn').click(); break;
+    const isModalOpen = Array.from(document.querySelectorAll('.modal-backdrop'))
+      .some(m => !m.classList.contains('hidden'));
+
+    const eventPayload = {
+      key: e.key,
+      targetTagName: e.target ? e.target.tagName : '',
+      isTargetEditable: e.target ? (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') : false,
+      isTargetButton: e.target ? (e.target.tagName === 'BUTTON') : false,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey
+    };
+
+    const action = typeof Shortcuts !== 'undefined'
+      ? Shortcuts.parseShortcutAction(eventPayload, isModalOpen)
+      : null;
+
+    if (!action) return;
+
+    switch (action) {
+      case 'CLOSE_MODAL':
+        document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
+        document.querySelectorAll('.popover').forEach(p => p.remove());
+        break;
+
+      case 'NAV_MONTH':
+        switchView('month');
+        break;
+
+      case 'NAV_WEEK':
+        switchView('week');
+        break;
+
+      case 'NAV_DAY':
+        switchView('day');
+        break;
+
+      case 'NAV_AGENDA':
+        switchView('agenda');
+        break;
+
+      case 'NAV_KANBAN':
+        switchView('kanban');
+        break;
+
+      case 'NAV_TODAY':
+        $('today-btn')?.click();
+        break;
+
+      case 'NAV_NEXT':
+        $('next-btn')?.click();
+        break;
+
+      case 'NAV_PREV':
+        $('prev-btn')?.click();
+        break;
+
+      case 'CREATE_EVENT':
+        openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
+        break;
+
+      case 'FOCUS_SEARCH':
+        e.preventDefault();
+        const searchInput = $('search-input');
+        if (searchInput) searchInput.focus();
+        break;
+
+      case 'TOGGLE_HELP':
+        const helpModal = $('shortcuts-modal-backdrop');
+        if (helpModal) {
+          helpModal.classList.toggle('hidden');
+        }
+        break;
     }
   });
 
