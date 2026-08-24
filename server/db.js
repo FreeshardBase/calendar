@@ -465,11 +465,17 @@ const Db = {
     });
   },
 
-  deleteCalendarShare(token) {
+  deleteCalendarShare(token, calendarId) {
     return new Promise((resolve, reject) => {
-      db.run('DELETE FROM calendar_shares WHERE token = ?', [token], (err) => {
+      let sql = 'DELETE FROM calendar_shares WHERE token = ?';
+      let params = [token];
+      if (calendarId) {
+        sql += ' AND calendar_id = ?';
+        params.push(calendarId);
+      }
+      db.run(sql, params, function (err) {
         if (err) return reject(err);
-        resolve();
+        resolve(this.changes);
       });
     });
   },

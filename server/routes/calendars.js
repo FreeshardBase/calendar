@@ -208,6 +208,9 @@ async function resolveShareAccount(accountId, calendarHref) {
 
 // GET /api/calendars — fetch all calendars from all accounts
 router.get('/', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   const accounts = req.session.accounts || [];
   const allCalendars = [];
   const errors = [];
@@ -336,6 +339,9 @@ router.get('/', async (req, res) => {
 // POST /api/calendars — create a new calendar collection
 router.post('/', async (req, res) => {
   try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { accountId, name, color } = req.body;
 
     if (!accountId || !name) {
@@ -494,6 +500,9 @@ router.get('/:id/export', async (req, res) => {
 // POST /api/calendars/export/pdf — export vector PDF for month or week view
 router.post('/export/pdf', async (req, res) => {
   try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { generateCalendarPDF } = require('../utils/pdfExport');
     const { view, year, month, week, events, title, orientation } = req.body || {};
     if (!view || (view !== 'month' && view !== 'week')) {
@@ -538,6 +547,11 @@ async function fetchExistingCalendarEvents(client, calendarId, accountId, calend
 router.post('/:id/import/detect', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { ics } = req.body;
     if (!ics || typeof ics !== 'string') {
       return res.status(400).json({ error: 'ics (string) is required' });
@@ -560,6 +574,11 @@ router.post('/:id/import/detect', async (req, res) => {
 router.post('/:id/import', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { ics, resolutions, defaultStrategy } = req.body;
     if (!ics || typeof ics !== 'string') {
       return res.status(400).json({ error: 'ics (string) is required' });
@@ -657,6 +676,9 @@ router.post('/:id/import', async (req, res) => {
 // GET /api/calendars/search-users — search principals for sharing
 router.get('/search-users', async (req, res) => {
   try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { q, accountId } = req.query;
     console.log('[search-users] Query:', q, 'AccountId:', accountId);
     if (!q) return res.status(400).json({ error: 'Search query q is required' });
@@ -802,6 +824,11 @@ router.delete('/:id/shares', async (req, res) => {
 router.get('/:id/public-link', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { account, client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
@@ -833,6 +860,11 @@ router.get('/:id/public-link', async (req, res) => {
 router.post('/:id/public-link', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { account, client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
@@ -862,6 +894,11 @@ router.post('/:id/public-link', async (req, res) => {
 router.delete('/:id/public-link', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
@@ -930,7 +967,12 @@ router.delete('/:id/shares-public/:token', async (req, res) => {
       return res.status(access.status || 403).json({ error: access.reason });
     }
 
-    await Db.deleteCalendarShare(req.params.token);
+    const share = await Db.getCalendarShareByToken(req.params.token);
+    if (!share || share.calendar_id !== calendarId) {
+      return res.status(404).json({ error: 'Share token not found for this calendar' });
+    }
+
+    await Db.deleteCalendarShare(req.params.token, calendarId);
     res.json({ message: 'Freigabe-Link widerrufen.' });
   } catch (err) {
     res.status(500).json({ error: err.message });

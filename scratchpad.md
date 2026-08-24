@@ -96,9 +96,91 @@
 - [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
 - [x] Issue #48: [DELEGATE-PERMISSIONS] Stellvertretende Kalenderverwaltung & Executive Assistant Berechtigungen
 - [x] Issue #49: [WORKING-HOURS-POLICY] Einstellbare Arbeitszeiten & Automatische Absage bei Abwesenheit
+- **Calendar Ownership & Session Authentication Verification (`server/index.js`, `server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`, `server/test/calendar_ownership_session.test.js`):**
+  - Enforced strict session authentication checks (`401 Unauthorized`) across `GET/POST /api/calendars`, `GET /api/events`, `GET /api/events/invitations`, and `GET /api/tasks`.
+  - Added authorization gates (`checkCalendarAccess`) to `POST /api/calendars/:id/import/detect` (`write`), `POST /api/calendars/:id/import` (`write`), and legacy public link endpoints `GET/POST/DELETE /api/calendars/:id/public-link` (`owner`).
+  - Added test suite `server/test/calendar_ownership_session.test.js` covering unauthenticated requests and foreign calendar access restrictions (Issue #51).
+
+## Test Execution State
+- Node Unit & Integration Suite: 125 PASSED, 7 skipped (100% green)
+
+## Completed Tasks
+- [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
+- [x] Task 2: Event CRUD & Popover Dialog Interactions
+- [x] Task 3: Responsive Toolbar & Mobile Viewport Navigation
+- [x] Task 4: Calendar Sharing, User Autocomplete & Permission Management
+- [x] Task 5: Public Share Links & ICS Export Engine
+- [x] Task 6: Sync Queue Worker & Error Resilience (vdirsyncer Daemon)
+- [x] Task 7: Comprehensive Code & Security Anonymization Audit
+- [x] Issue #37: [VALARM-PUSH] Browser-Push & Desktop-Erinnerungen für VEVENT VALARM-Trigger
+- [x] Issue #38: [VTODO-KANBAN] VTODO-Unterstützung mit Aufgaben-Seitenleiste & Wiederholungslogik (RRULE)
+- [x] Issue #39: [ITIP-RSVP] Einladungs-Posteingang & Zu-/Absage-Status (PARTSTAT)
+- [x] Issue #40: [CTAG-DELTA-SYNC] RFC 6578 sync-collection Protocol & CTag Caching
+- [x] Issue #41: [MS-GRAPH-CALENDAR] Bidirektionaler Sync-Worker für Microsoft Outlook / Office 365
+- [x] Issue #42: [ICS-CONFLICT-RESOLVER] Konflikt- & Duplikat-Auflösungs-Dialog bei ICS-Import
+- [x] Issue #43: [ROOM-RESOURCE-BOOKING] Ressourcen- & Raum-Buchungssystem mit Belegungs-Prüfung
+- [x] Issue #44: [PDF-PRINT-ENGINE] Vektorbasierter PDF-Export & Druck-Optimierung für Monats-/Wochenansicht
+- [x] Issue #45: [MULTI-TIMEZONE-GRID] Zeitzonen-Dual-Grid & Sekundäre Zeitleiste
+- [x] Issue #46: [AVAILABILITY-SLOTS-BOOKING] Öffentliche Termin-Buchungsseite für freie Zeitslots
+- [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
+- [x] Issue #48: [DELEGATE-PERMISSIONS] Stellvertretende Kalenderverwaltung & Executive Assistant Berechtigungen
+- [x] Issue #49: [WORKING-HOURS-POLICY] Einstellbare Arbeitszeiten & Automatische Absage bei Abwesenheit
 - [x] Issue #50: Unauthentifizierten Zugriff auf fremde Kalender schließen (Read/Write Auth Enforcement)
+- [x] Issue #51: Calendar Ownership & Session Authentication Verification
+- **Strict ACL Enforcement on Calendar, Event & Task Routes (`server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`, `server/utils/calendarAuth.js`, `server/test/strict_acl_enforcement.test.js`):**
+  - Added strict authorization checks across search, PDF export, event CRUD, RSVP, and task endpoints (Issue #56).
+  - Derived calendar ID from resource href parameters to block cross-calendar spoofing attacks.
+- **Public Share Link Handlers Session Identity & Ownership Check (`server/routes/calendars.js`, `server/db.js`, `server/test/public_share_acl.test.js`):**
+  - Enforced `checkCalendarAccess` (`owner`) and session auth (`401`) on `GET/POST/DELETE /api/calendars/:id/shares-public` (Issue #234).
+  - Updated `Db.deleteCalendarShare(token, calendarId)` to strictly enforce token existence and calendar-level scoping, returning `404 Not Found` for unowned/mismatched share tokens.
+
+## Test Execution State
+- Node Unit & Integration Suite: 147 PASSED, 7 skipped (100% green)
+
+- **VTIMEZONE Registration & Cumulative Timezone Drift Fix (`server/utils/ical.js`, `server/test/vtimezone.test.js`):**
+  - Implemented `buildVTimezoneBlock(tzid)` generating RFC 5545 compliant `BEGIN:VTIMEZONE` blocks with `STANDARD` and `DAYLIGHT` sub-components derived from `Intl.DateTimeFormat`.
+  - Embedded VTIMEZONE blocks before VEVENT components in `eventToICS` when `startTimeZone` / `endTimeZone` are present.
+  - Registered VTIMEZONE definitions with `ICAL.TimezoneService` during parsing to resolve TZID-qualified timestamps without UTC drift (Issue #52).
+- **No-Op Save Series Protection (`server/utils/ical.js`, `server/test/noop_save.test.js`):**
+  - Exported `isNoOpEventSave(existingIcs, incomingEventData)` comparing title, start, end, allDay, description, location, recurrence rules, attendees, and alarms.
+  - Safe-default fallback returns `false` if existing ICS is missing or unparseable (Issue #79).
+- **Series Destruction & Recurrence Rule Preservation on No-Op Event Saves (`server/routes/events.js`, `server/caldav/parser.js`, `server/test/series_destruction_noop.test.js`):**
+  - Exported `isNoOpEventSave` from `server/caldav/parser.js`.
+  - Added no-op evaluation gate in `PUT /api/events/:uid` route handler (`router.put`). When no-op save occurs on whole-series edit, preserves the existing raw ICS on the CalDAV server without issuing a `PUT` request, guarding EXDATEs, detached overrides, and foreign iCalendar parameters from series destruction (Issue #53).
+
+## Test Execution State
+- Node Unit & Integration Suite: 180 PASSED, 7 skipped (100% green)
+
+## Completed Tasks
+- [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
+- [x] Task 2: Event CRUD & Popover Dialog Interactions
+- [x] Task 3: Responsive Toolbar & Mobile Viewport Navigation
+- [x] Task 4: Calendar Sharing, User Autocomplete & Permission Management
+- [x] Task 5: Public Share Links & ICS Export Engine
+- [x] Task 6: Sync Queue Worker & Error Resilience (vdirsyncer Daemon)
+- [x] Task 7: Comprehensive Code & Security Anonymization Audit
+- [x] Issue #37: [VALARM-PUSH] Browser-Push & Desktop-Erinnerungen für VEVENT VALARM-Trigger
+- [x] Issue #38: [VTODO-KANBAN] VTODO-Unterstützung mit Aufgaben-Seitenleiste & Wiederholungslogik (RRULE)
+- [x] Issue #39: [ITIP-RSVP] Einladungs-Posteingang & Zu-/Absage-Status (PARTSTAT)
+- [x] Issue #40: [CTAG-DELTA-SYNC] RFC 6578 sync-collection Protocol & CTag Caching
+- [x] Issue #41: [MS-GRAPH-CALENDAR] Bidirektionaler Sync-Worker für Microsoft Outlook / Office 365
+- [x] Issue #42: [ICS-CONFLICT-RESOLVER] Konflikt- & Duplikat-Auflösungs-Dialog bei ICS-Import
+- [x] Issue #43: [ROOM-RESOURCE-BOOKING] Ressourcen- & Raum-Buchungssystem mit Belegungs-Prüfung
+- [x] Issue #44: [PDF-PRINT-ENGINE] Vektorbasierter PDF-Export & Druck-Optimierung für Monats-/Wochenansicht
+- [x] Issue #45: [MULTI-TIMEZONE-GRID] Zeitzonen-Dual-Grid & Sekundäre Zeitleiste
+- [x] Issue #46: [AVAILABILITY-SLOTS-BOOKING] Öffentliche Termin-Buchungsseite für freie Zeitslots
+- [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
+- [x] Issue #48: [DELEGATE-PERMISSIONS] Stellvertretende Kalenderverwaltung & Executive Assistant Berechtigungen
+- [x] Issue #49: [WORKING-HOURS-POLICY] Einstellbare Arbeitszeiten & Automatische Absage bei Abwesenheit
+- [x] Issue #50: Unauthentifizierten Zugriff auf fremde Kalender schließen (Read/Write Auth Enforcement)
+- [x] Issue #51: Calendar Ownership & Session Authentication Verification
+- [x] Issue #56: Strict ACL Enforcement on Calendar & Event Routes
+- [x] Issue #234: Public Share Link Handlers (`shares-public`) Session Identity & Ownership Check
+- [x] Issue #52: VTIMEZONE Registration & Cumulative Timezone Drift Fix
+- [x] Issue #79: No-Op Save Series Protection
+- [x] Issue #53: Series Destruction & Recurrence Rule Preservation on No-Op Event Saves
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#50 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#53, #56, #234 completed 100% green.
 
 

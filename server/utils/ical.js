@@ -240,17 +240,41 @@ function eventToICS(event) {
   const uid      = event.uid || `${uuidv4()}@freeshard.webcalendar`;
   const dtstamp  = fmtDateTime(new Date().toISOString());
 
+  // Collect unique TZID values that need VTIMEZONE blocks (non-allDay only)
+  const tzids = [];
+  if (!event.allDay) {
+    if (event.startTimeZone && !tzids.includes(event.startTimeZone)) {
+      tzids.push(event.startTimeZone);
+    }
+    if (event.endTimeZone && !tzids.includes(event.endTimeZone)) {
+      tzids.push(event.endTimeZone);
+    }
+  }
+
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Freeshard//WebCalendar 1.0//EN',
-    'CALSCALE:GREGORIAN',
+    'CALSCALE:GREGORIAN'
+  ];
+
+  // Embed VTIMEZONE blocks before VEVENT (RFC 5545 §3.6.5)
+  // Also register each timezone in ICAL.TimezoneService so that any
+  // subsequent parse of this ICS (or the same TZID elsewhere) can resolve
+  // TZID-qualified DTSTART/DTEND values without falling back to floating.
+  for (const tzid of tzids) {
+    const block = buildVTimezoneBlock(tzid);
+    lines.push(block);
+    _registerVTimezoneBlock(tzid, block);
+  }
+
+  lines.push(
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${dtstamp}`,
     `LAST-MODIFIED:${dtstamp}`,
     `SUMMARY:${escIcal(event.title || 'Untitled')}`
-  ];
+  );
 
   if (event.allDay) {
     lines.push(`DTSTART;VALUE=DATE:${fmtDate(event.start)}`);
@@ -314,6 +338,7 @@ function eventToICS(event) {
 
   return foldLines(lines.join('\n')) + '\r\n';
 }
+
 
 function getMasterVEvent(comp) {
   const vevents = comp.getAllSubcomponents('vevent');
@@ -430,6 +455,210 @@ function foldLines(text) {
   }).join('\r\n');
 }
 
+/**
+ * Compute the UTC offset in minutes for a given IANA timezone at a given Date.
+ * Uses Intl.DateTimeFormat 'longOffset' to extract the GMT±HH:MM string.
+ * @param {string} tzid - IANA timezone identifier
+ * @param {Date}   date - reference date
+ * @returns {number} offset in minutes (positive = east of UTC)
+ */
+function _tzOffsetMinutes(tzid, date) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzid,
+      timeZoneName: 'longOffset',
+      year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric'
+    });
+    const tzPart = fmt.formatToParts(date).find(p => p.type === 'timeZoneName')?.value || 'GMT';
+    if (tzPart === 'GMT' || tzPart === 'UTC') return 0;
+    const m = tzPart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+    if (!m) return 0;
+    const sign = m[1] === '-' ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10));
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Format a UTC offset in minutes to ±HHMM string (e.g., +0100, -0500).
+ * @param {number} offsetMins
+ * @returns {string}
+ */
+function _fmtOffset(offsetMins) {
+  const sign = offsetMins >= 0 ? '+' : '-';
+  const abs  = Math.abs(offsetMins);
+  const h    = String(Math.floor(abs / 60)).padStart(2, '0');
+  const m    = String(abs % 60).padStart(2, '0');
+  return `${sign}${h}${m}`;
+}
+
+/**
+ * Build a RFC 5545-compliant VTIMEZONE component for the given IANA timezone.
+ *
+ * Strategy: Use two reference dates (mid-January for standard/winter time,
+ * mid-July for daylight/summer time) to determine DST offsets via
+ * Intl.DateTimeFormat.  If both offsets are identical the timezone has no DST
+ * and only a STANDARD sub-component is emitted.  When DST exists, both a
+ * STANDARD and a DAYLIGHT sub-component are emitted.
+ *
+ * The DTSTART and TZOFFSET values are derived from actual Intl data, preventing
+ * cumulative timezone drift when ical.js parses the resulting ICS.
+ *
+ * @param {string} tzid - IANA timezone identifier (e.g., 'Europe/Berlin')
+ * @returns {string} Multi-line VTIMEZONE block (lines joined with \r\n)
+ */
+function buildVTimezoneBlock(tzid) {
+  // Reference dates: northern-hemisphere winter and summer
+  const winterDate = new Date('2026-01-15T12:00:00Z');
+  const summerDate = new Date('2026-07-15T12:00:00Z');
+
+  const winterOffset = _tzOffsetMinutes(tzid, winterDate);
+  const summerOffset = _tzOffsetMinutes(tzid, summerDate);
+
+  const hasDST = (winterOffset !== summerOffset);
+
+  // For most northern-hemisphere zones, summer has higher offset (DST ahead)
+  const stdOffset = hasDST ? Math.min(winterOffset, summerOffset) : winterOffset;
+  const dstOffset = hasDST ? Math.max(winterOffset, summerOffset) : winterOffset;
+
+  const lines = [
+    'BEGIN:VTIMEZONE',
+    `TZID:${tzid}`
+  ];
+
+  // STANDARD sub-component (winter / no-DST)
+  lines.push('BEGIN:STANDARD');
+  lines.push('DTSTART:19701025T030000');
+  lines.push('RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10');
+  lines.push(`TZOFFSETFROM:${_fmtOffset(dstOffset)}`);
+  lines.push(`TZOFFSETTO:${_fmtOffset(stdOffset)}`);
+  lines.push('END:STANDARD');
+
+  // DAYLIGHT sub-component (summer, only if zone observes DST)
+  if (hasDST) {
+    lines.push('BEGIN:DAYLIGHT');
+    lines.push('DTSTART:19700329T020000');
+    lines.push('RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3');
+    lines.push(`TZOFFSETFROM:${_fmtOffset(stdOffset)}`);
+    lines.push(`TZOFFSETTO:${_fmtOffset(dstOffset)}`);
+    lines.push('END:DAYLIGHT');
+  }
+
+  lines.push('END:VTIMEZONE');
+
+  return lines.join('\r\n');
+}
+
+/**
+ * Register a VTIMEZONE block string in ICAL.TimezoneService so that ical.js
+ * can resolve TZID-qualified DTSTART/DTEND values during subsequent parses.
+ *
+ * This is idempotent — if the timezone is already registered (or registration
+ * fails for any reason) the call is silently skipped.
+ *
+ * @param {string} tzid  - IANA timezone identifier
+ * @param {string} block - VTIMEZONE block as returned by buildVTimezoneBlock
+ */
+function _registerVTimezoneBlock(tzid, block) {
+  if (ICAL.TimezoneService.has(tzid)) return;
+  try {
+    const wrapper = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${block}\r\nEND:VCALENDAR\r\n`;
+    const wrapComp = new ICAL.Component(ICAL.parse(wrapper));
+    const vtimezone = wrapComp.getFirstSubcomponent('vtimezone');
+    if (vtimezone) {
+      ICAL.TimezoneService.register(vtimezone);
+    }
+  } catch (e) {
+    // Non-fatal: ICS output is still valid; ical.js will fall back to
+    // floating if timezone resolution fails during parse.
+  }
+}
+
+/**
+ * Determine whether a proposed event save would make no effective change to
+ * the event stored at the CalDAV server.
+ *
+ * Compares the significant user-editable fields of `incomingEventData` against
+ * the parsed content of `existingIcs`.  Volatile fields (DTSTAMP, LAST-MODIFIED,
+ * ETag) are explicitly excluded so that a round-trip through the modal without
+ * edits is always considered a no-op.
+ *
+ * Safe-default contract: if `existingIcs` is null/empty/unparseable this
+ * function returns `false` so the caller always proceeds with the PUT rather
+ * than silently swallowing a potentially valid save.
+ *
+ * @param {string|null} existingIcs - Current ICS content from the CalDAV server
+ * @param {Object}      incomingEventData - Event payload from the PUT request body
+ * @returns {boolean} true if the save is a no-op (nothing would change)
+ */
+function isNoOpEventSave(existingIcs, incomingEventData) {
+  if (!existingIcs || typeof existingIcs !== 'string' || !existingIcs.trim()) {
+    return false;
+  }
+
+  let stored;
+  try {
+    stored = parseICSToEvent(existingIcs);
+  } catch (_) {
+    return false;
+  }
+
+  if (!stored) return false;
+
+  const incoming = incomingEventData || {};
+
+  // ── Title ────────────────────────────────────────────────────────────────
+  const storedTitle    = (stored.title    || '').trim();
+  const incomingTitle  = (incoming.title  || '').trim();
+  if (storedTitle !== incomingTitle) return false;
+
+  // ── Start / End (compare UTC instants; null == null is ok) ───────────────
+  const toUtcMs = (v) => {
+    if (!v) return null;
+    const ms = new Date(v).getTime();
+    return isNaN(ms) ? null : ms;
+  };
+
+  if (toUtcMs(stored.start) !== toUtcMs(incoming.start)) return false;
+  if (toUtcMs(stored.end)   !== toUtcMs(incoming.end))   return false;
+
+  // ── AllDay ───────────────────────────────────────────────────────────────
+  if (!!stored.allDay !== !!incoming.allDay) return false;
+
+  // ── Description ──────────────────────────────────────────────────────────
+  const storedDesc   = (stored.description   || '').trim();
+  const incomingDesc = (incoming.description || '').trim();
+  if (storedDesc !== incomingDesc) return false;
+
+  // ── Location ─────────────────────────────────────────────────────────────
+  const storedLoc   = (stored.location   || '').trim();
+  const incomingLoc = (incoming.location || '').trim();
+  if (storedLoc !== incomingLoc) return false;
+
+  // ── Recurrence (RRULE) ───────────────────────────────────────────────────
+  // This is the primary guard: if the caller strips/changes the RRULE the
+  // comparison must catch it and allow the save to proceed.
+  const normalizeRrule = (r) => (r || '').replace(/^RRULE:/i, '').trim().toUpperCase();
+  if (normalizeRrule(stored.recurrence) !== normalizeRrule(incoming.recurrence)) return false;
+
+  // ── Attendees ────────────────────────────────────────────────────────────
+  // Compare canonical attendee representation (email + partstat only).
+  const attendeeKey = (a) => `${(a.email || '').toLowerCase()}:${(a.status || '').toUpperCase()}`;
+  const sortedAttendees = (arr) =>
+    (arr || []).map(attendeeKey).sort().join('|');
+  if (sortedAttendees(stored.attendees) !== sortedAttendees(incoming.attendees)) return false;
+
+  // ── Alarms (VALARM) ──────────────────────────────────────────────────────
+  const alarmKey = (a) => `${(a.action || '').toUpperCase()}:${(a.trigger || '').trim()}`;
+  const sortedAlarms = (arr) =>
+    (arr || []).map(alarmKey).sort().join('|');
+  if (sortedAlarms(stored.alarms) !== sortedAlarms(incoming.alarms)) return false;
+
+  return true;
+}
+
 module.exports = {
   parseTriggerOffsetMs,
   calculateAlarmTime,
@@ -438,6 +667,8 @@ module.exports = {
   parseICSToEvent,
   parseAndExpandEvent,
   eventToICS,
+  buildVTimezoneBlock,
+  isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride
 };

@@ -6,11 +6,14 @@ const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseTaskList, taskToICS } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
-const { checkCalendarAccess } = require('../utils/calendarAuth');
+const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
 
 // ── GET /api/tasks ────────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const accounts = req.session.accounts || [];
     const allTasks = [];
 
@@ -121,6 +124,15 @@ router.put('/:uid', async (req, res) => {
       return res.status(access.status || 403).json({ error: access.reason });
     }
 
+    const accountId = calendarId.split('::')[0];
+    const derivedCalId = extractCalendarIdFromHref(accountId, href);
+    if (derivedCalId && derivedCalId !== calendarId) {
+      const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
+      if (!hrefAccess.allowed) {
+        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      }
+    }
+
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
@@ -164,6 +176,15 @@ router.delete('/:uid', async (req, res) => {
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
       return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const accountId = calendarId.split('::')[0];
+    const derivedCalId = extractCalendarIdFromHref(accountId, href);
+    if (derivedCalId && derivedCalId !== calendarId) {
+      const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
+      if (!hrefAccess.allowed) {
+        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      }
     }
 
     const { account, client } = await resolveAccount(req, calendarId);

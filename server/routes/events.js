@@ -11,15 +11,19 @@ const {
   addOccurrenceException,
   upsertOccurrenceOverride,
   updateAttendeePartstat,
-  buildItipReply
+  buildItipReply,
+  isNoOpEventSave
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
-const { checkCalendarAccess } = require('../utils/calendarAuth');
+const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
 
 // ── GET /api/events/invitations ───────────────────────────────────────────────
 router.get('/invitations', async (req, res) => {
   try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const accounts = req.session.accounts || [];
     const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
     const invitations = [];
@@ -63,10 +67,20 @@ router.get('/invitations', async (req, res) => {
 // ── GET /api/events?start=ISO&end=ISO ─────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
-    const { start, end } = req.query;
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { start, end, calendarId } = req.query;
 
     if (!start || !end) {
       return res.status(400).json({ error: 'start and end query parameters are required (ISO 8601)' });
+    }
+
+    if (calendarId) {
+      const access = await checkCalendarAccess(req, calendarId, 'read');
+      if (!access.allowed) {
+        return res.status(access.status || 403).json({ error: access.reason });
+      }
     }
 
     const startDate = new Date(start);
@@ -111,6 +125,10 @@ router.get('/', async (req, res) => {
           } catch (dbErr) {
             console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
           }
+        }
+
+        if (calendarId) {
+          calendars = calendars.filter(c => c.id === calendarId);
         }
 
         await Promise.allSettled(
@@ -190,6 +208,15 @@ router.put('/:uid', async (req, res) => {
       return res.status(access.status || 403).json({ error: access.reason });
     }
 
+    const accountId = calendarId.split('::')[0];
+    const derivedCalId = extractCalendarIdFromHref(accountId, href);
+    if (derivedCalId && derivedCalId !== calendarId) {
+      const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
+      if (!hrefAccess.allowed) {
+        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      }
+    }
+
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
@@ -206,6 +233,23 @@ router.put('/:uid', async (req, res) => {
       ics     = upsertOccurrenceOverride(current.ics, recurrenceId, eventData);
       ifMatch = current.etag;
     } else {
+      let current = null;
+      try {
+        current = await client.get(eventUrl);
+      } catch (_) {
+        current = null;
+      }
+
+      if (current && current.ics && isNoOpEventSave(current.ics, eventData)) {
+        queueSyncForCalendar(calendarId, req.session.userId);
+        return res.json({
+          ...event,
+          href,
+          etag: current.etag ? current.etag.replace(/"/g, '') : etag,
+          calendarId
+        });
+      }
+
       ics     = eventToICS(event);
       ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
     }
@@ -251,6 +295,15 @@ router.delete('/:uid', async (req, res) => {
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
       return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const accountId = calendarId.split('::')[0];
+    const derivedCalId = extractCalendarIdFromHref(accountId, href);
+    if (derivedCalId && derivedCalId !== calendarId) {
+      const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
+      if (!hrefAccess.allowed) {
+        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      }
     }
 
     const { account, client } = await resolveAccount(req, calendarId);
@@ -306,6 +359,15 @@ router.post('/:uid/rsvp', async (req, res) => {
     const access = await checkCalendarAccess(req, calendarId, 'read');
     if (!access.allowed) {
       return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const accountId = calendarId.split('::')[0];
+    const derivedCalId = extractCalendarIdFromHref(accountId, href);
+    if (derivedCalId && derivedCalId !== calendarId) {
+      const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'read');
+      if (!hrefAccess.allowed) {
+        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      }
     }
 
     const { account, client } = await resolveAccount(req, calendarId);

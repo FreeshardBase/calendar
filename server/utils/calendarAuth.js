@@ -109,6 +109,29 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
   return { allowed: false, status: 403, reason: 'Access denied: You do not have permission for this calendar' };
 }
 
+/**
+ * Extract the calendar ID from an account ID and resource href string.
+ *
+ * @param {string} accountId E.g., "internal-caldav"
+ * @param {string} href E.g., "/user/personal/event.ics" or "https://domain/user/personal/event.ics"
+ * @returns {string|null} Format: "accountId::/user/personal/" or null
+ */
+function extractCalendarIdFromHref(accountId, href) {
+  if (!accountId || !href) return null;
+  let pathStr = href;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      pathStr = new URL(href).pathname;
+    } catch (e) {}
+  }
+  const parts = pathStr.split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  const calHref = '/' + parts.slice(0, 2).join('/') + '/';
+  return `${accountId}::${calHref}`;
+}
+
 module.exports = {
-  checkCalendarAccess
+  checkCalendarAccess,
+  extractCalendarIdFromHref
 };
+

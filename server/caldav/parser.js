@@ -18,6 +18,7 @@ const {
   parseICSToEvent,
   parseAndExpandEvent,
   eventToICS,
+  isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride
 } = require('../utils/ical');
@@ -696,7 +697,8 @@ module.exports = {
   advanceRecurringTask,
   updateAttendeePartstat,
   buildItipReply,
-  parseSyncCollectionResponse
+  parseSyncCollectionResponse,
+  isNoOpEventSave
 };
 
 

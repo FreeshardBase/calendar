@@ -45,7 +45,10 @@ app.use(session({
 app.use(async (req, res, next) => {
   const authMethod = process.env.NODE_ENV === 'test' ? 'env' : (process.env.AUTH_METHOD || 'env');
   let userId = req.session.userId;
-  if (req.headers['x-test-user-id']) {
+  if (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none') {
+    delete req.session.userId;
+    userId = null;
+  } else if (req.headers['x-test-user-id']) {
     userId = req.headers['x-test-user-id'];
     req.session.userId = userId;
   } else if (!userId && authMethod === 'env') {
@@ -133,8 +136,8 @@ app.all('/mock-dav*', (req, res) => {
 
 // ── Auth guard for API routes ─────────────────────────────────────────────────
 function requireAuth(req, res, next) {
-  if (!req.session.accounts || req.session.accounts.length === 0) {
-    return res.status(401).json({ error: 'No accounts configured' });
+  if (!req.session?.userId || !req.session.accounts || req.session.accounts.length === 0) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
   next();
 }
