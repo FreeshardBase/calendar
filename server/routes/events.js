@@ -12,7 +12,8 @@ const {
   upsertOccurrenceOverride,
   updateAttendeePartstat,
   buildItipReply,
-  isNoOpEventSave
+  isNoOpEventSave,
+  updateWholeSeries
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
@@ -250,7 +251,7 @@ router.put('/:uid', async (req, res) => {
         });
       }
 
-      ics     = eventToICS(event);
+      ics     = updateWholeSeries(current ? current.ics : null, event);
       ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
     }
 

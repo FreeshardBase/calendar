@@ -659,6 +659,67 @@ function isNoOpEventSave(existingIcs, incomingEventData) {
   return true;
 }
 
+/**
+ * Update a whole event series while preserving any existing EXDATE properties
+ * on the master VEVENT and any detached override VEVENT subcomponents.
+ *
+ * @param {string|null} existingIcs - The raw ICS string currently stored on the server
+ * @param {Object}      eventData   - Updated event properties for the master VEVENT
+ * @returns {string}                - Updated raw ICS string
+ */
+function updateWholeSeries(existingIcs, eventData) {
+  if (!existingIcs || typeof existingIcs !== 'string' || !existingIcs.trim()) {
+    return eventToICS(eventData);
+  }
+
+  let comp;
+  try {
+    const jcal = ICAL.parse(existingIcs);
+    comp = new ICAL.Component(jcal);
+  } catch (e) {
+    return eventToICS(eventData);
+  }
+
+  const vevents = comp.getAllSubcomponents('vevent');
+  if (vevents.length === 0) {
+    return eventToICS(eventData);
+  }
+
+  const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
+  const exdateProps = master.getAllProperties('exdate');
+
+  const newMasterIcs = eventToICS(eventData);
+  let newMasterComp;
+  try {
+    newMasterComp = new ICAL.Component(ICAL.parse(newMasterIcs));
+  } catch (e) {
+    return eventToICS(eventData);
+  }
+
+  const newMaster = newMasterComp.getFirstSubcomponent('vevent');
+  if (!newMaster) {
+    return eventToICS(eventData);
+  }
+
+  for (const exProp of exdateProps) {
+    newMaster.addProperty(exProp);
+  }
+
+  comp.removeSubcomponent(master);
+  comp.addSubcomponent(newMaster);
+
+  const newTzs = newMasterComp.getAllSubcomponents('vtimezone');
+  for (const tz of newTzs) {
+    const tzid = tz.getFirstPropertyValue('tzid');
+    const existingTzs = comp.getAllSubcomponents('vtimezone');
+    if (!existingTzs.some(t => t.getFirstPropertyValue('tzid') === tzid)) {
+      comp.addSubcomponent(tz);
+    }
+  }
+
+  return comp.toString();
+}
+
 module.exports = {
   parseTriggerOffsetMs,
   calculateAlarmTime,
@@ -670,5 +731,7 @@ module.exports = {
   buildVTimezoneBlock,
   isNoOpEventSave,
   addOccurrenceException,
-  upsertOccurrenceOverride
+  upsertOccurrenceOverride,
+  updateWholeSeries
 };
+

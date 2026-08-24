@@ -146,10 +146,14 @@
   - Safe-default fallback returns `false` if existing ICS is missing or unparseable (Issue #79).
 - **Series Destruction & Recurrence Rule Preservation on No-Op Event Saves (`server/routes/events.js`, `server/caldav/parser.js`, `server/test/series_destruction_noop.test.js`):**
   - Exported `isNoOpEventSave` from `server/caldav/parser.js`.
-  - Added no-op evaluation gate in `PUT /api/events/:uid` route handler (`router.put`). When no-op save occurs on whole-series edit, preserves the existing raw ICS on the CalDAV server without issuing a `PUT` request, guarding EXDATEs, detached overrides, and foreign iCalendar parameters from series destruction (Issue #53).
+- **Whole-Series Save EXDATE and Detached Override Preservation (`server/utils/ical.js`, `server/caldav/parser.js`, `server/routes/events.js`, `server/test/whole_series_preservation.test.js`):**
+  - Exported `updateWholeSeries(existingIcs, eventData)` in `server/utils/ical.js` and `server/caldav/parser.js`.
+  - Replaced naive `eventToICS` call in `PUT /api/events/:uid` with `updateWholeSeries(current ? current.ics : null, event)`.
+  - Preserves all pre-existing `EXDATE` properties on the master `VEVENT` and all detached override `VEVENT` subcomponents (with `RECURRENCE-ID`) when a non-no-op whole-series edit is performed (Issue #241).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 180 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 184 PASSED, 7 skipped (100% green)
+- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -179,8 +183,10 @@
 - [x] Issue #52: VTIMEZONE Registration & Cumulative Timezone Drift Fix
 - [x] Issue #79: No-Op Save Series Protection
 - [x] Issue #53: Series Destruction & Recurrence Rule Preservation on No-Op Event Saves
+- [x] Issue #241: Whole-Series Save EXDATE and Detached Override Preservation
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#53, #56, #234 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241 completed 100% green.
+
 
 

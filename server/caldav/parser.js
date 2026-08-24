@@ -20,7 +20,8 @@ const {
   eventToICS,
   isNoOpEventSave,
   addOccurrenceException,
-  upsertOccurrenceOverride
+  upsertOccurrenceOverride,
+  updateWholeSeries
 } = require('../utils/ical');
 
 const xmlParser = new DOMParser({
@@ -698,7 +699,8 @@ module.exports = {
   updateAttendeePartstat,
   buildItipReply,
   parseSyncCollectionResponse,
-  isNoOpEventSave
+  isNoOpEventSave,
+  updateWholeSeries
 };
 
 
