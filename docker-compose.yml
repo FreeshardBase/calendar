@@ -11,10 +11,15 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_PATH: /app/data/webcalendar.db
+      SESSION_SECRET: ${SESSION_SECRET:-freeshard-webcalendar-prod-secret-change-in-env}
+      TRUST_PROXY: "true"
+      COOKIE_SECURE: "auto"
+      COOKIE_SAME_SITE: "lax"
       SSL_KEY_PATH: ""
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: https://caldav-server:5232
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}
     volumes:
       - shared-data:/app/data
       - ./ssl:/app/ssl:ro
@@ -48,7 +53,7 @@ services:
       STATUS_ROOT: /data/vdir_status
       LOCAL_CALDAV_URL: https://caldav-server:5232
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}
     volumes:
       - shared-data:/data
       - vdir-status:/data/vdir_status

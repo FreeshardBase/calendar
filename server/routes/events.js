@@ -10,14 +10,14 @@ const {
   eventToICS,
   addOccurrenceException,
   upsertOccurrenceOverride,
-  updateAttendeePartstat,
   buildItipReply,
   isNoOpEventSave,
-  updateWholeSeries
+  updateWholeSeries,
+  resolveUrl
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
-const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
+const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 
 // ── GET /api/events/invitations ───────────────────────────────────────────────
 router.get('/invitations', async (req, res) => {
@@ -343,6 +343,18 @@ router.delete('/:uid', async (req, res) => {
       }
     }
     
+    // Check if actor is different from owner of the calendar
+    const calParts = calendarId.split('::');
+    if (calParts[0] === 'internal-caldav' && calParts[1]) {
+      const calSegments = calParts[1].split('/').filter(Boolean);
+      const ownerUserId = calSegments[0];
+      if (ownerUserId && req.session && req.session.userId && req.session.userId !== ownerUserId) {
+        await Db.recordCrossUserDeletion(req.params.uid, calendarId, ownerUserId, req.session.userId).catch(err => {
+          console.error('[events DELETE] Failed to record cross-user deletion:', err.message);
+        });
+      }
+    }
+
     queueSyncForCalendar(calendarId, req.session.userId);
 
     res.json({ message: 'Event deleted.' });
@@ -424,46 +436,9 @@ async function resolveAccount(req, calendarId) {
  * Otherwise resolve relative to the account base URL.
  */
 function buildAbsoluteUrl(baseUrl, href) {
-  if (!href) return baseUrl || '';
-  let pathAndSearch = href;
-  if (/^https?:\/\//i.test(href)) {
-    try {
-      const u = new URL(href);
-      pathAndSearch = u.pathname + u.search;
-    } catch {
-      pathAndSearch = href;
-    }
-  }
-  try {
-    return new URL(pathAndSearch, baseUrl).href;
-  } catch {
-    return (baseUrl || '').replace(/\/+$/, '') + '/' + pathAndSearch.replace(/^\/+/, '');
-  }
+  return resolveUrl(baseUrl, href);
 }
 
 router.buildAbsoluteUrl = buildAbsoluteUrl;
-
-function queueSyncForCalendar(calendarId, fallbackUserId) {
-  try {
-    const parts = calendarId.split('::');
-    if (parts[0] === 'internal-caldav' && parts[1]) {
-      const segments = parts[1].split('/').filter(Boolean);
-      const ownerUserId = segments[0];
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (ownerUserId && uuidRegex.test(ownerUserId)) {
-        Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-        if (fallbackUserId && fallbackUserId !== ownerUserId) {
-          Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-        }
-        return;
-      }
-    }
-  } catch (e) {
-    console.error('[sync] Error parsing calendar owner for sync:', e.message);
-  }
-  if (fallbackUserId) {
-    Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-  }
-}
 
 module.exports = router;

@@ -83,4 +83,47 @@ test('Issue #258 — SSRF & CalDAV Master Credential Leak Fix (Absolute Href Rem
       'resolveCalendar must resolve target URL on account.url host'
     );
   });
+
+  await t.test('Issue #324 — resolveUrl should neutralize scheme-relative //attacker.com and port hijacking', () => {
+    const baseUrl = 'http://caldav.example.com:5232/remote.php/dav/';
+
+    const resolvedSchemeRelative = resolveUrl(baseUrl, '//attacker.com/steal-creds?token=123');
+    assert.equal(
+      resolvedSchemeRelative,
+      'http://caldav.example.com:5232/steal-creds?token=123',
+      'resolveUrl must strip scheme-relative //attacker.com host'
+    );
+
+    const resolvedPortHijack = resolveUrl(baseUrl, 'https://attacker.com:8443/steal-creds');
+    assert.equal(
+      resolvedPortHijack,
+      'http://caldav.example.com:5232/steal-creds',
+      'resolveUrl must enforce base protocol, host, and port'
+    );
+  });
+
+  await t.test('Issue #324 — resolveCalendar should sanitize scheme-relative hrefs', async () => {
+    const req = {
+      session: {
+        accounts: [
+          {
+            id: 'acc-test-ssrf-324',
+            url: 'http://caldav.example.com:5232/remote.php/dav/',
+            username: 'testuser',
+            password: 'secret-password'
+          }
+        ]
+      }
+    };
+
+    const calendarId = 'acc-test-ssrf-324:://attacker.com/scheme-relative-stolen/';
+    const { calendarUrl } = await resolveCalendar(req, calendarId);
+
+    assert.equal(
+      calendarUrl,
+      'http://caldav.example.com:5232/scheme-relative-stolen/',
+      'resolveCalendar must strip scheme-relative host'
+    );
+  });
 });
+

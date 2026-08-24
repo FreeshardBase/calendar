@@ -1,0 +1,65 @@
+'use strict';
+
+/**
+ * Issue #263 — Session Cookie & Proxy Production Container Alignment
+ * Utility to compute Express trust proxy setting and session cookie configuration.
+ */
+
+function getTrustProxySetting(env = process.env) {
+  const trustProxyVal = env.TRUST_PROXY;
+  if (trustProxyVal !== undefined) {
+    if (trustProxyVal === 'true' || trustProxyVal === '1') {
+      return true;
+    }
+    if (trustProxyVal === 'false' || trustProxyVal === '0') {
+      return false;
+    }
+    if (!isNaN(trustProxyVal) && String(trustProxyVal).trim() !== '') {
+      return parseInt(trustProxyVal, 10);
+    }
+    return trustProxyVal;
+  }
+  if (env.NODE_ENV === 'production' || env.NODE_ENV === 'staging') {
+    return true;
+  }
+  return false;
+}
+
+function getSessionConfig(env = process.env) {
+  const sessionSecret = env.SESSION_SECRET || 'freeshard-change-this-in-production';
+  const isProd = env.NODE_ENV === 'production';
+
+  if (
+    isProd &&
+    (!env.SESSION_SECRET || env.SESSION_SECRET === 'freeshard-change-this-in-production' || env.SESSION_SECRET === 'change-me') &&
+    env.ALLOW_INSECURE_SESSION_SECRET !== 'true'
+  ) {
+    throw new Error('SESSION_SECRET must be explicitly configured with a secure value in production environment.');
+  }
+
+  let cookieSecure;
+  if (env.COOKIE_SECURE !== undefined) {
+    if (env.COOKIE_SECURE === 'true') cookieSecure = true;
+    else if (env.COOKIE_SECURE === 'false') cookieSecure = false;
+    else cookieSecure = env.COOKIE_SECURE;
+  } else {
+    cookieSecure = isProd ? 'auto' : false;
+  }
+
+  return {
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: cookieSecure,
+      httpOnly: true,
+      sameSite: env.COOKIE_SAME_SITE || 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    }
+  };
+}
+
+module.exports = {
+  getTrustProxySetting,
+  getSessionConfig
+};

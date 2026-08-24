@@ -61,9 +61,13 @@ router.post('/accounts', async (req, res) => {
 router.delete('/accounts/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = getUserId(req);
     const account = await Db.getMSGraphAccountById(id);
     if (!account) {
       return res.status(404).json({ error: 'MS Graph Konto nicht gefunden' });
+    }
+    if (account.userId !== userId) {
+      return res.status(403).json({ error: 'Zugriff verweigert: MS Graph Konto gehört einem anderen Benutzer' });
     }
     await Db.deleteMSGraphAccount(id);
     res.json({ success: true, message: 'MS Graph Konto erfolgreich entfernt' });
@@ -79,9 +83,13 @@ router.delete('/accounts/:id', async (req, res) => {
 router.post('/accounts/:id/sync', async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = getUserId(req);
     const account = await Db.getMSGraphAccountById(id);
     if (!account) {
       return res.status(404).json({ error: 'MS Graph Konto nicht gefunden' });
+    }
+    if (account.userId !== userId) {
+      return res.status(403).json({ error: 'Zugriff verweigert: MS Graph Konto gehört einem anderen Benutzer' });
     }
 
     const engine = new MSGraphSyncEngine(account);

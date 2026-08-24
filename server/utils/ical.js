@@ -293,7 +293,7 @@ function eventToICS(event) {
 
   lines.push(
     'BEGIN:VEVENT',
-    `UID:${uid}`,
+    `UID:${String(uid).replace(/[\r\n]/g, '')}`,
     `DTSTAMP:${dtstamp}`,
     `LAST-MODIFIED:${dtstamp}`,
     `SUMMARY:${escIcal(event.title || 'Untitled')}`
@@ -304,13 +304,13 @@ function eventToICS(event) {
     lines.push(`DTEND;VALUE=DATE:${fmtDate(event.end)}`);
   } else {
     if (event.startTimeZone) {
-      lines.push(`DTSTART;TZID=${event.startTimeZone}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
+      lines.push(`DTSTART;TZID=${escParamVal(event.startTimeZone)}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
     } else {
       lines.push(`DTSTART:${fmtDateTime(event.start)}`);
     }
 
     if (event.endTimeZone) {
-      lines.push(`DTEND;TZID=${event.endTimeZone}:${fmtDateTimeTzid(event.end, event.endTimeZone)}`);
+      lines.push(`DTEND;TZID=${escParamVal(event.endTimeZone)}:${fmtDateTimeTzid(event.end, event.endTimeZone)}`);
     } else {
       lines.push(`DTEND:${fmtDateTime(event.end)}`);
     }
@@ -318,27 +318,27 @@ function eventToICS(event) {
 
   if (event.description) lines.push(`DESCRIPTION:${escIcal(event.description)}`);
   if (event.location)    lines.push(`LOCATION:${escIcal(event.location)}`);
-  if (event.status)      lines.push(`STATUS:${event.status}`);
+  if (event.status)      lines.push(`STATUS:${String(event.status).replace(/[\r\n]/g, '')}`);
 
   if (event.organizer?.email) {
-    const cn = event.organizer.name ? `;CN="${event.organizer.name}"` : '';
-    lines.push(`ORGANIZER${cn}:mailto:${event.organizer.email}`);
+    const cn = event.organizer.name ? `;CN="${escParamVal(event.organizer.name)}"` : '';
+    lines.push(`ORGANIZER${cn}:mailto:${String(event.organizer.email).replace(/[\r\n]/g, '')}`);
   }
 
   for (const att of (event.attendees || [])) {
     if (!att.email) continue;
-    const cn      = att.name   ? `;CN="${att.name}"`           : '';
-    const partstat = `;PARTSTAT=${att.status || 'NEEDS-ACTION'}`;
-    lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn}${partstat};RSVP=TRUE:mailto:${att.email}`);
+    const cn      = att.name   ? `;CN="${escParamVal(att.name)}"`           : '';
+    const partstat = `;PARTSTAT=${escParamVal(att.status || 'NEEDS-ACTION')}`;
+    lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn}${partstat};RSVP=TRUE:mailto:${String(att.email).replace(/[\r\n]/g, '')}`);
   }
 
-  if (event.recurrence) lines.push(`RRULE:${event.recurrence}`);
+  if (event.recurrence) lines.push(`RRULE:${String(event.recurrence).replace(/[\r\n]/g, '')}`);
 
   const alarms = Array.isArray(event.alarms) ? event.alarms : (event.valarm ? [event.valarm] : []);
   for (const alarm of alarms) {
     lines.push('BEGIN:VALARM');
-    lines.push(`ACTION:${alarm.action || 'DISPLAY'}`);
-    lines.push(`TRIGGER:${alarm.trigger || '-PT15M'}`);
+    lines.push(`ACTION:${String(alarm.action || 'DISPLAY').replace(/[\r\n]/g, '')}`);
+    lines.push(`TRIGGER:${String(alarm.trigger || '-PT15M').replace(/[\r\n]/g, '')}`);
     if (alarm.description) {
       lines.push(`DESCRIPTION:${escIcal(alarm.description)}`);
     }
@@ -352,9 +352,9 @@ function eventToICS(event) {
     if (!url) continue;
     const name = typeof att === 'object' && att.name ? att.name : null;
     const mimeType = typeof att === 'object' && att.mimeType ? att.mimeType : null;
-    const fmt = mimeType ? `;FMTTYPE=${mimeType}` : '';
-    const fn = name ? `;X-FILENAME="${escIcal(name)}"` : '';
-    lines.push(`ATTACH${fmt}${fn}:${url}`);
+    const fmt = mimeType ? `;FMTTYPE=${escParamVal(mimeType)}` : '';
+    const fn = name ? `;X-FILENAME="${escParamVal(name)}"` : '';
+    lines.push(`ATTACH${fmt}${fn}:${String(url).replace(/[\r\n]/g, '')}`);
   }
 
   lines.push('END:VEVENT', 'END:VCALENDAR');
@@ -424,7 +424,15 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   return comp.toString();
 }
 
+function escParamVal(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/["\r\n]/g, '')
+    .replace(/\\/g, '\\\\');
+}
+
 function escIcal(str) {
+  if (str === null || str === undefined) return '';
   return String(str)
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
@@ -758,6 +766,8 @@ module.exports = {
   parseICSToEvent,
   parseAndExpandEvent,
   eventToICS,
+  escIcal,
+  escParamVal,
   buildVTimezoneBlock,
   isNoOpEventSave,
   addOccurrenceException,

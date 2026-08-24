@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 # Configuration variables from environment
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 STATUS_ROOT = os.environ.get("STATUS_ROOT", "/data/vdir_status")
-ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY", "freeshard-default-encryption-key-do-not-use-in-prod")
+ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET") or "freeshard-default-encryption-key-do-not-use-in-prod"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
@@ -119,6 +119,82 @@ def discover_google_collections(google_url, access_token):
         print(f"[Sync-Worker] Error discovering collections via PROPFIND: {e}")
         return []
 
+import base64
+
+def fetch_external_event_ics(url, access_token, uid):
+    try:
+        event_url = f"{url.rstrip('/')}/{uid}.ics"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "text/calendar, application/xml, */*"
+        }
+        req = urllib.request.Request(event_url, headers=headers, method="GET")
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, context=ctx) as res:
+            if res.status == 200:
+                return res.read().decode("utf-8")
+    except Exception:
+        pass
+    return None
+
+def protect_cross_user_deletions(user_id, conn, accounts):
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, uid, calendar_id, deleted_by FROM cross_user_deletions WHERE owner_user_id = ?",
+            (user_id,)
+        )
+        records = cursor.fetchall()
+        if not records:
+            return
+
+        for rec in records:
+            rec_id = rec["id"]
+            uid = rec["uid"]
+            calendar_id = rec["calendar_id"]
+            
+            parts = calendar_id.split('::')
+            calendar_href = parts[1] if len(parts) > 1 else parts[0]
+            segments = [s for s in calendar_href.split('/') if s]
+            calendar_slug = segments[1] if len(segments) > 1 else "persoenlich"
+
+            for acc in accounts:
+                access_token = acc["access_token"] if "access_token" in acc.keys() else None
+                url = acc["url"] if "url" in acc.keys() else None
+                if not access_token or not url:
+                    continue
+
+                event_ics = fetch_external_event_ics(url, access_token, uid)
+                if event_ics:
+                    local_put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_slug}/{uid}.ics"
+                    auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+                    req = urllib.request.Request(
+                        local_put_url,
+                        data=event_ics.encode("utf-8"),
+                        headers={
+                            "Content-Type": "text/calendar; charset=utf-8",
+                            "Authorization": f"Basic {auth_str}"
+                        },
+                        method="PUT"
+                    )
+                    try:
+                        import ssl
+                        ctx = ssl.create_default_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        with urllib.request.urlopen(req, context=ctx) as res:
+                            print(f"[Sync-Worker] Protected & restored cross-user deleted event {uid} for owner {user_id}")
+                    except Exception as put_err:
+                        print(f"[Sync-Worker] Error restoring event {uid}: {put_err}")
+
+            cursor.execute("DELETE FROM cross_user_deletions WHERE id = ?", (rec_id,))
+        conn.commit()
+    except Exception as e:
+        print(f"[Sync-Worker] Error in protect_cross_user_deletions: {e}")
+
 def sync_user(user_id):
     print(f"[Sync-Worker] Sync starting for user {user_id}...")
     conn = sqlite3.connect(DB_PATH)
@@ -135,6 +211,9 @@ def sync_user(user_id):
         print(f"[Sync-Worker] No external OAuth2 accounts found for user {user_id}. Skipping.")
         conn.close()
         return True, ""
+
+    # Protect against cross-user deletions prior to vdirsyncer execution
+    protect_cross_user_deletions(user_id, conn, accounts)
 
     config_path = f"/tmp/vdir_{user_id}.ini"
     status_dir = os.path.join(STATUS_ROOT, user_id)

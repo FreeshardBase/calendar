@@ -10,7 +10,7 @@ const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseSyncCollectionResponse, resolveUrl } = require('../caldav/parser');
 const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictResolver');
 const Db = require('../db');
-const { checkCalendarAccess } = require('../utils/calendarAuth');
+const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 
 function slugify(name) {
   if (!name) return '';
@@ -137,7 +137,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       try {
         activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
       } catch (propErr) {
-        console.warn('[share token check warning]', propErr.message);
+        console.warn('[share token check warning]', propErr);
         return res.status(404).send('This public calendar share is no longer valid.');
       }
       if (!activeTokenId || activeTokenId !== payload.publicShareId) {
@@ -1056,35 +1056,30 @@ router.post('/:id/delta-sync', async (req, res) => {
   }
 });
 
+// POST /api/calendars/:id/sync-queue — Enqueue sync job with owner authorization verification
+router.post('/:id/sync-queue', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+    const userId = req.session.userId;
+    const job = await Db.addSyncJob(userId);
+    await queueSyncForCalendar(calendarId, userId);
+    res.status(201).json({ success: true, job });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function escXML(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function queueSyncForCalendar(calendarId, fallbackUserId) {
-  try {
-    const parts = calendarId.split('::');
-    const calendarHref = parts[1] || parts[0];
-    if (calendarHref) {
-      const segments = calendarHref.split('/').filter(Boolean);
-      const ownerUserId = segments.find(s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s));
-      if (ownerUserId) {
-        Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-        if (fallbackUserId && fallbackUserId !== ownerUserId) {
-          Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-        }
-        return;
-      }
-    }
-  } catch (e) {
-    console.error('[sync] Error parsing calendar owner for sync:', e.message);
-  }
-  if (fallbackUserId) {
-    Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-  }
 }
 
 module.exports = {
   protectedRouter: router,
   publicRouter: publicRouter,
-  resolveCalendar
+  resolveCalendar,
+  queueSyncForCalendar
 };

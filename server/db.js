@@ -10,7 +10,7 @@ const db = new sqlite3.Database(dbPath);
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_KEY = crypto.scryptSync(
-  process.env.ENCRYPTION_KEY || 'freeshard-default-encryption-key-do-not-use-in-prod',
+  process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || 'freeshard-default-encryption-key-do-not-use-in-prod',
   'salt',
   32
 );
@@ -188,6 +188,16 @@ db.serialize(() => {
       ooo_message TEXT DEFAULT 'Out of Office / Abwesend',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cross_user_deletions (
+      id TEXT PRIMARY KEY,
+      uid TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      deleted_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     )
   `);
   // Silent migrations for existing local databases
@@ -1403,6 +1413,45 @@ const Db = {
           });
         }
       );
+    });
+  },
+
+  recordCrossUserDeletion(uid, calendarId, ownerUserId, deletedBy) {
+    return new Promise((resolve, reject) => {
+      const id = require('node:crypto').randomUUID();
+      const createdAt = Date.now();
+      db.run(
+        `INSERT INTO cross_user_deletions (id, uid, calendar_id, owner_user_id, deleted_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, uid, calendarId, ownerUserId, deletedBy, createdAt],
+        function(err) {
+          if (err) return reject(err);
+          resolve({ id, uid, calendarId, ownerUserId, deletedBy, createdAt });
+        }
+      );
+    });
+  },
+
+  getCrossUserDeletions(ownerUserId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, uid, calendar_id, owner_user_id, deleted_by, created_at
+         FROM cross_user_deletions WHERE owner_user_id = ?`,
+        [ownerUserId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        }
+      );
+    });
+  },
+
+  clearCrossUserDeletion(id) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM cross_user_deletions WHERE id = ?`, [id], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes);
+      });
     });
   }
 };

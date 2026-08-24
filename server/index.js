@@ -1,5 +1,10 @@
 'use strict';
 require('dotenv').config();
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+try {
+  const { setGlobalDispatcher, Agent } = require('undici');
+  setGlobalDispatcher(new Agent({ keepAliveTimeout: 10, keepAliveMaxTimeout: 10 }));
+} catch {}
 
 // Prevent single async error from killing the process (Express 4 limitation)
 process.on('unhandledRejection', (err) => {
@@ -11,6 +16,7 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const Db = require('./db');
+const { getTrustProxySetting, getSessionConfig } = require('./utils/sessionConfig');
 
 const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
@@ -26,20 +32,13 @@ const workingHoursRouter = require('./routes/workingHours');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', getTrustProxySetting());
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'freeshard-change-this-in-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-  }
-}));
+app.use(session(getSessionConfig()));
 
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {

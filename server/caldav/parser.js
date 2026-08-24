@@ -18,6 +18,7 @@ const {
   parseICSToEvent,
   parseAndExpandEvent,
   eventToICS,
+  escParamVal,
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,
@@ -695,13 +696,13 @@ function buildItipReply(event, attendeeEmail, status) {
   if (event.end) lines.push(`DTEND:${fmtDateTime(event.end)}`);
 
   if (event.organizer?.email) {
-    const cn = event.organizer.name ? `;CN="${event.organizer.name}"` : '';
-    lines.push(`ORGANIZER${cn}:mailto:${event.organizer.email}`);
+    const cn = event.organizer.name ? `;CN="${escParamVal(event.organizer.name)}"` : '';
+    lines.push(`ORGANIZER${cn}:mailto:${escIcal(event.organizer.email)}`);
   }
 
   const att = (event.attendees || []).find(a => a.email?.toLowerCase() === email.toLowerCase());
-  const cn = (att && att.name) ? `;CN="${att.name}"` : '';
-  lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn};PARTSTAT=${partstat}:mailto:${email}`);
+  const cn = (att && att.name) ? `;CN="${escParamVal(att.name)}"` : '';
+  lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn};PARTSTAT=${escParamVal(partstat)}:mailto:${escIcal(email)}`);
 
   lines.push('END:VEVENT', 'END:VCALENDAR');
   return foldLines(lines.join('\n')) + '\r\n';

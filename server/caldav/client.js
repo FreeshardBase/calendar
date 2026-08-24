@@ -28,12 +28,25 @@ class CalDAVClient {
     if (body && !reqHeaders['Content-Type'] && !reqHeaders['content-type']) {
       reqHeaders['Content-Type'] = 'application/xml; charset=utf-8';
     }
-    const response = await fetch(url, {
-      method,
-      headers: reqHeaders,
-      body
-    });
-    return response;
+    
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await fetch(url, {
+          method,
+          headers: reqHeaders,
+          body
+        });
+      } catch (err) {
+        lastErr = err;
+        if (err?.cause?.code === 'UND_ERR_SOCKET' || err?.message?.includes('fetch failed')) {
+          await new Promise(r => setTimeout(r, 50));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr;
   }
 
   // ── CalDAV Methods ──────────────────────────────────────────────────────────

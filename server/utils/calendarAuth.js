@@ -130,8 +130,54 @@ function extractCalendarIdFromHref(accountId, href) {
   return `${accountId}::${calHref}`;
 }
 
+/**
+ * Safely enqueues sync jobs for calendar operations after verifying request owner authorization.
+ *
+ * @param {string} calendarId Format: "accountId::calendarHref"
+ * @param {string} fallbackUserId Requesting user ID
+ */
+async function queueSyncForCalendar(calendarId, fallbackUserId) {
+  if (!fallbackUserId || fallbackUserId === 'unauthenticated' || fallbackUserId === 'none') {
+    return;
+  }
+  try {
+    const parts = (calendarId || '').split('::');
+    const calendarHref = parts[1] || parts[0];
+    if (calendarHref) {
+      const segments = calendarHref.split('/').filter(Boolean);
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const ownerUserId = segments.find(s => uuidRegex.test(s));
+      if (ownerUserId) {
+        if (fallbackUserId === ownerUserId) {
+          await Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+          return;
+        }
+        // Verify authorization of fallbackUserId on calendarId before enqueuing owner sync job
+        const mockReq = { session: { userId: fallbackUserId } };
+        const access = await checkCalendarAccess(mockReq, calendarId, 'read');
+        if (access && access.allowed) {
+          if (access.isOwner || !access.readOnly) {
+            await Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+          }
+          await Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+        } else {
+          console.warn(`[sync-queue] Unauthorized sync queue request on ${calendarId} by user ${fallbackUserId}`);
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    console.error('[sync] Error parsing calendar owner for sync:', e.message);
+  }
+  if (fallbackUserId) {
+    await Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+  }
+}
+
 module.exports = {
   checkCalendarAccess,
-  extractCalendarIdFromHref
+  extractCalendarIdFromHref,
+  queueSyncForCalendar
 };
+
 
