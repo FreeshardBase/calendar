@@ -329,6 +329,13 @@
   - Updated `docker-compose.yml` to use `${REGISTRY:-ghcr.io/freeshardbase}` and `${TAG:-latest}` environment variables for image references.
   - Added `"publish:containers"` script to `package.json`.
   - Added unit test suite `server/test/container_publish.test.js` (7 tests, 100% green).
+- **Issue #35 — Refactor Express Session Storage for User-Indexed Session Invalidation (`server/db.js`, `server/utils/sessionStore.js`, `server/utils/sessionConfig.js`, `server/test/user_indexed_session_store.test.js`):**
+  - Created `sessions` table in SQLite (`sid` PRIMARY KEY, `user_id`, `sess`, `expired`) with indexes on `user_id` and `expired`.
+  - Added Db helper methods (`saveSession`, `getRawSession`, `deleteSession`, `deleteSessionsForUser`, `getSessionsForUser`, `touchSession`, `clearExpiredSessions`).
+  - Implemented `SqliteSessionStore` extending `express-session.Store` with `destroyUserSessions(userId)` method.
+  - Integrated `SqliteSessionStore` as default session store in `server/utils/sessionConfig.js`.
+  - Added test suite `server/test/user_indexed_session_store.test.js` (5 tests, 100% green).
+
 
 
 

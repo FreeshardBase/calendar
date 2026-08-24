@@ -5,6 +5,8 @@
  * Utility to compute Express trust proxy setting and session cookie configuration.
  */
 
+const { SqliteSessionStore } = require('./sessionStore');
+
 function getTrustProxySetting(env = process.env) {
   const trustProxyVal = env.TRUST_PROXY;
   if (trustProxyVal !== undefined) {
@@ -25,7 +27,7 @@ function getTrustProxySetting(env = process.env) {
   return false;
 }
 
-function getSessionConfig(env = process.env) {
+function getSessionConfig(env = process.env, options = {}) {
   const sessionSecret = env.SESSION_SECRET || 'freeshard-change-this-in-production';
   const isProd = env.NODE_ENV === 'production';
 
@@ -46,10 +48,13 @@ function getSessionConfig(env = process.env) {
     cookieSecure = isProd ? 'auto' : false;
   }
 
+  const store = options.store || new SqliteSessionStore();
+
   return {
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
+    store: store,
     cookie: {
       secure: cookieSecure,
       httpOnly: true,
@@ -61,5 +66,6 @@ function getSessionConfig(env = process.env) {
 
 module.exports = {
   getTrustProxySetting,
-  getSessionConfig
+  getSessionConfig,
+  SqliteSessionStore
 };

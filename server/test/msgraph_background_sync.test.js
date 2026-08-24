@@ -13,6 +13,7 @@ const path = require('path');
 
 test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) => {
   const { app, server } = require('../index');
+  await new Promise(r => setTimeout(r, 100));
 
   t.after(() => {
     if (server && server.close) {

@@ -267,6 +267,16 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ics_fetch_log_token_time ON ics_fetch_log(token, fetched_at)`);
   db.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      user_id TEXT,
+      sess TEXT NOT NULL,
+      expired INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired)`);
+  db.run(`
     CREATE TABLE IF NOT EXISTS webcal_subscriptions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -2143,6 +2153,77 @@ const Db = {
           resolve(parsed);
         }
       );
+    });
+  },
+
+  saveSession(sid, userId, sessJson, expiredMs) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT OR REPLACE INTO sessions (sid, user_id, sess, expired) VALUES (?, ?, ?, ?)`,
+        [sid, userId || null, sessJson, expiredMs],
+        (err) => {
+          if (err) return reject(err);
+          resolve(true);
+        }
+      );
+    });
+  },
+
+  getRawSession(sid) {
+    return new Promise((resolve, reject) => {
+      db.get(`SELECT sid, user_id, sess, expired FROM sessions WHERE sid = ?`, [sid], (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  },
+
+  deleteSession(sid) {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM sessions WHERE sid = ?`, [sid], (err) => {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  },
+
+  deleteSessionsForUser(userId) {
+    return new Promise((resolve, reject) => {
+      if (!userId) return resolve(0);
+      db.run(`DELETE FROM sessions WHERE user_id = ?`, [userId], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes || 0);
+      });
+    });
+  },
+
+  getSessionsForUser(userId) {
+    return new Promise((resolve, reject) => {
+      if (!userId) return resolve([]);
+      const now = Date.now();
+      db.all(`SELECT sid, user_id, sess, expired FROM sessions WHERE user_id = ? AND expired > ?`, [userId, now], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+  },
+
+  touchSession(sid, expiredMs) {
+    return new Promise((resolve, reject) => {
+      db.run(`UPDATE sessions SET expired = ? WHERE sid = ?`, [expiredMs, sid], (err) => {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  },
+
+  clearExpiredSessions() {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(`DELETE FROM sessions WHERE expired < ?`, [now], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes || 0);
+      });
     });
   }
 };
