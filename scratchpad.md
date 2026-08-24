@@ -303,19 +303,20 @@
   - Added Keyboard Shortcuts help modal (`#shortcuts-modal-backdrop`) and CSS styling (`.shortcut-row`, `.shortcut-badge`).
   - Added unit test suite `server/test/keyboard_shortcuts.test.js` (8 tests, 100% green).
 
-- **Issue #24 — Support Webcal/ICS Read-Only Calendar Subscriptions (Feeds) (`server/db.js`, `server/utils/webcalSubscription.js`, `server/routes/webcal.js`, `server/index.js`, `server/test/webcal_subscriptions.test.js`):**
-  - Added SQLite `webcal_subscriptions` table (`id`, `user_id`, `name`, `url`, `color`, `refresh_interval`, `last_synced_at`, `created_at`) with index on `user_id` and DB helpers (`createWebcalSubscription`, `getWebcalSubscriptions`, `getWebcalSubscription`, `updateWebcalSubscription`, `updateWebcalSubscriptionSyncTime`, `deleteWebcalSubscription`).
-  - Created `server/utils/webcalSubscription.js` supporting URL normalization (`webcal://` -> `https://` / `http://` validation), feed fetching via HTTP, and iCalendar parsing into read-only event objects tagged with `readOnly: true`, `isSubscription: true`, `subscriptionId`, and custom feed display color.
-  - Created REST API router `server/routes/webcal.js` mounted at `/api/webcal` supporting subscription CRUD, event fetching, and manual sync refresh with authentication (`401`) and ownership scoping (`404`).
-  - Added unit & integration test suite `server/test/webcal_subscriptions.test.js` (5 tests, 100% green).
+- **Issue #26 — Implement PWA Support and Offline Mode with Local Caching (`public/manifest.json`, `public/sw.js`, `public/js/offlineCache.js`, `public/index.html`, `public/js/app.js`, `public/js/api.js`, `server/test/pwa_offline.test.js`):**
+  - Created Web App Manifest (`public/manifest.json`) defining `standalone` display mode, theme colors, and icons.
+  - Implemented Service Worker (`public/sw.js`) with cache management (`webcalendar-v1`), pre-caching core app shell assets, stale-while-revalidate for static assets, and network-first with cache fallback for API routes.
+  - Created client-side `public/js/offlineCache.js` module for local storage persistence (`saveCalendars`, `getCalendars`, `saveEvents`, `getEvents`, `saveTasks`, `getTasks`, `isOffline`, `setOfflineStatus`) and offline banner updates (`#offline-status-banner`).
+  - Integrated `OfflineCache` fallbacks into `CalendarsAPI.list`, `EventsAPI.list`, and `TasksAPI.list` in `public/js/api.js`.
+  - Added unit test suite `server/test/pwa_offline.test.js` (4 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 421 tests, 414 PASSED, 7 skipped (100% green)
-- Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T19:14:21+02:00
+- Node Unit & Integration Suite: 431 tests PASSED, 7 skipped (100% green)
+- Last Verified: 2026-08-24T19:23:10+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #22, #23, #24, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #22, #23, #24, #25, #26, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+
 
 
 

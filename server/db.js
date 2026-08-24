@@ -279,6 +279,20 @@ db.serialize(() => {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_webcal_subscriptions_user ON webcal_subscriptions(user_id)`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS event_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_uid TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      changes TEXT,
+      snapshot_ics TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_uid ON event_history(event_uid, created_at)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_cal ON event_history(calendar_id, created_at)`);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -487,6 +501,9 @@ const Db = {
         db.run('DELETE FROM calendar_shares');
         db.run('DELETE FROM availability_pages');
         db.run('DELETE FROM slot_bookings');
+        db.run('DELETE FROM event_history');
+        db.run('DELETE FROM user_calendar_color_overrides');
+        db.run('DELETE FROM webcal_subscriptions');
         db.run('DELETE FROM sync_queue', (err) => {
           if (err) return reject(err);
           resolve();
@@ -2074,6 +2091,56 @@ const Db = {
         function(err) {
           if (err) return reject(err);
           resolve(this.changes > 0);
+        }
+      );
+    });
+  },
+
+  recordEventHistory({ eventUid, calendarId, userId, action, changes, snapshotIcs }) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      const changesJson = changes ? JSON.stringify(changes) : null;
+      db.run(
+        `INSERT INTO event_history (event_uid, calendar_id, user_id, action, changes, snapshot_ics, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [eventUid, calendarId, userId, action, changesJson, snapshotIcs || null, now],
+        function(err) {
+          if (err) return reject(err);
+          resolve({ id: this.lastID, eventUid, calendarId, userId, action, created_at: now });
+        }
+      );
+    });
+  },
+
+  getEventHistory(eventUid, limit = 50) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT * FROM event_history WHERE event_uid = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+        [eventUid, limit],
+        (err, rows) => {
+          if (err) return reject(err);
+          const parsed = (rows || []).map(r => ({
+            ...r,
+            changes: r.changes ? JSON.parse(r.changes) : null
+          }));
+          resolve(parsed);
+        }
+      );
+    });
+  },
+
+  getCalendarEventHistory(calendarId, limit = 50) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT * FROM event_history WHERE calendar_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+        [calendarId, limit],
+        (err, rows) => {
+          if (err) return reject(err);
+          const parsed = (rows || []).map(r => ({
+            ...r,
+            changes: r.changes ? JSON.parse(r.changes) : null
+          }));
+          resolve(parsed);
         }
       );
     });

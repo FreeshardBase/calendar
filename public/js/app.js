@@ -64,6 +64,11 @@ async function boot() {
   initInvitations();
   initAvailabilityManager();
 
+  if (typeof window !== 'undefined' && window.OfflineCache) {
+    window.OfflineCache.registerServiceWorker();
+    window.OfflineCache.initOfflineListeners();
+  }
+
 
   // Attach UI event listeners
   attachListeners();

@@ -25,12 +25,19 @@
     };
   </script>
   <meta name="description" content="FreeShard WebCalendar — CalDAV-Webclient, Daylight Instrument." />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="/manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/app.css" />
 </head>
 <body>
+
+<div id="offline-status-banner" style="display: none; background: #ef4444; color: #ffffff; text-align: center; padding: 6px 12px; font-size: 13px; font-weight: 500; position: sticky; top: 0; z-index: 99999;">
+  Offline-Modus aktiv — Es werden lokal gespeicherte Kalenderdaten verwendet.
+</div>
 
 <!-- ── Loading Screen ───────────────────────────────────────────────────────── -->
 <div id="loading-screen" class="loading-screen">
@@ -1055,6 +1062,7 @@
 
 <script src="/js/shortcuts.js"></script>
 <script src="/js/workingHours.js"></script>
+<script src="/js/offlineCache.js"></script>
 <script type="module" src="/js/app.js"></script>
 </body>
 </html>

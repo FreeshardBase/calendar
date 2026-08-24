@@ -42,7 +42,21 @@ export const AccountsAPI = {
 
 // ── Calendars ─────────────────────────────────────────────────────────────────
 export const CalendarsAPI = {
-  list:   ()              => request('GET',    '/api/calendars'),
+  list: async () => {
+    try {
+      const cals = await request('GET', '/api/calendars');
+      if (typeof window !== 'undefined' && window.OfflineCache) {
+        window.OfflineCache.saveCalendars(cals);
+      }
+      return cals;
+    } catch (err) {
+      if (typeof window !== 'undefined' && window.OfflineCache && window.OfflineCache.isOffline()) {
+        const cached = window.OfflineCache.getCalendars();
+        if (cached && cached.length > 0) return cached;
+      }
+      throw err;
+    }
+  },
   create: (data)          => request('POST',   '/api/calendars', data),
   update: (id, data)      => request('PATCH',  `/api/calendars/${encodeURIComponent(id)}`, data),
   remove: (id)            => request('DELETE', `/api/calendars/${encodeURIComponent(id)}`),
@@ -64,7 +78,24 @@ export const CalendarsAPI = {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 export const EventsAPI = {
-  list:   (start, end)    => request('GET', `/api/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  list: async (start, end) => {
+    try {
+      const events = await request('GET', `/api/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+      if (typeof window !== 'undefined' && window.OfflineCache && Array.isArray(events)) {
+        events.forEach(ev => {
+          if (ev.calendarId) window.OfflineCache.saveEvents(ev.calendarId, events);
+        });
+        window.OfflineCache.saveEvents('all', events);
+      }
+      return events;
+    } catch (err) {
+      if (typeof window !== 'undefined' && window.OfflineCache && window.OfflineCache.isOffline()) {
+        const cached = window.OfflineCache.getEvents('all');
+        if (cached && cached.length > 0) return cached;
+      }
+      throw err;
+    }
+  },
   create: (data)          => request('POST',   '/api/events', data),
   update: (uid, data)     => request('PUT',    `/api/events/${encodeURIComponent(uid)}`, data),
   remove: (uid, data)     => request('DELETE', `/api/events/${encodeURIComponent(uid)}`, data),
@@ -80,7 +111,21 @@ export const InvitationsAPI = {
 
 // ── Tasks (VTODO) ─────────────────────────────────────────────────────────────
 export const TasksAPI = {
-  list:   ()          => request('GET',    '/api/tasks'),
+  list: async () => {
+    try {
+      const tasks = await request('GET', '/api/tasks');
+      if (typeof window !== 'undefined' && window.OfflineCache) {
+        window.OfflineCache.saveTasks(tasks);
+      }
+      return tasks;
+    } catch (err) {
+      if (typeof window !== 'undefined' && window.OfflineCache && window.OfflineCache.isOffline()) {
+        const cached = window.OfflineCache.getTasks();
+        if (cached && cached.length > 0) return cached;
+      }
+      throw err;
+    }
+  },
   create: (data)      => request('POST',   '/api/tasks', data),
   update: (uid, data) => request('PUT',    `/api/tasks/${encodeURIComponent(uid)}`, data),
   remove: (uid, data) => request('DELETE', `/api/tasks/${encodeURIComponent(uid)}`, data),

@@ -18,6 +18,7 @@ const {
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
+const { logEventChange } = require('../utils/eventHistory');
 
 // ── GET /api/events/invitations ───────────────────────────────────────────────
 router.get('/invitations', async (req, res) => {
@@ -191,6 +192,15 @@ router.post('/', async (req, res) => {
     
     queueSyncForCalendar(calendarId, req.session.userId);
 
+    await logEventChange({
+      eventUid: uid,
+      calendarId,
+      userId: req.session.userId,
+      action: 'CREATE',
+      newEvent: event,
+      snapshotIcs: ics
+    }).catch(err => console.error('[events POST history]', err.message));
+
     res.status(201).json({
       ...event,
       href:       eventUrl,
@@ -235,10 +245,12 @@ router.put('/:uid', async (req, res) => {
 
     let ics;
     let ifMatch;
+    let existingIcs = null;
     if (scope === 'occurrence' && recurrenceId) {
       // Edit a single occurrence: write a detached exception VEVENT into the
       // existing resource instead of replacing the whole series.
       const current = await client.get(eventUrl);
+      existingIcs = current ? current.ics : null;
       if (current && current.ics && isNoOpEventSave(current.ics, eventData, recurrenceId)) {
         queueSyncForCalendar(calendarId, req.session.userId);
         return res.json({
@@ -257,6 +269,7 @@ router.put('/:uid', async (req, res) => {
       } catch (_) {
         current = null;
       }
+      existingIcs = current ? current.ics : null;
 
       if (current && current.ics && isNoOpEventSave(current.ics, eventData)) {
         queueSyncForCalendar(calendarId, req.session.userId);
@@ -284,6 +297,17 @@ router.put('/:uid', async (req, res) => {
     }
     
     queueSyncForCalendar(calendarId, req.session.userId);
+
+    const oldEvent = existingIcs ? parseICSToEvent(existingIcs) : null;
+    await logEventChange({
+      eventUid: masterUid,
+      calendarId,
+      userId: req.session.userId,
+      action: 'UPDATE',
+      oldEvent,
+      newEvent: event,
+      snapshotIcs: ics
+    }).catch(err => console.error('[events PUT history]', err.message));
 
     res.json({
       ...event,
@@ -365,6 +389,14 @@ router.delete('/:uid', async (req, res) => {
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
+    await logEventChange({
+      eventUid: req.params.uid.split('::')[0],
+      calendarId,
+      userId: req.session.userId,
+      action: 'DELETE',
+      oldEvent: { title: href }
+    }).catch(err => console.error('[events DELETE history]', err.message));
+
     res.json({ message: 'Event deleted.' });
   } catch (err) {
     console.error('[events DELETE]', err.message);
@@ -414,6 +446,14 @@ router.post('/:uid/rsvp', async (req, res) => {
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
+    await logEventChange({
+      eventUid: req.params.uid,
+      calendarId,
+      userId: req.session.userId,
+      action: 'RSVP',
+      newEvent: { status }
+    }).catch(err => console.error('[events RSVP history]', err.message));
+
     res.json({
       success: true,
       status,
@@ -422,6 +462,29 @@ router.post('/:uid/rsvp', async (req, res) => {
     });
   } catch (err) {
     console.error('[events RSVP]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/events/:uid/history ──────────────────────────────────────────────
+router.get('/:uid/history', async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { calendarId } = req.query;
+    if (calendarId) {
+      const access = await checkCalendarAccess(req, calendarId, 'read');
+      if (!access.allowed) {
+        return res.status(access.status || 403).json({ error: access.reason });
+      }
+    }
+
+    const history = await Db.getEventHistory(req.params.uid);
+    res.json(history);
+  } catch (err) {
+    console.error('[events HISTORY]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
