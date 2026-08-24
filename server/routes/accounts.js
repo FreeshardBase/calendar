@@ -4,6 +4,17 @@ const express = require('express');
 const router = express.Router();
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
+const { getPresets, resolvePreset, resolveCalDAVUrl } = require('../utils/caldavPresets');
+
+// GET /api/accounts/presets — get available provider presets and resolve query parameters
+router.get('/presets', (req, res) => {
+  const emailOrPreset = req.query.email || req.query.preset || req.query.username;
+  const resolved = emailOrPreset ? resolvePreset(emailOrPreset) : null;
+  res.json({
+    presets: getPresets(),
+    resolved
+  });
+});
 
 // GET /api/accounts — list accounts (passwords redacted)
 router.get('/', (req, res) => {
@@ -18,15 +29,17 @@ router.get('/', (req, res) => {
 
 // POST /api/accounts — add a new CalDAV account
 router.post('/', async (req, res) => {
-  const { url, username, password, displayName } = req.body;
+  let { url, username, password, displayName } = req.body;
 
-  if (!url || !username || !password) {
+  const targetUrl = resolveCalDAVUrl(url || username);
+
+  if (!targetUrl || !username || !password) {
     return res.status(400).json({ error: 'url, username and password are required' });
   }
 
-  const client = new CalDAVClient({ url, username, password });
+  const client = new CalDAVClient({ url: targetUrl, username, password });
 
-  let discoveredUrl = url;
+  let discoveredUrl = targetUrl;
   try {
     discoveredUrl = await client.discover();
   } catch (e) {
@@ -55,7 +68,27 @@ router.post('/', async (req, res) => {
       password,
       displayName
     });
+    await Db.addSyncJob(userId).catch(err => console.error('[sync-queue] Failed to add sync job after account creation:', err.message));
     res.status(201).json({ id, displayName: finalDisplayName, message: 'Account added.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/accounts/:id/sync — trigger background sync for linked CalDAV account
+router.post('/:id/sync', async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+
+  try {
+    const account = await Db.getAccountById(req.params.id);
+    if (!account || account.userId !== req.session.userId) {
+      return res.status(404).json({ error: 'Konto nicht gefunden.' });
+    }
+
+    const job = await Db.addSyncJob(req.session.userId);
+    res.json({ message: 'Synchronisation gestartet.', jobId: job.id, accountId: account.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -105,6 +138,20 @@ router.delete('/', async (req, res) => {
     }
     req.session.userId = null;
     res.json({ message: 'All accounts removed.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/accounts/oauth-token-status — per-account OAuth token expiry state
+// Returns only oauth2 accounts; never exposes credentials.
+router.get('/oauth-token-status', async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    const accounts = await Db.getOAuthTokenStatus(req.session.userId);
+    res.json({ accounts });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

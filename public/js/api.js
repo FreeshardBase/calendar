@@ -28,8 +28,10 @@ async function request(method, path, body) {
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
 export const AccountsAPI = {
-  list:   ()              => request('GET',    '/api/accounts'),
-  add:    (data)          => request('POST',   '/api/accounts', data),
+  list:                ()              => request('GET',    '/api/accounts'),
+  getPresets:          (email)         => request('GET',    `/api/accounts/presets?email=${encodeURIComponent(email || '')}`),
+  getOAuthTokenStatus: ()              => request('GET',    '/api/accounts/oauth-token-status'),
+  add:                 (data)          => request('POST',   '/api/accounts', data),
   remove: (id)            => request('DELETE', `/api/accounts/${id}`),
   update: (id, data)      => request('PATCH',  `/api/accounts/${id}`, data),
   removeAll: ()           => request('DELETE', '/api/accounts'),

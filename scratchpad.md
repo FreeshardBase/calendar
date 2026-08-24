@@ -255,10 +255,30 @@
   - Config constants (`ICS_CACHE_TTL_SECONDS=300`, `ICS_RATE_LIMIT_MAX=60`, `ICS_RATE_LIMIT_WINDOW_SECONDS=3600`) env-overridable via `server/utils/icsPublicShareCache.js`.
   - 9-test suite all green (Issue #8).
 
+- **Issue #9 — Background Replication & Sync for External CalDAV Servers (Basic Auth) (`server/routes/accounts.js`, `sync-worker/sync_worker.py`, `server/test/external_caldav_basic_sync.test.js`):**
+  - Updated `POST /api/accounts` to automatically enqueue a `PENDING` sync job via `Db.addSyncJob(userId)` upon account creation so replication begins immediately.
+  - Added REST endpoint `POST /api/accounts/:id/sync` to allow users to trigger background sync for linked CalDAV accounts with authentication (`401`) and ownership verification (`404`).
+  - `sync_basic_caldav_accounts` in `sync_worker.py` builds vdirsyncer INI pairs for basic-auth accounts (`auth_type = 'basic'`), decrypts passwords, executes discovery and sync, and cleans up temporary config files.
+  - Added test suite `server/test/external_caldav_basic_sync.test.js` (6 tests, 100% green).
+
+- **Issue #11 / Issue #30 — CalDAV Provider Autoconfiguration Presets (`server/utils/caldavPresets.js`, `server/routes/accounts.js`, `public/js/api.js`, `public/js/accountModal.js`, `public/index.html`, `server/test/caldav_provider_presets.test.js`):**
+  - Created `server/utils/caldavPresets.js` providing presets for GMX (`gmx.de`, `gmx.net`...), WEB.DE (`web.de`), mailbox.org (`mailbox.org`), and Posteo (`posteo.de`...) with `getPresets()`, `resolvePreset(emailOrPresetId)`, and `resolveCalDAVUrl(input)`.
+  - Added REST endpoint `GET /api/accounts/presets` to expose available presets and resolve query parameters (`?email=...` / `?preset=...`).
+  - Updated `POST /api/accounts` to automatically resolve CalDAV URLs when provider preset IDs or domain email addresses are provided.
+  - Added provider selection `<select id="acc-provider">` to `#account-form` in `public/index.html` and integrated auto-detection on email entry in `public/js/accountModal.js`.
+  - Added test suite `server/test/caldav_provider_presets.test.js` (6 tests, 100% green).
+
+- **Issue #12 — Event Attachments FileBrowser Integration & OIDC Auth (`server/utils/filebrowser.js`, `server/routes/attachments.js`, `server/index.js`, `server/test/filebrowser_attachments.test.js`):**
+  - Created `server/utils/filebrowser.js` supporting `getFileBrowserUrl()`, `fetchFileBrowserFiles(path, oidcToken)`, `createFileBrowserShareLink(filePath, oidcToken)`, and `buildFileBrowserAttachment(fileItem, shareUrl)`.
+  - Added REST endpoint `GET /api/attachments/filebrowser/files` returning FileBrowser directory items with central OIDC bearer token authentication (`401` when unauthenticated).
+  - Added REST endpoint `POST /api/attachments/filebrowser/link` returning formatted event attachment objects (`url`, `name`, `mimeType`) with OIDC token propagation.
+  - Mounted `/api/attachments` router in `server/index.js`.
+  - Added unit/integration test suite `server/test/filebrowser_attachments.test.js` (9 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 327 tests, 320 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 352 tests, 345 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T18:00:00+02:00
+- Last Verified: 2026-08-24T18:28:45+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.

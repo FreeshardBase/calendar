@@ -1835,6 +1835,18 @@ const Db = {
       );
     });
   },
+  deleteIcsCache(token) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM public_ics_cache WHERE token = ?`,
+        [token],
+        function(err) {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
 
   /**
    * Record a fetch hit for rate-limit accounting.

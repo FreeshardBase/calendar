@@ -28,6 +28,7 @@ const resourcesRouter = require('./routes/resources');
 const availabilityRouter = require('./routes/availability');
 const delegatesRouter = require('./routes/delegates');
 const workingHoursRouter = require('./routes/workingHours');
+const attachmentsRouter = require('./routes/attachments');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -185,6 +186,7 @@ app.use('/api/msgraph',           requireAuth, msgraphRouter);
 app.use('/api/resources',         requireAuth, resourcesRouter);
 app.use('/api/delegates',         requireAuth, delegatesRouter);
 app.use('/api/working-hours',     requireAuth, workingHoursRouter);
+app.use('/api/attachments',       requireAuth, attachmentsRouter);
 app.use('/api',                   availabilityRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────

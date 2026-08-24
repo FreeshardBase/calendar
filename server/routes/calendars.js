@@ -86,21 +86,6 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       // Non-fatal: fall through and serve the request.
     }
 
-    // ── Cache-first serve ───────────────────────────────────────────────────
-    try {
-      const cached = await Db.getIcsCache(token);
-      if (cached) {
-        await Db.recordIcsFetch(token);
-        res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
-        res.setHeader('X-Cache', 'HIT');
-        return res.send(cached.body);
-      }
-    } catch (cacheErr) {
-      console.warn('[ICS cache read error]', cacheErr.message);
-      // Non-fatal: fall through to live fetch.
-    }
-
     let payload = null;
     let isDbShare = false;
 
@@ -150,6 +135,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     }
 
     if (!payload) {
+      await Db.deleteIcsCache(token).catch(() => {});
       return res.status(404).send('Calendar share not found or token invalid.');
     }
 
@@ -168,11 +154,27 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
         activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
       } catch (propErr) {
         console.warn('[share token check warning]', propErr);
+        await Db.deleteIcsCache(token).catch(() => {});
         return res.status(404).send('This public calendar share is no longer valid.');
       }
       if (!activeTokenId || activeTokenId !== payload.publicShareId) {
+        await Db.deleteIcsCache(token).catch(() => {});
         return res.status(404).send('This public calendar share has been disabled or regenerated.');
       }
+    }
+
+    // ── Cache-first serve (after authorization verification) ────────────────
+    try {
+      const cached = await Db.getIcsCache(token);
+      if (cached) {
+        await Db.recordIcsFetch(token);
+        res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+        res.setHeader('X-Cache', 'HIT');
+        return res.send(cached.body);
+      }
+    } catch (cacheErr) {
+      console.warn('[ICS cache read error]', cacheErr.message);
     }
 
     const ics = await fetchCalendarICS(client, payload.url);

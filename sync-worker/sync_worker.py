@@ -22,6 +22,13 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
 SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET", "super-secret-bypass")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from msgraph_worker import sync_msgraph_accounts
+except ImportError:
+    def sync_msgraph_accounts(user_id, conn=None):
+        return True, ""
+
 def derive_key(secret_str):
     kdf = Scrypt(
         salt=b'salt',
@@ -195,25 +202,167 @@ def protect_cross_user_deletions(user_id, conn, accounts):
     except Exception as e:
         print(f"[Sync-Worker] Error in protect_cross_user_deletions: {e}")
 
+def sync_basic_caldav_accounts(user_id, conn):
+    """Replicate external CalDAV (Basic Auth) accounts into the local Radicale.
+
+    For each linked account with auth_type='basic' we build a vdirsyncer
+    caldav↔caldav pair: the external server is storage 'a', the local
+    Radicale collection for this user is storage 'b'.  Conflict resolution
+    defaults to 'b wins' so that manual local edits are authoritative.
+
+    Returns (success: bool, error_message: str).
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, url, username, password_encrypted, iv FROM linked_accounts"
+        " WHERE user_id = ? AND auth_type = 'basic'",
+        (user_id,)
+    )
+    basic_accounts = cursor.fetchall()
+
+    if not basic_accounts:
+        print(f"[Sync-Worker] No external Basic-Auth CalDAV accounts for user {user_id}.")
+        return True, ""
+
+    status_dir = os.path.join(STATUS_ROOT, user_id + "_basic")
+    os.makedirs(status_dir, exist_ok=True)
+    config_path = f"/tmp/vdir_basic_{user_id}.ini"
+
+    config_content = f'[general]\nstatus_path = "{status_dir}"\n'
+
+    # Determine SSL verification for local CalDAV
+    cert_path = "/etc/ssl/certs/local/cert.pem"
+    fingerprint = None
+    if os.path.exists(cert_path):
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.backends import default_backend
+            from cryptography.hazmat.primitives import hashes
+            with open(cert_path, "rb") as cf:
+                cert_data = cf.read()
+            cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+            fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+        except Exception as fe:
+            print(f"[Sync-Worker] Error reading certificate fingerprint: {fe}")
+
+    verify_line = f'verify_fingerprint = "{fingerprint}"' if fingerprint else 'verify = false'
+    local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
+
+    for idx, acc in enumerate(basic_accounts):
+        try:
+            password = decrypt(acc["password_encrypted"], acc["iv"], KEY_BYTES)
+        except Exception as de:
+            return False, f"Basic-auth credential decryption failed for account {acc['id']}: {de}"
+
+        pair_name    = f"basic_{idx}"
+        storage_ext  = f"basic_ext_{idx}"
+        storage_loc  = f"basic_local_{idx}"
+        external_url = acc["url"].rstrip('/') + '/'
+        username     = acc["username"]
+
+        config_content += f"""
+[pair {pair_name}]
+a = "{storage_ext}"
+b = "{storage_loc}"
+collections = ["from a", "from b"]
+conflict_resolution = "b wins"
+
+[storage {storage_ext}]
+type = "caldav"
+url = "{external_url}"
+username = "{username}"
+password = "{password}"
+
+[storage {storage_loc}]
+type = "caldav"
+url = "{local_url}"
+username = "{user_id}"
+password = "{SYSTEM_SYNC_SECRET}"
+{verify_line}
+"""
+
+    with open(config_path, "w") as f:
+        f.write(config_content)
+
+    try:
+        print(f"[Sync-Worker] Running Basic-CalDAV discover for user {user_id}...")
+        disc_res = subprocess.run(
+            ["vdirsyncer", "-c", config_path, "discover"],
+            input="y\n" * 20,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if disc_res.returncode != 0:
+            return False, f"vdirsyncer basic discover failed: {disc_res.stderr}"
+
+        print(f"[Sync-Worker] Running Basic-CalDAV sync for user {user_id}...")
+        sync_res = subprocess.run(
+            ["vdirsyncer", "-c", config_path, "sync"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if sync_res.returncode != 0:
+            return False, f"vdirsyncer basic sync failed: {sync_res.stderr}"
+
+        print(f"[Sync-Worker] Basic-CalDAV sync completed for user {user_id}.")
+        return True, ""
+    except Exception as run_err:
+        return False, f"vdirsyncer basic runner exception: {run_err}"
+    finally:
+        if os.path.exists(config_path):
+            os.remove(config_path)
+
+
 def sync_user(user_id):
     print(f"[Sync-Worker] Sync starting for user {user_id}...")
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
-    # 1. Fetch all linked OAuth2/Google accounts for the user
+
+    # 1. Fetch all linked accounts for the user (both oauth2 and basic)
     cursor.execute(
-        "SELECT id, url, username, password_encrypted, iv, auth_type, access_token, expires_at FROM linked_accounts WHERE user_id = ? AND auth_type = 'oauth2'",
+        "SELECT id, url, username, password_encrypted, iv, auth_type, access_token, expires_at"
+        " FROM linked_accounts WHERE user_id = ?",
         (user_id,)
     )
-    accounts = cursor.fetchall()
-    if not accounts:
-        print(f"[Sync-Worker] No external OAuth2 accounts found for user {user_id}. Skipping.")
+    all_accounts = cursor.fetchall()
+
+    cursor.execute(
+        "SELECT id FROM msgraph_accounts WHERE user_id = ?",
+        (user_id,)
+    )
+    msgraph_accounts_list = cursor.fetchall()
+
+    oauth2_accounts = [a for a in all_accounts if a["auth_type"] == "oauth2"]
+    basic_accounts  = [a for a in all_accounts if a["auth_type"] == "basic"]
+
+    if not oauth2_accounts and not basic_accounts and not msgraph_accounts_list:
+        print(f"[Sync-Worker] No external accounts found for user {user_id}. Skipping.")
         conn.close()
         return True, ""
 
+    # Run Basic-CalDAV replication first (independent of OAuth2 path)
+    basic_ok, basic_err = sync_basic_caldav_accounts(user_id, conn)
+    if not basic_ok:
+        conn.close()
+        return False, basic_err
+
+    # Run MS Graph / M365 replication
+    msgraph_ok, msgraph_err = sync_msgraph_accounts(user_id, conn)
+    if not msgraph_ok:
+        conn.close()
+        return False, msgraph_err
+
+    if not oauth2_accounts:
+        conn.close()
+        return True, ""
+
+    # --- OAuth2 / Google path ---
+
     # Protect against cross-user deletions prior to vdirsyncer execution
-    protect_cross_user_deletions(user_id, conn, accounts)
+    protect_cross_user_deletions(user_id, conn, oauth2_accounts)
 
     config_path = f"/tmp/vdir_{user_id}.ini"
     status_dir = os.path.join(STATUS_ROOT, user_id)
@@ -226,7 +375,7 @@ status_path = "{status_dir}"
 
     updated_accounts = []
     
-    for idx, acc in enumerate(accounts):
+    for idx, acc in enumerate(oauth2_accounts):
         acc_id = acc["id"]
         # Decrypt refresh token
         try:
@@ -406,15 +555,19 @@ def main():
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Fetch the oldest pending job
+            # Fetch the oldest pending job that is due for execution
+            now_ms = int(time.time() * 1000)
             cursor.execute(
-                "SELECT id, user_id FROM sync_queue WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT 1"
+                "SELECT id, user_id, COALESCE(attempts, 0) AS attempts, COALESCE(max_attempts, 3) AS max_attempts FROM sync_queue WHERE status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY created_at ASC LIMIT 1",
+                (now_ms,)
             )
             job = cursor.fetchone()
             
             if job:
                 job_id = job["id"]
                 user_id = job["user_id"]
+                attempts = job["attempts"]
+                max_attempts = job["max_attempts"]
                 
                 # Mark job as running
                 cursor.execute(
@@ -429,17 +582,27 @@ def main():
                 # Update job status
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
+                now_ms = int(time.time() * 1000)
                 if success:
                     cursor.execute(
-                        "UPDATE sync_queue SET status = 'SUCCESS', updated_at = ? WHERE id = ?",
-                        (int(time.time() * 1000), job_id)
+                        "UPDATE sync_queue SET status = 'SUCCESS', error_message = NULL, attempts = ?, retry_state = 'IDLE', next_retry_at = NULL, updated_at = ? WHERE id = ?",
+                        (attempts + 1, now_ms, job_id)
                     )
                 else:
                     print(f"[Sync-Worker] Job failed: {error_msg}")
-                    cursor.execute(
-                        "UPDATE sync_queue SET status = 'ERROR', error_message = ?, updated_at = ? WHERE id = ?",
-                        (error_msg, int(time.time() * 1000), job_id)
-                    )
+                    new_attempts = attempts + 1
+                    if new_attempts < max_attempts:
+                        backoff_ms = min(5000 * (2 ** (new_attempts - 1)), 300000)
+                        next_retry_at = now_ms + backoff_ms
+                        cursor.execute(
+                            "UPDATE sync_queue SET status = 'PENDING', error_message = ?, attempts = ?, retry_state = 'RETRY_PENDING', next_retry_at = ?, updated_at = ? WHERE id = ?",
+                            (error_msg, new_attempts, next_retry_at, now_ms, job_id)
+                        )
+                    else:
+                        cursor.execute(
+                            "UPDATE sync_queue SET status = 'ERROR', error_message = ?, attempts = ?, retry_state = 'MAX_RETRIES_EXCEEDED', next_retry_at = NULL, updated_at = ? WHERE id = ?",
+                            (error_msg, new_attempts, now_ms, job_id)
+                        )
                 conn.commit()
             
             conn.close()

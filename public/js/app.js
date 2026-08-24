@@ -80,6 +80,7 @@ async function boot() {
       await loadCalendars();
       await loadEvents();
       await loadTasks();
+      await checkOAuthTokenStatus();
       checkWelcomePopup(accounts);
     }
   } catch (err) {
@@ -1372,6 +1373,22 @@ function onEventDeleted(uid) {
 // ── UI Event Listeners ────────────────────────────────────────────────────────
 
 function attachListeners() {
+  const reauthBtn = $('oauth-reauth-btn');
+  if (reauthBtn) {
+    reauthBtn.addEventListener('click', () => {
+      const width = 600;
+      const height = 650;
+      const left = (window.screen.width - width) / 2;
+      const top = (window.screen.height - height) / 2;
+      const popup = window.open(
+        '/api/auth/google',
+        'google-oauth',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+      );
+      if (popup) popup.focus();
+    });
+  }
+
   // View switcher
   document.querySelectorAll('.view-tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1708,6 +1725,32 @@ function checkWelcomePopup(accounts) {
   
   if (onlyInternal && !hasClosed) {
     $('welcome-modal-backdrop').classList.remove('hidden');
+  }
+}
+
+export async function checkOAuthTokenStatus() {
+  try {
+    const res = await AccountsAPI.getOAuthTokenStatus();
+    const accounts = res.accounts || [];
+    const expiredAccounts = accounts.filter(a => a.expired);
+    const banner = $('oauth-warning-banner');
+    if (!banner) return;
+
+    if (expiredAccounts.length > 0) {
+      const textEl = $('oauth-warning-text');
+      if (textEl) {
+        if (expiredAccounts.length === 1) {
+          textEl.textContent = `Google-Konto „${expiredAccounts[0].displayName || expiredAccounts[0].username}“ erfordert eine erneute Anmeldung.`;
+        } else {
+          textEl.textContent = `${expiredAccounts.length} Google-Konten erfordern eine erneute Anmeldung.`;
+        }
+      }
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+    }
+  } catch (err) {
+    console.warn('[OAuth status check error]', err);
   }
 }
 

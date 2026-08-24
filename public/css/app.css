@@ -1855,6 +1855,46 @@ textarea.form-input, .form-textarea {
   background: #d3382a;
 }
 
+/* OAuth Warning Banner (Issue #7) */
+.oauth-warning-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+  border-radius: var(--radius-control);
+  padding: 10px 16px;
+  margin: 12px 16px 0 16px;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+[data-theme="dark"] .oauth-warning-banner {
+  background: #3a2e10;
+  color: #ffda6a;
+  border-color: #5c4819;
+}
+.oauth-warning-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-warning-reauth {
+  background: #e0a800;
+  color: #212529;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-warning-reauth:hover {
+  background: #c69500;
+}
+
 /* ── Print & Vector PDF Export Styles ─────────────────────────────────────── */
 @media print {
   body {

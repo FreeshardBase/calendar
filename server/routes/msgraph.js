@@ -48,6 +48,8 @@ router.post('/accounts', async (req, res) => {
       targetCalendarId: targetCalendarId || ''
     });
 
+    await Db.addSyncJob(userId);
+
     res.status(201).json({ success: true, account });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -91,6 +93,8 @@ router.post('/accounts/:id/sync', async (req, res) => {
     if (account.userId !== userId) {
       return res.status(403).json({ error: 'Zugriff verweigert: MS Graph Konto gehört einem anderen Benutzer' });
     }
+
+    await Db.addSyncJob(userId);
 
     const engine = new MSGraphSyncEngine(account);
     const localEvents = req.body.localEvents || [];

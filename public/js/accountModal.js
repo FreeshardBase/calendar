@@ -26,6 +26,45 @@ export function initAccountModal() {
   $('account-modal-close').addEventListener('click', closeAccountModal);
   $('account-cancel-btn').addEventListener('click', closeAccountModal);
 
+  const PRESET_URLS = {
+    gmx: 'https://caldav.gmx.net/begenda/dav/',
+    webde: 'https://caldav.web.de/begenda/dav/',
+    mailbox: 'https://dav.mailbox.org/caldav/',
+    posteo: 'https://posteo.de:8443/calendars/'
+  };
+
+  const providerSelect = $('acc-provider');
+  const urlInput = $('acc-url');
+  const usernameInput = $('acc-username');
+
+  if (providerSelect && urlInput) {
+    providerSelect.addEventListener('change', () => {
+      const val = providerSelect.value;
+      if (PRESET_URLS[val]) {
+        urlInput.value = PRESET_URLS[val];
+      }
+    });
+  }
+
+  if (usernameInput && providerSelect && urlInput) {
+    usernameInput.addEventListener('input', () => {
+      const val = usernameInput.value.trim();
+      if (val.includes('@')) {
+        const domain = val.split('@').pop().toLowerCase();
+        let matched = null;
+        if (['gmx.de', 'gmx.net', 'gmx.at', 'gmx.ch'].includes(domain)) matched = 'gmx';
+        else if (domain === 'web.de') matched = 'webde';
+        else if (domain === 'mailbox.org') matched = 'mailbox';
+        else if (['posteo.de', 'posteo.net', 'posteo.org', 'posteo.at', 'posteo.ch'].includes(domain)) matched = 'posteo';
+
+        if (matched) {
+          providerSelect.value = matched;
+          urlInput.value = PRESET_URLS[matched];
+        }
+      }
+    });
+  }
+
   $('btn-link-google').addEventListener('click', () => {
     const width = 600;
     const height = 650;
