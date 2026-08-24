@@ -1895,6 +1895,11 @@ textarea.form-input, .form-textarea {
   background: #c69500;
 }
 
+/* ── Print & Vector PDF Export Utility Classes ────────────────────────────────── */
+.print-only {
+  display: none !important;
+}
+
 /* ── Print & Vector PDF Export Styles ─────────────────────────────────────── */
 @media print {
   body {
@@ -1907,19 +1912,34 @@ textarea.form-input, .form-textarea {
   .search-wrapper,
   #export-pdf-btn,
   #invitations-btn,
+  #availability-btn,
   #sidebar-toggle,
+  #sidebar-settings-btn,
   .status-bar,
   .modal-backdrop,
-  .popover {
+  .popover,
+  .notifications-toast,
+  #kanban-side-drawer,
+  .drawer-backdrop,
+  .shortcuts-modal-backdrop,
+  .toolbar-tz-select-wrapper,
+  .quick-add-container,
+  .header-actions,
+  .no-print {
     display: none !important;
+  }
+  .print-only {
+    display: block !important;
   }
   .app {
     display: block !important;
+    overflow: visible !important;
   }
   .main {
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
+    overflow: visible !important;
   }
   .toolbar {
     border-bottom: 2px solid #000 !important;
@@ -1933,21 +1953,29 @@ textarea.form-input, .form-textarea {
   }
   .calendar-container,
   .month-grid,
-  .week-grid {
+  .week-grid,
+  .agenda-view,
+  .kanban-board {
     width: 100% !important;
     height: auto !important;
     border: 1px solid #000 !important;
+    overflow: visible !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
-  .event-chip {
+  .month-day-cell,
+  .week-day-col,
+  .event-chip,
+  .kanban-card,
+  .agenda-item {
     border: 1px solid #000 !important;
     color: #000 !important;
-    background: #f0f0f0 !important;
+    background: #ffffff !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 }
+
 
 /* ── Working Hours Grid Shading Styles ───────────────────────────────────────── */
 .time-slot-click-area.non-working-hour {
