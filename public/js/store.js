@@ -77,6 +77,9 @@ export const store = createStore({
   primaryTimezone:       localStorage.getItem('primaryTimezone') || 'Europe/Berlin',
   secondaryTimezone:     localStorage.getItem('secondaryTimezone') || null,
   showSecondaryTimezone: localStorage.getItem('showSecondaryTimezone') === 'true',
+
+  // Working Hours Policy
+  workingHours:          { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' },
 });
 
 // ── Derived helpers ───────────────────────────────────────────────────────────

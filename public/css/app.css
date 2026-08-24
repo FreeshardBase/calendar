@@ -1949,6 +1949,24 @@ textarea.form-input, .form-textarea {
   }
 }
 
+/* ── Working Hours Grid Shading Styles ───────────────────────────────────────── */
+.time-slot-click-area.non-working-hour {
+  background-color: rgba(241, 245, 249, 0.45);
+}
+.week-day-col.non-working-day {
+  background-color: rgba(243, 244, 246, 0.4);
+}
+.time-slot-click-area.non-working-hour:hover {
+  background-color: rgba(226, 232, 240, 0.55);
+}
+[data-theme="dark"] .time-slot-click-area.non-working-hour {
+  background-color: rgba(15, 23, 42, 0.4);
+}
+[data-theme="dark"] .week-day-col.non-working-day {
+  background-color: rgba(30, 41, 59, 0.35);
+}
+
+
 
 
 

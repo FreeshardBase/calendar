@@ -29,6 +29,9 @@ window.WorkingHoursModule = {
       if (!res.ok) return;
       const policy = await res.json();
       this.policy = policy;
+      if (window.__appStore) {
+        window.__appStore.set({ workingHours: policy });
+      }
 
       const startSelect = document.getElementById('wh-start-hour');
       const endSelect = document.getElementById('wh-end-hour');
@@ -104,6 +107,9 @@ window.WorkingHoursModule = {
 
       const data = await res.json();
       this.policy = data.policy;
+      if (window.__appStore) {
+        window.__appStore.set({ workingHours: data.policy });
+      }
       const statusEl = document.getElementById('wh-save-status');
       if (statusEl) {
         statusEl.textContent = 'Gespeichert!';
@@ -118,6 +124,17 @@ window.WorkingHoursModule = {
         statusEl.style.color = '#ef4444';
       }
     }
+  },
+
+  isHourInWorkingHours(dateVal, hour) {
+    const policy = this.policy || (window.__appStore ? window.__appStore.get('workingHours') : null) || { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' };
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return false;
+    const workDays = (policy.workDays || '1,2,3,4,5').split(',').map(n => parseInt(n.trim(), 10));
+    const startHour = policy.startHour !== undefined ? Number(policy.startHour) : 9;
+    const endHour = policy.endHour !== undefined ? Number(policy.endHour) : 17;
+    const dayOfWeek = d.getDay();
+    return workDays.includes(dayOfWeek) && hour >= startHour && hour < endHour;
   },
 
   async evaluateEvent(startTime, endTime) {

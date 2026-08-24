@@ -450,12 +450,18 @@ function renderDay(container, events, currentDate, cb) {
 
 function createTimeCol(allEvents, date, cb) {
   const col = document.createElement('div');
-  col.className = 'week-day-col';
+  const wh = store.get('workingHours') || { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' };
+  const workDaysList = (wh.workDays || '1,2,3,4,5').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+  const isWorkDay = workDaysList.includes(date.getDay());
+
+  col.className = `week-day-col${!isWorkDay ? ' non-working-day' : ''}`;
   col.style.height = `${TOTAL_HOURS * HOUR_H}px`;
   col.style.position = 'relative';
 
   // Hour lines and click areas
   for (let h = 0; h < TOTAL_HOURS; h++) {
+    const isWorkingHour = isWorkDay && (h >= wh.startHour && h < wh.endHour);
+
     const line = document.createElement('div');
     line.className = 'hour-line';
     line.style.top = `${h * HOUR_H}px`;
@@ -468,7 +474,7 @@ function createTimeCol(allEvents, date, cb) {
 
     // Click area for creating events
     const slot = document.createElement('div');
-    slot.className = 'time-slot-click-area';
+    slot.className = `time-slot-click-area${!isWorkingHour ? ' non-working-hour' : ''}`;
     slot.style.top  = `${h * HOUR_H}px`;
     slot.style.height = `${HOUR_H}px`;
     slot.addEventListener('click', () => {

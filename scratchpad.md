@@ -289,11 +289,18 @@
   - Added `#ev-categories` input field to event modal in `public/index.html` and wired population/submission in `public/js/eventModal.js`.
   - Added unit & integration test suite `server/test/event_categories.test.js` (8 tests, 100% green).
 
+- **Issue #19 — Support Working Hours Configuration and Grid Shading (`server/utils/workingHoursPolicy.js`, `public/js/store.js`, `public/js/workingHours.js`, `public/js/calendar.js`, `public/css/app.css`, `server/test/working_hours_grid.test.js`):**
+  - Exported `isHourInWorkingHours(date, hour, policy)` helper in `server/utils/workingHoursPolicy.js` to evaluate whether a specific hour falls within user working hours and work days.
+  - Added initial `workingHours` state to `store.js` and wired store updates upon loading/saving policy in `public/js/workingHours.js`.
+  - Updated `createTimeCol` in `public/js/calendar.js` to tag non-workday columns with `non-working-day` and non-work-hour slot click areas with `non-working-hour`.
+  - Added theme-aware grid shading CSS rules in `public/css/app.css` (`.time-slot-click-area.non-working-hour`, `.week-day-col.non-working-day`).
+  - Added unit test suite `server/test/working_hours_grid.test.js` (4 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 398 tests, 391 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 402 tests, 395 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T18:57:00+02:00
+- Last Verified: 2026-08-24T19:01:00+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
 

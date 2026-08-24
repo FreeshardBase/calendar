@@ -78,6 +78,28 @@ function evaluateWorkingHoursPolicy(startTime, endTime, policy) {
   };
 }
 
+function isHourInWorkingHours(dateVal, hour, policy) {
+  const pol = policy || { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' };
+  const d = parseDate(dateVal) || new Date(dateVal);
+  if (!d || isNaN(d.getTime())) return false;
+
+  const workDays = (pol.workDays || '1,2,3,4,5')
+    .split(',')
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => !isNaN(n));
+
+  const startHourPolicy = pol.startHour !== undefined ? Number(pol.startHour) : 9;
+  const endHourPolicy = pol.endHour !== undefined ? Number(pol.endHour) : 17;
+
+  // getDay(): 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const dayOfWeek = d.getUTCDay();
+  const isWorkDay = workDays.includes(dayOfWeek);
+
+  const isWithinHours = hour >= startHourPolicy && hour < endHourPolicy;
+  return isWorkDay && isWithinHours;
+}
+
 module.exports = {
-  evaluateWorkingHoursPolicy
+  evaluateWorkingHoursPolicy,
+  isHourInWorkingHours
 };
