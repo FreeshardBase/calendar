@@ -16,7 +16,7 @@ services:
       INTERNAL_CALDAV_URL: https://caldav-server:5232
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
     volumes:
-      - ./data:/app/data
+      - shared-data:/app/data
       - ./ssl:/app/ssl:ro
 
   caldav-server:
@@ -26,11 +26,13 @@ services:
     restart: unless-stopped
     ports:
       - "5232:5232"
+    env_file:
+      - .env
     environment:
       DATABASE_PATH: /data/webcalendar.db
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
     volumes:
-      - ./data:/data
+      - shared-data:/data
       - radicale-collections:/data/collections
       - ./ssl:/etc/radicale/ssl:ro
 
@@ -48,7 +50,7 @@ services:
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-freeshard-default-encryption-key-do-not-use-in-prod}
     volumes:
-      - ./data:/data
+      - shared-data:/data
       - vdir-status:/data/vdir_status
       # If sync-worker needs to trust the self-signed certificate, we can mount it too
       - ./ssl:/etc/ssl/certs/local:ro

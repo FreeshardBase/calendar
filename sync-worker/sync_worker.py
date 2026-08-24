@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 # Configuration variables from environment
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 STATUS_ROOT = os.environ.get("STATUS_ROOT", "/data/vdir_status")
-ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY", "default-secret-key-32-chars-long!")
+ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY", "freeshard-default-encryption-key-do-not-use-in-prod")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
@@ -248,7 +248,7 @@ status_path = "{status_dir}"
             except Exception as fe:
                 print(f"[Sync-Worker] Error reading certificate fingerprint: {fe}")
 
-        verify_line = f'verify_fingerprint = "{fingerprint}"' if fingerprint else ""
+        verify_line = f'verify_fingerprint = "{fingerprint}"' if fingerprint else 'verify = false'
 
         local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 

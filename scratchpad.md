@@ -188,17 +188,31 @@
 - [x] Issue #53: Series Destruction & Recurrence Rule Preservation on No-Op Event Saves
 - [x] Issue #241: Whole-Series Save EXDATE and Detached Override Preservation
 - [x] Issue #242: No-Op Whole-Series Save Detached Override Scope Isolation
-- **SSRF & CalDAV Master Credential Leak Fix / Absolute Href Removal (`server/caldav/parser.js`, `server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`, `server/test/ssrf_absolute_href_leak.test.js`):**
-  - Enhanced `resolveUrl` in `parser.js` and `buildAbsoluteUrl` in `events.js` / `tasks.js` to strip external origins (`http://...` / `https://...`) from untrusted hrefs, forcing all target URLs to resolve strictly against the trusted account/caldav base URL (`account.url`).
-  - Updated `resolveCalendar`, `GET /api/calendars` share lookup, and `POST /api/calendars/:id/delta-sync` in `server/routes/calendars.js` to route all href resolution through `resolveUrl`.
-  - Added unit test suite `server/test/ssrf_absolute_href_leak.test.js` covering `resolveUrl`, `buildAbsoluteUrl`, `parseCalendarList`, and `resolveCalendar` (Issue #258).
+- **VTODO Foreign Property Loss Prevention (`server/caldav/parser.js`, `server/routes/tasks.js`, `server/test/vtodo_foreign_properties.test.js`):**
+  - Updated `parseICSToTask` and `parseVTodoToTask` in `server/caldav/parser.js` to preserve `rawIcs` on parsed task objects.
+  - Enhanced `taskToICS(task, existingIcs)` to modify existing VTODO components in-place via ical.js when `existingIcs` (or `task.rawIcs`) is present, preserving all foreign properties (e.g. `CATEGORIES`, `LOCATION`, `ORGANIZER`, `ATTENDEE`, `VALARM`, `X-*`, `PRODID`).
+  - Updated `PUT /api/tasks/:uid` in `server/routes/tasks.js` to fetch existing task content via `client.get` and pass it to `taskToICS`.
+  - Added regression test suite `server/test/vtodo_foreign_properties.test.js` (Issue #260).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 207 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 220 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241, #242, #258 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241, #242, #258, #260, #324 completed 100% green.
 
+- **Docker Quick Start & Compose Environment Fixes (`docker-compose.yml`, `radicale/Dockerfile`, `radicale/entrypoint.sh`, `sync-worker/sync_worker.py`, `Dockerfile`, `.dockerignore`, `server/test/docker_compose_environment.test.js`):**
+  - Updated `docker-compose.yml` to use `shared-data` volume across `webcalendar`, `caldav-server`, and `sync-worker` services, fixing host bind mount permissions (`EACCES`) for `USER node`.
+  - Added `env_file: - .env` to `caldav-server` in `docker-compose.yml`.
+  - Created `radicale/entrypoint.sh` with automatic fallback self-signed SSL certificate generation (`openssl req`) when `/etc/radicale/ssl/cert.pem` / `key.pem` are missing on host. Updated `radicale/Dockerfile` to install `openssl` and run `entrypoint.sh`.
+  - Aligned `sync-worker/sync_worker.py` default `ENCRYPTION_SECRET` fallback with `server/db.js` (`freeshard-default-encryption-key-do-not-use-in-prod`).
+  - Added `verify = false` fallback in `sync_worker.py` for local HTTPS Radicale when certificate fingerprint is missing.
+  - Updated `Dockerfile` healthcheck order and added runtime data/db patterns (`data/`, `webcalendar.db*`, `ssl/`) to `.dockerignore`.
+  - Added test suite `server/test/docker_compose_environment.test.js` (6 tests, Issue #259).
 
+## Test Execution State
+- Node Unit & Integration Suite: 239 tests, 232 PASSED, 7 skipped, 0 fail (100% green)
+- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
 
+## Completed Tasks
+- [x] Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #324 completed 100% green.

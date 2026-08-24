@@ -7,3 +7,7 @@ sessions/
 Dockerfile
 docker-compose.yml
 *.md
+data/
+webcalendar.db*
+ssl/
+
