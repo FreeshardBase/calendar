@@ -103,7 +103,20 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
 
     // 2. Fallback to token decryption
     if (!payload) {
-      payload = decryptToken(req.params.token);
+      const decrypted = decryptToken(req.params.token);
+      if (decrypted) {
+        const account = await resolveShareAccount(decrypted.id, decrypted.url);
+        if (account) {
+          payload = {
+            id: account.id,
+            url: resolveUrl(account.url, decrypted.url),
+            username: account.username,
+            password: account.password,
+            authType: account.authType,
+            publicShareId: decrypted.publicShareId
+          };
+        }
+      }
     }
 
     if (!payload) {
@@ -120,7 +133,13 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
 
     // Verify token matches the custom property on the CalDAV calendar (only for legacy encrypted shares)
     if (!isDbShare) {
-      const activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
+      let activeTokenId = null;
+      try {
+        activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
+      } catch (propErr) {
+        console.warn('[share token check warning]', propErr.message);
+        return res.status(404).send('This public calendar share is no longer valid.');
+      }
       if (!activeTokenId || activeTokenId !== payload.publicShareId) {
         return res.status(404).send('This public calendar share has been disabled or regenerated.');
       }
@@ -143,35 +162,43 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
  */
 async function fetchCalendarICS(client, calendarUrl) {
   const exportUrl = calendarUrl.endsWith('/') ? (calendarUrl + '?export') : (calendarUrl + '/?export');
-  const davRes = await client._request('GET', exportUrl);
-
-  if (davRes.ok) {
-    return davRes.text();
+  try {
+    const davRes = await client._request('GET', exportUrl);
+    if (davRes && davRes.ok) {
+      return await davRes.text();
+    }
+  } catch (e) {
+    console.warn('[fetchCalendarICS] GET export failed, attempting REPORT fallback:', e.message);
   }
 
   // Fallback: query events via REPORT and re-assemble a combined calendar
-  const now = new Date();
-  const start = new Date(now.getFullYear() - 1, 0, 1);
-  const end = new Date(now.getFullYear() + 5, 11, 31);
+  try {
+    const now = new Date();
+    const start = new Date(now.getFullYear() - 1, 0, 1);
+    const end = new Date(now.getFullYear() + 5, 11, 31);
 
-  const eventsXml = await client.getEvents(calendarUrl, start, end);
-  const { parseEventDataList } = require('../caldav/parser');
+    const eventsXml = await client.getEvents(calendarUrl, start, end);
+    const { parseEventDataList } = require('../caldav/parser');
 
-  let ics = `BEGIN:VCALENDAR\r
+    let ics = `BEGIN:VCALENDAR\r
 VERSION:2.0\r
 PRODID:-//FreeShard WebCalendar//NONSGML v1.0//EN\r
 CALSCALE:GREGORIAN\r\n`;
 
-  for (const evIcs of parseEventDataList(eventsXml)) {
-    // Keep only the components (VEVENT/VTIMEZONE) of each per-event calendar
-    const components = evIcs.match(/BEGIN:(VEVENT|VTIMEZONE)[\s\S]*?END:\1/g) || [];
-    for (const comp of components) {
-      ics += comp.replace(/\r?\n/g, '\r\n') + '\r\n';
+    for (const evIcs of parseEventDataList(eventsXml)) {
+      // Keep only the components (VEVENT/VTIMEZONE) of each per-event calendar
+      const components = evIcs.match(/BEGIN:(VEVENT|VTIMEZONE)[\s\S]*?END:\1/g) || [];
+      for (const comp of components) {
+        ics += comp.replace(/\r?\n/g, '\r\n') + '\r\n';
+      }
     }
-  }
 
-  ics += 'END:VCALENDAR\r\n';
-  return ics;
+    ics += 'END:VCALENDAR\r\n';
+    return ics;
+  } catch (err) {
+    console.error('[fetchCalendarICS fallback error]', err.message);
+    return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`;
+  }
 }
 
 /**
@@ -181,11 +208,13 @@ CALSCALE:GREGORIAN\r\n`;
  */
 async function resolveShareAccount(accountId, calendarHref) {
   if (accountId === 'internal-caldav') {
-    const ownerId = calendarHref.split('/').filter(Boolean)[0];
+    const cleanPath = (calendarHref || '').replace(/^(\\\\|[a-z0-9+-.]+:\/\/|\/\/)[^/]+/i, '');
+    const segments = cleanPath.split('/').filter(Boolean);
+    const ownerId = segments[0];
     if (!ownerId) return null;
     return {
       id: accountId,
-      url: process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232',
+      url: process.env.INTERNAL_CALDAV_URL || 'http://localhost:5232',
       username: ownerId,
       password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
       authType: 'basic'
@@ -265,7 +294,7 @@ router.get('/', async (req, res) => {
               const parts = share.calendar_id.split('::');
               const calendarHref = parts[1];
               
-              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'http://localhost:5232';
               const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
               
               const xmlRes = await client._request('PROPFIND', calendarUrl, {
