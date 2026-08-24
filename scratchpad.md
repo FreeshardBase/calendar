@@ -303,20 +303,19 @@
   - Added Keyboard Shortcuts help modal (`#shortcuts-modal-backdrop`) and CSS styling (`.shortcut-row`, `.shortcut-badge`).
   - Added unit test suite `server/test/keyboard_shortcuts.test.js` (8 tests, 100% green).
 
-- **Issue #22 — Implement Print View and PDF Export Stylesheet (`public/css/app.css`, `server/test/print_stylesheet.test.js`):**
-  - Added `.no-print` (display none in print) and `.print-only` (display block in print, none on screen) helper utility rules.
-  - Enhanced `@media print` rules to hide non-printable interactive elements (`.sidebar`, `.toolbar-nav`, `.view-tabs`, `.search-wrapper`, `#export-pdf-btn`, `#invitations-btn`, `#availability-btn`, `#sidebar-toggle`, `#sidebar-settings-btn`, `.status-bar`, `.modal-backdrop`, `.popover`, `.notifications-toast`, `#kanban-side-drawer`, `.drawer-backdrop`, `.shortcuts-modal-backdrop`, `.toolbar-tz-select-wrapper`, `.quick-add-container`, `.header-actions`).
-  - Added page break prevention (`break-inside: avoid`, `page-break-inside: avoid`) for grid containers and cards (`.calendar-container`, `.month-grid`, `.week-grid`, `.agenda-view`, `.kanban-board`, `.month-day-cell`, `.week-day-col`, `.event-chip`, `.kanban-card`, `.agenda-item`).
-  - Enforced pure white background (`background: #ffffff !important`), high-contrast text (`color: #000000 !important`), and overflow visibility (`overflow: visible !important`) to prevent truncated printouts.
-  - Added test suite `server/test/print_stylesheet.test.js` (6 tests, 100% green).
+- **Issue #24 — Support Webcal/ICS Read-Only Calendar Subscriptions (Feeds) (`server/db.js`, `server/utils/webcalSubscription.js`, `server/routes/webcal.js`, `server/index.js`, `server/test/webcal_subscriptions.test.js`):**
+  - Added SQLite `webcal_subscriptions` table (`id`, `user_id`, `name`, `url`, `color`, `refresh_interval`, `last_synced_at`, `created_at`) with index on `user_id` and DB helpers (`createWebcalSubscription`, `getWebcalSubscriptions`, `getWebcalSubscription`, `updateWebcalSubscription`, `updateWebcalSubscriptionSyncTime`, `deleteWebcalSubscription`).
+  - Created `server/utils/webcalSubscription.js` supporting URL normalization (`webcal://` -> `https://` / `http://` validation), feed fetching via HTTP, and iCalendar parsing into read-only event objects tagged with `readOnly: true`, `isSubscription: true`, `subscriptionId`, and custom feed display color.
+  - Created REST API router `server/routes/webcal.js` mounted at `/api/webcal` supporting subscription CRUD, event fetching, and manual sync refresh with authentication (`401`) and ownership scoping (`404`).
+  - Added unit & integration test suite `server/test/webcal_subscriptions.test.js` (5 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 416 tests, 409 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 421 tests, 414 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T19:08:50+02:00
+- Last Verified: 2026-08-24T19:14:21+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #22, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #22, #23, #24, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
 
 
 

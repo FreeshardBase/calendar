@@ -266,6 +266,19 @@ db.serialize(() => {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ics_fetch_log_token_time ON ics_fetch_log(token, fetched_at)`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS webcal_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#3b82f6',
+      refresh_interval INTEGER NOT NULL DEFAULT 3600,
+      last_synced_at INTEGER,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_webcal_subscriptions_user ON webcal_subscriptions(user_id)`);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -1955,6 +1968,112 @@ const Db = {
         function(err) {
           if (err) return reject(err);
           resolve({ changes: this.changes });
+        }
+      );
+    });
+  },
+
+  /**
+   * Webcal / ICS Read-Only Calendar Subscriptions (Issue #24)
+   */
+  createWebcalSubscription({ userId, name, url, color = '#3b82f6', refreshInterval = 3600 }) {
+    return new Promise((resolve, reject) => {
+      const id = uuidv4();
+      const now = Math.floor(Date.now() / 1000);
+      db.run(
+        `INSERT INTO webcal_subscriptions (id, user_id, name, url, color, refresh_interval, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, userId, name, url, color, refreshInterval, now],
+        function(err) {
+          if (err) return reject(err);
+          resolve({
+            id,
+            user_id: userId,
+            name,
+            url,
+            color,
+            refresh_interval: refreshInterval,
+            last_synced_at: null,
+            created_at: now
+          });
+        }
+      );
+    });
+  },
+
+  getWebcalSubscriptions(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, created_at
+         FROM webcal_subscriptions WHERE user_id = ? ORDER BY created_at DESC`,
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        }
+      );
+    });
+  },
+
+  getWebcalSubscription(id, userId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, created_at
+         FROM webcal_subscriptions WHERE id = ? AND user_id = ?`,
+        [id, userId],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row || null);
+        }
+      );
+    });
+  },
+
+  updateWebcalSubscription(id, userId, updates = {}) {
+    return new Promise((resolve, reject) => {
+      this.getWebcalSubscription(id, userId).then(existing => {
+        if (!existing) return resolve(null);
+        const name = updates.name !== undefined ? updates.name : existing.name;
+        const color = updates.color !== undefined ? updates.color : existing.color;
+        const refreshInterval = updates.refreshInterval !== undefined ? updates.refreshInterval : existing.refresh_interval;
+        db.run(
+          `UPDATE webcal_subscriptions SET name = ?, color = ?, refresh_interval = ? WHERE id = ? AND user_id = ?`,
+          [name, color, refreshInterval, id, userId],
+          function(err) {
+            if (err) return reject(err);
+            resolve({
+              ...existing,
+              name,
+              color,
+              refresh_interval: refreshInterval
+            });
+          }
+        );
+      }).catch(reject);
+    });
+  },
+
+  updateWebcalSubscriptionSyncTime(id, lastSyncedAt) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `UPDATE webcal_subscriptions SET last_synced_at = ? WHERE id = ?`,
+        [lastSyncedAt, id],
+        function(err) {
+          if (err) return reject(err);
+          resolve({ changes: this.changes });
+        }
+      );
+    });
+  },
+
+  deleteWebcalSubscription(id, userId) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM webcal_subscriptions WHERE id = ? AND user_id = ?`,
+        [id, userId],
+        function(err) {
+          if (err) return reject(err);
+          resolve(this.changes > 0);
         }
       );
     });

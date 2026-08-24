@@ -32,6 +32,7 @@ const attachmentsRouter = require('./routes/attachments');
 const quickAddRouter = require('./routes/quickAdd');
 const freebusyRouter = require('./routes/freebusy');
 const notificationsRouter = require('./routes/notifications');
+const webcalRouter = require('./routes/webcal');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -193,6 +194,7 @@ app.use('/api/attachments',       requireAuth, attachmentsRouter);
 app.use('/api/quick-add',         requireAuth, quickAddRouter);
 app.use('/api/freebusy',          requireAuth, freebusyRouter);
 app.use('/api/notifications',     notificationsRouter);
+app.use('/api/webcal',            webcalRouter);
 app.use('/api',                   availabilityRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
