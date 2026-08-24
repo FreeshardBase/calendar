@@ -275,10 +275,16 @@
   - Mounted `/api/quick-add` router in `server/index.js`.
   - Added unit and REST API test suite `server/test/nlp_quick_add.test.js` (16 tests, 100% green).
 
+- **Issue #16 — Implement Participant Availability (Free/Busy) Scheduler (`server/utils/freebusyScheduler.js`, `server/routes/freebusy.js`, `server/index.js`, `server/test/freebusy_scheduler.test.js`):**
+  - Created `server/utils/freebusyScheduler.js` implementing `isEventBusyInWindow`, `queryParticipantAvailability`, `findCommonFreeSlots`, `buildVFreeBusy`, `parseVFreeBusy`, and `formatICalDate`.
+  - Created `server/routes/freebusy.js` exposing endpoints `POST /api/freebusy/query`, `POST /api/freebusy/find-slots`, and `GET /api/freebusy/vfreebusy`.
+  - Enforced authentication gate (`requireAuth`) returning 401 for unauthenticated API access.
+  - Added unit and REST API test suite `server/test/freebusy_scheduler.test.js` (10 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 368 tests, 361 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 378 tests, 371 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T18:38:54+02:00
+- Last Verified: 2026-08-24T18:43:00+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.

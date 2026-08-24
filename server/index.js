@@ -30,6 +30,7 @@ const delegatesRouter = require('./routes/delegates');
 const workingHoursRouter = require('./routes/workingHours');
 const attachmentsRouter = require('./routes/attachments');
 const quickAddRouter = require('./routes/quickAdd');
+const freebusyRouter = require('./routes/freebusy');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -189,6 +190,7 @@ app.use('/api/delegates',         requireAuth, delegatesRouter);
 app.use('/api/working-hours',     requireAuth, workingHoursRouter);
 app.use('/api/attachments',       requireAuth, attachmentsRouter);
 app.use('/api/quick-add',         requireAuth, quickAddRouter);
+app.use('/api/freebusy',          requireAuth, freebusyRouter);
 app.use('/api',                   availabilityRouter);
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
