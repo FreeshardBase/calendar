@@ -74,10 +74,18 @@ db.serialize(() => {
       calendar_id TEXT NOT NULL,
       sharee_user_id TEXT NOT NULL,
       read_write INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      role TEXT DEFAULT 'WRITE',
+      can_view_private INTEGER DEFAULT 0,
+      can_manage_shares INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       UNIQUE(calendar_id, sharee_user_id)
     )
   `);
+  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN status TEXT NOT NULL DEFAULT 'PENDING'`, () => {});
+  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN role TEXT DEFAULT 'WRITE'`, () => {});
+  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN can_view_private INTEGER DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN can_manage_shares INTEGER DEFAULT 0`, () => {});
   db.run(`
     CREATE TABLE IF NOT EXISTS calendar_sync_cache (
       calendar_id TEXT PRIMARY KEY,
@@ -198,6 +206,15 @@ db.serialize(() => {
       owner_user_id TEXT NOT NULL,
       deleted_by TEXT NOT NULL,
       created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_calendar_color_overrides (
+      user_id TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      color TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, calendar_id)
     )
   `);
   // Silent migrations for existing local databases
@@ -610,7 +627,7 @@ const Db = {
   getUserShares(calendarId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT s.sharee_user_id, s.read_write, u.username
+        `SELECT s.id, s.calendar_id, s.sharee_user_id, s.read_write, s.status, s.role, s.can_view_private, s.can_manage_shares, u.username
          FROM user_calendar_shares s
          LEFT JOIN users u ON s.sharee_user_id = u.user_id
          WHERE s.calendar_id = ?`,
@@ -618,27 +635,59 @@ const Db = {
         (err, rows) => {
           if (err) return reject(err);
           resolve(rows.map(row => ({
+            id: row.id,
+            calendarId: row.calendar_id,
+            shareeUserId: row.sharee_user_id,
             href: `/${row.sharee_user_id}/`,
             commonName: row.username || row.sharee_user_id,
             readWrite: !!row.read_write,
-            status: 'ACCEPTED'
+            role: row.role || (row.read_write ? 'WRITE' : 'READ'),
+            canViewPrivate: !!row.can_view_private,
+            canManageShares: !!row.can_manage_shares,
+            status: row.status || 'ACCEPTED'
           })));
         }
       );
     });
   },
 
-  addUserShare(calendarId, shareeUserId, readWrite) {
+  addUserShare(calendarId, shareeUserId, readWrite, status = 'ACCEPTED', role = null, canViewPrivate = 0, canManageShares = 0) {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
       const now = Date.now();
+      const derivedRole = role || (readWrite ? 'WRITE' : 'READ');
+      const rw = (derivedRole === 'WRITE' || derivedRole === 'ADMIN' || (readWrite && derivedRole !== 'READ' && derivedRole !== 'FREE_BUSY')) ? 1 : 0;
       db.run(
-        `INSERT OR REPLACE INTO user_calendar_shares (id, calendar_id, sharee_user_id, read_write, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [id, calendarId, shareeUserId, readWrite ? 1 : 0, now],
+        `INSERT OR REPLACE INTO user_calendar_shares (id, calendar_id, sharee_user_id, read_write, status, created_at, role, can_view_private, can_manage_shares)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, calendarId, shareeUserId, rw, status, now, derivedRole, canViewPrivate ? 1 : 0, canManageShares ? 1 : 0],
         (err) => {
           if (err) return reject(err);
           resolve();
+        }
+      );
+    });
+  },
+
+  updateUserSharePermissions(calendarId, shareeUserId, { role, readWrite, canViewPrivate, canManageShares }) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT id, read_write, role, can_view_private, can_manage_shares FROM user_calendar_shares WHERE calendar_id = ? AND sharee_user_id = ?`,
+        [calendarId, shareeUserId],
+        (err, row) => {
+          if (err || !row) return reject(err || new Error('Share not found'));
+          const newRole = role || row.role || (readWrite !== undefined ? (readWrite ? 'WRITE' : 'READ') : 'WRITE');
+          const rw = readWrite !== undefined ? (readWrite ? 1 : 0) : ((newRole === 'WRITE' || newRole === 'ADMIN') ? 1 : 0);
+          const viewPrivate = canViewPrivate !== undefined ? (canViewPrivate ? 1 : 0) : row.can_view_private;
+          const manageShares = canManageShares !== undefined ? (canManageShares ? 1 : 0) : row.can_manage_shares;
+          db.run(
+            `UPDATE user_calendar_shares SET role = ?, read_write = ?, can_view_private = ?, can_manage_shares = ? WHERE id = ?`,
+            [newRole, rw, viewPrivate, manageShares, row.id],
+            (updateErr) => {
+              if (updateErr) return reject(updateErr);
+              resolve();
+            }
+          );
         }
       );
     });
@@ -660,11 +709,73 @@ const Db = {
   getSharedCalendarsForUser(shareeUserId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT calendar_id, read_write FROM user_calendar_shares WHERE sharee_user_id = ?`,
+        `SELECT calendar_id, read_write, role, can_view_private, can_manage_shares FROM user_calendar_shares WHERE sharee_user_id = ? AND (status IS NULL OR status = 'ACCEPTED')`,
         [shareeUserId],
         (err, rows) => {
           if (err) return reject(err);
-          resolve(rows);
+          resolve(rows.map(row => ({
+            calendar_id: row.calendar_id,
+            read_write: !!row.read_write,
+            role: row.role || (row.read_write ? 'WRITE' : 'READ'),
+            can_view_private: !!row.can_view_private,
+            can_manage_shares: !!row.can_manage_shares
+          })));
+        }
+      );
+    });
+  },
+
+  getPendingShareInvitationsForUser(shareeUserId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT s.id, s.calendar_id, s.sharee_user_id, s.read_write, s.status, s.created_at, u.username AS owner_username
+         FROM user_calendar_shares s
+         LEFT JOIN users u ON u.user_id = s.sharee_user_id
+         WHERE s.sharee_user_id = ? AND s.status = 'PENDING'`,
+        [shareeUserId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(row => ({
+            id: row.id,
+            calendarId: row.calendar_id,
+            shareeUserId: row.sharee_user_id,
+            readWrite: !!row.read_write,
+            status: row.status,
+            createdAt: row.created_at
+          })));
+        }
+      );
+    });
+  },
+
+  getShareInvitationById(id) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT id, calendar_id, sharee_user_id, read_write, status, created_at FROM user_calendar_shares WHERE id = ?`,
+        [id],
+        (err, row) => {
+          if (err || !row) return resolve(null);
+          resolve({
+            id: row.id,
+            calendarId: row.calendar_id,
+            shareeUserId: row.sharee_user_id,
+            readWrite: !!row.read_write,
+            status: row.status,
+            createdAt: row.created_at
+          });
+        }
+      );
+    });
+  },
+
+  updateShareStatus(id, status) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `UPDATE user_calendar_shares SET status = ? WHERE id = ?`,
+        [status, id],
+        function(err) {
+          if (err) return reject(err);
+          resolve(this.changes > 0);
         }
       );
     });
@@ -1452,6 +1563,66 @@ const Db = {
         if (err) return reject(err);
         resolve(this.changes);
       });
+    });
+  },
+
+  setUserCalendarColorOverride(userId, calendarId, color) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(
+        `INSERT OR REPLACE INTO user_calendar_color_overrides (user_id, calendar_id, color, updated_at)
+         VALUES (?, ?, ?, ?)`,
+        [userId, calendarId, color, now],
+        (err) => {
+          if (err) return reject(err);
+          resolve({ userId, calendarId, color, updatedAt: now });
+        }
+      );
+    });
+  },
+
+  getUserCalendarColorOverrides(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT calendar_id, color FROM user_calendar_color_overrides WHERE user_id = ?`,
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          const overrides = {};
+          if (rows) {
+            for (const row of rows) {
+              overrides[row.calendar_id] = row.color;
+            }
+          }
+          resolve(overrides);
+        }
+      );
+    });
+  },
+
+  getUserCalendarColorOverride(userId, calendarId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT color FROM user_calendar_color_overrides WHERE user_id = ? AND calendar_id = ?`,
+        [userId, calendarId],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row ? row.color : null);
+        }
+      );
+    });
+  },
+
+  deleteUserCalendarColorOverride(userId, calendarId) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM user_calendar_color_overrides WHERE user_id = ? AND calendar_id = ?`,
+        [userId, calendarId],
+        function(err) {
+          if (err) return reject(err);
+          resolve(this.changes);
+        }
+      );
     });
   }
 };

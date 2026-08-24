@@ -71,11 +71,6 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
     return { allowed: true, isOwner: true };
   }
 
-  // Non-owners are forbidden from 'owner' level actions (deleting calendar, managing shares)
-  if (requiredAccess === 'owner') {
-    return { allowed: false, status: 403, reason: 'Owner permission required for this action' };
-  }
-
   // 2. Check internal calendar share table
   const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
   const userShares = await Db.getSharedCalendarsForUser(userUuid);
@@ -86,11 +81,28 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
       : null);
 
   if (matchingShare) {
-    const canWrite = !!matchingShare.read_write;
+    const role = matchingShare.role || (matchingShare.read_write ? 'WRITE' : 'READ');
+    const canManageShares = !!matchingShare.can_manage_shares || role === 'ADMIN';
+    const canViewPrivate = !!matchingShare.can_view_private || role === 'ADMIN';
+    const canWrite = role === 'WRITE' || role === 'ADMIN' || (!!matchingShare.read_write && role !== 'READ' && role !== 'FREE_BUSY');
+
+    if (requiredAccess === 'owner') {
+      if (canManageShares) {
+        return { allowed: true, isOwner: false, canManageShares: true, role, canViewPrivate };
+      }
+      return { allowed: false, status: 403, reason: 'Owner permission required for this action' };
+    }
+
     if (requiredAccess === 'write' && !canWrite) {
       return { allowed: false, status: 403, reason: 'Read-only calendar access: modification prohibited' };
     }
-    return { allowed: true, isOwner: false, readOnly: !canWrite };
+
+    return { allowed: true, isOwner: false, readOnly: !canWrite, role, canViewPrivate, canManageShares };
+  }
+
+  // Non-owners without matching share are forbidden from 'owner' level actions
+  if (requiredAccess === 'owner') {
+    return { allowed: false, status: 403, reason: 'Owner permission required for this action' };
   }
 
   // 3. Check delegate permissions

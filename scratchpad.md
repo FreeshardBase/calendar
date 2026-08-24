@@ -221,15 +221,15 @@
   - Updated `escIcal(str)` and all property value formatters in `eventToICS` and `buildItipReply` to strip or escape newlines across `STATUS`, `UID`, `ORGANIZER`, `ATTENDEE`, `RRULE`, `VALARM`, and `ATTACH` properties, blocking header/property injection attacks.
   - Added test suite `server/test/ical_property_escaping.test.js` verifying parameter breakout protection and header injection prevention across event/iTIP reply payloads (Issue #314).
 
-- **Sync Queue Request Owner Authorization Verification (`server/utils/calendarAuth.js`, `server/routes/calendars.js`, `server/routes/msgraph.js`, `server/test/sync_queue_auth.test.js`):**
-  - Updated `queueSyncForCalendar(calendarId, fallbackUserId)` in `server/utils/calendarAuth.js` to verify `fallbackUserId` authorization via `checkCalendarAccess` before enqueueing sync jobs for calendar owners, preventing unauthorized users from triggering sync tasks.
-  - Added route handler `POST /api/calendars/:id/sync-queue` enforcing session authentication (`401`) and calendar read access checks (`403`).
-  - Enforced ownership verification (`account.userId !== userId` -> `403 Forbidden`) on MS Graph account endpoints `POST /api/msgraph/accounts/:id/sync` and `DELETE /api/msgraph/accounts/:id`.
-  - Added test suite `server/test/sync_queue_auth.test.js` (6 tests, Issue #323).
+- **Local Color Customization for Subscribed/Shared Calendars (`server/db.js`, `server/routes/calendars.js`, `server/test/local_calendar_color.test.js`):**
+  - Created SQLite table `user_calendar_color_overrides` with primary key `(user_id, calendar_id)` and added DB helpers (`setUserCalendarColorOverride`, `getUserCalendarColorOverrides`, `getUserCalendarColorOverride`, `deleteUserCalendarColorOverride`).
+  - Updated `PATCH /api/calendars/:id` in `server/routes/calendars.js` to allow setting local color overrides for users with `read` access, while enforcing `write` access for renaming `name`.
+  - Updated `GET /api/calendars` to apply per-user local color overrides to all returned calendars for `req.session.userId`.
+  - Added endpoint `DELETE /api/calendars/:id/color-override` to clear per-user local color overrides.
+  - Added test suite `server/test/local_calendar_color.test.js` (Issue #4).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 263 tests, 256 PASSED, 7 skipped (100% green)
-- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 291 tests, 284 PASSED, 7 skipped (100% green)
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.

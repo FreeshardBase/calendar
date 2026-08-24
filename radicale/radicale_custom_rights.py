@@ -40,14 +40,19 @@ class Rights(BaseRights):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT read_write FROM user_calendar_shares WHERE calendar_id = ? AND sharee_user_id = ?",
+                "SELECT read_write, role, status FROM user_calendar_shares WHERE calendar_id = ? AND sharee_user_id = ?",
                 (calendar_id, user)
             )
             row = cursor.fetchone()
             conn.close()
 
             if row is not None:
-                has_write = bool(row[0])
+                rw_flag, role, status = row[0], row[1], row[2]
+                if status and status != 'ACCEPTED':
+                    return ""
+                has_write = bool(rw_flag) or role in ('WRITE', 'ADMIN')
+                if role in ('READ', 'FREE_BUSY'):
+                    has_write = False
                 return "rw" if has_write else "r"
 
             return ""

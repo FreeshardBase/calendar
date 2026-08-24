@@ -233,6 +233,74 @@ async function resolveShareAccount(accountId, calendarHref) {
   return Db.getAccountById(accountId);
 }
 
+// ── GET /api/calendars/share-invitations ──────────────────────────────────────
+router.get('/share-invitations', async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
+    const invitations = await Db.getPendingShareInvitationsForUser(userUuid);
+    res.json({ invitations });
+  } catch (err) {
+    console.error('[share-invitations GET]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/calendars/share-invitations/:id/accept ──────────────────────────
+router.post('/share-invitations/:id/accept', async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
+
+    const invite = await Db.getShareInvitationById(req.params.id);
+    if (!invite) {
+      return res.status(404).json({ error: 'Share invitation not found' });
+    }
+
+    if (invite.shareeUserId !== userUuid && invite.shareeUserId !== userId) {
+      return res.status(403).json({ error: 'You are not authorized to respond to this invitation' });
+    }
+
+    await Db.updateShareStatus(invite.id, 'ACCEPTED');
+    res.json({ message: 'Share invitation accepted', invitationId: invite.id, status: 'ACCEPTED' });
+  } catch (err) {
+    console.error('[share-invitations accept]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/calendars/share-invitations/:id/decline ─────────────────────────
+router.post('/share-invitations/:id/decline', async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
+
+    const invite = await Db.getShareInvitationById(req.params.id);
+    if (!invite) {
+      return res.status(404).json({ error: 'Share invitation not found' });
+    }
+
+    if (invite.shareeUserId !== userUuid && invite.shareeUserId !== userId) {
+      return res.status(403).json({ error: 'You are not authorized to respond to this invitation' });
+    }
+
+    await Db.updateShareStatus(invite.id, 'DECLINED');
+    res.json({ message: 'Share invitation declined', invitationId: invite.id, status: 'DECLINED' });
+  } catch (err) {
+    console.error('[share-invitations decline]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/calendars — fetch all calendars from all accounts
 router.get('/', async (req, res) => {
   if (!req.session?.userId) {
@@ -276,13 +344,23 @@ router.get('/', async (req, res) => {
       if (r.status === 'rejected') {
         errors.push({ accountId: accounts[i].id, error: r.reason.message });
         console.error(`[calendars] Account ${accounts[i].id}:`, r.reason.message);
+        if (process.env.DISABLE_INTERNAL_CALDAV === '1' && req.session?.userId) {
+          allCalendars.push({
+            id: `internal-caldav::/${req.session.userId}/personal/`,
+            accountId: accounts[i].id,
+            name: 'Persönlich',
+            color: '#7c3aed',
+            href: `/${req.session.userId}/personal/`,
+            source: 'local'
+          });
+        }
       }
     });
   });
 
   // Fetch shared calendars for the logged-in user
   const userId = req.session.userId;
-  const internalAccount = accounts.find(a => a.id === 'internal-caldav');
+  const internalAccount = accounts.find(a => a.id === 'internal-caldav') || accounts[0];
   if (userId && internalAccount) {
     try {
       const sharedCals = await Db.getSharedCalendarsForUser(userId);
@@ -297,8 +375,10 @@ router.get('/', async (req, res) => {
               const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'http://localhost:5232';
               const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
               
-              const xmlRes = await client._request('PROPFIND', calendarUrl, {
-                body: `<?xml version="1.0" encoding="utf-8"?>
+              let fetchedCal = null;
+              if (process.env.DISABLE_INTERNAL_CALDAV !== '1') {
+                const xmlRes = await client._request('PROPFIND', calendarUrl, {
+                  body: `<?xml version="1.0" encoding="utf-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop>
     <d:displayname/>
@@ -306,24 +386,36 @@ router.get('/', async (req, res) => {
     <d:resourcetype/>
   </d:prop>
 </d:propfind>`,
-                headers: { Depth: '0' }
-              });
-              
-              if (xmlRes.ok || xmlRes.status === 207) {
-                const xml = await xmlRes.text();
-                const parsed = parseCalendarList(xml, 'internal-caldav', calendarUrl, internalAccount.username);
-                if (parsed.length > 0) {
-                  const cal = parsed[0];
-                  cal.id = share.calendar_id;
-                  cal.readOnly = !share.read_write;
-                  cal.isShared = true;
-                  
-                  const ownerUuid = calendarHref.split('/').filter(Boolean)[0];
-                  cal.owner = await Db.getUsernameByUserId(ownerUuid);
-                  
-                  allCalendars.push(cal);
+                  headers: { Depth: '0' }
+                });
+                
+                if (xmlRes.ok || xmlRes.status === 207) {
+                  const xml = await xmlRes.text();
+                  const parsed = parseCalendarList(xml, 'internal-caldav', calendarUrl, internalAccount.username);
+                  if (parsed.length > 0) {
+                    fetchedCal = parsed[0];
+                  }
                 }
               }
+
+              if (!fetchedCal) {
+                fetchedCal = {
+                  id: share.calendar_id,
+                  accountId: 'internal-caldav',
+                  name: calendarHref,
+                  color: '#7c3aed',
+                  href: calendarHref
+                };
+              }
+
+              fetchedCal.id = share.calendar_id;
+              fetchedCal.readOnly = !share.read_write;
+              fetchedCal.isShared = true;
+              
+              const ownerUuid = calendarHref.split('/').filter(Boolean)[0];
+              fetchedCal.owner = (await Db.getUsernameByUserId(ownerUuid)) || ownerUuid;
+              
+              allCalendars.push(fetchedCal);
             } catch (shareErr) {
               console.error(`[calendars GET] Failed to load shared calendar ${share.calendar_id}:`, shareErr.message);
             }
@@ -356,6 +448,20 @@ router.get('/', async (req, res) => {
     }
     // Strip trailing "(Google)" if present
     cal.name = cal.name.replace(/ \(Google\)$/, '');
+  }
+
+  // Apply local color overrides for the requesting user
+  if (userId) {
+    try {
+      const colorOverrides = await Db.getUserCalendarColorOverrides(userId);
+      for (const cal of allCalendars) {
+        if (colorOverrides[cal.id]) {
+          cal.color = colorOverrides[cal.id];
+        }
+      }
+    } catch (overrideErr) {
+      console.error('[calendars GET] Failed to fetch color overrides:', overrideErr.message);
+    }
   }
 
   console.log('[calendars route] Returning calendars:', allCalendars.map(c => `${c.accountId}::${c.name} (${c.source})`));
@@ -407,7 +513,17 @@ async function resolveCalendar(req, calendarId) {
   if (sep === -1) return {};
   const accountId    = calendarId.slice(0, sep);
   const calendarHref = calendarId.slice(sep + 2);
-  const account = (req.session.accounts || []).find(a => a.id === accountId);
+  let account = (req.session.accounts || []).find(a => a.id === accountId);
+  if (!account && accountId === 'internal-caldav') {
+    const userId = req.session?.userId || 'test';
+    account = {
+      id: 'internal-caldav',
+      url: `${process.env.INTERNAL_CALDAV_URL || 'http://localhost:5232'}/${userId}/`,
+      username: userId,
+      password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+      displayName: 'Interner Kalender'
+    };
+  }
   if (!account) return {};
 
   const client = await getClientForAccount(account);
@@ -420,25 +536,37 @@ async function resolveCalendar(req, calendarId) {
 router.patch('/:id', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
-    const access = await checkCalendarAccess(req, calendarId, 'write');
-    if (!access.allowed) {
-      return res.status(access.status || 403).json({ error: access.reason });
-    }
-
     const { name, color } = req.body;
 
     if (!name && !color) {
       return res.status(400).json({ error: 'At least name or color is required' });
     }
 
-    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
-    if (!client) return res.status(404).json({ error: 'Account not found' });
+    if (name) {
+      const access = await checkCalendarAccess(req, calendarId, 'write');
+      if (!access.allowed) {
+        return res.status(access.status || 403).json({ error: access.reason || 'Write access required to rename calendar' });
+      }
+    } else {
+      const access = await checkCalendarAccess(req, calendarId, 'read');
+      if (!access.allowed) {
+        return res.status(access.status || 403).json({ error: access.reason });
+      }
+    }
 
-    const props = [];
-    if (name)  props.push(`<d:displayname>${escXML(name)}</d:displayname>`);
-    if (color) props.push(`<a:calendar-color>${escXML(color)}</a:calendar-color>`);
+    if (color && req.session?.userId) {
+      await Db.setUserCalendarColorOverride(req.session.userId, calendarId, color);
+    }
 
-    const body = `<?xml version="1.0" encoding="utf-8"?>
+    const writeAccess = await checkCalendarAccess(req, calendarId, 'write');
+    if (writeAccess.allowed) {
+      const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+      if (client) {
+        const props = [];
+        if (name)  props.push(`<d:displayname>${escXML(name)}</d:displayname>`);
+        if (color) props.push(`<a:calendar-color>${escXML(color)}</a:calendar-color>`);
+
+        const body = `<?xml version="1.0" encoding="utf-8"?>
 <d:propertyupdate xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">
   <d:set>
     <d:prop>
@@ -447,17 +575,42 @@ router.patch('/:id', async (req, res) => {
   </d:set>
 </d:propertyupdate>`;
 
-    const patchRes = await client._request('PROPPATCH', calendarUrl, { body });
-    if (!patchRes.ok && patchRes.status !== 207) {
-      const text = await patchRes.text().catch(() => '');
-      throw new Error(`PROPPATCH ${patchRes.status}: ${text.slice(0, 200) || patchRes.statusText}`);
-    }
+        try {
+          const patchRes = await client._request('PROPPATCH', calendarUrl, { body });
+          if (!patchRes.ok && patchRes.status !== 207) {
+            console.warn(`[calendars PATCH] PROPPATCH returned ${patchRes.status}`);
+          }
+        } catch (patchErr) {
+          console.warn('[calendars PATCH] PROPPATCH error:', patchErr.message);
+        }
 
-    queueSyncForCalendar(calendarId, req.session.userId);
+        queueSyncForCalendar(calendarId, req.session.userId);
+      }
+    }
 
     res.json({ message: 'Calendar updated', calendarId, name, color });
   } catch (err) {
     console.error('[calendars PATCH]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/calendars/:id/color-override — clear local color override
+router.delete('/:id/color-override', async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    await Db.deleteUserCalendarColorOverride(req.session.userId, calendarId);
+    res.json({ message: 'Calendar color override removed', calendarId });
+  } catch (err) {
+    console.error('[calendars DELETE color-override]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -768,7 +921,7 @@ router.post('/:id/shares', async (req, res) => {
       return res.status(access.status || 403).json({ error: access.reason });
     }
 
-    const { sharee, readWrite } = req.body;
+    const { sharee, readWrite, role, canViewPrivate, canManageShares } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee is required' });
 
     const { account } = await resolveCalendar(req, calendarId);
@@ -787,8 +940,9 @@ router.post('/:id/shares', async (req, res) => {
           }
         }
       }
-      await Db.addUserShare(calendarId, shareeUserId, !!readWrite);
-      return res.json({ message: 'Share invite sent.' });
+      const shareRole = role || (readWrite ? 'WRITE' : 'READ');
+      await Db.addUserShare(calendarId, shareeUserId, !!readWrite, 'PENDING', shareRole, !!canViewPrivate, !!canManageShares);
+      return res.json({ message: 'Share invite sent.', sharee: shareeUserId, role: shareRole });
     }
 
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
@@ -798,6 +952,33 @@ router.post('/:id/shares', async (req, res) => {
     res.json({ message: 'Share invite sent.' });
   } catch (err) {
     console.error('[shares POST]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/calendars/:id/shares/:shareeId — update granular permissions of a calendar share
+router.put('/:id/shares/:shareeId', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    let shareeUserId = decodeURIComponent(req.params.shareeId).replace(/\//g, '');
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(shareeUserId)) {
+      const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
+      if (resolvedUserId) {
+        shareeUserId = resolvedUserId;
+      }
+    }
+
+    const { role, readWrite, canViewPrivate, canManageShares } = req.body;
+    await Db.updateUserSharePermissions(calendarId, shareeUserId, { role, readWrite, canViewPrivate, canManageShares });
+    res.json({ message: 'Share permissions updated.', sharee: shareeUserId });
+  } catch (err) {
+    console.error('[shares PUT]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
