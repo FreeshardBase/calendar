@@ -66,9 +66,14 @@
   - Evaluation helper `evaluateWorkingHoursPolicy` checks date/time ranges against schedule and out-of-office dates, generating automatic rejection responses.
   - Settings drawer UI and REST endpoints (`/api/working-hours`, `/api/working-hours/evaluate`) allow users to save and test rules.
 
+- **Calendar Access Control & Read/Write Auth Enforcement (`server/utils/calendarAuth.js`, `server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`):**
+  - Added centralized authorization gate `checkCalendarAccess(req, calendarId, requiredAccess)` verifying session auth (`401`), ownership, user shares, and delegation rules (`403`).
+  - Integrated `checkCalendarAccess` across calendar management, event CRUD/RSVP, task CRUD, and share administration endpoints to block unauthorized access to foreign calendars.
+  - Added regression test suite `server/test/calendar_auth.test.js`.
+
 ## Test Execution State
-- Node Unit & Integration Suite: 107 PASSED (100% green)
-- Playwright E2E Suite: 16 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 115 PASSED, 7 skipped (100% green)
+- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -91,8 +96,9 @@
 - [x] Issue #47: [ATTACHMENT-DRIVE-LINK] Integration von Dateianhängen über die FreeShard Files App
 - [x] Issue #48: [DELEGATE-PERMISSIONS] Stellvertretende Kalenderverwaltung & Executive Assistant Berechtigungen
 - [x] Issue #49: [WORKING-HOURS-POLICY] Einstellbare Arbeitszeiten & Automatische Absage bei Abwesenheit
+- [x] Issue #50: Unauthentifizierten Zugriff auf fremde Kalender schließen (Read/Write Auth Enforcement)
 
 ## Status
-- Tasks 1–7 and Backlog Issues #37–#49 completed 100% green.
+- Tasks 1–7 and Backlog Issues #37–#50 completed 100% green.
 
 

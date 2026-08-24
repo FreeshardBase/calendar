@@ -10,6 +10,7 @@ const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseSyncCollectionResponse } = require('../caldav/parser');
 const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictResolver');
 const Db = require('../db');
+const { checkCalendarAccess } = require('../utils/calendarAuth');
 
 function slugify(name) {
   if (!name) return '';
@@ -388,6 +389,11 @@ async function resolveCalendar(req, calendarId) {
 router.patch('/:id', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { name, color } = req.body;
 
     if (!name && !color) {
@@ -429,6 +435,11 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
@@ -451,6 +462,11 @@ router.delete('/:id', async (req, res) => {
 router.get('/:id/export', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     const slug = calendarUrl ? (new URL(calendarUrl).pathname.split('/').filter(Boolean).pop() || 'calendar') : 'calendar';
 
@@ -673,6 +689,11 @@ router.get('/search-users', async (req, res) => {
 router.get('/:id/shares', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { account } = await resolveCalendar(req, calendarId);
 
     if (account?.id === 'internal-caldav') {
@@ -695,6 +716,11 @@ router.get('/:id/shares', async (req, res) => {
 router.post('/:id/shares', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { sharee, readWrite } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee is required' });
 
@@ -733,6 +759,11 @@ router.post('/:id/shares', async (req, res) => {
 router.delete('/:id/shares', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { sharee } = req.body;
     if (!sharee) return res.status(400).json({ error: 'sharee parameter is required in request body' });
 
@@ -848,6 +879,11 @@ router.delete('/:id/public-link', async (req, res) => {
 router.get('/:id/shares-public', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const shares = await Db.getCalendarShares(calendarId);
     res.json(shares.map(s => ({
       token: s.token,
@@ -864,6 +900,11 @@ router.get('/:id/shares-public', async (req, res) => {
 router.post('/:id/shares-public', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { label } = req.body;
     if (!label || !label.trim()) {
       return res.status(400).json({ error: 'Bezeichnung ist erforderlich.' });
@@ -883,6 +924,12 @@ router.post('/:id/shares-public', async (req, res) => {
 // DELETE /api/calendars/:id/shares-public/:token — revoke/delete public share token
 router.delete('/:id/shares-public/:token', async (req, res) => {
   try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     await Db.deleteCalendarShare(req.params.token);
     res.json({ message: 'Freigabe-Link widerrufen.' });
   } catch (err) {
@@ -894,6 +941,10 @@ router.delete('/:id/shares-public/:token', async (req, res) => {
 router.post('/:id/delta-sync', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
     const accounts = req.session.accounts || [];
     const sepIdx = calendarId.indexOf('::');
     if (sepIdx === -1) {

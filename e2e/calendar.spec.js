@@ -125,7 +125,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(chips).toHaveCount(countBefore - 2, { timeout: 10000 });
 
     // Clean up: delete the whole series (also removes the detached exception)
-    await chips.first().click();
+    if (await chips.count() > 0) {
+      await chips.first().click();
+    } else {
+      await movedChip.first().click();
+    }
     await page.click('#popover-delete-btn');
     await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
     await page.click('#scope-series-btn');

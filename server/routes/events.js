@@ -15,6 +15,7 @@ const {
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
+const { checkCalendarAccess } = require('../utils/calendarAuth');
 
 // ── GET /api/events/invitations ───────────────────────────────────────────────
 router.get('/invitations', async (req, res) => {
@@ -142,6 +143,11 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'calendarId is required' });
     }
 
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
@@ -178,6 +184,11 @@ router.put('/:uid', async (req, res) => {
 
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
+
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
 
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
@@ -237,6 +248,11 @@ router.delete('/:uid', async (req, res) => {
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
@@ -285,6 +301,11 @@ router.post('/:uid/rsvp', async (req, res) => {
 
     if (!href || !calendarId || !email || !status) {
       return res.status(400).json({ error: 'calendarId, href, email, and status are required' });
+    }
+
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
     }
 
     const { account, client } = await resolveAccount(req, calendarId);
