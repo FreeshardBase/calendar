@@ -268,17 +268,17 @@
   - Added provider selection `<select id="acc-provider">` to `#account-form` in `public/index.html` and integrated auto-detection on email entry in `public/js/accountModal.js`.
   - Added test suite `server/test/caldav_provider_presets.test.js` (6 tests, 100% green).
 
-- **Issue #12 — Event Attachments FileBrowser Integration & OIDC Auth (`server/utils/filebrowser.js`, `server/routes/attachments.js`, `server/index.js`, `server/test/filebrowser_attachments.test.js`):**
-  - Created `server/utils/filebrowser.js` supporting `getFileBrowserUrl()`, `fetchFileBrowserFiles(path, oidcToken)`, `createFileBrowserShareLink(filePath, oidcToken)`, and `buildFileBrowserAttachment(fileItem, shareUrl)`.
-  - Added REST endpoint `GET /api/attachments/filebrowser/files` returning FileBrowser directory items with central OIDC bearer token authentication (`401` when unauthenticated).
-  - Added REST endpoint `POST /api/attachments/filebrowser/link` returning formatted event attachment objects (`url`, `name`, `mimeType`) with OIDC token propagation.
-  - Mounted `/api/attachments` router in `server/index.js`.
-  - Added unit/integration test suite `server/test/filebrowser_attachments.test.js` (9 tests, 100% green).
+- **Issue #14 — Support Smart Quick-Add via Natural Language Parsing (NLP) (`server/utils/nlpQuickAdd.js`, `server/routes/quickAdd.js`, `server/index.js`, `server/test/nlp_quick_add.test.js`):**
+  - Created `server/utils/nlpQuickAdd.js` exporting `parseQuickAdd(inputText, referenceDate)` to extract event/task title, type (`event` vs `task`), relative/explicit dates (`tomorrow`, `übermorgen`, `next Friday`, `YYYY-MM-DD`, `DD.MM.YYYY`), time ranges (`10:00 to 12:30`, `3pm`), locations (`at Room A`, `im Restaurant`), and RRULE recurrence (`every Monday`, `jeden Tag`).
+  - Handled non-ASCII boundary matching (e.g. `übermorgen`) and specific-before-generic recurrence rule ordering.
+  - Added REST endpoint `POST /api/quick-add/parse` requiring session authentication (`401` when unauthenticated).
+  - Mounted `/api/quick-add` router in `server/index.js`.
+  - Added unit and REST API test suite `server/test/nlp_quick_add.test.js` (16 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 352 tests, 345 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 368 tests, 361 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T18:28:45+02:00
+- Last Verified: 2026-08-24T18:38:54+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
