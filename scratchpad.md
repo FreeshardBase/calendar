@@ -235,9 +235,30 @@
   - Updated `sync-worker/sync_worker.py` vdirsyncer pair generator to set `conflict_resolution = "b wins"` to prevent stranded background sync jobs on concurrent edits.
   - Added regression test suite `server/test/two_way_sync_conflict.test.js` (Issue #5).
 
+- **Automatic Retry Queue for Synchronization Failures (`server/utils/syncRetryQueue.js`, `server/db.js`, `server/routes/calendars.js`, `sync-worker/sync_worker.py`, `server/test/sync_retry_queue.test.js`):**
+  - Updated SQLite `sync_queue` table schema with `attempts` (default 0), `max_attempts` (default 3), `next_retry_at` timestamp, and `retry_state` (`IDLE`, `RETRY_PENDING`, `MAX_RETRIES_EXCEEDED`).
+  - Created `server/utils/syncRetryQueue.js` implementing exponential backoff calculation (`calculateBackoff`), retry scheduling (`scheduleSyncFailure`), due job retrieval (`getDueSyncJobs`), retry resetting (`resetSyncJobRetries`), and status formatting (`getSyncQueueStatus`).
+  - Added REST endpoints `GET /api/calendars/sync-queue/status` and `POST /api/calendars/sync-queue/retry` for inspecting sync retry queue state and manually re-triggering failed sync retries.
+  - Updated `sync-worker/sync_worker.py` daemon loop to evaluate `next_retry_at` timestamp threshold and handle failure auto-retries with exponential backoff.
+  - Added test suite `server/test/sync_retry_queue.test.js` (10 tests, Issue #6).
+
+- **Issue #7 — OAuth Token Expiry Warning Banner (`server/routes/accounts.js`, `server/db.js`, `server/test/oauth_token_warning.test.js`):**
+  - Route `GET /api/accounts/oauth-token-status` already existed in `accounts.js:115`. No new production code needed.
+  - `Db.getOAuthTokenStatus(userId)` already existed in `db.js:421`, correctly computing `expired: true` when `expiresAt` is null or within 60 s grace window.
+  - Test file was broken: used `supertest` + mocha-style `describe/it` — neither installed. Rewrote using `node:test` + `fetch` + port 3106, matching suite conventions. 9 tests, all green.
+
+- **Issue #8 — Public ICS Subscription Caching & Rate-Limiting (`server/db.js`, `server/utils/icsPublicShareCache.js`, `server/routes/calendars.js`, `server/test/public_ics_cache_ratelimit.test.js`):**
+  - SQLite `public_ics_cache` table stores cached ICS bodies with `expires_at` timestamps; `getIcsCache(token)` returns null when expired or missing; `upsertIcsCache(token, body, ttlSeconds)` inserts/replaces.
+  - SQLite `ics_fetch_log` table records every fetch hit with `fetched_at`; `getIcsFetchCount(token, windowSeconds)` counts hits within a sliding window.
+  - `recordIcsFetch(token)` appended for both cache-hit and cache-miss paths in `GET /api/public/calendars/share/:token.ics`.
+  - Route logic: rate-limit gate (429 + `Retry-After` header) runs before any DB share lookup; cache-first serve with `X-Cache: HIT/MISS` header.
+  - Config constants (`ICS_CACHE_TTL_SECONDS=300`, `ICS_RATE_LIMIT_MAX=60`, `ICS_RATE_LIMIT_WINDOW_SECONDS=3600`) env-overridable via `server/utils/icsPublicShareCache.js`.
+  - 9-test suite all green (Issue #8).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 299 tests, 292 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 327 tests, 320 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
+- Last Verified: 2026-08-24T18:00:00+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.

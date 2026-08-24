@@ -12,6 +12,7 @@ const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictRe
 const { detectTwoWayConflict, resolveTwoWayConflict } = require('../utils/twoWaySyncResolver');
 const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
+const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 
 function slugify(name) {
   if (!name) return '';
@@ -71,13 +72,41 @@ function decryptToken(token) {
 const publicRouter = express.Router();
 
 publicRouter.get('/share/:token.ics', async (req, res) => {
+  const token = req.params.token;
   try {
+    // ── Rate-limit check (before any DB share lookup) ───────────────────────
+    try {
+      const hitCount = await Db.getIcsFetchCount(token, ICS_RATE_LIMIT_WINDOW_SECONDS);
+      if (hitCount >= ICS_RATE_LIMIT_MAX) {
+        res.setHeader('Retry-After', String(ICS_RATE_LIMIT_WINDOW_SECONDS));
+        return res.status(429).send('Too many requests. Please try again later.');
+      }
+    } catch (rlErr) {
+      console.warn('[ICS rate-limit check error]', rlErr.message);
+      // Non-fatal: fall through and serve the request.
+    }
+
+    // ── Cache-first serve ───────────────────────────────────────────────────
+    try {
+      const cached = await Db.getIcsCache(token);
+      if (cached) {
+        await Db.recordIcsFetch(token);
+        res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+        res.setHeader('X-Cache', 'HIT');
+        return res.send(cached.body);
+      }
+    } catch (cacheErr) {
+      console.warn('[ICS cache read error]', cacheErr.message);
+      // Non-fatal: fall through to live fetch.
+    }
+
     let payload = null;
     let isDbShare = false;
 
     // 1. Try DB-based share lookup
     try {
-      const shareRecord = await Db.getCalendarShareByToken(req.params.token);
+      const shareRecord = await Db.getCalendarShareByToken(token);
 
       if (shareRecord) {
         const calendarId = shareRecord.calendar_id;
@@ -104,7 +133,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
 
     // 2. Fallback to token decryption
     if (!payload) {
-      const decrypted = decryptToken(req.params.token);
+      const decrypted = decryptToken(token);
       if (decrypted) {
         const account = await resolveShareAccount(decrypted.id, decrypted.url);
         if (account) {
@@ -147,8 +176,22 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     }
 
     const ics = await fetchCalendarICS(client, payload.url);
+
+    // ── Populate cache + record fetch ───────────────────────────────────────
+    try {
+      await Db.upsertIcsCache(token, ics, ICS_CACHE_TTL_SECONDS);
+    } catch (cacheWriteErr) {
+      console.warn('[ICS cache write error]', cacheWriteErr.message);
+    }
+    try {
+      await Db.recordIcsFetch(token);
+    } catch (rlWriteErr) {
+      console.warn('[ICS rate-limit record error]', rlWriteErr.message);
+    }
+
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"`);
+    res.setHeader('X-Cache', 'MISS');
     res.send(ics);
   } catch (err) {
     console.error('[Public Share Export Error]', err.message);
@@ -1309,6 +1352,34 @@ router.post('/:id/sync-queue', async (req, res) => {
     const userId = req.session.userId;
     const job = await Db.addSyncJob(userId);
     await queueSyncForCalendar(calendarId, userId);
+    res.status(201).json({ success: true, job });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/calendars/sync-queue/status — Get sync queue status and retry info for active session user
+router.get('/sync-queue/status', async (req, res) => {
+  try {
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ error: 'Nicht authentifiziert' });
+    }
+    const { getSyncQueueStatus } = require('../utils/syncRetryQueue');
+    const status = await getSyncQueueStatus(req.session.userId);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/calendars/sync-queue/retry — Reset failed retries and enqueue immediate sync job
+router.post('/sync-queue/retry', async (req, res) => {
+  try {
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ error: 'Nicht authentifiziert' });
+    }
+    const { resetSyncJobRetries } = require('../utils/syncRetryQueue');
+    const job = await resetSyncJobRetries(req.session.userId);
     res.status(201).json({ success: true, job });
   } catch (err) {
     res.status(500).json({ error: err.message });

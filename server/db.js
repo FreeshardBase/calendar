@@ -58,10 +58,18 @@ db.serialize(() => {
       user_id TEXT NOT NULL,
       status TEXT NOT NULL,
       error_message TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      next_retry_at INTEGER,
+      retry_state TEXT NOT NULL DEFAULT 'IDLE',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `);
+  db.run(`ALTER TABLE sync_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE sync_queue ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3`, () => {});
+  db.run(`ALTER TABLE sync_queue ADD COLUMN next_retry_at INTEGER`, () => {});
+  db.run(`ALTER TABLE sync_queue ADD COLUMN retry_state TEXT NOT NULL DEFAULT 'IDLE'`, () => {});
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       user_id TEXT PRIMARY KEY,
@@ -232,6 +240,22 @@ db.serialize(() => {
       PRIMARY KEY (user_id, calendar_id)
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS public_ics_cache (
+      token TEXT PRIMARY KEY,
+      body TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ics_fetch_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ics_fetch_log_token_time ON ics_fetch_log(token, fetched_at)`);
   // Silent migrations for existing local databases
   db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
   db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
@@ -403,6 +427,35 @@ const Db = {
     });
   },
 
+  /**
+   * Returns OAuth token expiry status for all oauth2 accounts belonging to userId.
+   * Matches the 60-second grace window used by caldav/helper.js:
+   *   expired = true  when expiresAt is null/missing OR (expiresAt - 60_000) <= Date.now()
+   *   expired = false when expiresAt exists AND (expiresAt - 60_000) > Date.now()
+   * Never exposes password_encrypted, iv, or access_token values.
+   */
+  getOAuthTokenStatus(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, display_name, auth_type, expires_at
+         FROM linked_accounts
+         WHERE user_id = ? AND auth_type = 'oauth2'`,
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          const now = Date.now();
+          resolve(rows.map(row => ({
+            id: row.id,
+            displayName: row.display_name,
+            authType: row.auth_type,
+            expiresAt: row.expires_at ?? null,
+            expired: !row.expires_at || (row.expires_at - 60 * 1000) <= now
+          })));
+        }
+      );
+    });
+  },
+
   clearAll() {
     return new Promise((resolve, reject) => {
       db.serialize(() => {
@@ -523,22 +576,33 @@ const Db = {
   },
 
   // ── Sync Queue (vdirsyncer jobs) ───────────────────────────────────────────
-  addSyncJob(userId) {
+  addSyncJob(userId, opts = {}) {
     return new Promise((resolve, reject) => {
       const now = Date.now();
       const id = uuidv4();
+      const maxAttempts = opts.maxAttempts || 3;
+      const nextRetryAt = opts.nextRetryAt || now;
       
-      // Use SQLite UPSERT or simple REPLACE since sync_queue table is small.
-      // We enforce unique user_id by running a DELETE first or doing a manual check.
       db.serialize(() => {
         db.run('DELETE FROM sync_queue WHERE user_id = ? AND status = "PENDING"', [userId], (err) => {
           if (err) return reject(err);
           db.run(
-            'INSERT INTO sync_queue (id, user_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-            [id, userId, 'PENDING', now, now],
+            'INSERT INTO sync_queue (id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, userId, 'PENDING', null, 0, maxAttempts, nextRetryAt, 'IDLE', now, now],
             (err) => {
               if (err) return reject(err);
-              resolve({ id, userId, status: 'PENDING', createdAt: now, updatedAt: now });
+              resolve({
+                id,
+                userId,
+                status: 'PENDING',
+                errorMessage: null,
+                attempts: 0,
+                maxAttempts,
+                nextRetryAt,
+                retryState: 'IDLE',
+                createdAt: now,
+                updatedAt: now
+              });
             }
           );
         });
@@ -546,10 +610,35 @@ const Db = {
     });
   },
 
+  getSyncJobById(id) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at FROM sync_queue WHERE id = ?',
+        [id],
+        (err, row) => {
+          if (err) return reject(err);
+          if (!row) return resolve(null);
+          resolve({
+            id: row.id,
+            userId: row.user_id,
+            status: row.status,
+            errorMessage: row.error_message,
+            attempts: row.attempts ?? 0,
+            maxAttempts: row.max_attempts ?? 3,
+            nextRetryAt: row.next_retry_at ?? null,
+            retryState: row.retry_state ?? 'IDLE',
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+          });
+        }
+      );
+    });
+  },
+
   getSyncJobs(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        'SELECT id, user_id, status, error_message, created_at, updated_at FROM sync_queue WHERE user_id = ? ORDER BY created_at DESC',
+        'SELECT id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at FROM sync_queue WHERE user_id = ? ORDER BY created_at DESC',
         [userId],
         (err, rows) => {
           if (err) return reject(err);
@@ -558,6 +647,10 @@ const Db = {
             userId: row.user_id,
             status: row.status,
             errorMessage: row.error_message,
+            attempts: row.attempts ?? 0,
+            maxAttempts: row.max_attempts ?? 3,
+            nextRetryAt: row.next_retry_at ?? null,
+            retryState: row.retry_state ?? 'IDLE',
             createdAt: row.created_at,
             updatedAt: row.updated_at
           })));
@@ -566,11 +659,11 @@ const Db = {
     });
   },
 
-  getPendingSyncJobs() {
+  getPendingSyncJobs(now = Date.now()) {
     return new Promise((resolve, reject) => {
       db.all(
-        'SELECT id, user_id, status, error_message, created_at, updated_at FROM sync_queue WHERE status = "PENDING" ORDER BY created_at ASC',
-        [],
+        'SELECT id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at FROM sync_queue WHERE status = "PENDING" AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY created_at ASC',
+        [now],
         (err, rows) => {
           if (err) return reject(err);
           resolve(rows.map(row => ({
@@ -578,6 +671,10 @@ const Db = {
             userId: row.user_id,
             status: row.status,
             errorMessage: row.error_message,
+            attempts: row.attempts ?? 0,
+            maxAttempts: row.max_attempts ?? 3,
+            nextRetryAt: row.next_retry_at ?? null,
+            retryState: row.retry_state ?? 'IDLE',
             createdAt: row.created_at,
             updatedAt: row.updated_at
           })));
@@ -586,17 +683,33 @@ const Db = {
     });
   },
 
-  updateSyncJobStatus(id, status, errorMessage = null) {
+  updateSyncJobStatus(id, status, errorMessage = null, retryOpts = null) {
     return new Promise((resolve, reject) => {
       const now = Date.now();
-      db.run(
-        'UPDATE sync_queue SET status = ?, error_message = ?, updated_at = ? WHERE id = ?',
-        [status, errorMessage, now, id],
-        function (err) {
-          if (err) return reject(err);
-          resolve({ id, status, errorMessage, updatedAt: now, changes: this.changes });
-        }
-      );
+      if (retryOpts) {
+        const attempts = retryOpts.attempts ?? 0;
+        const maxAttempts = retryOpts.maxAttempts ?? 3;
+        const nextRetryAt = retryOpts.nextRetryAt ?? null;
+        const retryState = retryOpts.retryState ?? 'IDLE';
+
+        db.run(
+          'UPDATE sync_queue SET status = ?, error_message = ?, attempts = ?, max_attempts = ?, next_retry_at = ?, retry_state = ?, updated_at = ? WHERE id = ?',
+          [status, errorMessage, attempts, maxAttempts, nextRetryAt, retryState, now, id],
+          function (err) {
+            if (err) return reject(err);
+            resolve({ id, status, errorMessage, attempts, maxAttempts, nextRetryAt, retryState, updatedAt: now, changes: this.changes });
+          }
+        );
+      } else {
+        db.run(
+          'UPDATE sync_queue SET status = ?, error_message = ?, updated_at = ? WHERE id = ?',
+          [status, errorMessage, now, id],
+          function (err) {
+            if (err) return reject(err);
+            resolve({ id, status, errorMessage, updatedAt: now, changes: this.changes });
+          }
+        );
+      }
     });
   },
 
@@ -1682,6 +1795,75 @@ const Db = {
         function(err) {
           if (err) return reject(err);
           resolve(this.changes > 0);
+        }
+      );
+    });
+  },
+
+  // ── Issue #8: Public ICS Subscription Cache ────────────────────────────────
+
+  /**
+   * Retrieve a cached ICS body for `token`. Returns null if not found or expired.
+   */
+  getIcsCache(token) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT token, body, expires_at FROM public_ics_cache WHERE token = ? AND expires_at > ?`,
+        [token, Date.now()],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row || null);
+        }
+      );
+    });
+  },
+
+  /**
+   * Insert or replace a cached ICS body for `token` with a TTL of `ttlSeconds`.
+   */
+  upsertIcsCache(token, body, ttlSeconds) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      const expiresAt = now + ttlSeconds * 1000;
+      db.run(
+        `INSERT OR REPLACE INTO public_ics_cache (token, body, expires_at, updated_at) VALUES (?, ?, ?, ?)`,
+        [token, body, expiresAt, now],
+        function(err) {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  /**
+   * Record a fetch hit for rate-limit accounting.
+   */
+  recordIcsFetch(token) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO ics_fetch_log (token, fetched_at) VALUES (?, ?)`,
+        [token, Date.now()],
+        function(err) {
+          if (err) return reject(err);
+          resolve();
+        }
+      );
+    });
+  },
+
+  /**
+   * Return the number of fetches for `token` within the last `windowSeconds`.
+   */
+  getIcsFetchCount(token, windowSeconds) {
+    return new Promise((resolve, reject) => {
+      const since = Date.now() - windowSeconds * 1000;
+      db.get(
+        `SELECT COUNT(*) AS cnt FROM ics_fetch_log WHERE token = ? AND fetched_at >= ?`,
+        [token, since],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row ? row.cnt : 0);
         }
       );
     });
