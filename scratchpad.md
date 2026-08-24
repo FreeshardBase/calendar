@@ -67,12 +67,18 @@
   - Settings drawer UI and REST endpoints (`/api/working-hours`, `/api/working-hours/evaluate`) allow users to save and test rules.
 
 - **Calendar Access Control & Read/Write Auth Enforcement (`server/utils/calendarAuth.js`, `server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`):**
-  - Added centralized authorization gate `checkCalendarAccess(req, calendarId, requiredAccess)` verifying session auth (`401`), ownership, user shares, and delegation rules (`403`).
-  - Integrated `checkCalendarAccess` across calendar management, event CRUD/RSVP, task CRUD, and share administration endpoints to block unauthorized access to foreign calendars.
-  - Added regression test suite `server/test/calendar_auth.test.js`.
+  - Added authorization gates (`checkCalendarAccess`) to `POST /api/calendars/:id/import/detect` (`write`), `POST /api/calendars/:id/import` (`write`), and legacy public link endpoints `GET/POST/DELETE /api/calendars/:id/public-link` (`owner`).
+  - Added test suite `server/test/calendar_ownership_session.test.js` covering unauthenticated requests and foreign calendar access restrictions (Issue #51).
+
+- **OIDC Back-Channel Logout 1.0 & JWT Validation (`server/utils/oidcClient.js`, `server/utils/oidcLogout.js`, `server/routes/auth.js`, `server/test/oidc_backchannel_logout.test.js`):**
+  - Created `server/utils/oidcClient.js` to handle OIDC issuer discovery cleanly without circular dependencies.
+  - Implemented `verifyLogoutToken` in `server/utils/oidcLogout.js` using `jose` for verifying symmetric (`HS256`/`HS384`/`HS512`) and asymmetric (`RS256`/JWKS) JWT logout tokens.
+  - Enforced OpenID Connect Back-Channel Logout 1.0 Spec rules: prohibited `nonce` claim, validated `http://schemas.openid.net/event/backchannel-logout` in `events` claim, and required `sub` or `sid`.
+  - Added HTTP endpoint `POST /api/auth/backchannel-logout` (and `/backchannel_logout`) in `server/routes/auth.js` to revoke sessions for specific `sid` or user `sub` with `Cache-Control: no-store` and `Pragma: no-cache` headers.
+  - Unit and integration test suite: `server/test/oidc_backchannel_logout.test.js` (10 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 115 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 459 PASSED, 0 skipped (100% green)
 - Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks

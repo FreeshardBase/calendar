@@ -3,34 +3,9 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { Issuer } = require('openid-client');
 const Db = require('../db');
-
-let oidcClient = null;
-
-// Helper to initialize or retrieve OIDC client
-async function getOidcClient() {
-  if (oidcClient) return oidcClient;
-
-  const issuerUrl = process.env.OIDC_ISSUER_URL;
-  const clientId = process.env.OIDC_CLIENT_ID;
-  const clientSecret = process.env.OIDC_CLIENT_SECRET;
-  const redirectUri = process.env.OIDC_REDIRECT_URI;
-
-  if (!issuerUrl || !clientId || !clientSecret || !redirectUri) {
-    throw new Error('OIDC-Konfiguration fehlt in den Umgebungsvariablen (.env)');
-  }
-
-  const issuer = await Issuer.discover(issuerUrl);
-  oidcClient = new issuer.Client({
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uris: [redirectUri],
-    response_types: ['code']
-  });
-
-  return oidcClient;
-}
+const { getOidcClient } = require('../utils/oidcClient');
+const { verifyLogoutToken } = require('../utils/oidcLogout');
 
 // GET /api/auth/login — Redirect user to Authelia login page
 router.get('/login', async (req, res) => {
@@ -238,4 +213,31 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// POST /api/auth/backchannel-logout — OIDC Back-Channel Logout 1.0 endpoint
+router.post(['/backchannel-logout', '/backchannel_logout'], express.urlencoded({ extended: true }), async (req, res) => {
+  const logoutToken = req.body?.logout_token;
+  if (!logoutToken) {
+    return res.status(400).send('Missing logout_token');
+  }
+
+  try {
+    const claims = await verifyLogoutToken(logoutToken);
+
+    if (claims.sid) {
+      await Db.deleteSession(claims.sid);
+    }
+    if (claims.sub) {
+      await Db.deleteSessionsForUser(claims.sub);
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    return res.status(200).send('OK');
+  } catch (err) {
+    console.error('[Back-Channel Logout error]', err.message);
+    return res.status(400).send('Ungültiges logout_token: ' + err.message);
+  }
+});
+
 module.exports = router;
+
