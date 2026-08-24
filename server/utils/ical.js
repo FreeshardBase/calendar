@@ -121,6 +121,23 @@ function parseVEventToEvent(vevent, meta = {}) {
   // Alarms (VALARM)
   const alarms = parseValarms(vevent);
 
+  // Categories (CATEGORIES)
+  const categories = [];
+  for (const prop of vevent.getAllProperties('categories')) {
+    const vals = prop.getValues();
+    if (Array.isArray(vals)) {
+      for (const val of vals) {
+        if (typeof val === 'string' && val.trim()) {
+          categories.push(val.trim());
+        }
+      }
+    } else if (typeof vals === 'string' && vals.trim()) {
+      vals.split(',').forEach(v => {
+        if (v.trim()) categories.push(v.trim());
+      });
+    }
+  }
+
   // Attachments (ATTACH)
   const attachments = [];
   for (const prop of vevent.getAllProperties('attach')) {
@@ -152,6 +169,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     endTimeZone,
     alarms,
     attachments,
+    categories,
     calendarId:  meta.calendarId  || null,
     accountId:   meta.accountId   || null,
     href:        meta.href        || null,
@@ -343,6 +361,14 @@ function eventToICS(event) {
       lines.push(`DESCRIPTION:${escIcal(alarm.description)}`);
     }
     lines.push('END:VALARM');
+  }
+
+  const rawCats = Array.isArray(event.categories)
+    ? event.categories
+    : (typeof event.categories === 'string' ? event.categories.split(',') : []);
+  const normCats = rawCats.map(c => String(c).trim()).filter(Boolean);
+  if (normCats.length > 0) {
+    lines.push(`CATEGORIES:${normCats.map(escIcal).join(',')}`);
   }
 
   const attachments = Array.isArray(event.attachments) ? event.attachments : [];
@@ -693,6 +719,13 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   const sortedAlarms = (arr) =>
     (arr || []).map(alarmKey).sort().join('|');
   if (sortedAlarms(stored.alarms) !== sortedAlarms(incoming.alarms)) return false;
+
+  // ── Categories (CATEGORIES) ──────────────────────────────────────────────
+  const normCatsStr = (arr) => {
+    const list = Array.isArray(arr) ? arr : (typeof arr === 'string' ? arr.split(',') : []);
+    return list.map(c => String(c).trim().toUpperCase()).filter(Boolean).sort().join('|');
+  };
+  if (normCatsStr(stored.categories) !== normCatsStr(incoming.categories)) return false;
 
   return true;
 }

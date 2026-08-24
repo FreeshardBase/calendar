@@ -393,6 +393,22 @@ function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
   const rrule = vtodo.getFirstProperty('rrule');
   if (rrule) recurrence = rrule.getFirstValue().toString();
 
+  const categories = [];
+  for (const prop of vtodo.getAllProperties('categories')) {
+    const vals = prop.getValues();
+    if (Array.isArray(vals)) {
+      for (const val of vals) {
+        if (typeof val === 'string' && val.trim()) {
+          categories.push(val.trim());
+        }
+      }
+    } else if (typeof vals === 'string' && vals.trim()) {
+      vals.split(',').forEach(v => {
+        if (v.trim()) categories.push(v.trim());
+      });
+    }
+  }
+
   return {
     uid,
     title,
@@ -404,6 +420,7 @@ function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
     priority,
     percentComplete,
     recurrence,
+    categories,
     rawIcs: rawIcs || meta.rawIcs || null,
     calendarId: meta.calendarId || null,
     accountId:  meta.accountId  || null,
@@ -556,6 +573,19 @@ function taskToICS(task, existingIcs = null) {
           }
         }
 
+        if ('categories' in task && task.categories !== undefined) {
+          const rawCats = Array.isArray(task.categories)
+            ? task.categories
+            : (typeof task.categories === 'string' ? task.categories.split(',') : []);
+          const normCats = rawCats.map(c => String(c).trim()).filter(Boolean);
+          vtodo.removeAllProperties('categories');
+          if (normCats.length > 0) {
+            const prop = new ICAL.Property('categories', vtodo);
+            prop.setValues(normCats);
+            vtodo.addProperty(prop);
+          }
+        }
+
         setDateProp('last-modified', new Date().toISOString());
 
         return comp.toString();
@@ -597,6 +627,15 @@ function taskToICS(task, existingIcs = null) {
   }
   if (task.percentComplete !== null && task.percentComplete !== undefined) {
     lines.push(`PERCENT-COMPLETE:${task.percentComplete}`);
+  }
+  if (task.categories) {
+    const rawCats = Array.isArray(task.categories)
+      ? task.categories
+      : (typeof task.categories === 'string' ? task.categories.split(',') : []);
+    const normCats = rawCats.map(c => String(c).trim()).filter(Boolean);
+    if (normCats.length > 0) {
+      lines.push(`CATEGORIES:${normCats.map(escIcal).join(',')}`);
+    }
   }
   if (task.recurrence) {
     lines.push(`RRULE:${task.recurrence}`);

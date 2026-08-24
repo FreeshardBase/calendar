@@ -281,17 +281,19 @@
   - Enforced authentication gate (`requireAuth`) returning 401 for unauthenticated API access.
   - Added unit and REST API test suite `server/test/freebusy_scheduler.test.js` (10 tests, 100% green).
 
-- **Issue #17 — Support Event Reminders and Alarms (VALARM) with Web Push notifications (`server/db.js`, `server/utils/webPushNotifications.js`, `server/routes/notifications.js`, `server/index.js`, `server/test/web_push_notifications.test.js`):**
-  - Created SQLite table `web_push_subscriptions` (`id`, `user_id`, `endpoint`, `keys_p256dh`, `keys_auth`, `created_at`) with DB helpers (`savePushSubscription`, `getPushSubscriptions`, `deletePushSubscription`, `deletePushSubscriptionByEndpoint`).
-  - Created `server/utils/webPushNotifications.js` providing `parseValarmOffset` (RFC 5545 ISO 8601 duration parsing like `-PT15M`, `-PT1H`, `-P1D`), `calculateAlarmTime`, `evaluateUpcomingAlarms` (trigger detection in time window), and `formatPushPayload`.
-  - Created `server/routes/notifications.js` exposing REST endpoints `GET/POST /api/notifications/push-subscriptions`, `DELETE /api/notifications/push-subscriptions/:id`, and `POST /api/notifications/evaluate-alarms`.
-  - Mounted `/api/notifications` in `server/index.js` with authentication gate (401 for unauthenticated access).
-  - Added unit and REST API test suite `server/test/web_push_notifications.test.js` (12 tests, 100% green).
+- **Issue #18 — Event Categorization and Tags (iCalendar CATEGORIES) (`server/utils/ical.js`, `server/caldav/parser.js`, `server/routes/events.js`, `server/routes/tasks.js`, `public/index.html`, `public/js/eventModal.js`, `server/test/event_categories.test.js`):**
+  - Updated `parseVEventToEvent` and `parseVTodoToTask` to extract RFC 5545 `CATEGORIES` properties into `categories: string[]`.
+  - Updated `eventToICS` and `taskToICS` to serialize categories into standard `CATEGORIES:tag1,tag2` strings.
+  - Updated `isNoOpEventSave` to compare normalized category sets to prevent spurious saves or missed category edits.
+  - Updated REST endpoints `GET /api/events` and `GET /api/tasks` to support filtering by `category` or `tag` query parameters.
+  - Added `#ev-categories` input field to event modal in `public/index.html` and wired population/submission in `public/js/eventModal.js`.
+  - Added unit & integration test suite `server/test/event_categories.test.js` (8 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 390 tests, 383 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 398 tests, 391 PASSED, 7 skipped (100% green)
 - Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
-- Last Verified: 2026-08-24T18:49:40+02:00
+- Last Verified: 2026-08-24T18:57:00+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+

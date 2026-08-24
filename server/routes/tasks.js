@@ -59,7 +59,15 @@ router.get('/', async (req, res) => {
       })
     );
 
-    res.json(allTasks);
+    let filteredTasks = allTasks;
+    if (req.query.category || req.query.tag) {
+      const target = String(req.query.category || req.query.tag).trim().toLowerCase();
+      filteredTasks = filteredTasks.filter(t =>
+        Array.isArray(t.categories) && t.categories.some(c => String(c).trim().toLowerCase() === target)
+      );
+    }
+
+    res.json(filteredTasks);
   } catch (err) {
     console.error('[tasks GET]', err.message);
     res.status(500).json({ error: err.message });

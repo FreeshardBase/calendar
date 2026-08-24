@@ -145,6 +145,10 @@ export function openEditModal(event, callbacks) {
   $('ev-title').value       = event.title       || '';
   $('ev-location').value    = event.location    || '';
   $('ev-description').value = event.description || '';
+  if ($('ev-categories')) {
+    const catList = Array.isArray(event.categories) ? event.categories : [];
+    $('ev-categories').value = catList.join(', ');
+  }
 
   const allDay = event.allDay;
   $('ev-allday').checked = allDay;
@@ -508,6 +512,9 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   const attachName = $('ev-attachment-name') ? $('ev-attachment-name').value.trim() : '';
   const attachments = attachUrl ? [{ url: attachUrl, name: attachName || attachUrl.split('/').pop() || 'Anhang' }] : [];
 
+  const rawCatVal = $('ev-categories') ? $('ev-categories').value.trim() : '';
+  const categories = rawCatVal ? rawCatVal.split(',').map(c => c.trim()).filter(Boolean) : [];
+
   const payload = {
     calendarId:  $('ev-calendar').value,
     title:       $('ev-title').value.trim(),
@@ -516,6 +523,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     allDay,
     location:    $('ev-location').value.trim()    || null,
     description: $('ev-description').value.trim() || null,
+    categories,
     attendees:   collectAttendees(),
     recurrence,
     alarms,

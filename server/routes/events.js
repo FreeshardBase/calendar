@@ -146,7 +146,15 @@ router.get('/', async (req, res) => {
       })
     );
 
-    res.json(allEvents);
+    let filteredEvents = allEvents;
+    if (req.query.category || req.query.tag) {
+      const target = String(req.query.category || req.query.tag).trim().toLowerCase();
+      filteredEvents = filteredEvents.filter(ev =>
+        Array.isArray(ev.categories) && ev.categories.some(c => String(c).trim().toLowerCase() === target)
+      );
+    }
+
+    res.json(filteredEvents);
   } catch (err) {
     console.error('[events GET]', err.message);
     res.status(500).json({ error: err.message });
