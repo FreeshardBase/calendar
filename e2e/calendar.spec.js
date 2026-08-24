@@ -369,7 +369,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with a VALARM reminder and edit alarm setting', async ({ page }) => {
-    await page.goto('/?date=2026-12-15');
+    await page.goto('/?date=2026-12-28');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -378,8 +378,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
     const title = `VALARM Reminder Event ${Date.now()}`;
     await page.fill('#ev-title', title);
-    await page.fill('#ev-start-date', '2026-12-15');
-    await page.fill('#ev-end-date', '2026-12-15');
+    await page.fill('#ev-start-date', '2026-12-28');
+    await page.fill('#ev-end-date', '2026-12-28');
     await page.check('#ev-allday');
 
     // Select 15 minutes before alarm

@@ -139,6 +139,16 @@ db.serialize(() => {
     )
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      endpoint TEXT NOT NULL UNIQUE,
+      keys_p256dh TEXT,
+      keys_auth TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
     CREATE TABLE IF NOT EXISTS resource_bookings (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
@@ -1876,6 +1886,75 @@ const Db = {
         (err, row) => {
           if (err) return reject(err);
           resolve(row ? row.cnt : 0);
+        }
+      );
+    });
+  },
+
+  // ── Issue #17: Web Push Subscriptions ─────────────────────────────────────
+
+  /**
+   * Insert or replace a Web Push Subscription for a user.
+   */
+  savePushSubscription(sub) {
+    return new Promise((resolve, reject) => {
+      const id = sub.id || uuidv4();
+      const createdAt = sub.created_at || Date.now();
+      db.run(
+        `INSERT OR REPLACE INTO web_push_subscriptions (id, user_id, endpoint, keys_p256dh, keys_auth, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, sub.user_id, sub.endpoint, sub.keys_p256dh || null, sub.keys_auth || null, createdAt],
+        function(err) {
+          if (err) return reject(err);
+          resolve({ id, user_id: sub.user_id, endpoint: sub.endpoint, keys_p256dh: sub.keys_p256dh, keys_auth: sub.keys_auth, created_at: createdAt });
+        }
+      );
+    });
+  },
+
+  /**
+   * Get all active push subscriptions for a user.
+   */
+  getPushSubscriptions(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, user_id, endpoint, keys_p256dh, keys_auth, created_at FROM web_push_subscriptions WHERE user_id = ? ORDER BY created_at DESC`,
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        }
+      );
+    });
+  },
+
+  /**
+   * Delete a push subscription by ID and user ID.
+   */
+  deletePushSubscription(id, userId) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM web_push_subscriptions WHERE id = ? AND user_id = ?`,
+        [id, userId],
+        function(err) {
+          if (err) return reject(err);
+          resolve({ changes: this.changes });
+        }
+      );
+    });
+  },
+
+  /**
+   * Delete a push subscription by Endpoint and user ID.
+   */
+  deletePushSubscriptionByEndpoint(endpoint, userId) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM web_push_subscriptions WHERE endpoint = ? AND user_id = ?`,
+        [endpoint, userId],
+        function(err) {
+          if (err) return reject(err);
+          resolve({ changes: this.changes });
         }
       );
     });
