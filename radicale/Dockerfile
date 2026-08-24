@@ -1,5 +1,9 @@
 FROM python:3-slim
 
+LABEL org.opencontainers.image.title="freeshard-radicale"
+LABEL org.opencontainers.image.description="FreeShard Radicale CalDAV Server"
+LABEL org.opencontainers.image.licenses="FSL-1.1-ALv2"
+
 # Install system dependencies (openssl for fallback self-signed SSL certs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \

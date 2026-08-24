@@ -2,6 +2,7 @@
   "name": "freeshard-webcalendar",
   "version": "1.0.0",
   "description": "FreeShard WebCalendar — CalDAV web client",
+  "license": "FSL-1.1-ALv2",
   "main": "server/index.js",
   "type": "commonjs",
   "engines": {
@@ -10,7 +11,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "NODE_ENV=test node --test --test-concurrency=1 server/test/*.test.js"
+    "test": "NODE_ENV=test node --test --test-concurrency=1 server/test/*.test.js",
+    "publish:containers": "node -e \"require('./server/utils/containerPublish').publishContainerImages(process.env.REGISTRY, process.env.TAG, { dryRun: process.env.DRY_RUN !== 'false' })\""
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.8.10",

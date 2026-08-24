@@ -122,20 +122,188 @@ function requireInternal(req, res, next) {
 }
 
 // ── Mock CalDAV endpoint for testing ──────────────────────────────────────────
-app.all('/mock-dav*', (req, res) => {
-  res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+const mockShares = [];
+const mockProperties = {};
+app.all(['/mock-dav*', '/.well-known/caldav', '/'], (req, res, next) => {
+  if (req.path === '/' && req.method !== 'PROPFIND') {
+    return next();
+  }
+  let rawBody = typeof req.body === 'string' ? req.body : '';
+  
+  const processMockDav = (xmlBody) => {
+    const path = req.path;
+
+    if (req.method === 'GET' && (req.query.export !== undefined || req.path.endsWith('.ics') || req.path.includes('/personal'))) {
+      return res.status(200).set('Content-Type', 'text/calendar; charset=utf-8').send(`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example Corp.//EN
+BEGIN:VEVENT
+UID:test-event-1
+SUMMARY:Test Event
+DTSTART:20260710T100000Z
+DTEND:20260710T110000Z
+END:VEVENT
+END:VCALENDAR`);
+    }
+
+    if (req.method === 'PROPPATCH') {
+      if (xmlBody.includes('remove') && xmlBody.includes('public-share-token')) {
+        if (mockProperties[path]) delete mockProperties[path]['public-share-token'];
+        if (mockProperties['/mock-dav/calendars/test/personal/']) delete mockProperties['/mock-dav/calendars/test/personal/']['public-share-token'];
+      } else {
+        const match = xmlBody.match(/<([^:>]+:)?public-share-token[^>]*>([^<]+)<\/([^:>]+:)?public-share-token>/i);
+        if (match) {
+          if (!mockProperties[path]) mockProperties[path] = {};
+          mockProperties[path]['public-share-token'] = match[2].trim();
+        }
+      }
+      return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>${path}</d:href>
+    <d:propstat>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`);
+    }
+
+    if (xmlBody.includes('cs:invite') || xmlBody.includes('o:invite')) {
+      const userBlocks = mockShares.map(s => `
+        <cs:user>
+          <d:href>${s.href}</d:href>
+          <cs:access><cs:${s.readWrite ? 'read-write' : 'read'}/></cs:access>
+          <cs:invite-status>invite-accepted</cs:invite-status>
+          <cs:common-name>${s.commonName || 'Test User'}</cs:common-name>
+        </cs:user>
+      `).join('');
+      return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
+  <d:response>
+    <d:href>${path}</d:href>
+    <d:propstat>
+      <d:prop>
+        <cs:invite>
+          ${userBlocks}
+        </cs:invite>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`);
+    }
+
+    if (xmlBody.includes('cs:share') || xmlBody.includes('o:share')) {
+      if (xmlBody.includes('cs:remove') || xmlBody.includes('o:remove')) {
+        const hrefMatch = xmlBody.match(/<d:href>([^<]+)<\/d:href>/i);
+        if (hrefMatch) {
+          const target = hrefMatch[1];
+          const idx = mockShares.findIndex(s => s.href === target || s.href.includes(target) || target.includes(s.href));
+          if (idx !== -1) mockShares.splice(idx, 1);
+        }
+      } else if (xmlBody.includes('cs:set') || xmlBody.includes('o:set')) {
+        const hrefMatch = xmlBody.match(/<d:href>([^<]+)<\/d:href>/i);
+        const readWrite = xmlBody.includes('read-write');
+        if (hrefMatch) {
+          const href = hrefMatch[1];
+          const existing = mockShares.find(s => s.href === href);
+          if (existing) {
+            existing.readWrite = readWrite;
+          } else {
+            mockShares.push({ href, readWrite, commonName: 'Test User', status: 'ACCEPTED' });
+          }
+        }
+      }
+      return res.status(200).set('Content-Type', 'text/xml').send('<?xml version="1.0" encoding="utf-8"?><ok/>');
+    }
+
+    if (xmlBody.includes('principal-property-search') || path.includes('search')) {
+      return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
+  <d:response>
+    <d:href>/mock-dav/principals/users/testuser</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:displayname>Test User</d:displayname>
+        <s:email-address>testuser@example.com</s:email-address>
+        <d:principal-URL><d:href>/mock-dav/principals/users/testuser</d:href></d:principal-URL>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`);
+    }
+
+    if (req.method === 'REPORT') {
+      return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/mock-dav/calendars/test/personal/event1.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"12345"</d:getetag>
+        <c:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example Corp.//EN
+BEGIN:VEVENT
+UID:test-event-1
+SUMMARY:Test Event
+DTSTART:20260710T100000Z
+DTEND:20260710T110000Z
+END:VEVENT
+END:VCALENDAR</c:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`);
+    }
+
+    const publicToken = mockProperties[path]?.['public-share-token'] || mockProperties['/mock-dav/calendars/test/personal/']?.['public-share-token'];
+    const customPropsXml = publicToken ? `<public-share-token xmlns="http://freeshard.de/ns/">${publicToken}</public-share-token>` : '';
+
+    if (req.headers['depth'] === '1' || (xmlBody.includes('displayname') && !xmlBody.includes('calendar-home-set'))) {
+      return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">
+  <d:response>
+    <d:href>/mock-dav/calendars/test/personal/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:displayname>Persönlich</d:displayname>
+        <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
+        <cs:getctag>1</cs:getctag>
+        ${customPropsXml}
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`);
+    }
+
+    // Default discovery response
+    res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:response>
     <d:href>/mock-dav/</d:href>
     <d:propstat>
       <d:prop>
         <d:current-user-principal><d:href>/mock-dav/principal/test/</d:href></d:current-user-principal>
-        <c:calendar-home-set><d:href>/mock-dav/calendars/test/</d:href></c:calendar-home-set>
+        <c:calendar-home-set><d:href>/mock-dav/</d:href></c:calendar-home-set>
+        ${customPropsXml}
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
   </d:response>
 </d:multistatus>`);
+  };
+
+  if (req.body && Object.keys(req.body).length > 0 && typeof req.body !== 'string') {
+    rawBody = JSON.stringify(req.body);
+    processMockDav(rawBody);
+  } else {
+    req.on('data', chunk => { rawBody += chunk.toString(); });
+    req.on('end', () => { processMockDav(rawBody); });
+  }
 });
 
 // ── Auth guard for API routes ─────────────────────────────────────────────────

@@ -4,6 +4,9 @@ process.env.PORT = process.env.PORT || '3097';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
+process.env.CALDAVURL = process.env.CALDAVURL || `http://localhost:${process.env.PORT}/mock-dav/`;
+process.env.CALDAV_USERNAME = process.env.CALDAV_USERNAME || 'test';
+process.env.CALDAV_PASSWORD = process.env.CALDAV_PASSWORD || 'test';
 require('dotenv').config();
 
 const test = require('node:test');
@@ -93,7 +96,8 @@ test('HTTP Routes Integration Suite', async (t) => {
     const res = await fetch(`${baseUrl}/api/accounts`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        cookie: sessionCookie
       },
       body: JSON.stringify({
         url: baseUrlOnly,

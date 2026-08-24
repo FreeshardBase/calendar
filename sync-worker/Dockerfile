@@ -1,5 +1,9 @@
 FROM python:3-slim
 
+LABEL org.opencontainers.image.title="freeshard-sync-worker"
+LABEL org.opencontainers.image.description="FreeShard CalDAV Sync Worker Daemon"
+LABEL org.opencontainers.image.licenses="FSL-1.1-ALv2"
+
 # Install system dependencies (needed to build cryptography if slim lacks binary wheels)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \

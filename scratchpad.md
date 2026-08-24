@@ -315,7 +315,22 @@
 - Last Verified: 2026-08-24T19:23:10+02:00
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #22, #23, #24, #25, #26, #30, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #16, #17, #18, #19, #20, #22, #23, #24, #25, #26, #30, #31, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- **Issue #31 — Route Test Suite Verification (`server/index.js`, `server/test/routes.test.js`):**
+  - Updated mock CalDAV handler in `server/index.js` to respond to discovery `PROPFIND` requests at base URL `/` and `/.well-known/caldav`.
+  - **Issue #32 — Make Internal TLS Optional via Env (`radicale/entrypoint.sh`, `.env.example`, `server/test/radicale_tls_optional.test.js`):**
+  - Updated `radicale/entrypoint.sh` to check `RADICALE_SSL` / `RADICALE_ENABLE_SSL` environment variables (default: `True`).
+  - When set to `false` / `0` / `no` / `off` (case-insensitive), entrypoint configures `ssl = False` in `/etc/radicale/config`.
+  - Added documentation entry for `RADICALE_SSL=True` in `.env.example`.
+  - Added unit test suite `server/test/radicale_tls_optional.test.js` (3 tests, 100% green).
+- **Issue #34 — App-Store Readiness & Container Registry Publishing (`server/utils/containerPublish.js`, `Dockerfile`, `radicale/Dockerfile`, `sync-worker/Dockerfile`, `docker-compose.yml`, `package.json`, `server/test/container_publish.test.js`):**
+  - Created `server/utils/containerPublish.js` providing `getImageNames`, `generateBuildAndPushCommands`, `validateRegistryConfig`, and `publishContainerImages`.
+  - Added OCI metadata labels (`org.opencontainers.image.title`, `org.opencontainers.image.description`, `org.opencontainers.image.licenses`) across all three container Dockerfiles (`Dockerfile`, `radicale/Dockerfile`, `sync-worker/Dockerfile`).
+  - Updated `docker-compose.yml` to use `${REGISTRY:-ghcr.io/freeshardbase}` and `${TAG:-latest}` environment variables for image references.
+  - Added `"publish:containers"` script to `package.json`.
+  - Added unit test suite `server/test/container_publish.test.js` (7 tests, 100% green).
+
+
 
 
 

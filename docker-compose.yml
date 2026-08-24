@@ -1,7 +1,7 @@
 services:
   webcalendar:
     build: .
-    image: freeshard/webcalendar:latest
+    image: ${REGISTRY:-ghcr.io/freeshardbase}/webcalendar:${TAG:-latest}
     container_name: freeshard-webcalendar
     restart: unless-stopped
     ports:
@@ -26,7 +26,7 @@ services:
 
   caldav-server:
     build: ./radicale
-    image: freeshard/radicale:latest
+    image: ${REGISTRY:-ghcr.io/freeshardbase}/radicale:${TAG:-latest}
     container_name: freeshard-radicale
     restart: unless-stopped
     ports:
@@ -43,7 +43,7 @@ services:
 
   sync-worker:
     build: ./sync-worker
-    image: freeshard/sync-worker:latest
+    image: ${REGISTRY:-ghcr.io/freeshardbase}/sync-worker:${TAG:-latest}
     container_name: freeshard-sync-worker
     restart: unless-stopped
     env_file:
