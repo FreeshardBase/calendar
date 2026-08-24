@@ -362,6 +362,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(deadRes1.status()).toBe(404);
     const deadRes2 = await request.get(newPublicUrl);
     expect(deadRes2.status()).toBe(404);
+
+    // Close share modal cleanly
+    await page.click('#share-cal-close');
+    await expect(page.locator('#share-cal-dialog-backdrop')).not.toBeAttached();
   });
 
   test('should create an event with a VALARM reminder and edit alarm setting', async ({ page }) => {

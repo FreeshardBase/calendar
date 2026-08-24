@@ -93,13 +93,17 @@ function getDualHourLabel(baseHour, date = new Date(), primaryTz = 'Europe/Berli
   const secOffset = getTimezoneOffsetMinutes(secondaryTz, date);
 
   const diffMins = secOffset - priOffset;
-  const secHour = (baseHour + Math.floor(diffMins / 60) + 24) % 24;
+  let totalSecMins = baseHour * 60 + diffMins;
+  totalSecMins = ((totalSecMins % 1440) + 1440) % 1440;
 
-  const fmt = h => `${String(h).padStart(2, '0')}:00`;
+  const secHour = Math.floor(totalSecMins / 60);
+  const secMin = totalSecMins % 60;
+
+  const fmt = (h, m = 0) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
   return {
-    primary: fmt(baseHour),
-    secondary: fmt(secHour)
+    primary: fmt(baseHour, 0),
+    secondary: fmt(secHour, secMin)
   };
 }
 

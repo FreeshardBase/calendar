@@ -231,6 +231,15 @@ router.put('/:uid', async (req, res) => {
       // Edit a single occurrence: write a detached exception VEVENT into the
       // existing resource instead of replacing the whole series.
       const current = await client.get(eventUrl);
+      if (current && current.ics && isNoOpEventSave(current.ics, eventData, recurrenceId)) {
+        queueSyncForCalendar(calendarId, req.session.userId);
+        return res.json({
+          ...event,
+          href,
+          etag: current.etag ? current.etag.replace(/"/g, '') : etag,
+          calendarId
+        });
+      }
       ics     = upsertOccurrenceOverride(current.ics, recurrenceId, eventData);
       ifMatch = current.etag;
     } else {
@@ -415,13 +424,24 @@ async function resolveAccount(req, calendarId) {
  * Otherwise resolve relative to the account base URL.
  */
 function buildAbsoluteUrl(baseUrl, href) {
-  if (/^https?:\/\//i.test(href)) return href;
+  if (!href) return baseUrl || '';
+  let pathAndSearch = href;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const u = new URL(href);
+      pathAndSearch = u.pathname + u.search;
+    } catch {
+      pathAndSearch = href;
+    }
+  }
   try {
-    return new URL(href, baseUrl).href;
+    return new URL(pathAndSearch, baseUrl).href;
   } catch {
-    return baseUrl.replace(/\/+$/, '') + '/' + href.replace(/^\/+/, '');
+    return (baseUrl || '').replace(/\/+$/, '') + '/' + pathAndSearch.replace(/^\/+/, '');
   }
 }
+
+router.buildAbsoluteUrl = buildAbsoluteUrl;
 
 function queueSyncForCalendar(calendarId, fallbackUserId) {
   try {

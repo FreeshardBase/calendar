@@ -149,11 +149,14 @@
 - **Whole-Series Save EXDATE and Detached Override Preservation (`server/utils/ical.js`, `server/caldav/parser.js`, `server/routes/events.js`, `server/test/whole_series_preservation.test.js`):**
   - Exported `updateWholeSeries(existingIcs, eventData)` in `server/utils/ical.js` and `server/caldav/parser.js`.
   - Replaced naive `eventToICS` call in `PUT /api/events/:uid` with `updateWholeSeries(current ? current.ics : null, event)`.
-  - Preserves all pre-existing `EXDATE` properties on the master `VEVENT` and all detached override `VEVENT` subcomponents (with `RECURRENCE-ID`) when a non-no-op whole-series edit is performed (Issue #241).
+  - **No-Op Whole-Series Save Detached Override Scope Isolation (`server/utils/ical.js`, `server/routes/events.js`, `server/caldav/parser.js`, `server/test/noop_detached_override_scope.test.js`):**
+  - Enhanced `parseICSToEvent(icsString, meta)` to filter VEVENT components by `recurrenceId` when specified, or isolate master `VEVENT` (without `RECURRENCE-ID`) when omitted, even if detached override subcomponents are ordered first in raw ICS.
+  - Enhanced `isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null)` to support targeting specific occurrence overrides or master series. Returns `false` when an occurrence save targets a non-existent override.
+  - Updated `PUT /api/events/:uid` to evaluate `isNoOpEventSave(current.ics, eventData, recurrenceId)` for single-occurrence edits (`scope === 'occurrence'`) to avoid redundant CalDAV PUT requests. (Issue #242).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 184 PASSED, 7 skipped (100% green)
-- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 193 PASSED, 7 skipped (100% green)
+- Playwright E2E Suite: 18 PASSED 100% green
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -184,9 +187,18 @@
 - [x] Issue #79: No-Op Save Series Protection
 - [x] Issue #53: Series Destruction & Recurrence Rule Preservation on No-Op Event Saves
 - [x] Issue #241: Whole-Series Save EXDATE and Detached Override Preservation
+- [x] Issue #242: No-Op Whole-Series Save Detached Override Scope Isolation
+- **SSRF & CalDAV Master Credential Leak Fix / Absolute Href Removal (`server/caldav/parser.js`, `server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`, `server/test/ssrf_absolute_href_leak.test.js`):**
+  - Enhanced `resolveUrl` in `parser.js` and `buildAbsoluteUrl` in `events.js` / `tasks.js` to strip external origins (`http://...` / `https://...`) from untrusted hrefs, forcing all target URLs to resolve strictly against the trusted account/caldav base URL (`account.url`).
+  - Updated `resolveCalendar`, `GET /api/calendars` share lookup, and `POST /api/calendars/:id/delta-sync` in `server/routes/calendars.js` to route all href resolution through `resolveUrl`.
+  - Added unit test suite `server/test/ssrf_absolute_href_leak.test.js` covering `resolveUrl`, `buildAbsoluteUrl`, `parseCalendarList`, and `resolveCalendar` (Issue #258).
 
-## Status
-- Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241 completed 100% green.
+## Test Execution State
+- Node Unit & Integration Suite: 207 PASSED, 7 skipped (100% green)
+- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
+
+## Completed Tasks
+- [x] Tasks 1–7 and Backlog Issues #37–#53, #56, #234, #241, #242, #258 completed 100% green.
 
 
 

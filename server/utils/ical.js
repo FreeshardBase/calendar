@@ -162,10 +162,33 @@ function parseVEventToEvent(vevent, meta = {}) {
 function parseICSToEvent(icsString, meta = {}) {
   const jcal = ICAL.parse(icsString);
   const comp  = new ICAL.Component(jcal);
-  const vevent = comp.getFirstSubcomponent('vevent');
+  const vevents = comp.getAllSubcomponents('vevent');
+  if (vevents.length === 0) return null;
+
+  let vevent;
+  const targetRid = (meta.recurrenceId || meta.recurrence_id || '').toString();
+  if (targetRid) {
+    const normTarget = targetRid.replace(/[-:]/g, '').toUpperCase();
+    vevent = vevents.find(v => {
+      const rid = v.getFirstPropertyValue('recurrence-id');
+      if (!rid) return false;
+      const str = rid.toICALString ? rid.toICALString() : rid.toString();
+      const normStr = str.replace(/[-:]/g, '').toUpperCase();
+      return normStr === normTarget;
+    });
+  } else {
+    vevent = vevents.find(v => !v.getFirstProperty('recurrence-id'));
+  }
+
+  if (!vevent && !targetRid) {
+    vevent = vevents[0];
+  }
+
   if (!vevent) return null;
+
   return parseVEventToEvent(vevent, meta);
 }
+
 
 function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const jcal = ICAL.parse(icsString);
@@ -411,6 +434,12 @@ function escIcal(str) {
 }
 
 function fmtDateTime(iso) {
+  if (typeof iso === 'string') {
+    const timePart = iso.split('T')[1] || '';
+    if (!iso.endsWith('Z') && !timePart.includes('+') && !timePart.includes('-')) {
+      return iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    }
+  }
   return new Date(iso).toISOString()
     .replace(/[-:]/g, '')
     .replace(/\.\d{3}/, '');
@@ -593,14 +622,15 @@ function _registerVTimezoneBlock(tzid, block) {
  * @param {Object}      incomingEventData - Event payload from the PUT request body
  * @returns {boolean} true if the save is a no-op (nothing would change)
  */
-function isNoOpEventSave(existingIcs, incomingEventData) {
+function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   if (!existingIcs || typeof existingIcs !== 'string' || !existingIcs.trim()) {
     return false;
   }
 
   let stored;
   try {
-    stored = parseICSToEvent(existingIcs);
+    const targetRecurrenceId = recurrenceId || incomingEventData?.recurrenceId;
+    stored = parseICSToEvent(existingIcs, { recurrenceId: targetRecurrenceId });
   } catch (_) {
     return false;
   }

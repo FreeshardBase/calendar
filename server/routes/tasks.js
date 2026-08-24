@@ -213,11 +213,20 @@ async function resolveAccount(req, calendarId) {
 }
 
 function buildAbsoluteUrl(baseUrl, href) {
-  if (/^https?:\/\//i.test(href)) return href;
+  if (!href) return baseUrl || '';
+  let pathAndSearch = href;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const u = new URL(href);
+      pathAndSearch = u.pathname + u.search;
+    } catch {
+      pathAndSearch = href;
+    }
+  }
   try {
-    return new URL(href, baseUrl).href;
+    return new URL(pathAndSearch, baseUrl).href;
   } catch {
-    return baseUrl.replace(/\/+$/, '') + '/' + href.replace(/^\/+/, '');
+    return (baseUrl || '').replace(/\/+$/, '') + '/' + pathAndSearch.replace(/^\/+/, '');
   }
 }
 

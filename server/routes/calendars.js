@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const ICAL = require('ical.js');
 const { getClientForAccount } = require('../caldav/helper');
-const { parseCalendarList, parseSyncCollectionResponse } = require('../caldav/parser');
+const { parseCalendarList, parseSyncCollectionResponse, resolveUrl } = require('../caldav/parser');
 const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictResolver');
 const Db = require('../db');
 const { checkCalendarAccess } = require('../utils/calendarAuth');
@@ -88,9 +88,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
           if (account) {
             payload = {
               id: account.id,
-              url: /^https?:\/\//i.test(calendarHref)
-                ? calendarHref
-                : new URL(calendarHref, account.url).href,
+              url: resolveUrl(account.url, calendarHref),
               username: account.username,
               password: account.password,
               authType: account.authType
@@ -384,9 +382,7 @@ async function resolveCalendar(req, calendarId) {
   if (!account) return {};
 
   const client = await getClientForAccount(account);
-  const calendarUrl = calendarHref.startsWith('http')
-    ? calendarHref
-    : new URL(calendarHref, account.url).href;
+  const calendarUrl = resolveUrl(account.url, calendarHref);
 
   return { account, client, calendarUrl };
 }
@@ -1001,9 +997,7 @@ router.post('/:id/delta-sync', async (req, res) => {
     }
 
     const client = await getClientForAccount(account);
-    const calendarUrl = /^https?:\/\//i.test(calendarHref)
-      ? calendarHref
-      : new URL(calendarHref, account.url).href;
+    const calendarUrl = resolveUrl(account.url, calendarHref);
 
     const cached = await Db.getCalendarSyncCache(calendarId);
     const tokenToUse = req.body?.syncToken || cached?.syncToken || null;
@@ -1062,5 +1056,6 @@ function queueSyncForCalendar(calendarId, fallbackUserId) {
 
 module.exports = {
   protectedRouter: router,
-  publicRouter: publicRouter
+  publicRouter: publicRouter,
+  resolveCalendar
 };

@@ -276,10 +276,14 @@ function getDualHourLabelClient(baseHour, date, primaryTz, secondaryTz) {
   const priOffset = getTimezoneOffsetMinsClient(primaryTz, date);
   const secOffset = getTimezoneOffsetMinsClient(secondaryTz, date);
   const diffMins = secOffset - priOffset;
-  const secHour = (baseHour + Math.floor(diffMins / 60) + 24) % 24;
+  let totalSecMins = baseHour * 60 + diffMins;
+  totalSecMins = ((totalSecMins % 1440) + 1440) % 1440;
+  const secHour = Math.floor(totalSecMins / 60);
+  const secMin = totalSecMins % 60;
+  const fmt = (h, m = 0) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   return {
-    priStr: fmtHour(baseHour),
-    secStr: fmtHour(secHour)
+    priStr: fmt(baseHour, 0),
+    secStr: fmt(secHour, secMin)
   };
 }
 

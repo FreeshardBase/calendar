@@ -146,9 +146,7 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
     if (!isCalendar) continue;
     if (!supportsVEVENT) continue;
 
-    const url = href.startsWith('http')
-      ? href
-      : resolveUrl(baseUrl, href);
+    const url = resolveUrl(baseUrl, href);
 
     let isShared = false;
     let ownerName = null;
@@ -330,10 +328,20 @@ function normaliseColor(raw) {
 }
 
 function resolveUrl(base, href) {
+  if (!href) return base || '';
+  let pathAndSearch = href;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const u = new URL(href);
+      pathAndSearch = u.pathname + u.search;
+    } catch {
+      pathAndSearch = href;
+    }
+  }
   try {
-    return new URL(href, base).href;
+    return new URL(pathAndSearch, base).href;
   } catch {
-    return base.replace(/\/+$/, '') + '/' + href.replace(/^\/+/, '');
+    return (base || '').replace(/\/+$/, '') + '/' + pathAndSearch.replace(/^\/+/, '');
   }
 }
 
@@ -700,7 +708,8 @@ module.exports = {
   buildItipReply,
   parseSyncCollectionResponse,
   isNoOpEventSave,
-  updateWholeSeries
+  updateWholeSeries,
+  resolveUrl
 };
 
 
