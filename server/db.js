@@ -170,6 +170,21 @@ db.serialize(() => {
     )
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS sync_conflicts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      uid TEXT NOT NULL,
+      local_ics TEXT,
+      remote_ics TEXT,
+      status TEXT DEFAULT 'PENDING',
+      resolution_strategy TEXT,
+      resolved_ics TEXT,
+      created_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    )
+  `);
+  db.run(`
     CREATE TABLE IF NOT EXISTS delegate_permissions (
       id TEXT PRIMARY KEY,
       principal_user_id TEXT NOT NULL,
@@ -1621,6 +1636,52 @@ const Db = {
         function(err) {
           if (err) return reject(err);
           resolve(this.changes);
+        }
+      );
+    });
+  },
+
+  addSyncConflict(userId, calendarId, uid, localIcs, remoteIcs) {
+    return new Promise((resolve, reject) => {
+      const id = crypto.randomUUID();
+      const now = Date.now();
+      db.run(
+        `INSERT INTO sync_conflicts (id, user_id, calendar_id, uid, local_ics, remote_ics, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)`,
+        [id, userId, calendarId, uid, localIcs, remoteIcs, now],
+        function(err) {
+          if (err) return reject(err);
+          resolve(id);
+        }
+      );
+    });
+  },
+
+  getPendingSyncConflicts(userId, calendarId = null) {
+    return new Promise((resolve, reject) => {
+      let query = `SELECT id, user_id, calendar_id, uid, local_ics, remote_ics, status, created_at FROM sync_conflicts WHERE user_id = ? AND status = 'PENDING'`;
+      const params = [userId];
+      if (calendarId) {
+        query += ` AND calendar_id = ?`;
+        params.push(calendarId);
+      }
+      query += ` ORDER BY created_at DESC`;
+      db.all(query, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+  },
+
+  resolveSyncConflict(conflictId, userId, strategy, resolvedIcs) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(
+        `UPDATE sync_conflicts SET status = 'RESOLVED', resolution_strategy = ?, resolved_ics = ?, resolved_at = ? WHERE id = ? AND user_id = ?`,
+        [strategy, resolvedIcs, now, conflictId, userId],
+        function(err) {
+          if (err) return reject(err);
+          resolve(this.changes > 0);
         }
       );
     });

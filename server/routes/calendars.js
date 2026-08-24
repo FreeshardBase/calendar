@@ -9,6 +9,7 @@ const ICAL = require('ical.js');
 const { getClientForAccount } = require('../caldav/helper');
 const { parseCalendarList, parseSyncCollectionResponse, resolveUrl } = require('../caldav/parser');
 const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictResolver');
+const { detectTwoWayConflict, resolveTwoWayConflict } = require('../utils/twoWaySyncResolver');
 const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 
@@ -847,6 +848,66 @@ router.post('/:id/import', async (req, res) => {
     res.json({ imported, skipped, failed, total: byUid.size });
   } catch (err) {
     console.error('[calendars import]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/calendars/:id/sync/conflicts — fetch pending two-way sync conflicts
+router.get('/:id/sync/conflicts', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const userId = req.session ? req.session.userId : 'testuser';
+    const conflicts = await Db.getPendingSyncConflicts(userId, calendarId);
+    res.json({ success: true, conflicts });
+  } catch (err) {
+    console.error('[sync conflicts get]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/calendars/:id/sync/resolve-conflict — resolve a specific two-way sync conflict
+router.post('/:id/sync/resolve-conflict', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const userId = req.session ? req.session.userId : 'testuser';
+    const { conflictId, uid, strategy, customIcs, localIcs, remoteIcs } = req.body;
+
+    if (!strategy) {
+      return res.status(400).json({ error: 'strategy is required' });
+    }
+
+    let resolvedIcs = customIcs;
+    if (!resolvedIcs && (localIcs || remoteIcs)) {
+      resolvedIcs = resolveTwoWayConflict(localIcs, remoteIcs, strategy);
+    }
+
+    if (conflictId) {
+      await Db.resolveSyncConflict(conflictId, userId, strategy, resolvedIcs);
+    }
+
+    if (resolvedIcs && uid) {
+      const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+      if (client && calendarUrl) {
+        const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
+        await client.put(resourceUrl, resolvedIcs, null).catch(err => {
+          console.warn('[sync resolve-conflict put warning]:', err.message);
+        });
+      }
+    }
+
+    res.json({ success: true, strategy, resolvedIcs });
+  } catch (err) {
+    console.error('[sync resolve-conflict post]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

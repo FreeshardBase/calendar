@@ -336,6 +336,7 @@ status_path = "{status_dir}"
 a = "{storage_google}"
 b = "{storage_local}"
 {collections_toml}
+conflict_resolution = "b wins"
 
 [storage {storage_google}]
 type = "google_calendar"

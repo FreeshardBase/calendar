@@ -228,8 +228,16 @@
   - Added endpoint `DELETE /api/calendars/:id/color-override` to clear per-user local color overrides.
   - Added test suite `server/test/local_calendar_color.test.js` (Issue #4).
 
+- **Conflict Resolution for Concurrent Modifications (Two-Way Sync) (`server/utils/twoWaySyncResolver.js`, `server/db.js`, `server/routes/calendars.js`, `sync-worker/sync_worker.py`, `server/test/two_way_sync_conflict.test.js`):**
+  - Created `server/utils/twoWaySyncResolver.js` exporting `detectTwoWayConflict(localIcs, remoteIcs)` to detect divergent property changes and `resolveTwoWayConflict(localIcs, remoteIcs, strategy)` supporting `LOCAL_WINS`, `REMOTE_WINS`, `LAST_MODIFIED_WINS`, and `MERGE_PROPERTIES`.
+  - Added SQLite `sync_conflicts` table and DB helper functions (`addSyncConflict`, `getPendingSyncConflicts`, `resolveSyncConflict`) in `server/db.js`.
+  - Added REST endpoints `GET /api/calendars/:id/sync/conflicts` and `POST /api/calendars/:id/sync/resolve-conflict` in `server/routes/calendars.js` to inspect and resolve two-way sync conflicts.
+  - Updated `sync-worker/sync_worker.py` vdirsyncer pair generator to set `conflict_resolution = "b wins"` to prevent stranded background sync jobs on concurrent edits.
+  - Added regression test suite `server/test/two_way_sync_conflict.test.js` (Issue #5).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 291 tests, 284 PASSED, 7 skipped (100% green)
+- Node Unit & Integration Suite: 299 tests, 292 PASSED, 7 skipped (100% green)
+- Playwright E2E Suite: 18 tests, 17 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
-- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
+- [x] Tasks 1–7 and Backlog Issues #2, #3, #4, #5, #37–#53, #56, #234, #241, #242, #258, #259, #260, #261, #263, #314, #319, #322, #323, #324 completed 100% green.
