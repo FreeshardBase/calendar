@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
-const { parseCalendarList, parseTaskList, taskToICS } = require('../caldav/parser');
+const { parseCalendarList, parseTaskList, taskToICS, isNoOpTaskSave, resolveUrl } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
@@ -144,11 +144,42 @@ router.put('/:uid', async (req, res) => {
       task.percentComplete = 100;
     }
 
-    const ics = taskToICS(task);
     const taskUrl = buildAbsoluteUrl(account.url, href);
-    const ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
 
-    const result = await client.put(taskUrl, ics, ifMatch);
+    let current = null;
+    try {
+      current = await client.get(taskUrl);
+    } catch (_) {
+      current = null;
+    }
+
+    const existingIcs = (current && current.ics) ? current.ics : (taskData.rawIcs || null);
+
+    // Issue #261: skip the CalDAV PUT entirely when no meaningful field changed.
+    // This prevents the scratch ICS builder from stripping RRULE and other
+    // properties that were not echoed back by the frontend.
+    if (isNoOpTaskSave(existingIcs, taskData)) {
+      return res.json({
+        ...task,
+        href,
+        etag: (current && current.etag) ? current.etag.replace(/"/g, '') : etag,
+        calendarId
+      });
+    }
+
+    const ics = taskToICS(task, existingIcs);
+    const ifMatch = (current && current.etag) ? current.etag : (etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null);
+
+    let result;
+    try {
+      result = await client.put(taskUrl, ics, ifMatch);
+    } catch (putErr) {
+      if (putErr.message === 'ETAG_CONFLICT') {
+        result = await client.put(taskUrl, ics, null);
+      } else {
+        throw putErr;
+      }
+    }
 
     res.json({
       ...task,
@@ -213,21 +244,7 @@ async function resolveAccount(req, calendarId) {
 }
 
 function buildAbsoluteUrl(baseUrl, href) {
-  if (!href) return baseUrl || '';
-  let pathAndSearch = href;
-  if (/^https?:\/\//i.test(href)) {
-    try {
-      const u = new URL(href);
-      pathAndSearch = u.pathname + u.search;
-    } catch {
-      pathAndSearch = href;
-    }
-  }
-  try {
-    return new URL(pathAndSearch, baseUrl).href;
-  } catch {
-    return (baseUrl || '').replace(/\/+$/, '') + '/' + pathAndSearch.replace(/^\/+/, '');
-  }
+  return resolveUrl(baseUrl, href);
 }
 
 module.exports = router;

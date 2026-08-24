@@ -329,19 +329,21 @@ function normaliseColor(raw) {
 
 function resolveUrl(base, href) {
   if (!href) return base || '';
-  let pathAndSearch = href;
-  if (/^https?:\/\//i.test(href)) {
-    try {
-      const u = new URL(href);
-      pathAndSearch = u.pathname + u.search;
-    } catch {
-      pathAndSearch = href;
-    }
-  }
+  if (!base) return href;
   try {
-    return new URL(pathAndSearch, base).href;
+    const baseUrl = new URL(base);
+    const resolved = new URL(href, base);
+    resolved.protocol = baseUrl.protocol;
+    resolved.hostname = baseUrl.hostname;
+    resolved.port = baseUrl.port;
+    return resolved.href;
   } catch {
-    return (base || '').replace(/\/+$/, '') + '/' + pathAndSearch.replace(/^\/+/, '');
+    const cleanHref = String(href).replace(/^(\\\\|[a-z0-9+-.]+:\/\/|\/\/)[^/]+/i, '');
+    try {
+      return new URL(cleanHref, base).href;
+    } catch {
+      return (base || '').replace(/\/+$/, '') + '/' + cleanHref.replace(/^\/+/, '');
+    }
   }
 }
 
@@ -350,10 +352,10 @@ function parseICSToTask(icsString, meta = {}) {
   const comp  = new ICAL.Component(jcal);
   const vtodo = comp.getFirstSubcomponent('vtodo');
   if (!vtodo) return null;
-  return parseVTodoToTask(vtodo, meta);
+  return parseVTodoToTask(vtodo, meta, icsString);
 }
 
-function parseVTodoToTask(vtodo, meta = {}) {
+function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
   const uid = vtodo.getFirstPropertyValue('uid');
   const title = vtodo.getFirstPropertyValue('summary') || '(No title)';
   const description = vtodo.getFirstPropertyValue('description') || null;
@@ -401,6 +403,7 @@ function parseVTodoToTask(vtodo, meta = {}) {
     priority,
     percentComplete,
     recurrence,
+    rawIcs: rawIcs || meta.rawIcs || null,
     calendarId: meta.calendarId || null,
     accountId:  meta.accountId  || null,
     href:       meta.href       || null,
@@ -444,7 +447,8 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl) {
         calendarId,
         accountId,
         href,
-        etag: etag ? etag.replace(/"/g, '') : null
+        etag: etag ? etag.replace(/"/g, '') : null,
+        rawIcs: calendarData
       });
       if (task) tasks.push(task);
     } catch (e) {
@@ -455,7 +459,111 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl) {
   return tasks;
 }
 
-function taskToICS(task) {
+function taskToICS(task, existingIcs = null) {
+  const baseIcs = existingIcs || task.rawIcs || null;
+
+  if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
+    try {
+      const jcal = ICAL.parse(baseIcs);
+      const comp = new ICAL.Component(jcal);
+      const vtodo = comp.getFirstSubcomponent('vtodo');
+      if (vtodo) {
+        const uid = task.uid || vtodo.getFirstPropertyValue('uid') || `${uuidv4()}@freeshard.webcalendar`;
+
+        const setProp = (name, val) => {
+          if (val === null || val === undefined || val === '') {
+            vtodo.removeAllProperties(name);
+          } else {
+            const prop = vtodo.getFirstProperty(name);
+            if (prop) {
+              prop.setValue(val);
+            } else {
+              vtodo.addPropertyWithValue(name, val);
+            }
+          }
+        };
+
+        const setDateProp = (name, isoVal) => {
+          if (!isoVal) {
+            vtodo.removeAllProperties(name);
+          } else {
+            let timeVal;
+            try {
+              const dt = new Date(isoVal);
+              if (!isNaN(dt.getTime())) {
+                timeVal = ICAL.Time.fromJSDate(dt, true);
+              }
+            } catch (_) {}
+
+            if (timeVal) {
+              const prop = vtodo.getFirstProperty(name);
+              if (prop) {
+                prop.setValue(timeVal);
+              } else {
+                vtodo.addPropertyWithValue(name, timeVal);
+              }
+            }
+          }
+        };
+
+        setProp('uid', uid);
+        setProp('summary', task.title || 'Untitled');
+
+        if ('description' in task) setProp('description', task.description);
+        if ('status' in task) setProp('status', task.status);
+
+        if ('due' in task) setDateProp('due', task.due);
+        if ('dtstart' in task) setDateProp('dtstart', task.dtstart);
+        if ('completed' in task) setDateProp('completed', task.completed);
+
+        if ('priority' in task) {
+          if (task.priority !== null && task.priority !== undefined) {
+            setProp('priority', parseInt(task.priority, 10));
+          } else {
+            vtodo.removeAllProperties('priority');
+          }
+        }
+
+        if ('percentComplete' in task || 'percent-complete' in task) {
+          const pct = task.percentComplete !== undefined ? task.percentComplete : task['percent-complete'];
+          if (pct !== null && pct !== undefined) {
+            setProp('percent-complete', parseInt(pct, 10));
+          } else {
+            vtodo.removeAllProperties('percent-complete');
+          }
+        }
+
+        if ('recurrence' in task && task.recurrence !== undefined) {
+          // Only act when recurrence is explicitly set to a value or null.
+          // undefined means "caller did not include the field" → leave existing RRULE intact.
+          if (task.recurrence) {
+            const rruleClean = String(task.recurrence).replace(/^RRULE:/i, '').trim();
+            try {
+              const recur = ICAL.Recur.fromString(rruleClean);
+              const prop = vtodo.getFirstProperty('rrule');
+              if (prop) {
+                prop.setValue(recur);
+              } else {
+                vtodo.addPropertyWithValue('rrule', recur);
+              }
+            } catch (_) {
+              setProp('rrule', task.recurrence);
+            }
+          } else {
+            // null / '' → explicit removal requested
+            vtodo.removeAllProperties('rrule');
+          }
+        }
+
+        setDateProp('last-modified', new Date().toISOString());
+
+        return comp.toString();
+      }
+    } catch (e) {
+      console.warn('[taskToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
+    }
+  }
+
   const uid     = task.uid || `${uuidv4()}@freeshard.webcalendar`;
   const dtstamp = fmtDateTime(new Date().toISOString());
 
@@ -599,6 +707,79 @@ function buildItipReply(event, attendeeEmail, status) {
   return foldLines(lines.join('\n')) + '\r\n';
 }
 
+/**
+ * Issue #261 — Detect a zero-edit VTODO save.
+ *
+ * Returns `true` if none of the "meaningful" task fields in `incomingTaskData`
+ * differ from the parsed values in `existingIcs`.  Safe-defaults to `false`
+ * (always write) when the existing ICS is missing or unparseable.
+ *
+ * Compared fields: title (SUMMARY), status (STATUS), description (DESCRIPTION),
+ * due (DUE), dtstart (DTSTART), priority (PRIORITY), percentComplete (PERCENT-COMPLETE),
+ * recurrence (RRULE — null vs string treated as distinct).
+ *
+ * @param {string|null} existingIcs   - Raw ICS string from CalDAV server.
+ * @param {object}      incomingTaskData - Incoming PUT body fields (partial is OK).
+ * @returns {boolean}
+ */
+function isNoOpTaskSave(existingIcs, incomingTaskData) {
+  if (!existingIcs || typeof existingIcs !== 'string' || !existingIcs.trim()) return false;
+  if (!incomingTaskData || typeof incomingTaskData !== 'object') return false;
+
+  let existingTask;
+  try {
+    existingTask = parseICSToTask(existingIcs);
+  } catch (_) {
+    return false; // safe default
+  }
+  if (!existingTask) return false;
+
+  const inc = incomingTaskData;
+
+  // Normalise a recurrence value: strip RRULE: prefix, trim, treat null/undefined/''/false as null.
+  const normRrule = (v) => {
+    if (v === null || v === undefined || v === false || v === '') return null;
+    return String(v).replace(/^RRULE:/i, '').trim() || null;
+  };
+
+  // Compare each meaningful field when the incoming payload provides it.
+  // A field not present in the incoming payload is NOT compared (caller chose not to change it).
+  const checks = [
+    ['title', (e, i) => (e.title || '') === (i.title || '')],
+    ['status', (e, i) => (e.status || '').toUpperCase() === (i.status || '').toUpperCase()],
+    ['description', (e, i) => (e.description || null) === (i.description || null)],
+    ['due', (e, i) => {
+      if (!e.due && !i.due) return true;
+      if (!e.due || !i.due) return false;
+      return new Date(e.due).getTime() === new Date(i.due).getTime();
+    }],
+    ['dtstart', (e, i) => {
+      if (!e.dtstart && !i.dtstart) return true;
+      if (!e.dtstart || !i.dtstart) return false;
+      return new Date(e.dtstart).getTime() === new Date(i.dtstart).getTime();
+    }],
+    ['priority', (e, i) => {
+      const ep = (e.priority !== null && e.priority !== undefined) ? parseInt(e.priority, 10) : null;
+      const ip = (i.priority !== null && i.priority !== undefined) ? parseInt(i.priority, 10) : null;
+      return ep === ip;
+    }],
+    ['percentComplete', (e, i) => {
+      const ep = (e.percentComplete !== null && e.percentComplete !== undefined) ? parseInt(e.percentComplete, 10) : null;
+      const ip = (i.percentComplete !== null && i.percentComplete !== undefined) ? parseInt(i.percentComplete, 10) : null;
+      return ep === ip;
+    }],
+    ['recurrence', (e, i) => normRrule(e.recurrence) === normRrule(i.recurrence)]
+  ];
+
+  for (const [field, eq] of checks) {
+    // Only compare a field if the incoming payload explicitly provides it.
+    if (!(field in inc)) continue;
+    if (!eq(existingTask, inc)) return false;
+  }
+
+  return true;
+}
+
 module.exports = {
   parseCalendarList,
   parseEventList,
@@ -612,8 +793,10 @@ module.exports = {
   parseVTodoToTask,
   parseTaskList,
   taskToICS,
+  isNoOpTaskSave,
   advanceRecurringTask,
   updateAttendeePartstat,
+
   buildItipReply
 };
 
@@ -703,6 +886,7 @@ module.exports = {
   parseVTodoToTask,
   parseTaskList,
   taskToICS,
+  isNoOpTaskSave,
   advanceRecurringTask,
   updateAttendeePartstat,
   buildItipReply,
