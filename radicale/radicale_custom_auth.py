@@ -3,6 +3,8 @@ import sqlite3
 import hashlib
 import os
 
+import hmac
+
 class Auth(BaseAuth):
     def _login(self, login, password):
         # 1. Resolve username-to-UUID mapping in SQLite database
@@ -34,17 +36,25 @@ class Auth(BaseAuth):
             return ""
 
         try:
-            password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM app_passwords WHERE user_id = ? AND password_hash = ?",
-                (user_id, password_hash)
+                "SELECT password_hash FROM app_passwords WHERE user_id = ?",
+                (user_id,)
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
             conn.close()
-            if row is not None:
-                return user_id
+            for r in rows:
+                stored_hash = r[0]
+                if ":" in stored_hash:
+                    salt, expected = stored_hash.split(":", 1)
+                    calc = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+                    if hmac.compare_digest(calc, expected):
+                        return user_id
+                else:
+                    legacy_calc = hashlib.sha256(password.encode('utf-8')).hexdigest()
+                    if hmac.compare_digest(legacy_calc, stored_hash):
+                        return user_id
             return ""
         except Exception:
             return ""

@@ -167,6 +167,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await expect(page.locator('#import-dialog-backdrop')).toBeVisible();
     await page.click('#import-confirm');
+    await expect(page.locator('#import-dialog-backdrop')).toBeHidden({ timeout: 10000 });
 
     const chip = page.locator(`.event-chip:has-text("${title}")`).first();
     await expect(chip).toBeVisible({ timeout: 10000 });
@@ -643,7 +644,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
-    await page.goto('/?date=2027-05-15');
+    await page.goto('/?date=2028-09-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -656,8 +657,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
 
     await page.fill('#ev-title', title);
-    await page.fill('#ev-start-date', '2027-05-15');
-    await page.fill('#ev-end-date', '2027-05-15');
+    await page.fill('#ev-start-date', '2028-09-15');
+    await page.fill('#ev-end-date', '2028-09-15');
     await page.check('#ev-allday');
     await page.fill('#ev-attachment-url', driveUrl);
     await page.fill('#ev-attachment-name', driveFileName);

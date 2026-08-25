@@ -91,9 +91,11 @@ function veventToGraphEvent(eventObj) {
  * Microsoft Graph Sync Engine
  */
 class MSGraphSyncEngine {
-  constructor(account, fetchOverride = null) {
+  constructor(account, fetchOverride = null, caldavClient = null, targetCalendarUrl = null) {
     this.account = account;
     this.fetch = fetchOverride || global.fetch;
+    this.caldavClient = caldavClient;
+    this.targetCalendarUrl = targetCalendarUrl || (account && account.targetCalendarId);
   }
 
   /**
@@ -236,7 +238,10 @@ class MSGraphSyncEngine {
   /**
    * Executes full bidirectional sync between WebCalendar and Microsoft Graph
    */
-  async sync(localEvents = []) {
+  async sync(localEvents = [], options = {}) {
+    const caldavClient = options.caldavClient || this.caldavClient;
+    const targetCalendarUrl = options.targetCalendarUrl || this.targetCalendarUrl;
+
     const remoteResult = await this.fetchRemoteDeltaEvents();
     const syncedItems = [];
 
@@ -245,13 +250,33 @@ class MSGraphSyncEngine {
       if (item.isDeleted) {
         const mapping = await Db.getMSGraphEventMappingByGraphId(item.graphId);
         if (mapping) {
+          if (caldavClient && targetCalendarUrl) {
+            try {
+              const eventUrl = `${targetCalendarUrl.replace(/\/+$/, '')}/${mapping.localUid}.ics`;
+              await caldavClient.delete(eventUrl);
+            } catch (err) {
+              console.error(`Failed to delete local CalDAV event for graphId ${item.graphId}:`, err.message);
+            }
+          }
           await Db.deleteMSGraphEventMapping(mapping.localUid);
           syncedItems.push({ action: 'deleted_locally', localUid: mapping.localUid, graphId: item.graphId });
         }
       } else {
         const localUid = `msgraph-event-${item.graphId}`;
-        await Db.upsertMSGraphEventMapping(localUid, item.graphId, this.account.id, item.event.eTag);
-        syncedItems.push({ action: 'upserted_locally', localUid, graphId: item.graphId, event: item.event });
+        let icsData = null;
+        if (item.event) {
+          icsData = eventToICS(item.event);
+          if (caldavClient && targetCalendarUrl) {
+            try {
+              const eventUrl = `${targetCalendarUrl.replace(/\/+$/, '')}/${localUid}.ics`;
+              await caldavClient.put(eventUrl, icsData);
+            } catch (err) {
+              console.error(`Failed to write local CalDAV event for graphId ${item.graphId}:`, err.message);
+            }
+          }
+        }
+        await Db.upsertMSGraphEventMapping(localUid, item.graphId, this.account.id, item.event ? item.event.eTag : '');
+        syncedItems.push({ action: 'upserted_locally', localUid, graphId: item.graphId, event: item.event, icsData });
       }
     }
 

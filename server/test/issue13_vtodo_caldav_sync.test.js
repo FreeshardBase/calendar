@@ -49,7 +49,7 @@ END:VCALENDAR</C:calendar-data>
     assert.equal(tasks[0].title, 'Synchronized Task');
     assert.equal(tasks[0].status, 'NEEDS-ACTION');
     assert.equal(tasks[0].priority, 1);
-    assert.equal(tasks[0].etag, 'etag-12345');
+    assert.equal(tasks[0].etag, '"etag-12345"');
     assert.equal(tasks[0].calendarId, 'acc-1::/user/persoenlich/');
   });
 

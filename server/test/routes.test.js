@@ -1,4 +1,5 @@
 'use strict';
+require('dotenv').config();
 process.env.NODE_ENV = 'test';
 process.env.PORT = process.env.PORT || '3097';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
@@ -7,7 +8,6 @@ process.env.SSL_CERT_PATH = '';
 process.env.CALDAVURL = process.env.CALDAVURL || `http://localhost:${process.env.PORT}/mock-dav/`;
 process.env.CALDAV_USERNAME = process.env.CALDAV_USERNAME || 'test';
 process.env.CALDAV_PASSWORD = process.env.CALDAV_PASSWORD || 'test';
-require('dotenv').config();
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -26,12 +26,13 @@ test('HTTP Routes Integration Suite', async (t) => {
   // Clean up database before running tests
   await Db.clearAll().catch(() => {});
 
-  const hasCalDAV = !!(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
   let sessionCookie = '';
   let testCalendarId = '';
 
   await t.test('GET /api/accounts should return auto-configured account and set session cookie', async () => {
-    const res = await fetch(`${baseUrl}/api/accounts`);
+    const res = await fetch(`${baseUrl}/api/accounts`, {
+      headers: { 'x-test-user-id': 'test' }
+    });
     assert.strictEqual(res.status, 200);
     
     const accounts = await res.json();
@@ -47,14 +48,11 @@ test('HTTP Routes Integration Suite', async (t) => {
     }
   });
 
-  await t.test('GET /api/calendars should return calendars list using session cookie', async (st) => {
-    if (!hasCalDAV) {
-      st.skip('No CALDAV credentials configured');
-      return;
-    }
+  await t.test('GET /api/calendars should return calendars list using session cookie', async () => {
     const res = await fetch(`${baseUrl}/api/calendars`, {
       headers: {
-        cookie: sessionCookie
+        cookie: sessionCookie,
+        'x-test-user-id': 'test'
       }
     });
     assert.strictEqual(res.status, 200);
@@ -66,16 +64,13 @@ test('HTTP Routes Integration Suite', async (t) => {
     testCalendarId = data.calendars[0].id;
   });
 
-  await t.test('GET /api/events should return list of events', async (st) => {
-    if (!hasCalDAV) {
-      st.skip('No CALDAV credentials configured');
-      return;
-    }
+  await t.test('GET /api/events should return list of events', async () => {
     const start = '2026-07-01T00:00:00Z';
     const end = '2026-07-31T23:59:59Z';
     const res = await fetch(`${baseUrl}/api/events?start=${start}&end=${end}`, {
       headers: {
-        cookie: sessionCookie
+        cookie: sessionCookie,
+        'x-test-user-id': 'test'
       }
     });
     assert.strictEqual(res.status, 200);
@@ -84,12 +79,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.ok(Array.isArray(events));
   });
 
-  await t.test('POST /api/accounts with base domain should run discovery and add account', async (st) => {
-    if (!process.env.CALDAVURL || !process.env.CALDAV_USERNAME || !process.env.CALDAV_PASSWORD) {
-      st.skip('Missing CALDAV credentials in env');
-      return;
-    }
-
+  await t.test('POST /api/accounts with base domain should run discovery and add account', async () => {
     const urlObj = new URL(process.env.CALDAVURL);
     const baseUrlOnly = `${urlObj.protocol}//${urlObj.host}`;
 
@@ -97,7 +87,8 @@ test('HTTP Routes Integration Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        cookie: sessionCookie
+        cookie: sessionCookie,
+        'x-test-user-id': 'test'
       },
       body: JSON.stringify({
         url: baseUrlOnly,
@@ -112,38 +103,33 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.strictEqual(res.status, 409);
   });
 
-  await t.test('GET /api/calendars/:id/shares should return shares list', async (st) => {
-    if (!hasCalDAV) {
-      st.skip('No CALDAV credentials configured');
-      return;
-    }
+  await t.test('GET /api/calendars/:id/shares should return shares list', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
-      headers: { cookie: sessionCookie }
+      headers: { cookie: sessionCookie, 'x-test-user-id': 'test' }
     });
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.ok(Array.isArray(body.shares));
   });
 
-  await t.test('POST, PUT/update and DELETE /api/calendars/:id/shares should manage calendar share permissions', async (st) => {
-    if (!hasCalDAV) {
-      st.skip('No CALDAV credentials configured');
-      return;
-    }
+  await t.test('POST, PUT/update and DELETE /api/calendars/:id/shares should manage calendar share permissions', async () => {
+    const headers = {
+      'Content-Type': 'application/json',
+      cookie: sessionCookie,
+      'x-test-user-id': 'test'
+    };
+
     // 1. Add share (read-write)
     const addRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: sessionCookie
-      },
+      headers,
       body: JSON.stringify({ sharee: 'testuser@example.com', readWrite: true })
     });
     assert.strictEqual(addRes.status, 200);
 
     // 2. Verify share is added as read-write
     const getRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
-      headers: { cookie: sessionCookie }
+      headers
     });
     assert.strictEqual(getRes.status, 200);
     const getBody = await getRes.json();
@@ -154,17 +140,14 @@ test('HTTP Routes Integration Suite', async (t) => {
     // 3. Update share to read-only
     const updateRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: sessionCookie
-      },
+      headers,
       body: JSON.stringify({ sharee: share.href, readWrite: false })
     });
     assert.strictEqual(updateRes.status, 200);
 
     // 4. Verify share is updated to read-only
     const getRes2 = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
-      headers: { cookie: sessionCookie }
+      headers
     });
     assert.strictEqual(getRes2.status, 200);
     const getBody2 = await getRes2.json();
@@ -175,17 +158,14 @@ test('HTTP Routes Integration Suite', async (t) => {
     // 5. Remove share
     const deleteRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: sessionCookie
-      },
+      headers,
       body: JSON.stringify({ sharee: share.href })
     });
     assert.strictEqual(deleteRes.status, 200);
 
     // 6. Verify share is removed
     const getRes3 = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
-      headers: { cookie: sessionCookie }
+      headers
     });
     assert.strictEqual(getRes3.status, 200);
     const getBody3 = await getRes3.json();
@@ -193,13 +173,9 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.ok(!share3);
   });
 
-  await t.test('GET /api/calendars/search-users should return matched users', async (st) => {
-    if (!hasCalDAV) {
-      st.skip('No CALDAV credentials configured');
-      return;
-    }
+  await t.test('GET /api/calendars/search-users should return matched users', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/search-users?q=test`, {
-      headers: { cookie: sessionCookie }
+      headers: { cookie: sessionCookie, 'x-test-user-id': 'test' }
     });
     assert.strictEqual(res.status, 200);
     const users = await res.json();
@@ -208,15 +184,13 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.strictEqual(users[0].displayname, 'Test User');
   });
 
-  await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async (st) => {
-    if (!hasCalDAV) {
-      st.skip('No CALDAV credentials configured');
-      return;
-    }
+  await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async () => {
+    const headers = { cookie: sessionCookie, 'x-test-user-id': 'test' };
+
     // 1. Enable public link
     const enableRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/public-link`, {
       method: 'POST',
-      headers: { cookie: sessionCookie }
+      headers
     });
     assert.strictEqual(enableRes.status, 200);
     const enableData = await enableRes.json();
@@ -225,7 +199,7 @@ test('HTTP Routes Integration Suite', async (t) => {
 
     // 2. Fetch status
     const statusRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/public-link`, {
-      headers: { cookie: sessionCookie }
+      headers
     });
     assert.strictEqual(statusRes.status, 200);
     const statusData = await statusRes.json();
@@ -242,7 +216,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     // 4. Disable public link
     const disableRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/public-link`, {
       method: 'DELETE',
-      headers: { cookie: sessionCookie }
+      headers
     });
     assert.strictEqual(disableRes.status, 200);
     const disableData = await disableRes.json();
@@ -254,7 +228,9 @@ test('HTTP Routes Integration Suite', async (t) => {
   });
 
   await t.test('POST, PATCH, DELETE /api/accounts and POST /internal/webhooks/user-deleted should manage accounts and clean up via webhook', async () => {
-    const getSessRes = await fetch(`${baseUrl}/api/accounts`);
+    const getSessRes = await fetch(`${baseUrl}/api/accounts`, {
+      headers: { 'x-test-user-id': 'webhook-test-user' }
+    });
     const rawCookie = getSessRes.headers.get('set-cookie');
     const sessionCookie = rawCookie ? rawCookie.split(';')[0] : '';
 
@@ -354,4 +330,3 @@ test('HTTP Routes Integration Suite', async (t) => {
     }
   });
 });
-

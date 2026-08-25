@@ -69,6 +69,17 @@ function parseValarms(vevent) {
   return alarms;
 }
 
+function icalTimeToISO(icalTime) {
+  if (!icalTime) return null;
+  if (icalTime.isDate) {
+    const y = String(icalTime.year).padStart(4, '0');
+    const m = String(icalTime.month).padStart(2, '0');
+    const d = String(icalTime.day).padStart(2, '0');
+    return `${y}-${m}-${d}T00:00:00.000Z`;
+  }
+  return icalTime.toJSDate().toISOString();
+}
+
 function parseVEventToEvent(vevent, meta = {}) {
   const ev = new ICAL.Event(vevent);
 
@@ -156,8 +167,8 @@ function parseVEventToEvent(vevent, meta = {}) {
   return {
     uid:         ev.uid,
     title:       ev.summary   || '(No title)',
-    start:       dtstart      ? dtstart.toJSDate().toISOString() : null,
-    end:         dtend        ? dtend.toJSDate().toISOString()   : null,
+    start:       dtstart      ? icalTimeToISO(dtstart) : null,
+    end:         dtend        ? icalTimeToISO(dtend)   : null,
     allDay:      isAllDay,
     location:    ev.location  || null,
     description: ev.description || null,
@@ -173,7 +184,8 @@ function parseVEventToEvent(vevent, meta = {}) {
     calendarId:  meta.calendarId  || null,
     accountId:   meta.accountId   || null,
     href:        meta.href        || null,
-    etag:        meta.etag        || null
+    etag:        meta.etag        || null,
+    rawIcs:      meta.rawIcs      || null
   };
 }
 
@@ -204,7 +216,7 @@ function parseICSToEvent(icsString, meta = {}) {
 
   if (!vevent) return null;
 
-  return parseVEventToEvent(vevent, meta);
+  return parseVEventToEvent(vevent, { ...meta, rawIcs: meta.rawIcs || icsString });
 }
 
 
@@ -239,17 +251,21 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const iterator = icalEvent.iterator();
   const instances = [];
   let next;
-  let count = 0;
+  let iterations = 0;
+  const maxIterations = 50000;
   const maxCount = 500;
 
-  while ((next = iterator.next()) && count < maxCount) {
-    count++;
+  while ((next = iterator.next()) && iterations < maxIterations && instances.length < maxCount) {
+    iterations++;
     let details;
     try {
       details = icalEvent.getOccurrenceDetails(next);
     } catch (e) {
       continue;
     }
+    const occStartIso = details.startDate.isDate ? icalTimeToISO(details.startDate) : details.startDate.toJSDate().toISOString();
+    const occEndIso = details.endDate.isDate ? icalTimeToISO(details.endDate) : details.endDate.toJSDate().toISOString();
+
     const occStart = details.startDate.toJSDate();
     const occEnd = details.endDate.toJSDate();
 
@@ -257,7 +273,7 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
       break;
     }
 
-    if (occEnd.getTime() >= limitStart.getTime() && occStart.getTime() <= limitEnd.getTime()) {
+    if (new Date(occEndIso).getTime() >= limitStart.getTime() && new Date(occStartIso).getTime() <= limitEnd.getTime()) {
       const recurrenceId = details.recurrenceId.toString();
       const isOverride = details.item.component !== master;
       const base = isOverride ? parseVEventToEvent(details.item.component, meta) : event;
@@ -265,8 +281,8 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
         ...base,
         uid: `${event.uid}::${recurrenceId}`,
         masterUid: event.uid,
-        start: occStart.toISOString(),
-        end: occEnd.toISOString(),
+        start: occStartIso,
+        end: occEndIso,
         recurrenceId,
         recurrence: event.recurrence,
         alarms: base.alarms || event.alarms || []
@@ -277,7 +293,238 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   return instances;
 }
 
-function eventToICS(event) {
+function eventToICS(event, existingIcs = null) {
+  const baseIcs = existingIcs || event.rawIcs || null;
+
+  if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
+    try {
+      const jcal = ICAL.parse(baseIcs);
+      const comp = new ICAL.Component(jcal);
+      const vevents = comp.getAllSubcomponents('vevent');
+      if (vevents.length > 0) {
+        const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
+        const uid = event.uid || master.getFirstPropertyValue('uid') || `${uuidv4()}@freeshard.webcalendar`;
+
+        const setPropValue = (name, val) => {
+          if (val === null || val === undefined || val === '') {
+            master.removeAllProperties(name);
+          } else {
+            const prop = master.getFirstProperty(name);
+            if (prop) {
+              prop.setValue(val);
+            } else {
+              master.addPropertyWithValue(name, val);
+            }
+          }
+        };
+
+        setPropValue('uid', uid);
+        setPropValue('summary', event.title || 'Untitled');
+
+        if ('description' in event) {
+          if (event.description) setPropValue('description', event.description);
+          else master.removeAllProperties('description');
+        }
+        if ('location' in event) {
+          if (event.location) setPropValue('location', event.location);
+          else master.removeAllProperties('location');
+        }
+        if ('status' in event) {
+          if (event.status) setPropValue('status', String(event.status).toUpperCase());
+          else master.removeAllProperties('status');
+        }
+
+        const setEventDateProp = (propName, isoVal, isAllDay, tzid) => {
+          if (!isoVal) {
+            master.removeAllProperties(propName);
+            return;
+          }
+          master.removeAllProperties(propName);
+          const dt = new Date(isoVal);
+          if (isNaN(dt.getTime())) return;
+
+          let timeVal;
+          if (isAllDay) {
+            const dateStr = fmtDate(isoVal);
+            timeVal = ICAL.Time.fromDateString(`${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`);
+            timeVal.isDate = true;
+          } else {
+            timeVal = ICAL.Time.fromJSDate(dt, true);
+            if (tzid) {
+              timeVal.zone = ICAL.TimezoneService.get(tzid) || ICAL.Timezone.utcTimezone;
+            }
+          }
+          const prop = new ICAL.Property(propName, master);
+          if (tzid && !isAllDay) {
+            prop.setParameter('tzid', tzid);
+          }
+          prop.setValue(timeVal);
+          master.addProperty(prop);
+        };
+
+        if (event.start !== undefined) {
+          setEventDateProp('dtstart', event.start, event.allDay, event.startTimeZone);
+        }
+        if (event.end !== undefined) {
+          setEventDateProp('dtend', event.end, event.allDay, event.endTimeZone);
+        }
+
+        // Recurrence (RRULE)
+        if ('recurrence' in event && event.recurrence !== undefined) {
+          if (event.recurrence) {
+            const rruleClean = String(event.recurrence).replace(/^RRULE:/i, '').trim();
+            try {
+              const recur = ICAL.Recur.fromString(rruleClean);
+              const prop = master.getFirstProperty('rrule');
+              if (prop) {
+                prop.setValue(recur);
+              } else {
+                master.addPropertyWithValue('rrule', recur);
+              }
+            } catch (_) {
+              setPropValue('rrule', event.recurrence);
+            }
+          } else {
+            master.removeAllProperties('rrule');
+          }
+        }
+
+        // Organizer
+        if ('organizer' in event) {
+          if (event.organizer && event.organizer.email) {
+            let orgProp = master.getFirstProperty('organizer');
+            if (!orgProp) {
+              orgProp = new ICAL.Property('organizer', master);
+              master.addProperty(orgProp);
+            }
+            orgProp.setValue(`mailto:${String(event.organizer.email).replace(/[\r\n]/g, '')}`);
+            if (event.organizer.name) {
+              orgProp.setParameter('cn', event.organizer.name);
+            } else {
+              orgProp.removeParameter('cn');
+            }
+          } else if (event.organizer === null) {
+            master.removeAllProperties('organizer');
+          }
+        }
+
+        // Attendees: preserve existing attendee parameters (e.g. ROLE, CUTYPE, X-*)!
+        if (Array.isArray(event.attendees)) {
+          const existingProps = master.getAllProperties('attendee');
+          const incomingMap = new Map();
+          for (const att of event.attendees) {
+            if (att && att.email) {
+              incomingMap.set(att.email.toLowerCase().replace(/^mailto:/i, ''), att);
+            }
+          }
+
+          for (const prop of existingProps) {
+            const val = prop.getFirstValue();
+            const valStr = typeof val === 'string' ? val : (val && val.toString ? val.toString() : '');
+            const email = valStr.toLowerCase().replace(/^mailto:/i, '');
+            if (incomingMap.has(email)) {
+              const att = incomingMap.get(email);
+              if (att.name) prop.setParameter('cn', att.name);
+              else prop.removeParameter('cn');
+
+              if (att.status) prop.setParameter('partstat', att.status.toUpperCase());
+
+              if (att.rsvp !== undefined) {
+                if (att.rsvp === true) prop.setParameter('rsvp', 'TRUE');
+                else if (att.rsvp === false) prop.setParameter('rsvp', 'FALSE');
+              }
+              incomingMap.delete(email);
+            } else {
+              master.removeProperty(prop);
+            }
+          }
+
+          for (const [email, att] of incomingMap.entries()) {
+            const newProp = new ICAL.Property('attendee', master);
+            newProp.setValue(`mailto:${email}`);
+            if (att.name) newProp.setParameter('cn', att.name);
+            newProp.setParameter('partstat', (att.status || 'NEEDS-ACTION').toUpperCase());
+            newProp.setParameter('cutype', 'INDIVIDUAL');
+            if (att.rsvp === true) {
+              newProp.setParameter('rsvp', 'TRUE');
+            } else if (att.rsvp === false) {
+              newProp.setParameter('rsvp', 'FALSE');
+            }
+            master.addProperty(newProp);
+          }
+        }
+
+        // Categories
+        if ('categories' in event && event.categories !== undefined) {
+          const rawCats = Array.isArray(event.categories)
+            ? event.categories
+            : (typeof event.categories === 'string' ? event.categories.split(',') : []);
+          const normCats = rawCats.map(c => String(c).trim()).filter(Boolean);
+          master.removeAllProperties('categories');
+          if (normCats.length > 0) {
+            const prop = new ICAL.Property('categories', master);
+            prop.setValues(normCats);
+            master.addProperty(prop);
+          }
+        }
+
+        // Attachments
+        if ('attachments' in event && event.attachments !== undefined) {
+          const attachments = Array.isArray(event.attachments) ? event.attachments : [];
+          master.removeAllProperties('attach');
+          for (const att of attachments) {
+            if (!att) continue;
+            const url = typeof att === 'string' ? att : att.url;
+            if (!url) continue;
+            const attProp = new ICAL.Property('attach', master);
+            attProp.setValue(url);
+            if (typeof att === 'object') {
+              if (att.mimeType) attProp.setParameter('fmttype', att.mimeType);
+              if (att.name) attProp.setParameter('x-filename', att.name);
+            }
+            master.addProperty(attProp);
+          }
+        }
+
+        // Alarms
+        if ('alarms' in event && event.alarms !== undefined) {
+          master.removeAllSubcomponents('valarm');
+          const alarms = Array.isArray(event.alarms) ? event.alarms : [];
+          for (const alarm of alarms) {
+            const alarmComp = new ICAL.Component('valarm', master);
+            alarmComp.addPropertyWithValue('action', (alarm.action || 'DISPLAY').toUpperCase());
+            alarmComp.addPropertyWithValue('trigger', alarm.trigger || '-PT15M');
+            if (alarm.description) alarmComp.addPropertyWithValue('description', alarm.description);
+            master.addSubcomponent(alarmComp);
+          }
+        }
+
+        // LAST-MODIFIED
+        setEventDateProp('last-modified', new Date().toISOString(), false, null);
+
+        // VTIMEZONE blocks
+        const tzids = [];
+        if (!event.allDay) {
+          if (event.startTimeZone && !tzids.includes(event.startTimeZone)) tzids.push(event.startTimeZone);
+          if (event.endTimeZone && !tzids.includes(event.endTimeZone)) tzids.push(event.endTimeZone);
+        }
+        for (const tzid of tzids) {
+          const existingTzs = comp.getAllSubcomponents('vtimezone');
+          if (!existingTzs.some(t => t.getFirstPropertyValue('tzid') === tzid)) {
+            const block = buildVTimezoneBlock(tzid);
+            _registerVTimezoneBlock(tzid, block);
+            const tzComp = new ICAL.Component(ICAL.parse(`BEGIN:VCALENDAR\r\n${block}\r\nEND:VCALENDAR`)).getFirstSubcomponent('vtimezone');
+            if (tzComp) comp.addSubcomponent(tzComp);
+          }
+        }
+
+        return comp.toString();
+      }
+    } catch (e) {
+      console.warn('[eventToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
+    }
+  }
+
   const uid      = event.uid || `${uuidv4()}@freeshard.webcalendar`;
   const dtstamp  = fmtDateTime(new Date().toISOString());
 
@@ -345,9 +592,10 @@ function eventToICS(event) {
 
   for (const att of (event.attendees || [])) {
     if (!att.email) continue;
-    const cn      = att.name   ? `;CN="${escParamVal(att.name)}"`           : '';
+    const cn       = att.name   ? `;CN="${escParamVal(att.name)}"`           : '';
     const partstat = `;PARTSTAT=${escParamVal(att.status || 'NEEDS-ACTION')}`;
-    lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn}${partstat};RSVP=TRUE:mailto:${String(att.email).replace(/[\r\n]/g, '')}`);
+    const rsvp     = att.rsvp === true ? ';RSVP=TRUE' : (att.rsvp === false ? ';RSVP=FALSE' : '');
+    lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn}${partstat}${rsvp}:mailto:${String(att.email).replace(/[\r\n]/g, '')}`);
   }
 
   if (event.recurrence) lines.push(`RRULE:${String(event.recurrence).replace(/[\r\n]/g, '')}`);
@@ -453,8 +701,9 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
 function escParamVal(str) {
   if (str === null || str === undefined) return '';
   return String(str)
-    .replace(/["\r\n]/g, '')
-    .replace(/\\/g, '\\\\');
+    .replace(/[\r\n]/g, '')
+    .replace(/\^/g, '^^')
+    .replace(/"/g, "^'");
 }
 
 function escIcal(str) {
@@ -507,14 +756,30 @@ function fmtDate(iso) {
 function foldLines(text) {
   return text.split('\n').map(line => {
     line = line.replace(/\r$/, '');
-    if (line.length <= 75) return line;
-    const parts = [line.slice(0, 75)];
-    let i = 75;
-    while (i < line.length) {
-      parts.push(' ' + line.slice(i, i + 74));
-      i += 74;
+    if (Buffer.byteLength(line, 'utf8') <= 75) return line;
+
+    const parts = [];
+    let currentChunk = '';
+    let currentBytes = 0;
+    let maxBytes = 75;
+
+    for (const char of line) {
+      const charBytes = Buffer.byteLength(char, 'utf8');
+      if (currentBytes + charBytes > maxBytes) {
+        parts.push(currentChunk);
+        currentChunk = char;
+        currentBytes = charBytes;
+        maxBytes = 74;
+      } else {
+        currentChunk += char;
+        currentBytes += charBytes;
+      }
     }
-    return parts.join('\r\n');
+    if (currentChunk.length > 0) {
+      parts.push(currentChunk);
+    }
+
+    return parts.map((part, index) => (index === 0 ? part : ' ' + part)).join('\r\n');
   }).join('\r\n');
 }
 
@@ -759,7 +1024,7 @@ function updateWholeSeries(existingIcs, eventData) {
   const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
   const exdateProps = master.getAllProperties('exdate');
 
-  const newMasterIcs = eventToICS(eventData);
+  const newMasterIcs = eventToICS(eventData, existingIcs);
   let newMasterComp;
   try {
     newMasterComp = new ICAL.Component(ICAL.parse(newMasterIcs));
@@ -805,6 +1070,7 @@ module.exports = {
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,
-  updateWholeSeries
+  updateWholeSeries,
+  foldLines
 };
 

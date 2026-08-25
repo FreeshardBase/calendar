@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3098';
+process.env.PORT = process.env.PORT || '3129';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -26,7 +26,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
 
   await t.test('Initial setup - fetch account session cookie', async () => {
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'testuser-id' }
+      headers: { 'x-test-user-id': 'testuser' }
     });
     assert.strictEqual(res.status, 200);
     const cookieHeader = res.headers.get('set-cookie');
@@ -47,7 +47,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
       headers: {
         'Content-Type': 'application/json',
         cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'x-test-user-id': 'testuser'
       },
       body: JSON.stringify({ label: 'Test Public Feed' })
     });
@@ -61,7 +61,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
     const listRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares-public`, {
       headers: {
         cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'x-test-user-id': 'testuser'
       }
     });
     assert.strictEqual(listRes.status, 200);
@@ -76,7 +76,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
       method: 'DELETE',
       headers: {
         cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'x-test-user-id': 'testuser'
       }
     });
     assert.strictEqual(deleteRes.status, 200);
@@ -85,7 +85,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
     const listRes2 = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares-public`, {
       headers: {
         cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'x-test-user-id': 'testuser'
       }
     });
     const listData2 = await listRes2.json();
@@ -98,7 +98,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
       headers: {
         'Content-Type': 'application/json',
         cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'x-test-user-id': 'testuser'
       },
       body: JSON.stringify({ label: '  ' })
     });

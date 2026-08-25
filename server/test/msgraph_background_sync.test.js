@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3098';
+process.env.PORT = process.env.PORT || '3139';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -14,8 +14,10 @@ const path = require('path');
 test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) => {
   const { app, server } = require('../index');
   await new Promise(r => setTimeout(r, 100));
+  await Db.clearAll().catch(() => {});
 
   t.after(() => {
+    delete process.env.PORT;
     if (server && server.close) {
       server.close();
     }
@@ -74,8 +76,8 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
     const data = await res.json();
     assert.ok(data.success);
 
-    const pendingJobs = await Db.getPendingSyncJobs();
-    const userJob = pendingJobs.find(j => j.userId === userId);
+    const jobs = await Db.getSyncJobs(userId);
+    const userJob = jobs.find(j => j.userId === userId);
     assert.ok(userJob, 'Sync job should be enqueued on manual trigger endpoint');
 
     await Db.deleteMSGraphAccount(account.id);
@@ -86,7 +88,7 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
       userId: 'py-msgraph-user',
       accountEmail: 'py-m365@example.com',
       accessToken: 'py-access-token',
-      refreshToken: 'py-refresh-token'
+      refreshToken: 'mock-py-refresh-token'
     });
 
     const scriptDir = path.join(__dirname, '../../sync-worker');

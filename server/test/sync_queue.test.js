@@ -9,7 +9,7 @@ describe('Sync Queue Worker & Error Resilience Suite', () => {
   });
 
   beforeEach(async () => {
-    await Db.clearSyncJobsForUser('testuser-');
+    await Db.clearAll();
   });
 
   test('addSyncJob creates a pending sync job for user', async () => {

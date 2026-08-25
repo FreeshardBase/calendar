@@ -35,19 +35,16 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   (worker jobs), `users` (OIDC uuid↔username), `user_calendar_shares` (internal user-to-user shares).
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
-- `server/caldav/parser.js` — XML (@xmldom) + iCal (ical.js) parsing; RRULE expansion server-side
-  (`parseAndExpandEvent`, occurrences get `uid = master::recurrenceId`); JSON→ICS serializer.
-- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete,
-  user shares, public share links), `events` (range query across all accounts, CRUD with ETag
-  conflict handling), `auth` (Authelia OIDC login + Google OAuth2 account linking).
+- `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).
+- `server/utils/msgraph.js` — MS Graph API client and `MSGraphSyncEngine` for Microsoft 365 / Outlook calendar integration and event format mapping (`veventToGraphEvent` / `graphEventToVEVENT`).
+- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `msgraph` (`/api/msgraph/accounts` MS Graph OAuth account management), `auth` (Authelia OIDC login, Back-Channel Logout, Google OAuth2 account linking).
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)
   and `radicale_custom_rights` (owner full access, others via `user_calendar_shares`).
-- `sync-worker/` — Python daemon polling `sync_queue`; builds a vdirsyncer config per user and
-  two-way-syncs Google Calendar (google_calendar storage) ↔ Radicale (`/<uuid>/<slug>/`).
+- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (MS Graph / Outlook bidirectional sync worker).
 - `public/` — no-framework SPA: `js/app.js` (boot, views, sidebar, dialogs), `js/calendar.js`
-  (month/week/day/agenda grid rendering), `js/eventModal.js`, `js/api.js` (fetch wrappers),
+  (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer & Kanban board), `js/eventModal.js`, `js/api.js` (fetch wrappers),
   `js/store.js` (pub/sub state), `js/accountModal.js`, `css/app.css`.
 
 ## Conventions

@@ -272,29 +272,82 @@ function createKanbanCard(task, callbacks) {
 }
 
 export function advanceRecurringTaskJS(task) {
-  if (!task || !task.recurrence) return { ...task, status: 'COMPLETED' };
+  if (!task || !task.recurrence) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
 
-  const rrule = String(task.recurrence).toUpperCase();
-  let baseDate = task.due ? new Date(task.due) : new Date();
-  if (isNaN(baseDate.getTime())) baseDate = new Date();
+  if (typeof window !== 'undefined' && window.ICAL && window.ICAL.Recur) {
+    const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
+    let recur;
+    try {
+      recur = window.ICAL.Recur.fromString(rruleStr);
+    } catch (_) {
+      recur = null;
+    }
+    const baseDue = task.due ? new Date(task.due) : new Date();
+    if (!isNaN(baseDue.getTime()) && recur) {
+      const dtStartMs = task.dtstart ? new Date(task.dtstart).getTime() : baseDue.getTime();
+      const dtStart = isNaN(dtStartMs) ? baseDue : new Date(dtStartMs);
+      const icalStart = window.ICAL.Time.fromJSDate(dtStart, true);
+      const iterator = recur.iterator(icalStart);
+      const dueMs = baseDue.getTime();
+      let steps = 0;
+      let next;
+      while (steps < 50000) {
+        next = iterator.next();
+        steps++;
+        if (!next) {
+          return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+        }
+        const nextMs = next.toJSDate().getTime();
+        if (nextMs > dueMs) {
+          return {
+            ...task,
+            due: next.toJSDate().toISOString(),
+            status: 'NEEDS-ACTION',
+            completed: null,
+            percentComplete: 0
+          };
+        }
+      }
+      return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+    }
+  }
+
+  const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
+  const rruleUpper = rruleStr.toUpperCase();
+  const baseDue = task.due ? new Date(task.due) : new Date();
+  if (isNaN(baseDue.getTime())) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+
+  const untilMatch = rruleUpper.match(/UNTIL=([0-9TJSZ]+)/);
+  if (untilMatch) {
+    const uStr = untilMatch[1];
+    let untilDate;
+    if (uStr.length === 8) {
+      untilDate = new Date(Date.UTC(parseInt(uStr.slice(0,4),10), parseInt(uStr.slice(4,6),10)-1, parseInt(uStr.slice(6,8),10), 23, 59, 59));
+    } else {
+      untilDate = new Date(uStr.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z'));
+    }
+    if (!isNaN(untilDate.getTime()) && baseDue.getTime() >= untilDate.getTime()) {
+      return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+    }
+  }
 
   let interval = 1;
-  const matchInterval = rrule.match(/INTERVAL=(\d+)/);
+  const matchInterval = rruleUpper.match(/INTERVAL=(\d+)/);
   if (matchInterval) {
     interval = parseInt(matchInterval[1], 10) || 1;
   }
 
-  const nextDate = new Date(baseDate.getTime());
-  if (rrule.includes('FREQ=DAILY')) {
-    nextDate.setDate(nextDate.getDate() + interval);
-  } else if (rrule.includes('FREQ=WEEKLY')) {
-    nextDate.setDate(nextDate.getDate() + (7 * interval));
-  } else if (rrule.includes('FREQ=MONTHLY')) {
-    nextDate.setMonth(nextDate.getMonth() + interval);
-  } else if (rrule.includes('FREQ=YEARLY')) {
-    nextDate.setFullYear(nextDate.getFullYear() + interval);
+  const nextDate = new Date(baseDue.getTime());
+  if (rruleUpper.includes('FREQ=DAILY')) {
+    nextDate.setUTCDate(nextDate.getUTCDate() + interval);
+  } else if (rruleUpper.includes('FREQ=WEEKLY')) {
+    nextDate.setUTCDate(nextDate.getUTCDate() + 7 * interval);
+  } else if (rruleUpper.includes('FREQ=MONTHLY')) {
+    nextDate.setUTCMonth(nextDate.getUTCMonth() + interval);
+  } else if (rruleUpper.includes('FREQ=YEARLY')) {
+    nextDate.setUTCFullYear(nextDate.getUTCFullYear() + interval);
   } else {
-    nextDate.setDate(nextDate.getDate() + 1);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
   }
 
   return {

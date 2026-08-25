@@ -25,7 +25,8 @@
 
 - **RFC 6578 Sync-Collection Protocol & CTag Caching (`server/caldav/client.js`, `server/caldav/parser.js`, `server/db.js`, `server/routes/calendars.js`):**
   - Added `CalDAVClient.prototype.syncCollection(calendarUrl, syncToken, syncLevel)` generating standard WebDAV `sync-collection` REPORT XML.
-  - Implemented `parseSyncCollectionResponse(xml)` extracting `<d:sync-token>`, updated events, and deleted resource hrefs (`404 Not Found`).
+  - Implemented `parseSyncCollectionResponse(xml)` extracting `<d:sync-token>`, updated events, deleted resource hrefs (`404 Not Found`), and `invalidSyncToken` precondition status.
+  - Automatic RFC 6578 Fallback: `CalDAVClient.prototype.syncCollection` and `POST /api/calendars/:id/delta-sync` catch HTTP 409 (Conflict), HTTP 412 (Precondition Failed), HTTP 403 (Forbidden), HTTP 400 (Bad Request), and XML multistatus `<valid-sync-token/>` precondition errors when `syncToken` is invalid. Automatically resets cached token in DB (`Db.upsertCalendarSyncCache`), falls back to initial full sync (`syncToken = null`), updates SQLite cache with the fresh token, and returns HTTP 200 without wedging delta sync (Issue #68).
   - Added SQLite `calendar_sync_cache` table and Db methods (`getCalendarSyncCache`, `upsertCalendarSyncCache`) for server-side state persistence.
   - Exposed `POST /api/calendars/:id/delta-sync` endpoint for delta retrieval and cache updates.
   - Extended frontend `CalendarsAPI.deltaSync` and `store.js` state store for client-side CTag/syncToken management.
@@ -77,8 +78,27 @@
   - Added HTTP endpoint `POST /api/auth/backchannel-logout` (and `/backchannel_logout`) in `server/routes/auth.js` to revoke sessions for specific `sid` or user `sub` with `Cache-Control: no-store` and `Pragma: no-cache` headers.
   - Unit and integration test suite: `server/test/oidc_backchannel_logout.test.js` (10 tests, 100% green).
 
+- **CalDAV Fetch Error Channel & Status Enforcement (`server/routes/calendars.js`, `server/routes/events.js`, `server/routes/tasks.js`, `server/test/caldav_fetch_error_channel.test.js`):**
+  - Captured CalDAV fetch errors across calendar, event, and task GET routes and exposed `X-CalDAV-Error` response header.
+  - Enforced `HTTP 502 Bad Gateway` status on `GET /api/events` and `GET /api/tasks` when querying failing calendars or when all active CalDAV accounts fail (Issue #65).
+
+- **UTF-8 Octet-Aware Line Folding (`server/utils/ical.js`, `server/caldav/parser.js`, `server/test/fold_lines_utf8.test.js`):**
+  - Replaced naive string character length checks with UTF-8 byte length checks (`Buffer.byteLength(line, 'utf8') <= 75`).
+  - Iterated string content by Unicode code points to prevent splitting 4-byte emoji surrogate pairs across fold boundaries or corrupting characters to `U+FFFD` (Issue #66).
+
+- **Production Mounting Guard for `/mock-dav*` Test Endpoint (`server/index.js`, `server/caldav/client.js`, `server/test/mock_dav_production_guard.test.js`):**
+  - Wrapped mock CalDAV route registration in `server/index.js` behind environment check (`process.env.NODE_ENV === 'test' || process.env.ENABLE_MOCK_DAV === 'true'`).
+  - Added missing `escapeXML` helper function to `server/caldav/client.js`.
+  - Added test suite `server/test/mock_dav_production_guard.test.js` (4 tests, 100% green).
+
+- **Credential-at-Rest Gaps Security Fix (`server/db.js`, `radicale/radicale_custom_auth.py`, `sync-worker/sync_worker.py`, `sync-worker/msgraph_worker.py`, `server/test/credential_at_rest_gaps.test.js`):**
+  - Encrypted MS Graph access/refresh tokens in SQLite using AES-256-CBC with scrypt key derivation.
+  - Replaced unsalted SHA-256 app passwords with PBKDF2-HMAC-SHA256 (`salt:hash`, 100k iterations) in `server/db.js` and `radicale/radicale_custom_auth.py`.
+  - Added support for custom `ENCRYPTION_SALT` environment configuration.
+
+
 ## Test Execution State
-- Node Unit & Integration Suite: 459 PASSED, 0 skipped (100% green)
+- Node Unit & Integration Suite: 551 PASSED, 0 skipped (100% green)
 - Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
 
 ## Completed Tasks
@@ -341,8 +361,41 @@
   - Implemented `SqliteSessionStore` extending `express-session.Store` with `destroyUserSessions(userId)` method.
   - Integrated `SqliteSessionStore` as default session store in `server/utils/sessionConfig.js`.
   - Added test suite `server/test/user_indexed_session_store.test.js` (5 tests, 100% green).
+- **Issue #58 — SESSION_SECRET Hardcoded Fallback Guard (`server/utils/sessionConfig.js`, `server/test/session_secret_hardcoded.test.js`):**
+  - Configured `getSessionConfig` to enforce non-default secrets in `production` and `staging`.
+  - Added test suite `server/test/session_secret_hardcoded.test.js` (8 tests, 100% green).
+- **Issue #59 — Internal Webhook Security Guard (`server/utils/internalAuth.js`, `server/index.js`, `server/test/internal_webhook_auth.test.js`):**
+  - Created `createRequireInternalMiddleware` in `server/utils/internalAuth.js` enforcing `INTERNAL_WEBHOOK_SECRET` header check.
+  - Added test suite `server/test/internal_webhook_auth.test.js` (8 tests, 100% green).
+- **Issue #60 — MS Graph Sync Event Data Persistence (`server/utils/msgraph.js`, `server/test/msgraph_event_writing.test.js`):**
+  - Updated `MSGraphSyncEngine` to accept `caldavClient` and `targetCalendarUrl`, serializing and writing event ICS data on sync.
+  - Added test suite `server/test/msgraph_event_writing.test.js` (3 tests, 100% green).
+- **Issue #63 — Attendee & Organizer Double Quote Parameter Escaping (`server/utils/ical.js`, `server/caldav/parser.js`, `server/test/attendee_double_quote.test.js`):**
+  - Updated `escParamVal(str)` in `server/utils/ical.js` to escape double quotes using RFC 6868 (`^'`) and carets (`^^`) instead of stripping double quotes or leaving unescaped quotes.
+  - Handled double quotes in `ORGANIZER` and `ATTENDEE` parameters safely without breaking ICS parameter structure.
+  - Added test suite `server/test/attendee_double_quote.test.js` (4 tests, 100% green).
+- **Issue #64 — Recur Task Advancing RRULE Fidelity (`server/caldav/parser.js`, `public/js/tasks.js`, `server/test/recurring_task_advance.test.js`):**
+  - Replaced hand-rolled date arithmetic in `advanceRecurringTask` (`server/caldav/parser.js`) with `ICAL.Recur` iterator to advance tasks according to RFC 5545 rules.
+  - Correctly evaluates `BYDAY` (e.g. `BYDAY=MO`, `BYDAY=2MO`, `BYDAY=MO,WE,FR`), `COUNT` (returns `null` when count limit is reached), `UNTIL` (returns `null` when deadline passes), and `INTERVAL`.
+  - Updated `advanceRecurringTaskJS` in `public/js/tasks.js` to utilize `window.ICAL.Recur` when available in frontend context with matching fallback boundary logic.
+  - Created unit test suite `server/test/recurring_task_advance.test.js` covering BYDAY, COUNT, UNTIL, INTERVAL, and non-recurring task edges (14 tests, 100% green).
 
+- **Issue #67 — RSVP Attendee Validation & Occurrence Recurrence-ID Scoping (`server/caldav/parser.js`, `server/routes/events.js`, `server/test/rsvp_occurrence_and_validation.test.js`):**
+  - Removed unvalidated attendee property creation in `updateAttendeePartstat` (`server/caldav/parser.js`) when `attendeeEmail` is not present on event, preventing invention of attendees from arbitrary body payloads.
+  - Added `recurrenceId` parameter support to `updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId)`.
+  - When `recurrenceId` is supplied, targets the specific `VEVENT` matching `recurrenceId` (creating a detached override `VEVENT` for `recurrenceId` cloned from master if none exists) without modifying master or other occurrence PARTSTATs.
+  - When `recurrenceId` is omitted, updates PARTSTAT on master `VEVENT` only, preserving detached overrides.
+  - Updated `POST /api/events/:uid/rsvp` in `server/routes/events.js` to validate that `email` exists in event attendees (returning `400 Bad Request` if missing) and pass `recurrenceId` to `updateAttendeePartstat`, `parseICSToEvent`, and `buildItipReply`.
+  - Enhanced `buildItipReply` to include `RECURRENCE-ID` in `METHOD:REPLY` payload when `recurrenceId` is provided.
+  - Created unit test suite `server/test/rsvp_occurrence_and_validation.test.js` (6 tests, 100% green).
 
+- **Issue #74 — Subsystem Documentation in agents.md (`agents.md`, `server/test/agents_md_documentation.test.js`):**
+  - Updated `agents.md` Architecture section to document all newly added subsystems:
+    - `server/utils/ical.js`: Central RFC 5545 iCalendar processing and serialization engine (`eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock`, `escParamVal`, `foldLines`, `updateWholeSeries`).
+    - `server/utils/msgraph.js` & `sync-worker/msgraph_worker.py`: MS Graph API client and bidirectional sync engine for Microsoft Outlook / Office 365.
+    - `server/routes/tasks.js` & `public/js/tasks.js`: VTODO task management REST endpoints (`/api/tasks`) and frontend Kanban board/drawer UI.
+    - `server/routes/msgraph.js`: Microsoft 365 account linking and sync endpoints (`/api/msgraph/accounts`).
+  - Created unit test suite `server/test/agents_md_documentation.test.js` verifying that `agents.md` documents VTODO/Tasks, MS Graph/Outlook sync, and `server/utils/ical.js` (4 tests, 100% green).
 
 
 

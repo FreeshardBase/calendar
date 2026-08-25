@@ -155,14 +155,27 @@ export function openEditModal(event, callbacks) {
   updateAlldayUI(allDay);
 
   if (event.start) {
-    const s = new Date(event.start);
-    $('ev-start-date').value = toInputDate(s, event.startTimeZone);
-    if (!allDay) $('ev-start-time').value = toInputTime(s, event.startTimeZone);
+    if (allDay) {
+      $('ev-start-date').value = toInputDate(event.start, null, true);
+    } else {
+      const s = new Date(event.start);
+      $('ev-start-date').value = toInputDate(s, event.startTimeZone);
+      $('ev-start-time').value = toInputTime(s, event.startTimeZone);
+    }
   }
   if (event.end) {
-    const e = new Date(event.end);
-    $('ev-end-date').value = toInputDate(e, event.endTimeZone);
-    if (!allDay) $('ev-end-time').value = toInputTime(e, event.endTimeZone);
+    if (allDay) {
+      const eDate = new Date(event.end);
+      const sDate = event.start ? new Date(event.start) : eDate;
+      if (eDate > sDate) {
+        eDate.setUTCDate(eDate.getUTCDate() - 1);
+      }
+      $('ev-end-date').value = toInputDate(eDate, null, true);
+    } else {
+      const e = new Date(event.end);
+      $('ev-end-date').value = toInputDate(e, event.endTimeZone);
+      $('ev-end-time').value = toInputTime(e, event.endTimeZone);
+    }
   }
 
   // Attendees
@@ -455,8 +468,12 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   const endTimeZone   = $('ev-end-tz').value;
 
   if (allDay) {
-    startUtc = startDateVal;
-    endUtc   = endDateVal;
+    const sDate = new Date(startDateVal + 'T00:00:00.000Z');
+    let eDate = new Date(endDateVal + 'T00:00:00.000Z');
+    if (isNaN(eDate.getTime()) || eDate < sDate) eDate = new Date(sDate);
+    eDate.setUTCDate(eDate.getUTCDate() + 1);
+    startUtc = sDate.toISOString();
+    endUtc   = eDate.toISOString();
   } else {
     const startTimeVal = $('ev-start-time').value || '00:00';
     const endTimeVal   = $('ev-end-time').value   || '01:00';
@@ -680,7 +697,15 @@ export function initEventModal() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function toInputDate(d, tzid) {
+function toInputDate(d, tzid, isUtcDate = false) {
+  if (isUtcDate) {
+    if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+    const dateObj = new Date(d);
+    const y = dateObj.getUTCFullYear();
+    const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
   if (tzid) {
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tzid,

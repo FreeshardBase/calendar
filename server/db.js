@@ -9,9 +9,10 @@ const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../webcalendar
 const db = new sqlite3.Database(dbPath);
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
+const ENCRYPTION_SALT = process.env.ENCRYPTION_SALT || 'salt';
 const ENCRYPTION_KEY = crypto.scryptSync(
   process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || 'freeshard-default-encryption-key-do-not-use-in-prod',
-  'salt',
+  ENCRYPTION_SALT,
   32
 );
 
@@ -20,7 +21,7 @@ db.serialize(() => {
   // WAL: the DB file is shared with the Radicale plugins and the sync-worker;
   // a MEMORY journal would risk corruption on concurrent multi-process writes.
   db.run('PRAGMA journal_mode = WAL');
-  db.run('PRAGMA busy_timeout = 5000');
+  db.run('PRAGMA busy_timeout = 15000');
   db.run(`
     CREATE TABLE IF NOT EXISTS linked_accounts (
       id TEXT PRIMARY KEY,
@@ -336,6 +337,25 @@ function decrypt(encryptedText, ivHex) {
   return decrypted;
 }
 
+function encryptToken(token) {
+  if (!token || typeof token !== 'string') return token;
+  if (/^[0-9a-fA-F]{32}:[0-9a-fA-F]+$/.test(token)) return token;
+  const { encrypted, iv } = encrypt(token);
+  return `${iv}:${encrypted}`;
+}
+
+function decryptToken(token) {
+  if (!token || typeof token !== 'string') return token;
+  if (!token.includes(':')) return token;
+  const [ivHex, cipherHex] = token.split(':');
+  if (!ivHex || ivHex.length !== 32 || !cipherHex) return token;
+  try {
+    return decrypt(cipherHex, ivHex);
+  } catch (err) {
+    return token;
+  }
+}
+
 const Db = {
   getAccounts(userId) {
     return new Promise((resolve, reject) => {
@@ -544,7 +564,9 @@ const Db = {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
       const rawPassword = crypto.randomBytes(16).toString('hex'); // 32 hex chars, high entropy
-      const passwordHash = crypto.createHash('sha256').update(rawPassword).digest('hex');
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = crypto.pbkdf2Sync(rawPassword, salt, 100000, 32, 'sha256').toString('hex');
+      const passwordHash = `${salt}:${hash}`;
       const now = Date.now();
 
       db.run(
@@ -553,6 +575,34 @@ const Db = {
         (err) => {
           if (err) return reject(err);
           resolve({ id, label, rawPassword, createdAt: now });
+        }
+      );
+    });
+  },
+
+  verifyAppPassword(userId, rawPassword) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        'SELECT password_hash FROM app_passwords WHERE user_id = ?',
+        [userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          for (const row of rows) {
+            const stored = row.password_hash;
+            if (stored.includes(':')) {
+              const [salt, expectedHash] = stored.split(':');
+              const calcHash = crypto.pbkdf2Sync(rawPassword, salt, 100000, 32, 'sha256').toString('hex');
+              if (crypto.timingSafeEqual(Buffer.from(calcHash), Buffer.from(expectedHash))) {
+                return resolve(true);
+              }
+            } else {
+              const calcHash = crypto.createHash('sha256').update(rawPassword).digest('hex');
+              if (crypto.timingSafeEqual(Buffer.from(calcHash), Buffer.from(stored))) {
+                return resolve(true);
+              }
+            }
+          }
+          resolve(false);
         }
       );
     });
@@ -1014,6 +1064,8 @@ const Db = {
     return new Promise((resolve, reject) => {
       const id = accountData.id || uuidv4();
       const now = Date.now();
+      const encAccess = encryptToken(accountData.accessToken || '');
+      const encRefresh = encryptToken(accountData.refreshToken || '');
       db.run(
         `INSERT INTO msgraph_accounts 
          (id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at)
@@ -1024,8 +1076,8 @@ const Db = {
           accountData.tenantId || 'common',
           accountData.clientId || '',
           accountData.accountEmail,
-          accountData.accessToken || '',
-          accountData.refreshToken || '',
+          encAccess,
+          encRefresh,
           accountData.expiresAt || 0,
           accountData.deltaLink || '',
           accountData.targetCalendarId || '',
@@ -1054,8 +1106,8 @@ const Db = {
             tenantId: r.tenant_id,
             clientId: r.client_id,
             accountEmail: r.account_email,
-            accessToken: r.access_token,
-            refreshToken: r.refresh_token,
+            accessToken: decryptToken(r.access_token),
+            refreshToken: decryptToken(r.refresh_token),
             expiresAt: r.expires_at,
             deltaLink: r.delta_link,
             targetCalendarId: r.target_calendar_id,
@@ -1082,8 +1134,8 @@ const Db = {
             tenantId: r.tenant_id,
             clientId: r.client_id,
             accountEmail: r.account_email,
-            accessToken: r.access_token,
-            refreshToken: r.refresh_token,
+            accessToken: decryptToken(r.access_token),
+            refreshToken: decryptToken(r.refresh_token),
             expiresAt: r.expires_at,
             deltaLink: r.delta_link,
             targetCalendarId: r.target_calendar_id,
@@ -1101,8 +1153,8 @@ const Db = {
       const fields = [];
       const values = [];
 
-      if (updates.accessToken !== undefined) { fields.push('access_token = ?'); values.push(updates.accessToken); }
-      if (updates.refreshToken !== undefined) { fields.push('refresh_token = ?'); values.push(updates.refreshToken); }
+      if (updates.accessToken !== undefined) { fields.push('access_token = ?'); values.push(encryptToken(updates.accessToken)); }
+      if (updates.refreshToken !== undefined) { fields.push('refresh_token = ?'); values.push(encryptToken(updates.refreshToken)); }
       if (updates.expiresAt !== undefined) { fields.push('expires_at = ?'); values.push(updates.expiresAt); }
       if (updates.deltaLink !== undefined) { fields.push('delta_link = ?'); values.push(updates.deltaLink); }
       if (updates.targetCalendarId !== undefined) { fields.push('target_calendar_id = ?'); values.push(updates.targetCalendarId); }

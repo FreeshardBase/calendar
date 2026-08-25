@@ -173,6 +173,9 @@ async function loadTasks() {
     }
   } catch (err) {
     console.error('Fehler beim Laden der Aufgaben:', err.message);
+    if (typeof showToast === 'function') {
+      showToast('Fehler beim Laden der Aufgaben: ' + err.message, 'error');
+    }
   } finally {
     store.set({ loadingTasks: false });
   }

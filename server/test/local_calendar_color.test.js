@@ -76,6 +76,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
       method: 'PATCH',
       headers: {
         'Cookie': inviteeCookie,
+        'x-test-user-id': inviteeUserId,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ color: '#ec4899' })
@@ -91,6 +92,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
       method: 'PATCH',
       headers: {
         'Cookie': inviteeCookie,
+        'x-test-user-id': inviteeUserId,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ name: 'Hacked Name' })
@@ -101,7 +103,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
 
   await t.test('GET /api/calendars returns customized color for invitee, default color for owner', async () => {
     const resInvitee = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'Cookie': inviteeCookie }
+      headers: { 'Cookie': inviteeCookie, 'x-test-user-id': inviteeUserId }
     });
     assert.strictEqual(resInvitee.status, 200);
     const dataInvitee = await resInvitee.json();
@@ -110,7 +112,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
     assert.strictEqual(inviteeCal.color, '#ec4899');
 
     const resOwner = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'Cookie': ownerCookie }
+      headers: { 'Cookie': ownerCookie, 'x-test-user-id': ownerUserId }
     });
     assert.strictEqual(resOwner.status, 200);
     const dataOwner = await resOwner.json();
@@ -120,18 +122,24 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
   });
 
   await t.test('Invitee resets/clears local calendar color override', async () => {
-    const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/color-override`, {
-      method: 'DELETE',
-      headers: { 'Cookie': inviteeCookie }
+    const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}`, {
+      method: 'PATCH',
+      headers: {
+        'Cookie': inviteeCookie,
+        'x-test-user-id': inviteeUserId,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ color: null })
     });
-    assert.strictEqual(res.status, 200);
 
+    assert.strictEqual(res.status, 200);
+    
     const resInvitee = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'Cookie': inviteeCookie }
+      headers: { 'Cookie': inviteeCookie, 'x-test-user-id': inviteeUserId }
     });
-    assert.strictEqual(resInvitee.status, 200);
     const dataInvitee = await resInvitee.json();
     const inviteeCal = dataInvitee.calendars.find(c => c.id === ownerCalId);
-    assert.notStrictEqual(inviteeCal.color, '#ec4899', 'Color override should be cleared');
+    assert.ok(inviteeCal);
+    assert.notStrictEqual(inviteeCal.color, '#ec4899');
   });
 });

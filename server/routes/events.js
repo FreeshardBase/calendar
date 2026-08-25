@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
+const { formatIfMatch } = require('../caldav/client');
 const {
   parseCalendarList,
   parseEventList,
@@ -94,58 +95,88 @@ router.get('/', async (req, res) => {
 
     const accounts = req.session.accounts || [];
     const allEvents = [];
+    const errors = [];
+    let successfulCalendars = 0;
 
     // Only query events from local/non-oauth accounts to avoid duplication,
     // since oauth2 accounts are synced in the background.
     const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
 
+    const hasCalDAVEnv = Boolean(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
     await Promise.allSettled(
       activeAccounts.map(async (account) => {
-        const client = await getClientForAccount(account);
-
-        const calXml    = await client.getCalendars();
-        let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
-
-        // Fetch shared calendars for this user if this is the internal-caldav account
-        if (account.id === 'internal-caldav' && req.session.userId) {
-          try {
-            const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
-            for (const share of sharedCals) {
-              const parts = share.calendar_id.split('::');
-              const calendarHref = parts[1];
-              
-              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
-              const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
-              
-              calendars.push({
-                id: share.calendar_id,
-                url: calendarUrl,
-                name: calendarHref,
-                color: '#cccccc'
-              });
-            }
-          } catch (dbErr) {
-            console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
-          }
+        if (
+          (account.id === 'internal-caldav' && process.env.DISABLE_INTERNAL_CALDAV === '1') ||
+          (account.id === 'env-default' && !hasCalDAVEnv && process.env.DISABLE_INTERNAL_CALDAV === '1')
+        ) {
+          return;
         }
+        try {
+          const client = await getClientForAccount(account);
 
-        if (calendarId) {
-          calendars = calendars.filter(c => c.id === calendarId);
-        }
+          const calXml    = await client.getCalendars();
+          let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
 
-        await Promise.allSettled(
-          calendars.map(async (cal) => {
+          // Fetch shared calendars for this user if this is the internal-caldav account
+          if (account.id === 'internal-caldav' && req.session.userId) {
             try {
-              const eventsXml = await client.getEvents(cal.url, startDate, endDate);
-              const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
-              allEvents.push(...events);
-            } catch (eventErr) {
-              console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
+              const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
+              for (const share of sharedCals) {
+                const parts = share.calendar_id.split('::');
+                const calendarHref = parts[1];
+                
+                const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+                const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
+                
+                calendars.push({
+                  id: share.calendar_id,
+                  url: calendarUrl,
+                  name: calendarHref,
+                  color: '#cccccc'
+                });
+              }
+            } catch (dbErr) {
+              console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
             }
-          })
-        );
+          }
+
+          if (calendarId) {
+            calendars = calendars.filter(c => c.id === calendarId);
+          }
+
+          await Promise.allSettled(
+            calendars.map(async (cal) => {
+              try {
+                const eventsXml = await client.getEvents(cal.url, startDate, endDate);
+                const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
+                allEvents.push(...events);
+                successfulCalendars++;
+              } catch (eventErr) {
+                console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
+                errors.push({ accountId: account.id, calendarId: cal.id, error: eventErr.message });
+              }
+            })
+          );
+        } catch (accountErr) {
+          console.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
+          errors.push({ accountId: account.id, error: accountErr.message });
+        }
       })
     );
+
+    if (errors.length > 0) {
+      res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
+    }
+
+    const specificCalendarFailed = calendarId && errors.some(e => e.calendarId === calendarId);
+    const allAccountsFailed = activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0;
+
+    if (specificCalendarFailed || allAccountsFailed) {
+      return res.status(502).json({
+        error: 'Failed to fetch events from CalDAV server',
+        errors
+      });
+    }
 
     let filteredEvents = allEvents;
     if (req.query.category || req.query.tag) {
@@ -204,7 +235,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({
       ...event,
       href:       eventUrl,
-      etag:       result.etag ? result.etag.replace(/"/g, '') : null,
+      etag:       result.etag || null,
       calendarId
     });
   } catch (err) {
@@ -256,7 +287,7 @@ router.put('/:uid', async (req, res) => {
         return res.json({
           ...event,
           href,
-          etag: current.etag ? current.etag.replace(/"/g, '') : etag,
+          etag: (current && current.etag) ? current.etag : etag,
           calendarId
         });
       }
@@ -276,13 +307,13 @@ router.put('/:uid', async (req, res) => {
         return res.json({
           ...event,
           href,
-          etag: current.etag ? current.etag.replace(/"/g, '') : etag,
+          etag: (current && current.etag) ? current.etag : etag,
           calendarId
         });
       }
 
       ics     = updateWholeSeries(current ? current.ics : null, event);
-      ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
+      ifMatch = etag ? formatIfMatch(etag) : null;
     }
 
     let result;
@@ -312,7 +343,7 @@ router.put('/:uid', async (req, res) => {
     res.json({
       ...event,
       href,
-      etag:       result.etag ? result.etag.replace(/"/g, '') : etag,
+      etag:       (result && result.etag) ? result.etag : etag,
       calendarId
     });
   } catch (err) {
@@ -363,7 +394,7 @@ router.delete('/:uid', async (req, res) => {
       return res.json({ message: 'Occurrence deleted.' });
     }
 
-    const ifMatch  = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
+    const ifMatch  = etag ? formatIfMatch(etag) : null;
 
     try {
       await client.delete(eventUrl, ifMatch);
@@ -412,7 +443,7 @@ router.delete('/:uid', async (req, res) => {
 // ── POST /api/events/:uid/rsvp ────────────────────────────────────────────────
 router.post('/:uid/rsvp', async (req, res) => {
   try {
-    const { calendarId, href, email, status } = req.body;
+    const { calendarId, href, email, status, recurrenceId } = req.body;
 
     if (!href || !calendarId || !email || !status) {
       return res.status(400).json({ error: 'calendarId, href, email, and status are required' });
@@ -438,11 +469,21 @@ router.post('/:uid/rsvp', async (req, res) => {
     const eventUrl = buildAbsoluteUrl(account.url, href);
     const current = await client.get(eventUrl);
 
-    const updatedIcs = updateAttendeePartstat(current.ics, email, status);
+    // Issue #67: Validate that email is an existing attendee on the event
+    const parsedCurrent = parseICSToEvent(current.ics);
+    const normalizedEmail = (email || '').toLowerCase().replace(/^mailto:/i, '').trim();
+    const isAttendee = (parsedCurrent?.attendees || []).some(a => (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim() === normalizedEmail);
+
+    if (!isAttendee) {
+      return res.status(400).json({ error: 'Attendee email not found on event' });
+    }
+
+    const updatedIcs = updateAttendeePartstat(current.ics, email, status, recurrenceId);
     const result = await client.put(eventUrl, updatedIcs, current.etag);
 
-    const parsedEv = parseICSToEvent(updatedIcs);
-    const itipReply = buildItipReply(parsedEv || { uid: req.params.uid, title: 'Event' }, email, status);
+    const parsedEv = parseICSToEvent(updatedIcs, { recurrenceId });
+    const eventForReply = { ...(parsedEv || { uid: req.params.uid, title: 'Event' }), recurrenceId: recurrenceId || parsedEv?.recurrenceId };
+    const itipReply = buildItipReply(eventForReply, email, status);
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
@@ -451,13 +492,14 @@ router.post('/:uid/rsvp', async (req, res) => {
       calendarId,
       userId: req.session.userId,
       action: 'RSVP',
-      newEvent: { status }
+      newEvent: { status, recurrenceId }
     }).catch(err => console.error('[events RSVP history]', err.message));
 
     res.json({
       success: true,
       status,
-      etag: result.etag ? result.etag.replace(/"/g, '') : null,
+      recurrenceId: recurrenceId || null,
+      etag: (result && result.etag) ? result.etag : null,
       itipReply
     });
   } catch (err) {

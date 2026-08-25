@@ -681,6 +681,18 @@ function layoutEvents(events) {
 function eventsForDay(events, date) {
   return events.filter(ev => {
     if (!ev.start) return false;
+    if (ev.allDay) {
+      const startStr = typeof ev.start === 'string' ? ev.start.slice(0, 10) : new Date(ev.start).toISOString().slice(0, 10);
+      const endStr = ev.end ? (typeof ev.end === 'string' ? ev.end.slice(0, 10) : new Date(ev.end).toISOString().slice(0, 10)) : startStr;
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const dStr = `${y}-${m}-${d}`;
+      if (endStr > startStr) {
+        return dStr >= startStr && dStr < endStr;
+      }
+      return dStr === startStr;
+    }
     const s = new Date(ev.start);
     const e = ev.end ? new Date(ev.end) : s;
     const d = new Date(date); d.setHours(0,0,0,0);

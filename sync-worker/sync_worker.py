@@ -29,9 +29,17 @@ except ImportError:
     def sync_msgraph_accounts(user_id, conn=None):
         return True, ""
 
-def derive_key(secret_str):
+ENCRYPTION_SALT = os.environ.get("ENCRYPTION_SALT", "salt").encode('utf-8')
+
+def derive_key(secret_str, salt=None):
+    if salt is None:
+        salt_bytes = ENCRYPTION_SALT
+    elif isinstance(salt, str):
+        salt_bytes = salt.encode('utf-8')
+    else:
+        salt_bytes = salt
     kdf = Scrypt(
-        salt=b'salt',
+        salt=salt_bytes,
         length=32,
         n=16384,
         r=8,
@@ -50,6 +58,21 @@ def decrypt(encrypted_hex, iv_hex, key_bytes):
     padding_len = decrypted[-1]
     return decrypted[:-padding_len].decode('utf-8')
 
+def encrypt(plain_text, key_bytes):
+    iv = os.urandom(16)
+    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+    padding_len = 16 - (len(plain_text.encode('utf-8')) % 16)
+    padded = plain_text.encode('utf-8') + bytes([padding_len] * padding_len)
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+    return encrypted.hex(), iv.hex()
+
+def encrypt_token(token, key_bytes):
+    if not token or (isinstance(token, str) and ":" in token and len(token.split(":", 1)[0]) == 32):
+        return token
+    encrypted_hex, iv_hex = encrypt(token, key_bytes)
+    return f"{iv_hex}:{encrypted_hex}"
+
 # Derive key once on startup
 KEY_BYTES = derive_key(ENCRYPTION_SECRET)
 
@@ -65,8 +88,10 @@ def refresh_google_token(refresh_token):
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
     with urllib.request.urlopen(req) as res:
         res_data = json.loads(res.read().decode("utf-8"))
-        # Access token and seconds until expiration
-        return res_data["access_token"], int(time.time() + res_data.get("expires_in", 3600))
+        # Access token and expiration timestamp in milliseconds
+        expires_in = res_data.get("expires_in", 3600)
+        expires_at_ms = int((time.time() + expires_in) * 1000)
+        return res_data["access_token"], expires_at_ms
 
 def discover_google_collections(google_url, access_token):
     headers = {
@@ -388,16 +413,22 @@ status_path = "{status_dir}"
         access_token = acc["access_token"]
         expires_at = acc["expires_at"]
         
-        if not access_token or not expires_at or expires_at / 1000.0 < time.time() + 300:
+        now_ms = int(time.time() * 1000)
+        # Normalize expires_at if DB contains legacy seconds values (< 10^10)
+        expires_at_ms = (expires_at * 1000) if (expires_at and expires_at < 10000000000) else expires_at
+        
+        if not access_token or not expires_at_ms or expires_at_ms < now_ms + 300000:
             print(f"[Sync-Worker] Refreshing Google token for account {acc['username']}...")
             try:
                 access_token, new_expires = refresh_google_token(refresh_token)
-                # Store back to DB
+                # Store back to DB in milliseconds
                 cursor.execute(
                     "UPDATE linked_accounts SET access_token = ?, expires_at = ? WHERE id = ?",
                     (access_token, new_expires, acc_id)
                 )
                 conn.commit()
+                expires_at = new_expires
+                expires_at_ms = new_expires
                 print(f"[Sync-Worker] Google token refreshed successfully.")
             except Exception as refresh_err:
                 conn.close()
@@ -408,14 +439,15 @@ status_path = "{status_dir}"
         storage_google = f"google_{idx}"
         storage_local = f"local_{idx}"
 
-        # Write the token file for vdirsyncer google_calendar storage
+        # Write the token file for vdirsyncer google_calendar storage (vdirsyncer expects seconds)
+        expires_at_sec = (expires_at_ms / 1000.0) if expires_at_ms else (time.time() + 3600)
         token_file_path = f"/tmp/google_token_{user_id}_{idx}.json"
         token_data = {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "Bearer",
             "expires_in": 3600,
-            "expires_at": expires_at / 1000.0 if expires_at else time.time() + 3600
+            "expires_at": expires_at_sec
         }
         try:
             with open(token_file_path, "w") as tf:
@@ -541,6 +573,82 @@ password = "{SYSTEM_SYNC_SECRET}"
             if os.path.exists(tf_path):
                 os.remove(tf_path)
 
+def process_next_job(db_path=None):
+    """Fetches and processes one pending sync job safely without stranding in RUNNING."""
+    target_db = db_path or DB_PATH
+    if not os.path.exists(target_db):
+        return False
+
+    conn = sqlite3.connect(target_db)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Fetch the oldest pending job that is due for execution
+    now_ms = int(time.time() * 1000)
+    cursor.execute(
+        "SELECT id, user_id, COALESCE(attempts, 0) AS attempts, COALESCE(max_attempts, 3) AS max_attempts FROM sync_queue WHERE status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY created_at ASC LIMIT 1",
+        (now_ms,)
+    )
+    job = cursor.fetchone()
+    if not job:
+        conn.close()
+        return False
+
+    job_id = job["id"]
+    user_id = job["user_id"]
+    attempts = job["attempts"]
+    max_attempts = job["max_attempts"]
+
+    # Mark job as RUNNING
+    cursor.execute(
+        "UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ?",
+        (int(time.time() * 1000), job_id)
+    )
+    conn.commit()
+    conn.close()
+
+    # Safely execute sync_user
+    success = False
+    error_msg = ""
+    try:
+        success, error_msg = sync_user(user_id)
+    except Exception as exc:
+        print(f"[Sync-Worker] Unguarded exception during sync_user({user_id}): {exc}")
+        success = False
+        error_msg = f"Unguarded exception: {str(exc)}"
+
+    # Safely update job status after execution
+    try:
+        conn = sqlite3.connect(target_db)
+        cursor = conn.cursor()
+        now_ms = int(time.time() * 1000)
+        if success:
+            cursor.execute(
+                "UPDATE sync_queue SET status = 'SUCCESS', error_message = NULL, attempts = ?, retry_state = 'IDLE', next_retry_at = NULL, updated_at = ? WHERE id = ?",
+                (attempts + 1, now_ms, job_id)
+            )
+        else:
+            print(f"[Sync-Worker] Job failed: {error_msg}")
+            new_attempts = attempts + 1
+            if new_attempts < max_attempts:
+                backoff_ms = min(5000 * (2 ** (new_attempts - 1)), 300000)
+                next_retry_at = now_ms + backoff_ms
+                cursor.execute(
+                    "UPDATE sync_queue SET status = 'PENDING', error_message = ?, attempts = ?, retry_state = 'RETRY_PENDING', next_retry_at = ?, updated_at = ? WHERE id = ?",
+                    (error_msg, new_attempts, next_retry_at, now_ms, job_id)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE sync_queue SET status = 'ERROR', error_message = ?, attempts = ?, retry_state = 'MAX_RETRIES_EXCEEDED', next_retry_at = NULL, updated_at = ? WHERE id = ?",
+                    (error_msg, new_attempts, now_ms, job_id)
+                )
+        conn.commit()
+        conn.close()
+    except Exception as db_err:
+        print(f"[Sync-Worker] Error updating sync job status in database: {db_err}")
+
+    return True
+
 def main():
     print("[Sync-Worker] Daemon started. Monitoring sqlite sync queue...")
     
@@ -551,61 +659,7 @@ def main():
 
     while True:
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Fetch the oldest pending job that is due for execution
-            now_ms = int(time.time() * 1000)
-            cursor.execute(
-                "SELECT id, user_id, COALESCE(attempts, 0) AS attempts, COALESCE(max_attempts, 3) AS max_attempts FROM sync_queue WHERE status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY created_at ASC LIMIT 1",
-                (now_ms,)
-            )
-            job = cursor.fetchone()
-            
-            if job:
-                job_id = job["id"]
-                user_id = job["user_id"]
-                attempts = job["attempts"]
-                max_attempts = job["max_attempts"]
-                
-                # Mark job as running
-                cursor.execute(
-                    "UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ?",
-                    (int(time.time() * 1000), job_id)
-                )
-                conn.commit()
-                conn.close()
-                
-                success, error_msg = sync_user(user_id)
-                
-                # Update job status
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
-                now_ms = int(time.time() * 1000)
-                if success:
-                    cursor.execute(
-                        "UPDATE sync_queue SET status = 'SUCCESS', error_message = NULL, attempts = ?, retry_state = 'IDLE', next_retry_at = NULL, updated_at = ? WHERE id = ?",
-                        (attempts + 1, now_ms, job_id)
-                    )
-                else:
-                    print(f"[Sync-Worker] Job failed: {error_msg}")
-                    new_attempts = attempts + 1
-                    if new_attempts < max_attempts:
-                        backoff_ms = min(5000 * (2 ** (new_attempts - 1)), 300000)
-                        next_retry_at = now_ms + backoff_ms
-                        cursor.execute(
-                            "UPDATE sync_queue SET status = 'PENDING', error_message = ?, attempts = ?, retry_state = 'RETRY_PENDING', next_retry_at = ?, updated_at = ? WHERE id = ?",
-                            (error_msg, new_attempts, next_retry_at, now_ms, job_id)
-                        )
-                    else:
-                        cursor.execute(
-                            "UPDATE sync_queue SET status = 'ERROR', error_message = ?, attempts = ?, retry_state = 'MAX_RETRIES_EXCEEDED', next_retry_at = NULL, updated_at = ? WHERE id = ?",
-                            (error_msg, new_attempts, now_ms, job_id)
-                        )
-                conn.commit()
-            
-            conn.close()
+            process_next_job(DB_PATH)
         except Exception as loop_err:
             print(f"[Sync-Worker] Queue loop error: {str(loop_err)}")
             

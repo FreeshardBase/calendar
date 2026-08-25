@@ -1,5 +1,17 @@
 'use strict';
 
+const { dispatcherFor } = require('../utils/tlsDispatcher');
+
+function escapeXML(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 /**
  * CalDAVClient
  * Low-level HTTP client for CalDAV (RFC 4791 / WebDAV RFC 4918).
@@ -28,15 +40,17 @@ class CalDAVClient {
     if (body && !reqHeaders['Content-Type'] && !reqHeaders['content-type']) {
       reqHeaders['Content-Type'] = 'application/xml; charset=utf-8';
     }
-    
+
+    // Per-request dispatcher: TLS bypass only for internal self-signed Radicale.
+    // dispatcherFor() returns undefined for external URLs → uses global dispatcher (full TLS).
+    const dispatcher = dispatcherFor(url);
+    const fetchOpts = { method, headers: reqHeaders, body };
+    if (dispatcher) fetchOpts.dispatcher = dispatcher;
+
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        return await fetch(url, {
-          method,
-          headers: reqHeaders,
-          body
-        });
+        return await fetch(url, fetchOpts);
       } catch (err) {
         lastErr = err;
         if (err?.cause?.code === 'UND_ERR_SOCKET' || err?.message?.includes('fetch failed')) {
@@ -48,6 +62,7 @@ class CalDAVClient {
     }
     throw lastErr;
   }
+
 
   // ── CalDAV Methods ──────────────────────────────────────────────────────────
 
@@ -98,7 +113,8 @@ class CalDAVClient {
   async put(url, icsData, etag = null) {
     const headers = { 'Content-Type': 'text/calendar; charset=utf-8' };
     if (typeof etag === 'string' && etag) {
-      headers['If-Match'] = etag.startsWith('"') ? etag : `"${etag}"`;
+      const ifMatch = formatIfMatch(etag);
+      if (ifMatch) headers['If-Match'] = ifMatch;
     } else if (etag === null) {
       headers['If-None-Match'] = '*'; // Fail if resource already exists
     }
@@ -123,7 +139,10 @@ class CalDAVClient {
    */
   async delete(url, etag = null) {
     const headers = {};
-    if (etag) headers['If-Match'] = etag;
+    if (typeof etag === 'string' && etag) {
+      const ifMatch = formatIfMatch(etag);
+      if (ifMatch) headers['If-Match'] = ifMatch;
+    }
 
     const res = await this._request('DELETE', url, { headers });
 
@@ -380,7 +399,22 @@ class CalDAVClient {
   </d:prop>
 </d:sync-collection>`;
 
-    return this.report(calendarUrl, body);
+    try {
+      const xml = await this.report(calendarUrl, body);
+      if (syncToken && (xml.includes('valid-sync-token') || xml.includes('invalid-sync-token'))) {
+        console.warn('[CalDAVClient] Sync token invalidated in multistatus XML response, falling back to initial sync');
+        return await this.syncCollection(calendarUrl, null, syncLevel);
+      }
+      return xml;
+    } catch (err) {
+      const statusMatch = err.message ? err.message.match(/REPORT (\d{3})/) : null;
+      const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+      if (syncToken && ([400, 403, 409, 412].includes(statusCode) || err.message.includes('valid-sync-token'))) {
+        console.warn(`[CalDAVClient] Sync token invalidated by server (status ${statusCode}), falling back to initial sync`);
+        return await this.syncCollection(calendarUrl, null, syncLevel);
+      }
+      throw err;
+    }
   }
 
 
@@ -731,12 +765,23 @@ function toICalDateTime(date) {
     .replace(/\.\d{3}/, '');
 }
 
-function escapeXML(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+function formatIfMatch(etag) {
+  if (!etag || typeof etag !== 'string') return null;
+  const trimmed = etag.trim();
+  if (!trimmed) return null;
+
+  if (/^w\/"/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^w\//i.test(trimmed)) {
+    return `W/"${trimmed.slice(2).replace(/^"|"$/g, '')}"`;
+  }
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed;
+  }
+  return trimmed;
 }
+
+CalDAVClient.formatIfMatch = formatIfMatch;
 
 module.exports = CalDAVClient;

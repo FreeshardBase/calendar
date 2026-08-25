@@ -64,6 +64,29 @@ test('iCalendar parser suite', async (t) => {
     assert.strictEqual(new Date(result[3].start).toISOString(), '2026-07-12T08:00:00.000Z');
   });
 
+  await t.test('Issue #54 — should expand daily recurring event older than 1.4 years without vanishing', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:old-daily-rrule-54',
+      'DTSTART:20240101T080000Z',
+      'DTEND:20240101T083000Z',
+      'SUMMARY:Long Running Daily Sync',
+      'RRULE:FREQ=DAILY',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    // Query range in August 2026 (over 940 days after start date)
+    const result = parseAndExpandEvent(ics, '2026-08-01T00:00:00Z', '2026-08-07T23:59:59Z');
+    
+    assert.strictEqual(result.length, 7, 'Should return all 7 in-range instances despite start date being >500 days ago');
+    assert.strictEqual(result[0].masterUid, 'old-daily-rrule-54');
+    assert.strictEqual(new Date(result[0].start).toISOString(), '2026-08-01T08:00:00.000Z');
+    assert.strictEqual(new Date(result[6].start).toISOString(), '2026-08-07T08:00:00.000Z');
+  });
+
   await t.test('should serialize event to valid iCalendar format', () => {
     const event = {
       uid: 'serialization-test-999',

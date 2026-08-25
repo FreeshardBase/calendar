@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
+const { formatIfMatch } = require('../caldav/client');
 const { parseCalendarList, parseTaskList, taskToICS, isNoOpTaskSave, resolveUrl } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
@@ -18,46 +19,80 @@ router.get('/', async (req, res) => {
     const allTasks = [];
 
     const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
+    const errors = [];
+    let successfulCalendars = 0;
 
+    const hasCalDAVEnv = Boolean(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
     await Promise.allSettled(
       activeAccounts.map(async (account) => {
-        const client = await getClientForAccount(account);
-        const calXml = await client.getCalendars();
-        let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
-
-        if (account.id === 'internal-caldav' && req.session.userId) {
-          try {
-            const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
-            for (const share of sharedCals) {
-              const parts = share.calendar_id.split('::');
-              const calendarHref = parts[1];
-              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
-              const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
-              calendars.push({
-                id: share.calendar_id,
-                url: calendarUrl,
-                name: calendarHref,
-                color: '#cccccc'
-              });
-            }
-          } catch (dbErr) {
-            console.error('[tasks GET] Failed to fetch shared calendars:', dbErr.message);
-          }
+        if (
+          (account.id === 'internal-caldav' && process.env.DISABLE_INTERNAL_CALDAV === '1') ||
+          (account.id === 'env-default' && !hasCalDAVEnv && process.env.DISABLE_INTERNAL_CALDAV === '1')
+        ) {
+          return;
         }
+        try {
+          const client = await getClientForAccount(account);
+          const calXml = await client.getCalendars();
+          let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
 
-        await Promise.allSettled(
-          calendars.map(async (cal) => {
+          if (account.id === 'internal-caldav' && req.session.userId) {
             try {
-              const tasksXml = await client.getTasks(cal.url);
-              const tasks = parseTaskList(tasksXml, cal.id, account.id, cal.url);
-              allTasks.push(...tasks);
-            } catch (taskErr) {
-              console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
+              const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
+              for (const share of sharedCals) {
+                const parts = share.calendar_id.split('::');
+                const calendarHref = parts[1];
+                const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+                const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
+                calendars.push({
+                  id: share.calendar_id,
+                  url: calendarUrl,
+                  name: calendarHref,
+                  color: '#cccccc'
+                });
+              }
+            } catch (dbErr) {
+              console.error('[tasks GET] Failed to fetch shared calendars:', dbErr.message);
             }
-          })
-        );
+          }
+
+          if (req.query.calendarId) {
+            calendars = calendars.filter(c => c.id === req.query.calendarId);
+          }
+
+          await Promise.allSettled(
+            calendars.map(async (cal) => {
+              try {
+                const tasksXml = await client.getTasks(cal.url);
+                const tasks = parseTaskList(tasksXml, cal.id, account.id, cal.url);
+                allTasks.push(...tasks);
+                successfulCalendars++;
+              } catch (taskErr) {
+                console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
+                errors.push({ accountId: account.id, calendarId: cal.id, error: taskErr.message });
+              }
+            })
+          );
+        } catch (accountErr) {
+          console.error(`[tasks GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
+          errors.push({ accountId: account.id, error: accountErr.message });
+        }
       })
     );
+
+    if (errors.length > 0) {
+      res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
+    }
+
+    const specificCalendarFailed = req.query.calendarId && errors.some(e => e.calendarId === req.query.calendarId);
+    const allAccountsFailed = activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0;
+
+    if (specificCalendarFailed || allAccountsFailed) {
+      return res.status(502).json({
+        error: 'Failed to fetch tasks from CalDAV server',
+        errors
+      });
+    }
 
     let filteredTasks = allTasks;
     if (req.query.category || req.query.tag) {
@@ -109,7 +144,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({
       ...task,
       href: taskUrl,
-      etag: result.etag ? result.etag.replace(/"/g, '') : null,
+      etag: (result && result.etag) ? result.etag : null,
       calendarId
     });
   } catch (err) {
@@ -119,7 +154,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ── PUT /api/tasks/:uid — update a task ──────────────────────────────────────
+// ── PUT /api/tasks/:uid — update an existing task ─────────────────────────────
 router.put('/:uid', async (req, res) => {
   try {
     const { calendarId, etag, href, ...taskData } = req.body;
@@ -144,15 +179,13 @@ router.put('/:uid', async (req, res) => {
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    const uid = req.params.uid;
-    const task = { ...taskData, uid };
+    const taskUrl = buildAbsoluteUrl(account.url, href);
+    const task = { uid: req.params.uid, ...taskData };
 
     if (task.status === 'COMPLETED' && !task.completed) {
       task.completed = new Date().toISOString();
       task.percentComplete = 100;
     }
-
-    const taskUrl = buildAbsoluteUrl(account.url, href);
 
     let current = null;
     try {
@@ -161,7 +194,7 @@ router.put('/:uid', async (req, res) => {
       current = null;
     }
 
-    const existingIcs = (current && current.ics) ? current.ics : (taskData.rawIcs || null);
+    const existingIcs = current ? current.ics : null;
 
     // Issue #261: skip the CalDAV PUT entirely when no meaningful field changed.
     // This prevents the scratch ICS builder from stripping RRULE and other
@@ -170,13 +203,13 @@ router.put('/:uid', async (req, res) => {
       return res.json({
         ...task,
         href,
-        etag: (current && current.etag) ? current.etag.replace(/"/g, '') : etag,
+        etag: (current && current.etag) ? current.etag : etag,
         calendarId
       });
     }
 
     const ics = taskToICS(task, existingIcs);
-    const ifMatch = (current && current.etag) ? current.etag : (etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null);
+    const ifMatch = (current && current.etag) ? formatIfMatch(current.etag) : (etag ? formatIfMatch(etag) : null);
 
     let result;
     try {
@@ -192,7 +225,7 @@ router.put('/:uid', async (req, res) => {
     res.json({
       ...task,
       href,
-      etag: result.etag ? result.etag.replace(/"/g, '') : etag,
+      etag: (result && result.etag) ? result.etag : etag,
       calendarId
     });
   } catch (err) {
@@ -230,7 +263,7 @@ router.delete('/:uid', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const taskUrl = buildAbsoluteUrl(account.url, href);
-    const ifMatch = etag ? (etag.startsWith('"') ? etag : `"${etag}"`) : null;
+    const ifMatch = etag ? formatIfMatch(etag) : null;
 
     await client.delete(taskUrl, ifMatch);
 

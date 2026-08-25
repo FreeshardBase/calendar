@@ -510,6 +510,19 @@ router.get('/', async (req, res) => {
     }
   }
 
+  if (errors.length > 0) {
+    res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
+  }
+
+  const allAccountsFailed = accounts.length > 0 && errors.length >= accounts.length && allCalendars.length === 0;
+  if (allAccountsFailed) {
+    return res.status(502).json({
+      error: 'Failed to fetch calendars from CalDAV server',
+      calendars: [],
+      errors
+    });
+  }
+
   console.log('[calendars route] Returning calendars:', allCalendars.map(c => `${c.accountId}::${c.name} (${c.source})`));
 
   res.json({ calendars: allCalendars, errors });
@@ -584,7 +597,7 @@ router.patch('/:id', async (req, res) => {
     const calendarId = decodeURIComponent(req.params.id);
     const { name, color } = req.body;
 
-    if (!name && !color) {
+    if (name === undefined && color === undefined) {
       return res.status(400).json({ error: 'At least name or color is required' });
     }
 
@@ -600,8 +613,12 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
-    if (color && req.session?.userId) {
-      await Db.setUserCalendarColorOverride(req.session.userId, calendarId, color);
+    if (color !== undefined && req.session?.userId) {
+      if (color === null) {
+        await Db.deleteUserCalendarColorOverride(req.session.userId, calendarId);
+      } else {
+        await Db.setUserCalendarColorOverride(req.session.userId, calendarId, color);
+      }
     }
 
     const writeAccess = await checkCalendarAccess(req, calendarId, 'write');
@@ -1318,16 +1335,47 @@ router.post('/:id/delta-sync', async (req, res) => {
     const cached = await Db.getCalendarSyncCache(calendarId);
     const tokenToUse = req.body?.syncToken || cached?.syncToken || null;
 
-    const xml = await client.syncCollection(calendarUrl, tokenToUse);
-    const { syncToken, updated, deleted } = parseSyncCollectionResponse(
+    let xml;
+    let fallbackPerformed = false;
+    try {
+      xml = await client.syncCollection(calendarUrl, tokenToUse);
+    } catch (err) {
+      if (tokenToUse && (err.message.includes('409') || err.message.includes('412') || err.message.includes('403') || err.message.includes('400') || err.message.includes('valid-sync-token'))) {
+        console.warn('[delta-sync] Sync token invalid, resetting cached token and falling back to initial sync');
+        await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, null);
+        xml = await client.syncCollection(calendarUrl, null);
+        fallbackPerformed = true;
+      } else {
+        throw err;
+      }
+    }
+
+    let parsed = parseSyncCollectionResponse(
       xml,
       calendarId,
       accountId,
       calendarUrl
     );
 
+    if (parsed.invalidSyncToken && tokenToUse && !fallbackPerformed) {
+      console.warn('[delta-sync] Sync token invalid in XML response, resetting token and falling back to initial sync');
+      await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, null);
+      xml = await client.syncCollection(calendarUrl, null);
+      parsed = parseSyncCollectionResponse(
+        xml,
+        calendarId,
+        accountId,
+        calendarUrl
+      );
+      fallbackPerformed = true;
+    }
+
+    const { syncToken, updated, deleted } = parsed;
+
     if (syncToken) {
       await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, syncToken);
+    } else if (tokenToUse && fallbackPerformed) {
+      await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, null);
     }
 
     res.json({
@@ -1335,7 +1383,8 @@ router.post('/:id/delta-sync', async (req, res) => {
       ctagChanged: true,
       syncToken,
       updated,
-      deleted
+      deleted,
+      fallbackPerformed
     });
   } catch (err) {
     console.error('[delta-sync] Error executing delta sync:', err.message);

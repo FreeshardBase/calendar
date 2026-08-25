@@ -18,7 +18,9 @@ test('Working Hours Policy Suite', async (t) => {
 
   t.before(async () => {
     // Obtain session cookie
-    const res = await fetch(`${baseUrl}/api/accounts`);
+    const res = await fetch(`${baseUrl}/api/accounts`, {
+      headers: { 'x-test-user-id': 'test' }
+    });
     const cookieHeader = res.headers.get('set-cookie');
     if (cookieHeader) {
       sessionCookie = cookieHeader.split(';')[0];

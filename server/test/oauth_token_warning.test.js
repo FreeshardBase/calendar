@@ -22,7 +22,7 @@ process.env.SSL_CERT_PATH = '';
  *   - password_encrypted / iv never exposed
  */
 
-const { test, describe, before, after, afterEach } = require('node:test');
+const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
@@ -100,6 +100,10 @@ describe('Issue #7 — OAuth Token Expiry Warning', () => {
 
   after(() => {
     if (appServer && appServer.close) appServer.close();
+  });
+
+  beforeEach(async () => {
+    await cleanupUser(TEST_USER);
   });
 
   afterEach(async () => {

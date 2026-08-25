@@ -36,6 +36,29 @@ def refresh_msgraph_token(tenant_id, client_id, refresh_token):
         expires_at = int((time.time() + expires_in) * 1000)
         return new_token, expires_at
 
+def decrypt_token(token):
+    if not token or ":" not in token:
+        return token
+    parts = token.split(":", 1)
+    if len(parts[0]) != 32:
+        return token
+    try:
+        import sync_worker
+        return sync_worker.decrypt(parts[1], parts[0], sync_worker.KEY_BYTES)
+    except Exception:
+        return token
+
+def encrypt_token(token):
+    if not token:
+        return token
+    if ":" in token and len(token.split(":", 1)[0]) == 32:
+        return token
+    try:
+        import sync_worker
+        return sync_worker.encrypt_token(token, sync_worker.KEY_BYTES)
+    except Exception:
+        return token
+
 def sync_msgraph_accounts(user_id, conn=None):
     close_conn = False
     if conn is None:
@@ -59,8 +82,8 @@ def sync_msgraph_accounts(user_id, conn=None):
 
     for acc in accounts:
         acc_id = acc["id"]
-        access_token = acc["access_token"]
-        refresh_token = acc["refresh_token"]
+        access_token = decrypt_token(acc["access_token"])
+        refresh_token = decrypt_token(acc["refresh_token"])
         expires_at = acc["expires_at"]
         tenant_id = acc["tenant_id"]
         client_id = acc["client_id"]
@@ -71,9 +94,10 @@ def sync_msgraph_accounts(user_id, conn=None):
             if not refresh_token.startswith("mock-"):
                 try:
                     access_token, expires_at = refresh_msgraph_token(tenant_id, client_id, refresh_token)
+                    enc_access = encrypt_token(access_token)
                     cursor.execute(
                         "UPDATE msgraph_accounts SET access_token = ?, expires_at = ?, updated_at = ? WHERE id = ?",
-                        (access_token, expires_at, now_ms, acc_id)
+                        (enc_access, expires_at, now_ms, acc_id)
                     )
                     conn.commit()
                 except Exception as te:

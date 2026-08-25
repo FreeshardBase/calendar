@@ -90,7 +90,8 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(reqData)
+            'Content-Length': Buffer.byteLength(reqData),
+            'x-test-user-id': 'test'
           }
         },
         (res) => {
@@ -129,7 +130,8 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload)
+            'Content-Length': Buffer.byteLength(payload),
+            'x-test-user-id': 'test'
           }
         },
         (res) => {
