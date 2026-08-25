@@ -222,17 +222,17 @@ function renderMonth(container, events, currentDate, cb) {
   }, { once: false });
 }
 
-function chipHtml(ev) {
+export function chipHtml(ev) {
   const cal   = calendarById(ev.calendarId);
-  const color = cal?.color || '#6366f1';
+  const color = sanitizeColor(cal?.color || '#6366f1');
   const bg    = hexToRgba(color, 0.22);
   const timeStr = ev.allDay ? '' : `<span class="event-chip-time">${fmtTime(ev.start)}</span>`;
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
   return `<div class="event-chip${ev.allDay ? ' all-day' : ''}"
-              style="background:${bg};color:${color};"
-              data-event-uid="${ev.uid}"
+              style="background:${escHtml(bg)};color:${escHtml(color)};"
+              data-event-uid="${escHtml(ev.uid)}"
               title="${escHtml(ev.title)}">
             ${timeStr}
             <span class="event-chip-title">${escHtml(ev.title)}</span>
@@ -499,7 +499,7 @@ function createTimeCol(allEvents, date, cb) {
 
 function createEventBlock(ev, evCol, totalCols, cb) {
   const cal   = calendarById(ev.calendarId);
-  const color = cal?.color || '#6366f1';
+  const color = sanitizeColor(cal?.color || '#6366f1');
 
   const start = new Date(ev.start);
   const end   = new Date(ev.end);
@@ -515,8 +515,8 @@ function createEventBlock(ev, evCol, totalCols, cb) {
     top:${topPx}px; height:${hPx}px;
     left:${l + 1}%; width:${w - 2}%;
     background:${hexToRgba(color, 0.25)};
-    color:${color};
-    border-left-color:${color};
+    color:${escHtml(color)};
+    border-left-color:${escHtml(color)};
   `;
   block.dataset.eventUid = ev.uid;
 
@@ -609,9 +609,9 @@ function renderAgenda(container, events, currentDate, cb) {
   });
 }
 
-function agendaEventHtml(ev) {
+export function agendaEventHtml(ev) {
   const cal   = calendarById(ev.calendarId);
-  const color = cal?.color || '#6366f1';
+  const color = sanitizeColor(cal?.color || '#6366f1');
   const timeStr = ev.allDay ? 'Ganztägig'
     : `${fmtTime(ev.start)}${ev.end ? ' – ' + fmtTime(ev.end) : ''}`;
 
@@ -620,8 +620,8 @@ function agendaEventHtml(ev) {
     : '';
 
   return `
-    <div class="agenda-event" data-event-uid="${ev.uid}" style="cursor:pointer">
-      <div class="agenda-event-color" style="background:${color}"></div>
+    <div class="agenda-event" data-event-uid="${escHtml(ev.uid)}" style="cursor:pointer">
+      <div class="agenda-event-color" style="background:${escHtml(color)}"></div>
       <div class="agenda-event-body">
         <div class="agenda-event-title">${escHtml(ev.title)} ${recurIcon}</div>
         <div class="agenda-event-meta">
@@ -748,17 +748,50 @@ function fmtTime(iso) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
-function fmtHour(h) {
-  return `${String(h).padStart(2,'0')}:00`;
+export function sanitizeColor(color, fallback = '#6366f1') {
+  if (!color || typeof color !== 'string') return fallback;
+  const trimmed = color.trim();
+  if (/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(trimmed)) return trimmed;
+  if (/^(?:rgb|hsl)a?\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*(?:,\s*[\d.]+\s*)?\)$/i.test(trimmed) ||
+      /^(?:rgb|hsl)a?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[\d.]+\s*)?\)$/i.test(trimmed)) return trimmed;
+  if (/^[a-zA-Z]{3,20}$/.test(trimmed)) return trimmed;
+  return fallback;
 }
 
 function hexToRgba(hex, alpha) {
-  const r = parseInt(hex.slice(1,3), 16);
-  const g = parseInt(hex.slice(3,5), 16);
-  const b = parseInt(hex.slice(5,7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+  const cleanHex = sanitizeColor(hex, '#6366f1');
+  if (cleanHex.startsWith('#') && (cleanHex.length === 7 || cleanHex.length === 4)) {
+    const fullHex = cleanHex.length === 4
+      ? `#${cleanHex[1]}${cleanHex[1]}${cleanHex[2]}${cleanHex[2]}${cleanHex[3]}${cleanHex[3]}`
+      : cleanHex;
+    const r = parseInt(fullHex.slice(1,3), 16);
+    const g = parseInt(fullHex.slice(3,5), 16);
+    const b = parseInt(fullHex.slice(5,7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return `rgba(99,102,241,${alpha})`;
 }
 
-function escHtml(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+export function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    renderView,
+    getToolbarTitle,
+    navigate,
+    getDateRange,
+    renderMiniCalendar,
+    sanitizeColor,
+    chipHtml,
+    agendaEventHtml,
+    escHtml
+  };
+}
+

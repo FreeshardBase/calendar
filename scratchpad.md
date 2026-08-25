@@ -96,10 +96,15 @@
   - Replaced unsalted SHA-256 app passwords with PBKDF2-HMAC-SHA256 (`salt:hash`, 100k iterations) in `server/db.js` and `radicale/radicale_custom_auth.py`.
   - Added support for custom `ENCRYPTION_SALT` environment configuration.
 
+- **NPM Security Advisories Remediation (`package.json`, `package-lock.json`):**
+  - Upgraded dependencies via `npm audit fix` to resolve 3 advisories (`body-parser`, `tar`, `undici`).
+  - Audited dependency tree confirming 0 security vulnerabilities remain.
+
 
 ## Test Execution State
-- Node Unit & Integration Suite: 551 PASSED, 0 skipped (100% green)
-- Playwright E2E Suite: 17 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 562 PASSED, 0 failed, 0 skipped (100% green)
+- Playwright E2E Suite: 18 PASSED, 0 failed (100% green)
+
 
 ## Completed Tasks
 - [x] Task 1: Onboarding & CalDAV Auto-Provisioning Flow
@@ -348,6 +353,18 @@
   - Updated `radicale/entrypoint.sh` to check `RADICALE_SSL` / `RADICALE_ENABLE_SSL` environment variables (default: `True`).
   - When set to `false` / `0` / `no` / `off` (case-insensitive), entrypoint configures `ssl = False` in `/etc/radicale/config`.
   - Added documentation entry for `RADICALE_SSL=True` in `.env.example`.
+- **Issue #76 — Stored XSS in Invitations List & Attribute Injection Mitigation (`public/js/invitations.js`, `public/js/calendar.js`, `server/test/invitations_xss_attribute_injection.test.js`):**
+  - Sanitized invitations list rendering (`public/js/invitations.js`) by HTML-escaping all event titles, descriptions, organizer names/emails, attendee details, and data attribute fields (`uid`, `href`, `calendarId`).
+  - Added CSS color validation helper `sanitizeColor(color)` in `public/js/calendar.js` enforcing hex/rgb/hsl/keyword patterns and rejecting malicious style/attribute injection payloads.
+  - Escaped event UID attributes in `chipHtml` and `agendaEventHtml`.
+  - Created unit test suite `server/test/invitations_xss_attribute_injection.test.js` (3 tests, 100% green).
+- **Issue #77 — RSVP User Email Validation & Session Identity Check (`server/routes/events.js`, `public/js/invitations.js`, `server/test/rsvp_user_email_validation.test.js`):**
+  - Removed hardcoded placeholder email (`testuser@example.com`) in `public/js/invitations.js`.
+  - Implemented `getUserEmailsForSession(req)` in `server/routes/events.js` resolving user session email identities (`userEmail`, `username`, `userId`, account usernames, SQLite user records).
+  - Updated `GET /api/events/invitations` to annotate each invitation with `userEmail` matching the session identity.
+  - Enforced strict session identity validation on `POST /api/events/:uid/rsvp`: returns `403 Forbidden` if supplied email does not belong to authenticated user session, auto-resolves email from event attendees if omitted, and returns `400 Bad Request` if email is not an event attendee.
+  - Created unit test suite `server/test/rsvp_user_email_validation.test.js` (3 tests, 100% green).
+
   - Added unit test suite `server/test/radicale_tls_optional.test.js` (3 tests, 100% green).
 - **Issue #34 — App-Store Readiness & Container Registry Publishing (`server/utils/containerPublish.js`, `Dockerfile`, `radicale/Dockerfile`, `sync-worker/Dockerfile`, `docker-compose.yml`, `package.json`, `server/test/container_publish.test.js`):**
   - Created `server/utils/containerPublish.js` providing `getImageNames`, `generateBuildAndPushCommands`, `validateRegistryConfig`, and `publishContainerImages`.
@@ -396,6 +413,12 @@
     - `server/routes/tasks.js` & `public/js/tasks.js`: VTODO task management REST endpoints (`/api/tasks`) and frontend Kanban board/drawer UI.
     - `server/routes/msgraph.js`: Microsoft 365 account linking and sync endpoints (`/api/msgraph/accounts`).
   - Created unit test suite `server/test/agents_md_documentation.test.js` verifying that `agents.md` documents VTODO/Tasks, MS Graph/Outlook sync, and `server/utils/ical.js` (4 tests, 100% green).
+
+- **Issue #78 — Read-Only Calendar Event Popover Null-Safety & Delete Guard (`public/js/app.js`, `server/test/readonly_event_click_popover.test.js`):**
+  - Resolved `TypeError: Cannot set property 'onclick' of null` when clicking an event on a read-only calendar.
+  - Updated `showEventPopover(ev, mouseEvent)` in `public/js/app.js` to check existence of `$('popover-edit-btn')` and `$('popover-delete-btn')` before attaching click event handlers.
+  - Read-only calendar events omit `#popover-delete-btn` and display a `Schreibgeschützt` badge instead; modal view opens details safely without crashing UI.
+  - Created unit test suite `server/test/readonly_event_click_popover.test.js` (2 tests, 100% green).
 
 
 

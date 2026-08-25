@@ -58,7 +58,7 @@ app.use(async (req, res, next) => {
   } else if (req.headers['x-test-user-id']) {
     userId = req.headers['x-test-user-id'];
     req.session.userId = userId;
-  } else if (!userId && authMethod === 'env' && process.env.NODE_ENV !== 'test') {
+  } else if (!userId && authMethod === 'env' && (process.env.NODE_ENV !== 'test' || process.env.E2E_TEST === 'true')) {
     userId = process.env.CALDAV_USERNAME || 'test';
     req.session.userId = userId;
   }

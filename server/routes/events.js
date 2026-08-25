@@ -21,6 +21,36 @@ const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
 
+async function getUserEmailsForSession(req) {
+  const emails = new Set();
+  if (req.session?.userEmail) emails.add(req.session.userEmail.toLowerCase().trim());
+  if (req.session?.username) emails.add(req.session.username.toLowerCase().trim());
+  if (req.session?.userId) emails.add(req.session.userId.toLowerCase().trim());
+
+  if (Array.isArray(req.session?.accounts)) {
+    for (const acc of req.session.accounts) {
+      if (acc.username) emails.add(acc.username.toLowerCase().trim());
+    }
+  }
+
+  if (req.session?.userId) {
+    try {
+      const dbUsername = await Db.getUsernameByUserId(req.session.userId);
+      if (dbUsername) emails.add(dbUsername.toLowerCase().trim());
+    } catch (_) {}
+    try {
+      const userAccounts = await Db.getAccounts(req.session.userId);
+      if (Array.isArray(userAccounts)) {
+        for (const acc of userAccounts) {
+          if (acc.username) emails.add(acc.username.toLowerCase().trim());
+        }
+      }
+    } catch (_) {}
+  }
+
+  return Array.from(emails);
+}
+
 // ── GET /api/events/invitations ───────────────────────────────────────────────
 router.get('/invitations', async (req, res) => {
   try {
@@ -35,6 +65,8 @@ router.get('/invitations', async (req, res) => {
     const startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const endDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
+    const validEmails = await getUserEmailsForSession(req);
+
     await Promise.allSettled(
       activeAccounts.map(async (account) => {
         const client = await getClientForAccount(account);
@@ -48,6 +80,10 @@ router.get('/invitations', async (req, res) => {
               const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
               for (const ev of events) {
                 if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
+                  const matchedAtt = ev.attendees.find(a =>
+                    validEmails.includes((a.email || '').toLowerCase().replace(/^mailto:/i, '').trim())
+                  );
+                  ev.userEmail = matchedAtt ? matchedAtt.email : (validEmails[0] || account.username);
                   invitations.push(ev);
                 }
               }
@@ -445,8 +481,8 @@ router.post('/:uid/rsvp', async (req, res) => {
   try {
     const { calendarId, href, email, status, recurrenceId } = req.body;
 
-    if (!href || !calendarId || !email || !status) {
-      return res.status(400).json({ error: 'calendarId, href, email, and status are required' });
+    if (!href || !calendarId || !status) {
+      return res.status(400).json({ error: 'calendarId, href, and status are required' });
     }
 
     const access = await checkCalendarAccess(req, calendarId, 'read');
@@ -469,21 +505,41 @@ router.post('/:uid/rsvp', async (req, res) => {
     const eventUrl = buildAbsoluteUrl(account.url, href);
     const current = await client.get(eventUrl);
 
-    // Issue #67: Validate that email is an existing attendee on the event
+    // Issue #67 & #77: Validate user email against session identity and event attendees
     const parsedCurrent = parseICSToEvent(current.ics);
-    const normalizedEmail = (email || '').toLowerCase().replace(/^mailto:/i, '').trim();
-    const isAttendee = (parsedCurrent?.attendees || []).some(a => (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim() === normalizedEmail);
+    const attendees = parsedCurrent?.attendees || [];
+    const validEmails = await getUserEmailsForSession(req);
 
+    let rsvpEmail = (email || '').toLowerCase().replace(/^mailto:/i, '').trim();
+
+    if (rsvpEmail) {
+      const isUserEmail = validEmails.some(ve => ve === rsvpEmail);
+      if (!isUserEmail && validEmails.length > 0) {
+        return res.status(403).json({ error: 'Unauthorized email address for RSVP' });
+      }
+    } else {
+      const matched = attendees.find(a => {
+        const aEmail = (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim();
+        return validEmails.includes(aEmail);
+      });
+      if (matched) {
+        rsvpEmail = (matched.email || '').toLowerCase().replace(/^mailto:/i, '').trim();
+      } else {
+        return res.status(400).json({ error: 'User email not found among event attendees' });
+      }
+    }
+
+    const isAttendee = attendees.some(a => (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim() === rsvpEmail);
     if (!isAttendee) {
       return res.status(400).json({ error: 'Attendee email not found on event' });
     }
 
-    const updatedIcs = updateAttendeePartstat(current.ics, email, status, recurrenceId);
+    const updatedIcs = updateAttendeePartstat(current.ics, rsvpEmail, status, recurrenceId);
     const result = await client.put(eventUrl, updatedIcs, current.etag);
 
     const parsedEv = parseICSToEvent(updatedIcs, { recurrenceId });
     const eventForReply = { ...(parsedEv || { uid: req.params.uid, title: 'Event' }), recurrenceId: recurrenceId || parsedEv?.recurrenceId };
-    const itipReply = buildItipReply(eventForReply, email, status);
+    const itipReply = buildItipReply(eventForReply, rsvpEmail, status);
 
     queueSyncForCalendar(calendarId, req.session.userId);
 

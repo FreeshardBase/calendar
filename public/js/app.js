@@ -5,7 +5,7 @@
 
 import { store, toggleCalendar, invalidateEventCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI } from './api.js';
-import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar } from './calendar.js';
+import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms } from './notifications.js';
@@ -303,8 +303,8 @@ function renderCalendarList() {
       : '';
 
     return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${c.id}">
-        <div class="calendar-dot" style="background:${c.color}"></div>
+      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}">
+        <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
         <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
           <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
             <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
@@ -317,7 +317,7 @@ function renderCalendarList() {
           ${editBtnHtml}
           ${exportBtnHtml}
         </div>
-        <div class="calendar-check" style="${checked ? 'background:' + c.color : ''}">
+        <div class="calendar-check" style="${checked ? 'background:' + escHtml(sanitizeColor(c.color)) : ''}">
           <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
             <path d="M2 6l3 3 5-5"/>
           </svg>
@@ -1124,7 +1124,7 @@ function renderSettingsCalendars() {
       <div class="settings-item">
         <div style="display:flex; flex-direction:column; min-width:0; flex:1;">
           <div class="settings-item-info">
-            <div class="calendar-dot" style="background:${c.color}; width:8px; height:8px; border-radius:50%; flex-shrink:0"></div>
+            <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}; width:8px; height:8px; border-radius:50%; flex-shrink:0"></div>
             <span class="settings-item-name" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
             ${googleBadge}
           </div>
@@ -1306,7 +1306,7 @@ function showEventPopover(ev, mouseEvent) {
        <button class="btn btn-ghost btn-sm btn-danger" id="popover-delete-btn">Löschen</button>`;
 
   popover.innerHTML = `
-    <div class="popover-color-bar" style="background:${color}"></div>
+    <div class="popover-color-bar" style="background:${escHtml(sanitizeColor(color))}"></div>
     <div class="popover-title">${escHtml(ev.title)}</div>
     <div class="popover-meta">
       <div class="popover-row">
@@ -1336,29 +1336,36 @@ function showEventPopover(ev, mouseEvent) {
   popover.style.top  = `${top}px`;
   popover.style.left = `${left}px`;
 
-  $('popover-edit-btn').onclick = () => {
-    closePopover();
-    openEditModal(ev, { onSaved: onEventSaved, onDeleted: onEventDeleted });
-  };
-  $('popover-delete-btn').onclick = async () => {
-    let scope = 'series';
-    if (ev.recurrenceId) {
-      scope = await chooseRecurrenceScope(`„${ev.title}" löschen:`);
-      if (!scope) return;
-    } else {
-      if (!confirm(`„${ev.title}" löschen?`)) return;
-    }
-    try {
-      const targetUid = ev.masterUid || ev.uid;
-      await EventsAPI.remove(targetUid, {
-        calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
-        ...(scope === 'occurrence' ? { scope, recurrenceId: ev.recurrenceId } : {})
-      });
+  const editBtn = $('popover-edit-btn');
+  if (editBtn) {
+    editBtn.onclick = () => {
       closePopover();
-      onEventDeleted(targetUid);
-      showToast('Termin gelöscht.', 'info');
-    } catch(err) { showToast(err.message, 'error'); }
-  };
+      openEditModal(ev, { onSaved: onEventSaved, onDeleted: onEventDeleted });
+    };
+  }
+
+  const deleteBtn = $('popover-delete-btn');
+  if (deleteBtn) {
+    deleteBtn.onclick = async () => {
+      let scope = 'series';
+      if (ev.recurrenceId) {
+        scope = await chooseRecurrenceScope(`„${ev.title}" löschen:`);
+        if (!scope) return;
+      } else {
+        if (!confirm(`„${ev.title}" löschen?`)) return;
+      }
+      try {
+        const targetUid = ev.masterUid || ev.uid;
+        await EventsAPI.remove(targetUid, {
+          calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
+          ...(scope === 'occurrence' ? { scope, recurrenceId: ev.recurrenceId } : {})
+        });
+        closePopover();
+        onEventDeleted(targetUid);
+        showToast('Termin gelöscht.', 'info');
+      } catch(err) { showToast(err.message, 'error'); }
+    };
+  }
 }
 
 function closePopover() {

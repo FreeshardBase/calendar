@@ -55,7 +55,7 @@ export function openTaskModal(task = null) {
   // Populate calendar options
   const calendars = store.get('calendars') || [];
   if (selectCal) {
-    selectCal.innerHTML = calendars.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    selectCal.innerHTML = calendars.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
   }
 
   if (task) {

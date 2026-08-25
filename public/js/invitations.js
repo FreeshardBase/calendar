@@ -66,16 +66,21 @@ export function closeInvitationsModal() {
   if (backdrop) backdrop.classList.add('hidden');
 }
 
-function renderInvitationsList() {
-  const container = document.getElementById('invitations-list-body');
-  if (!container) return;
+export function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  if (invitationsList.length === 0) {
-    container.innerHTML = '<p class="empty-state" style="padding: 20px; text-align: center; color: var(--text-muted);">Keine ausstehenden Einladungen vorhanden.</p>';
-    return;
+export function renderInvitationsHTML(invList) {
+  if (!Array.isArray(invList) || invList.length === 0) {
+    return '<p class="empty-state" style="padding: 20px; text-align: center; color: var(--text-muted);">Keine ausstehenden Einladungen vorhanden.</p>';
   }
 
-  container.innerHTML = invitationsList.map(inv => {
+  return invList.map(inv => {
     const attendeesHtml = (inv.attendees || []).map(att => {
       const statusLabel = {
         'ACCEPTED': '<span class="status-badge status-accepted">Zugesagt</span>',
@@ -84,7 +89,7 @@ function renderInvitationsList() {
         'NEEDS-ACTION': '<span class="status-badge status-pending">Offen</span>'
       }[att.status] || '<span class="status-badge">Offen</span>';
       return `<div class="inv-attendee-row">
-        <span>${att.name || att.email}</span>
+        <span>${escHtml(att.name || att.email)}</span>
         ${statusLabel}
       </div>`;
     }).join('');
@@ -92,25 +97,32 @@ function renderInvitationsList() {
     const formattedDate = inv.start ? new Date(inv.start).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 
     return `
-      <div class="invitation-card" data-uid="${inv.uid}">
+      <div class="invitation-card" data-uid="${escHtml(inv.uid)}">
         <div class="invitation-header">
-          <strong class="invitation-title">${inv.title || 'Unbenannter Termin'}</strong>
-          <span class="invitation-date">${formattedDate}</span>
+          <strong class="invitation-title">${escHtml(inv.title || 'Unbenannter Termin')}</strong>
+          <span class="invitation-date">${escHtml(formattedDate)}</span>
         </div>
-        ${inv.organizer ? `<div class="invitation-organizer">Organisator: ${inv.organizer.name || inv.organizer.email}</div>` : ''}
-        ${inv.description ? `<div class="invitation-desc">${inv.description}</div>` : ''}
+        ${inv.organizer ? `<div class="invitation-organizer">Organisator: ${escHtml(inv.organizer.name || inv.organizer.email)}</div>` : ''}
+        ${inv.description ? `<div class="invitation-desc">${escHtml(inv.description)}</div>` : ''}
         <div class="invitation-attendees">
           <small>Teilnehmer:</small>
           ${attendeesHtml}
         </div>
         <div class="invitation-actions">
-          <button class="btn btn-sm btn-success rsvp-btn" data-status="ACCEPTED" data-uid="${inv.uid}" data-href="${inv.href || ''}" data-calid="${inv.calendarId || ''}">Zusagen</button>
-          <button class="btn btn-sm btn-secondary rsvp-btn" data-status="TENTATIVE" data-uid="${inv.uid}" data-href="${inv.href || ''}" data-calid="${inv.calendarId || ''}">Vorläufig</button>
-          <button class="btn btn-sm btn-danger rsvp-btn" data-status="DECLINED" data-uid="${inv.uid}" data-href="${inv.href || ''}" data-calid="${inv.calendarId || ''}">Absagen</button>
+          <button class="btn btn-sm btn-success rsvp-btn" data-status="ACCEPTED" data-uid="${escHtml(inv.uid)}" data-href="${escHtml(inv.href || '')}" data-calid="${escHtml(inv.calendarId || '')}" data-email="${escHtml(inv.userEmail || '')}">Zusagen</button>
+          <button class="btn btn-sm btn-secondary rsvp-btn" data-status="TENTATIVE" data-uid="${escHtml(inv.uid)}" data-href="${escHtml(inv.href || '')}" data-calid="${escHtml(inv.calendarId || '')}" data-email="${escHtml(inv.userEmail || '')}">Vorläufig</button>
+          <button class="btn btn-sm btn-danger rsvp-btn" data-status="DECLINED" data-uid="${escHtml(inv.uid)}" data-href="${escHtml(inv.href || '')}" data-calid="${escHtml(inv.calendarId || '')}" data-email="${escHtml(inv.userEmail || '')}">Absagen</button>
         </div>
       </div>
     `;
   }).join('');
+}
+
+function renderInvitationsList() {
+  const container = document.getElementById('invitations-list-body');
+  if (!container) return;
+
+  container.innerHTML = renderInvitationsHTML(invitationsList);
 
   container.querySelectorAll('.rsvp-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -118,8 +130,7 @@ function renderInvitationsList() {
       const uid = e.currentTarget.dataset.uid;
       const href = e.currentTarget.dataset.href;
       const calendarId = e.currentTarget.dataset.calid;
-
-      const email = 'testuser@example.com';
+      const email = e.currentTarget.dataset.email || undefined;
 
       try {
         await InvitationsAPI.rsvp(uid, { calendarId, href, email, status });
@@ -132,3 +143,15 @@ function renderInvitationsList() {
     });
   });
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    initInvitations,
+    loadInvitations,
+    openInvitationsModal,
+    closeInvitationsModal,
+    escHtml,
+    renderInvitationsHTML
+  };
+}
+
