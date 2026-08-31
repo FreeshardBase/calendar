@@ -195,11 +195,20 @@ function renderTaskSidebar() {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function renderCalendarView() {
   const container  = $('calendar-container');
   const view       = store.get('view');
   const date       = store.get('currentDate');
   const events     = getFilteredEvents();
+  const searchQuery = store.get('searchQuery');
 
   if (view === 'kanban') {
     $('toolbar-title').textContent = 'Aufgaben (Kanban)';
@@ -207,9 +216,13 @@ function renderCalendarView() {
       btn.classList.toggle('active', btn.dataset.view === 'kanban');
     });
     const tasks = getFilteredTasks();
-    renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks });
+    renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks }, { searchQuery });
     const count = tasks.length;
-    setStatus(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
+    if (searchQuery && searchQuery.trim() && count === 0) {
+      setStatus(`0 Ergebnisse für „${searchQuery.trim()}“`);
+    } else {
+      setStatus(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
+    }
     return;
   }
 
@@ -229,6 +242,17 @@ function renderCalendarView() {
     }
   });
 
+  if (searchQuery && searchQuery.trim() && events.length === 0) {
+    const banner = document.createElement('div');
+    banner.className = 'search-empty-banner';
+    banner.innerHTML = `<span class="search-empty-icon">🔍</span> Keine Termine für „${escapeHtml(searchQuery.trim())}“ gefunden.`;
+    container.insertBefore(banner, container.firstChild);
+    setStatus(`0 Ergebnisse für „${searchQuery.trim()}“`);
+  } else {
+    const count = events.length;
+    setStatus(`${count} Termin${count !== 1 ? 'e' : ''}`);
+  }
+
   // Mini calendar
   renderMiniCalendar(
     $('mini-calendar'),
@@ -236,9 +260,6 @@ function renderCalendarView() {
     store.get('events') || [],
     (d) => { store.set({ currentDate: d }); loadEvents(); }
   );
-
-  const count = events.length;
-  setStatus(`${count} Termin${count !== 1 ? 'e' : ''}`);
 }
 
 function getFilteredEvents() {
@@ -1828,7 +1849,8 @@ export function showToast(message, type = 'info') {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function setStatus(msg) {
-  $('status-bar').textContent = msg;
+  const el = $('status-bar');
+  if (el) el.textContent = msg;
 }
 
 function fmt(iso) {

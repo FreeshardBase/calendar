@@ -160,8 +160,32 @@ async function handleTaskSave() {
   }
 }
 
-export function renderKanbanBoard(container, tasks, callbacks = {}) {
+export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}) {
+  const searchQuery = (options && options.searchQuery !== undefined)
+    ? options.searchQuery
+    : (typeof store !== 'undefined' && store && store.get ? store.get('searchQuery') : '');
+
+  let emptyNoticeHtml = '';
+  if (tasks.length === 0) {
+    if (searchQuery && searchQuery.trim()) {
+      emptyNoticeHtml = `
+        <div class="kanban-empty-state search-empty-state">
+          <div class="kanban-empty-title">Keine Aufgaben gefunden</div>
+          <div class="kanban-empty-subtitle">Es wurden keine Aufgaben für „${escapeHtml(searchQuery.trim())}“ gefunden.</div>
+        </div>
+      `;
+    } else {
+      emptyNoticeHtml = `
+        <div class="kanban-empty-state board-empty-state">
+          <div class="kanban-empty-title">Keine Aufgaben vorhanden</div>
+          <div class="kanban-empty-subtitle">Klicke oben auf „Neue Aufgabe“, um die erste Aufgabe zu erstellen.</div>
+        </div>
+      `;
+    }
+  }
+
   container.innerHTML = `
+    ${emptyNoticeHtml}
     <div class="kanban-board">
       <div class="kanban-column" data-status="NEEDS-ACTION">
         <div class="kanban-column-header">
@@ -199,9 +223,23 @@ export function renderKanbanBoard(container, tasks, callbacks = {}) {
   container.querySelector('.count-in-process').textContent = inProcessTasks.length;
   container.querySelector('.count-completed').textContent = completedTasks.length;
 
-  todoTasks.forEach(t => todoList.appendChild(createKanbanCard(t, callbacks)));
-  inProcessTasks.forEach(t => inProcessList.appendChild(createKanbanCard(t, callbacks)));
-  completedTasks.forEach(t => completedList.appendChild(createKanbanCard(t, callbacks)));
+  if (todoTasks.length > 0) {
+    todoTasks.forEach(t => todoList.appendChild(createKanbanCard(t, callbacks)));
+  } else {
+    todoList.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
+  }
+
+  if (inProcessTasks.length > 0) {
+    inProcessTasks.forEach(t => inProcessList.appendChild(createKanbanCard(t, callbacks)));
+  } else {
+    inProcessList.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
+  }
+
+  if (completedTasks.length > 0) {
+    completedTasks.forEach(t => completedList.appendChild(createKanbanCard(t, callbacks)));
+  } else {
+    completedList.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
+  }
 }
 
 function createKanbanCard(task, callbacks) {

@@ -130,6 +130,15 @@
   - Updated `renderAgenda` and `layoutEvents` in `public/js/calendar.js` to use `sortEvents` for consistent day event ordering.
   - Added unit test suite `server/test/day_events_sorting.test.js` (4 tests, 100% green).
 
+- **Search Empty State & Empty Kanban Board Indicators (Issue #108):**
+  - Updated `renderKanbanBoard(container, tasks, callbacks, options)` in `public/js/tasks.js` to accept `options.searchQuery`. When `tasks.length === 0`, renders an explicit `.kanban-empty-state` notice:
+    - If `searchQuery` is set: `<div class="kanban-empty-state search-empty-state">` displaying `"Keine Aufgaben gefunden"` and referencing the search query string (`Es wurden keine Aufgaben für „...“ gefunden.`).
+    - If `searchQuery` is empty: `<div class="kanban-empty-state board-empty-state">` displaying `"Keine Aufgaben vorhanden"` and guidance to create the first task.
+  - Rendered `.kanban-column-empty` placeholders inside empty column containers (`#kanban-cards-todo`, etc.).
+  - Updated `renderCalendarView()` in `public/js/app.js` to pass `searchQuery` to `renderKanbanBoard`. For event calendar views (`month`, `week`, `workweek`, `day`, `agenda`), when `searchQuery` produces 0 matches, prepends `.search-empty-banner` (`Keine Termine für „...“ gefunden.`) and updates status bar to `0 Ergebnisse für „...“`.
+  - Added CSS styling rules for `.kanban-empty-state`, `.kanban-column-empty`, and `.search-empty-banner` in `public/css/app.css`.
+  - Created unit test suite `server/test/issue108_search_kanban_empty_state.test.js` (3 tests, 100% green).
+
 ## Test Execution State
 - Node Unit & Integration Suite: 684 PASSED, 0 failed (100% green)
 - Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
