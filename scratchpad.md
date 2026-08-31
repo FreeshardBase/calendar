@@ -526,9 +526,16 @@
   - Added immediate error re-throwing for non-retriable network errors (`ECONNREFUSED`, `ENOTFOUND`, `EHOSTUNREACH`, `EADDRNOTAVAIL`, `ETIMEDOUT`) and timeout/abort signals (`AbortError`, `TimeoutError`), preventing 12-second retries on unreachable/hanging CalDAV hosts.
   - Created test suite `server/test/issue105_unreachable_backend_timeout.test.js` (4 tests, 100% green).
 
+- **Issue #110 — Stylesheet and Markup Drift Alignment (`public/css/app.css`, `server/test/issue110_stylesheet_markup_drift.test.js`):**
+  - Resolved 7 undefined custom properties in CSS (`--surface-hover`, `--text`, `--text-muted`, `--surface-bg-alt`, `--radius-card`, `--radius-sm`, `--warning`) by explicitly defining them in `:root` and `[data-theme="dark"]`.
+  - Added CSS definitions for unstyled component classes (`.btn-secondary`, `.popover-attachments`, `.attachment-drive-link`, `.popover-color-bar`, `.popover-meta`, `.popover-actions`, `.toast-icon`, `.toast-msg`, `.toast-close`, `.btn-revoke-share`, `.share-role-toggle`, `.agenda-events`, `.agenda-event-loc`).
+  - Removed 100+ lines of dead, obsolete CSS rule blocks (`.onboarding-screen`, `.account-item`, `.account-remove`, `.view-switcher`, `.view-btn`, `.search-bar`, `.attendee-info`, `.popover-header`, `.popover-footer`).
+  - Created unit test suite `server/test/issue110_stylesheet_markup_drift.test.js` (3 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 682 PASSED, 0 failed (100% green)
+- Node Unit & Integration Suite: 698 PASSED, 0 failed (100% green)
 - Playwright E2E Suite: 19 PASSED, 1 skipped (100% green)
+
 
 
 

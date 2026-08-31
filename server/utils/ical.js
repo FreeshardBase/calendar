@@ -345,7 +345,15 @@ function eventToICS(event, existingIcs = null) {
 
           let timeVal;
           if (isAllDay) {
-            const dateStr = fmtDate(isoVal);
+            let dateStr = fmtDate(isoVal);
+            if (propName === 'dtend' && event.start) {
+              const startStr = fmtDate(event.start);
+              if (dateStr <= startStr) {
+                const sDate = new Date(event.start);
+                sDate.setUTCDate(sDate.getUTCDate() + 1);
+                dateStr = fmtDate(sDate.toISOString());
+              }
+            }
             timeVal = ICAL.Time.fromDateString(`${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`);
             timeVal.isDate = true;
           } else {
@@ -565,8 +573,15 @@ function eventToICS(event, existingIcs = null) {
   );
 
   if (event.allDay) {
-    lines.push(`DTSTART;VALUE=DATE:${fmtDate(event.start)}`);
-    lines.push(`DTEND;VALUE=DATE:${fmtDate(event.end)}`);
+    const startStr = fmtDate(event.start);
+    let endStr = fmtDate(event.end || event.start);
+    if (endStr <= startStr) {
+      const sDate = new Date(event.start);
+      sDate.setUTCDate(sDate.getUTCDate() + 1);
+      endStr = fmtDate(sDate.toISOString());
+    }
+    lines.push(`DTSTART;VALUE=DATE:${startStr}`);
+    lines.push(`DTEND;VALUE=DATE:${endStr}`);
   } else {
     if (event.startTimeZone) {
       lines.push(`DTSTART;TZID=${escParamVal(event.startTimeZone)}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
