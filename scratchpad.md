@@ -137,10 +137,13 @@
   - Rendered `.kanban-column-empty` placeholders inside empty column containers (`#kanban-cards-todo`, etc.).
   - Updated `renderCalendarView()` in `public/js/app.js` to pass `searchQuery` to `renderKanbanBoard`. For event calendar views (`month`, `week`, `workweek`, `day`, `agenda`), when `searchQuery` produces 0 matches, prepends `.search-empty-banner` (`Keine Termine für „...“ gefunden.`) and updates status bar to `0 Ergebnisse für „...“`.
   - Added CSS styling rules for `.kanban-empty-state`, `.kanban-column-empty`, and `.search-empty-banner` in `public/css/app.css`.
-  - Created unit test suite `server/test/issue108_search_kanban_empty_state.test.js` (3 tests, 100% green).
+- **Design System Compliance & Material Palette / Shadow Elimination (Issue #111):**
+  - Removed non-standard `box-shadow` elevation and `transform: translateY(-2px)` hover lift from `.kanban-card` and `.shortcut-badge` in `public/css/app.css`, enforcing the Daylight Instrument `--shadow: none` design system invariant.
+  - Replaced hardcoded Material/Tailwind hex values (`#34a853`, `#ea4335`, `#6366f1`, `#a855f7`) across status badges (`.status-accepted`, `.status-declined`, `.status-tentative`, `.status-pending`), priority badges (`.prio-high`, `.prio-med`, `.prio-low`), `.kanban-due-date`, `.kanban-recurrence-badge`, and `.settings-action-btn.btn-danger` with design system custom properties (`var(--success)`, `var(--danger)`, `var(--accent)`, `var(--data)`, `var(--line)`) and `color-mix(...)` opacity tints.
+  - Created unit test suite `server/test/issue111_design_system_compliance.test.js` (4 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 684 PASSED, 0 failed (100% green)
+- Node Unit & Integration Suite: 688 PASSED, 0 failed (100% green)
 - Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
 
 

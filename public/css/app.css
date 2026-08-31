@@ -1575,8 +1575,8 @@ textarea.form-input, .form-textarea {
   background: rgba(255, 255, 255, 0.08);
 }
 .settings-action-btn.btn-danger:hover {
-  background: rgba(234, 67, 53, 0.1);
-  color: #ea4335;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
 }
 .settings-action-btn svg {
   width: 14px;
@@ -1636,21 +1636,20 @@ textarea.form-input, .form-textarea {
 .kanban-card {
   background: var(--surface, #ffffff);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control, 8px);
   padding: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: background var(--t), border-color var(--t);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 8px;
 }
 .kanban-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  background: var(--surface-hover);
+  border-color: var(--border-cool);
 }
 [data-theme="dark"] .kanban-card {
-  background: rgba(30, 30, 40, 0.8);
+  background: var(--surface-bg-alt);
 }
 .kanban-card-title {
   font-weight: 600;
@@ -1672,8 +1671,8 @@ textarea.form-input, .form-textarea {
   font-size: 11px;
 }
 .kanban-due-date {
-  background: rgba(99, 102, 241, 0.1);
-  color: #6366f1;
+  background: color-mix(in srgb, var(--data) 12%, transparent);
+  color: var(--data);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 500;
@@ -1683,12 +1682,12 @@ textarea.form-input, .form-textarea {
   border-radius: 4px;
   font-weight: 600;
 }
-.prio-high { background: rgba(234, 67, 53, 0.15); color: #ea4335; }
-.prio-med  { background: rgba(251, 188, 5, 0.15); color: #d97706; }
-.prio-low  { background: rgba(52, 168, 83, 0.15); color: #34a853; }
+.prio-high { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.prio-med  { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.prio-low  { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
 .kanban-recurrence-badge {
-  background: rgba(168, 85, 247, 0.15);
-  color: #a855f7;
+  background: color-mix(in srgb, var(--line) 12%, transparent);
+  color: var(--line);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 500;
@@ -1837,20 +1836,20 @@ textarea.form-input, .form-textarea {
   border-radius: 4px;
   background: var(--bg);
 }
-.status-accepted { background: rgba(52, 168, 83, 0.15); color: #34a853; }
-.status-declined { background: rgba(234, 67, 53, 0.15); color: #ea4335; }
-.status-tentative { background: rgba(251, 188, 5, 0.15); color: #d97706; }
-.status-pending { background: rgba(99, 102, 241, 0.15); color: #6366f1; }
+.status-accepted { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
+.status-declined { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.status-tentative { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.status-pending { background: color-mix(in srgb, var(--data) 12%, transparent); color: var(--data); }
 
-[data-theme="dark"] .status-accepted { background: rgba(91, 185, 116, 0.2); color: #5bb974; }
-[data-theme="dark"] .status-declined { background: rgba(216, 102, 90, 0.2); color: #d8665a; }
-[data-theme="dark"] .status-tentative { background: rgba(240, 179, 94, 0.2); color: #f0b35e; }
-[data-theme="dark"] .status-pending { background: rgba(159, 216, 230, 0.2); color: #9fd8e6; }
-[data-theme="dark"] .prio-high { background: rgba(216, 102, 90, 0.2); color: #d8665a; }
-[data-theme="dark"] .prio-med  { background: rgba(240, 179, 94, 0.2); color: #f0b35e; }
-[data-theme="dark"] .prio-low  { background: rgba(91, 185, 116, 0.2); color: #5bb974; }
-[data-theme="dark"] .kanban-due-date { background: rgba(159, 216, 230, 0.2); color: #9fd8e6; }
-[data-theme="dark"] .kanban-recurrence-badge { background: rgba(200, 160, 255, 0.2); color: #d4b2ff; }
+[data-theme="dark"] .status-accepted { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
+[data-theme="dark"] .status-declined { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+[data-theme="dark"] .status-tentative { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+[data-theme="dark"] .status-pending { background: color-mix(in srgb, var(--data) 20%, transparent); color: var(--data); }
+[data-theme="dark"] .prio-high { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+[data-theme="dark"] .prio-med  { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+[data-theme="dark"] .prio-low  { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
+[data-theme="dark"] .kanban-due-date { background: color-mix(in srgb, var(--data) 20%, transparent); color: var(--data); }
+[data-theme="dark"] .kanban-recurrence-badge { background: color-mix(in srgb, var(--line) 20%, transparent); color: var(--line); }
 
 .invitation-actions {
   display: flex;
@@ -2024,7 +2023,6 @@ textarea.form-input, .form-textarea {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
   color: var(--ink);
 }
 
