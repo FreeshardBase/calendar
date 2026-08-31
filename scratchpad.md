@@ -529,11 +529,12 @@
   - Added immediate error re-throwing for non-retriable network errors (`ECONNREFUSED`, `ENOTFOUND`, `EHOSTUNREACH`, `EADDRNOTAVAIL`, `ETIMEDOUT`) and timeout/abort signals (`AbortError`, `TimeoutError`), preventing 12-second retries on unreachable/hanging CalDAV hosts.
   - Created test suite `server/test/issue105_unreachable_backend_timeout.test.js` (4 tests, 100% green).
 
-- **Issue #110 — Stylesheet and Markup Drift Alignment (`public/css/app.css`, `server/test/issue110_stylesheet_markup_drift.test.js`):**
-  - Resolved 7 undefined custom properties in CSS (`--surface-hover`, `--text`, `--text-muted`, `--surface-bg-alt`, `--radius-card`, `--radius-sm`, `--warning`) by explicitly defining them in `:root` and `[data-theme="dark"]`.
-  - Added CSS definitions for unstyled component classes (`.btn-secondary`, `.popover-attachments`, `.attachment-drive-link`, `.popover-color-bar`, `.popover-meta`, `.popover-actions`, `.toast-icon`, `.toast-msg`, `.toast-close`, `.btn-revoke-share`, `.share-role-toggle`, `.agenda-events`, `.agenda-event-loc`).
-  - Removed 100+ lines of dead, obsolete CSS rule blocks (`.onboarding-screen`, `.account-item`, `.account-remove`, `.view-switcher`, `.view-btn`, `.search-bar`, `.attendee-info`, `.popover-header`, `.popover-footer`).
-  - Created unit test suite `server/test/issue110_stylesheet_markup_drift.test.js` (3 tests, 100% green).
+- **Issue #112 — Contrast Floor for Event Chips and Adjacent-Month Day Numbers (`public/css/app.css`, `public/js/calendar.js`, `server/test/issue112_contrast_floor.test.js`):**
+  - Updated `.mini-cal-day.other-month` (`color: var(--ink-muted); opacity: 0.75;`) and `.month-day.other-month` (`opacity: 0.75;`) in `public/css/app.css` to enforce WCAG contrast floor for adjacent-month day numbers.
+  - Implemented `ensureContrastFloor(color, bgAlpha = 0.22, minRatio = 4.5)` in `public/js/calendar.js` using relative luminance and contrast ratio calculations.
+  - Updated `chipHtml` and `createEventBlock` to compute and set `textColor` using `ensureContrastFloor`, guaranteeing >= 4.5:1 contrast floor for event chips across all calendar colors.
+  - Created unit test suite `server/test/issue112_contrast_floor.test.js` (4 tests, 100% green).
+
 
 ## Test Execution State
 - Node Unit & Integration Suite: 698 PASSED, 0 failed (100% green)
