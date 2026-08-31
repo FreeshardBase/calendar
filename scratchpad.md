@@ -535,6 +535,13 @@
   - Updated `chipHtml` and `createEventBlock` to compute and set `textColor` using `ensureContrastFloor`, guaranteeing >= 4.5:1 contrast floor for event chips across all calendar colors.
   - Created unit test suite `server/test/issue112_contrast_floor.test.js` (4 tests, 100% green).
 
+- **Issue #113 — prefers-reduced-motion Support (`public/css/app.css`, `server/test/issue113_prefers_reduced_motion.test.js`):**
+  - Added `@media (prefers-reduced-motion: reduce)` media query block to `public/css/app.css`.
+  - Overrode `--t` and `--t-slow` CSS transition tokens to `0s !important`.
+  - Enforced `animation-duration: 0.01ms !important`, `animation-iteration-count: 1 !important`, `transition-duration: 0.01ms !important`, and `scroll-behavior: auto !important` on `*, *::before, *::after`.
+  - Created unit test suite `server/test/issue113_prefers_reduced_motion.test.js` (3 tests, 100% green).
+
+
 
 ## Test Execution State
 - Node Unit & Integration Suite: 698 PASSED, 0 failed (100% green)

@@ -2115,6 +2115,24 @@ textarea.form-input, .form-textarea {
   color: var(--ink-muted);
 }
 
+/* prefers-reduced-motion accessibility support */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t: 0s !important;
+    --t-slow: 0s !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
 
 
 
