@@ -23,11 +23,20 @@ RUN chmod +x /app/entrypoint.sh
 # Install the custom auth and rights plugins
 RUN pip install --no-cache-dir /app
 
+# Create non-root user and setup directory permissions
+RUN groupadd -r radicale && useradd -r -g radicale -m -s /bin/false radicale \
+    && mkdir -p /data /data/collections /etc/radicale /tmp/radicale_ssl /app \
+    && chown -R radicale:radicale /data /etc/radicale /tmp/radicale_ssl /app
+
 # Copy configuration
 COPY config /etc/radicale/config
+RUN chown -R radicale:radicale /etc/radicale
 
 # Expose Radicale port
 EXPOSE 5232
 
+USER radicale
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["radicale", "--config", "/etc/radicale/config", "--debug"]
+

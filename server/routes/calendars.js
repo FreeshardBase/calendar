@@ -13,6 +13,7 @@ const { detectTwoWayConflict, resolveTwoWayConflict } = require('../utils/twoWay
 const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
+const { getPublicShareUrl } = require('../utils/baseUrl');
 
 function slugify(name) {
   if (!name) return '';
@@ -1177,7 +1178,7 @@ router.get('/:id/public-link', async (req, res) => {
 
     res.json({
       enabled: true,
-      url: `${req.protocol}://${req.get('host')}/api/public/calendars/share/${token}.ics`
+      url: getPublicShareUrl(req, token)
     });
   } catch (err) {
     console.error('[public-link GET]', err.message);
@@ -1211,7 +1212,7 @@ router.post('/:id/public-link', async (req, res) => {
 
     res.json({
       enabled: true,
-      url: `${req.protocol}://${req.get('host')}/api/public/calendars/share/${token}.ics`
+      url: getPublicShareUrl(req, token)
     });
   } catch (err) {
     console.error('[public-link POST]', err.message);
@@ -1255,7 +1256,7 @@ router.get('/:id/shares-public', async (req, res) => {
       token: s.token,
       label: s.label,
       createdAt: s.createdAt,
-      url: `${req.protocol}://${req.get('host')}/api/public/calendars/share/${s.token}.ics`
+      url: getPublicShareUrl(req, s.token)
     })));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1280,7 +1281,7 @@ router.post('/:id/shares-public', async (req, res) => {
       token: share.token,
       label: share.label,
       createdAt: share.createdAt,
-      url: `${req.protocol}://${req.get('host')}/api/public/calendars/share/${share.token}.ics`
+      url: getPublicShareUrl(req, share.token)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

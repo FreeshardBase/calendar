@@ -17,7 +17,14 @@ RUN pip install --no-cache-dir "vdirsyncer[google]" cryptography
 # Copy sync worker script
 WORKDIR /app
 COPY sync_worker.py /app/sync_worker.py
-RUN chmod +x /app/sync_worker.py
+COPY msgraph_worker.py /app/msgraph_worker.py
+RUN chmod +x /app/sync_worker.py /app/msgraph_worker.py
+# Create non-root user and setup directory permissions
+RUN groupadd -r syncworker && useradd -r -g syncworker -m -s /bin/false syncworker \
+    && mkdir -p /data /data/vdir_status /app \
+    && chown -R syncworker:syncworker /data /app
+
+USER syncworker
 
 # Run the daemon
 CMD ["python", "/app/sync_worker.py"]

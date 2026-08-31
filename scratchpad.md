@@ -113,9 +113,15 @@
   - Registered service worker in `initNotificationService()` when supported by browser environment.
   - Added test suite `server/test/issue96_alarm_firing_window_reload.test.js` (6 tests, 100% green).
 
+- **MS Graph Worker Container Packaging & Sync Execution (Issue #99):**
+  - Updated `sync-worker/Dockerfile` to copy `msgraph_worker.py` into `/app/` alongside `sync_worker.py` and set `chmod +x /app/sync_worker.py /app/msgraph_worker.py`.
+  - Ensured `sync_worker.py` imports `sync_msgraph_accounts` directly from `msgraph_worker` in container image environments.
+  - Added unit test suite `server/test/issue99_msgraph_worker_image.test.js` (4 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 615 PASSED, 0 failed (100% green)
-- Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
+- Node Unit & Integration Suite: 656 PASSED, 0 failed (100% green)
+- Playwright E2E Suite: 19 PASSED, 1 skipped (100% green)
+
 
 
 ## Completed Tasks
@@ -480,9 +486,17 @@
   - Updated `taskToICS` serialization (`setDateProp` and fallback lines) to respect `dueIsDate` and `dtstartIsDate`, serializing date-only deadlines as `DUE;VALUE=DATE:YYYYMMDD` and `DTSTART;VALUE=DATE:YYYYMMDD` without introducing time components or shifting dates.
   - Added unit test suite `server/test/issue93_vtodo_date_only_due.test.js` (5 tests, 100% green).
 
+- **Issue #101 — Public Share Links Scheme & BASE_URL Resolution (`server/utils/baseUrl.js`, `server/routes/calendars.js`, `server/test/issue101_public_share_scheme_baseurl.test.js`):**
+  - Created `server/utils/baseUrl.js` providing `getBaseUrl(req)` and `getPublicShareUrl(req, token)` helpers.
+  - Prioritizes `process.env.BASE_URL` (stripping trailing slashes, preserving subpaths).
+  - Inspects `X-Forwarded-Proto` (taking first value when comma-separated) and `X-Forwarded-Host` headers behind reverse proxies when `BASE_URL` is unset.
+  - Updated public link handlers in `server/routes/calendars.js` (`GET/POST /api/calendars/:id/public-link`, `GET/POST /api/calendars/:id/shares-public`) to generate public URLs via `getPublicShareUrl`.
+  - Added unit test suite `server/test/issue101_public_share_scheme_baseurl.test.js` (5 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 617 PASSED, 0 failed, 0 skipped (100% green)
-- Playwright E2E Suite: 19 PASSED, 0 failed (100% green)
+- Node Unit & Integration Suite: 673 PASSED, 0 failed, 0 skipped (100% green)
+- Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
+
 
 
 

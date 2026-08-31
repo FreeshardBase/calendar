@@ -36,7 +36,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should open event modal, create an event, view popover, and delete it', async ({ page }) => {
-    await page.goto('/?date=2026-12-28');
+    await page.goto('/?date=2028-12-28');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -49,8 +49,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Fill title
     const uniqueTitle = `E2E Playwright Event - ${Date.now()}`;
     await page.fill('#ev-title', uniqueTitle);
-    await page.fill('#ev-start-date', '2026-12-28');
-    await page.fill('#ev-end-date', '2026-12-28');
+    await page.fill('#ev-start-date', '2028-12-28');
+    await page.fill('#ev-end-date', '2028-12-28');
     await page.check('#ev-allday');
 
     // Save event
