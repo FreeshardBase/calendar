@@ -99,3 +99,38 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+// Push Event — Display background desktop notifications for VALARM triggers
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  try {
+    const data = event.data.json();
+    const title = data.title || 'Erinnerung';
+    const options = {
+      body: data.body || '',
+      icon: data.icon || '/favicon.ico',
+      tag: data.data ? data.data.eventId : undefined,
+      data: data.data || {}
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (err) {
+    console.warn('[sw] Push notification payload error:', err);
+  }
+});
+
+// Notification Click Event — Open or focus application window
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow('/');
+      }
+    })
+  );
+});

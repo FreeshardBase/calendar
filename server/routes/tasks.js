@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
 const { formatIfMatch } = require('../caldav/client');
-const { parseCalendarList, parseTaskList, taskToICS, isNoOpTaskSave, resolveUrl } = require('../caldav/parser');
+const { parseCalendarList, parseTaskList, taskToICS, reconcileTaskStatus, isNoOpTaskSave, resolveUrl } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
@@ -127,11 +127,11 @@ router.post('/', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const uid = uuidv4();
-    const task = {
+    const task = reconcileTaskStatus({
       status: 'NEEDS-ACTION',
       ...taskData,
       uid
-    };
+    });
 
     const ics = taskToICS(task);
 
@@ -180,12 +180,7 @@ router.put('/:uid', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const taskUrl = buildAbsoluteUrl(account.url, href);
-    const task = { uid: req.params.uid, ...taskData };
-
-    if (task.status === 'COMPLETED' && !task.completed) {
-      task.completed = new Date().toISOString();
-      task.percentComplete = 100;
-    }
+    let task = reconcileTaskStatus({ uid: req.params.uid, ...taskData });
 
     let current = null;
     try {
@@ -195,6 +190,14 @@ router.put('/:uid', async (req, res) => {
     }
 
     const existingIcs = current ? current.ics : null;
+
+    if (task.status === 'COMPLETED' && (task.recurrence || (existingIcs && existingIcs.includes('RRULE:')))) {
+      const fullTask = parseICSToTask(existingIcs || '', { uid: req.params.uid, ...taskData });
+      const advanced = advanceRecurringTask(fullTask || task);
+      if (advanced) {
+        task = advanced;
+      }
+    }
 
     // Issue #261: skip the CalDAV PUT entirely when no meaningful field changed.
     // This prevents the scratch ICS builder from stripping RRULE and other

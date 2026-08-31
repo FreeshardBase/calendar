@@ -49,7 +49,7 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
 
     const vevent = graphEventToVEVENT(graphEvent);
     assert.ok(vevent);
-    assert.equal(vevent.uid, 'graph-123');
+    assert.equal(vevent.uid, 'msgraph-event-graph-123');
     assert.equal(vevent.title, 'Outlook Strategy Sync');
     assert.equal(vevent.description, 'Discussion about Q4 Goals');
     assert.equal(vevent.location, 'Microsoft Teams Meeting');
@@ -115,7 +115,7 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
     assert.equal(deleted, null);
   });
 
-  await t.test('MSGraphSyncEngine bidirectional sync execution', async () => {
+  await t.test('MSGraphSyncEngine bidirectional sync — asserts actual CalDAV writes, not just bookkeeping count (issue #98)', async () => {
     const account = await Db.addMSGraphAccount({
       userId: 'testuser-id',
       accountEmail: 'testuser@example.com',
@@ -123,12 +123,23 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
       refreshToken: 'valid-refresh'
     });
 
+    // Track actual CalDAV writes — not just syncedCount bookkeeping rows
+    const caldavWritten = new Map();
+    const mockCalDAVClient = {
+      put: async (url, icsData) => {
+        caldavWritten.set(url, icsData);
+        return { status: 201, etag: '"etag-test"' };
+      },
+      delete: async () => true
+    };
+
     const mockFetch = async (url, options = {}) => {
       if (url.includes('/events') && options.method === 'POST') {
         const body = JSON.parse(options.body);
         return {
           ok: true,
-          json: async () => ({
+          status: 201,
+          text: async () => JSON.stringify({
             id: `pushed-graph-${Date.now()}`,
             subject: body.subject,
             '@odata.etag': 'W/"pushedEtag"'
@@ -153,7 +164,8 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
       };
     };
 
-    const engine = new MSGraphSyncEngine(account, mockFetch);
+    const targetCalendarUrl = 'http://localhost:1080/users/testuser-id/calendars/personal';
+    const engine = new MSGraphSyncEngine(account, mockFetch, mockCalDAVClient, targetCalendarUrl);
     const localEvents = [
       {
         uid: 'local-unmapped-ev-1',
@@ -166,8 +178,22 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
     const result = await engine.sync(localEvents);
     assert.ok(result);
     assert.equal(result.accountId, account.id);
-    assert.ok(result.syncedCount >= 2);
+    // Verify ≥2 sync actions (1 remote upserted + 1 local pushed)
+    assert.ok(result.syncedCount >= 2, `syncedCount should be ≥ 2, got ${result.syncedCount}`);
 
+    // Critical: verify the remote event was actually written to CalDAV (not just bookkeeping)
+    const expectedCalDAVUrl = `${targetCalendarUrl}/msgraph-event-remote-graph-999.ics`;
+    assert.ok(
+      caldavWritten.has(expectedCalDAVUrl),
+      `CalDAV put() must be called for remote event at ${expectedCalDAVUrl}`
+    );
+    const writtenICS = caldavWritten.get(expectedCalDAVUrl);
+    assert.ok(writtenICS.includes('SUMMARY:Remote Outlook Event'), 'Written ICS must contain the event title');
+    assert.ok(writtenICS.includes('BEGIN:VEVENT'), 'Written ICS must be a valid VEVENT');
+
+    // Clean up
+    await Db.deleteMSGraphEventMapping('msgraph-event-remote-graph-999');
+    await Db.deleteMSGraphEventMapping('local-unmapped-ev-1');
     await Db.deleteMSGraphAccount(account.id);
   });
 

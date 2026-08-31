@@ -377,19 +377,88 @@ function resolveUrl(base, href) {
   }
 }
 
-function parseICSToTask(icsString, meta = {}) {
-  const jcal = ICAL.parse(icsString);
-  const comp  = new ICAL.Component(jcal);
-  const vtodo = comp.getFirstSubcomponent('vtodo');
-  if (!vtodo) return null;
-  return parseVTodoToTask(vtodo, meta, icsString);
+/**
+ * Issue #94 — Reconcile STATUS, COMPLETED date, and PERCENT-COMPLETE properties on VTODO.
+ * Enforces mutual consistency across all 3 fields:
+ * - STATUS:COMPLETED <-> PERCENT-COMPLETE:100 <-> COMPLETED:<ISO string>
+ * - STATUS:NEEDS-ACTION/IN-PROCESS/etc <-> COMPLETED:null (removed) <-> PERCENT-COMPLETE != 100
+ */
+function reconcileTaskStatus(task) {
+  if (!task || typeof task !== 'object') return task;
+
+  const res = { ...task };
+
+  let status = res.status ? String(res.status).toUpperCase() : null;
+  let completed = res.completed || null;
+  let percentComplete = (res.percentComplete !== null && res.percentComplete !== undefined)
+    ? parseInt(res.percentComplete, 10)
+    : ((res['percent-complete'] !== null && res['percent-complete'] !== undefined)
+      ? parseInt(res['percent-complete'], 10)
+      : null);
+
+  if (status === 'COMPLETED') {
+    if (percentComplete !== null && percentComplete < 100) {
+      status = percentComplete > 0 ? 'IN-PROCESS' : 'NEEDS-ACTION';
+      completed = null;
+    } else {
+      status = 'COMPLETED';
+      completed = completed || new Date().toISOString();
+      percentComplete = 100;
+    }
+  } else if (status === 'IN-PROCESS') {
+    completed = null;
+    if (percentComplete === 100 || percentComplete === null) {
+      percentComplete = 50;
+    }
+  } else if (status === 'NEEDS-ACTION') {
+    completed = null;
+    if (percentComplete === 100 || percentComplete === null) {
+      percentComplete = 0;
+    }
+  } else if (status && status !== 'CANCELLED') {
+    completed = null;
+    if (percentComplete === 100) percentComplete = 0;
+  } else if (percentComplete === 100) {
+    status = 'COMPLETED';
+    completed = completed || new Date().toISOString();
+  } else if (percentComplete !== null && percentComplete > 0 && percentComplete < 100) {
+    status = 'IN-PROCESS';
+    completed = null;
+  } else {
+    status = status || 'NEEDS-ACTION';
+    completed = null;
+    if (percentComplete === 100) percentComplete = 0;
+  }
+
+  res.status = status;
+  res.completed = completed;
+  res.percentComplete = percentComplete;
+
+  return res;
 }
 
-function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
-  const uid = vtodo.getFirstPropertyValue('uid');
-  const title = vtodo.getFirstPropertyValue('summary') || '(No title)';
-  const description = vtodo.getFirstPropertyValue('description') || null;
-  const status = (vtodo.getFirstPropertyValue('status') || 'NEEDS-ACTION').toString().toUpperCase();
+function parseICSToTask(icsString, meta = {}) {
+  try {
+    const jcal = ICAL.parse(icsString);
+    const comp = new ICAL.Component(jcal);
+    const vtodo = comp.getFirstSubcomponent('vtodo');
+    if (!vtodo) return null;
+    return parseVTodoToTask(vtodo, { rawIcs: icsString, ...meta });
+  } catch (e) {
+    console.warn('[parser] Failed to parse ICS string to task:', e.message);
+    return null;
+  }
+}
+
+function parseVTodoToTask(vtodo, meta = {}) {
+  const rawIcs = meta.rawIcs || null;
+  const uid = vtodo.getFirstPropertyValue('uid') || `${uuidv4()}@freeshard.webcalendar`;
+  const summaryProp = vtodo.getFirstProperty('summary');
+  const title = summaryProp ? summaryProp.getFirstValue() : 'Untitled';
+  const descProp = vtodo.getFirstProperty('description');
+  const description = descProp ? descProp.getFirstValue() : null;
+  const statusProp = vtodo.getFirstProperty('status');
+  const status = statusProp ? statusProp.getFirstValue() : 'NEEDS-ACTION';
 
   const dueProp = vtodo.getFirstProperty('due');
   let due = null;
@@ -460,7 +529,16 @@ function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
     }
   }
 
-  return {
+  const completedHistory = [];
+  const compDatesProp = vtodo.getFirstProperty('x-completed-dates');
+  if (compDatesProp) {
+    const val = compDatesProp.getFirstValue();
+    if (typeof val === 'string' && val.trim()) {
+      val.split(',').forEach(d => { if (d.trim()) completedHistory.push(d.trim()); });
+    }
+  }
+
+  return reconcileTaskStatus({
     uid,
     title,
     description,
@@ -474,12 +552,13 @@ function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
     percentComplete,
     recurrence,
     categories,
+    completedHistory,
     rawIcs: rawIcs || meta.rawIcs || null,
     calendarId: meta.calendarId || null,
     accountId:  meta.accountId  || null,
     href:       meta.href       || null,
     etag:       meta.etag       || null
-  };
+  });
 }
 
 function parseTaskList(xml, calendarId, accountId, calendarUrl) {
@@ -530,7 +609,8 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl) {
   return tasks;
 }
 
-function taskToICS(task, existingIcs = null) {
+function taskToICS(rawTask, existingIcs = null) {
+  const task = reconcileTaskStatus(rawTask);
   const baseIcs = existingIcs || task.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
@@ -652,6 +732,14 @@ function taskToICS(task, existingIcs = null) {
           }
         }
 
+        if ('completedHistory' in task && Array.isArray(task.completedHistory)) {
+          if (task.completedHistory.length > 0) {
+            setProp('x-completed-dates', task.completedHistory.join(','));
+          } else {
+            vtodo.removeAllProperties('x-completed-dates');
+          }
+        }
+
         setDateProp('last-modified', new Date().toISOString());
 
         return comp.toString();
@@ -702,6 +790,9 @@ function taskToICS(task, existingIcs = null) {
   if (task.percentComplete !== null && task.percentComplete !== undefined) {
     lines.push(`PERCENT-COMPLETE:${task.percentComplete}`);
   }
+  if (Array.isArray(task.completedHistory) && task.completedHistory.length > 0) {
+    lines.push(`X-COMPLETED-DATES:${task.completedHistory.join(',')}`);
+  }
   if (task.categories) {
     const rawCats = Array.isArray(task.categories)
       ? task.categories
@@ -739,6 +830,10 @@ function advanceRecurringTask(task) {
   const baseDue = task.due ? new Date(task.due) : new Date();
   if (isNaN(baseDue.getTime())) return null;
 
+  const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
+  const completionTime = new Date().toISOString();
+  const completedHistory = [...currentHistory, completionTime];
+
   if (recur) {
     // Build DTSTART: prefer explicit task.dtstart, otherwise use the due date
     // (the series effectively starts at its first occurrence).
@@ -767,7 +862,8 @@ function advanceRecurringTask(task) {
           due: next.toJSDate().toISOString(),
           status: 'NEEDS-ACTION',
           completed: null,
-          percentComplete: 0
+          percentComplete: 0,
+          completedHistory
         };
       }
     }
@@ -801,7 +897,8 @@ function advanceRecurringTask(task) {
     due: nextDate.toISOString(),
     status: 'NEEDS-ACTION',
     completed: null,
-    percentComplete: 0
+    percentComplete: 0,
+    completedHistory
   };
 }
 
@@ -1034,6 +1131,7 @@ module.exports = {
   parseVTodoToTask,
   parseTaskList,
   taskToICS,
+  reconcileTaskStatus,
   isNoOpTaskSave,
   advanceRecurringTask,
   updateAttendeePartstat,
@@ -1131,6 +1229,7 @@ module.exports = {
   parseVTodoToTask,
   parseTaskList,
   taskToICS,
+  reconcileTaskStatus,
   isNoOpTaskSave,
   advanceRecurringTask,
   updateAttendeePartstat,

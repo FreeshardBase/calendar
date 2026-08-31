@@ -39,6 +39,8 @@ function evaluateUpcomingAlarms(events, options = {}) {
   const nowMs = options.now ? new Date(options.now).getTime() : Date.now();
   const windowMinutes = options.windowMinutes !== undefined ? options.windowMinutes : 15;
   const windowEndMs = nowMs + windowMinutes * 60 * 1000;
+  const lookbackMinutes = options.lookbackMinutes !== undefined ? options.lookbackMinutes : (options.graceMinutes !== undefined ? options.graceMinutes : 1440);
+  const graceStartMs = nowMs - lookbackMinutes * 60 * 1000;
 
   const triggered = [];
   if (!Array.isArray(events)) return triggered;
@@ -50,8 +52,7 @@ function evaluateUpcomingAlarms(events, options = {}) {
       const triggerStr = alarm.trigger || alarm.TRIGGER || '-PT15M';
       const alarmTime = calculateAlarmTime(ev.start, triggerStr);
 
-      // Trigger if alarm falls within [nowMs - 5m, windowEndMs]
-      const graceStartMs = nowMs - 5 * 60 * 1000;
+      // Trigger if alarm falls within [graceStartMs, windowEndMs]
       if (alarmTime >= graceStartMs && alarmTime <= windowEndMs) {
         triggered.push({
           eventId: ev.id || ev.uid,

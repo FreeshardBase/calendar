@@ -19,7 +19,7 @@
 - **VTODO / Kanban & Recurrence Support (`server/caldav/parser.js` & `public/js/tasks.js`):**
   - iCalendar parser extracts `VTODO` components into task objects with `uid`, `title`, `description`, `status`, `due`, `priority`, and `recurrence` (`RRULE`).
   - `taskToICS` serializes task state into standard RFC 5545 `VTODO` ICS string.
-  - `advanceRecurringTask` calculates the next due date for completed recurring tasks (`FREQ=DAILY`, `WEEKLY`, `MONTHLY`) and resets status to `NEEDS-ACTION`.
+  - `advanceRecurringTask` (`parser.js`) & `advanceRecurringTaskJS` (`tasks.js`) calculate the next due date for completed recurring tasks, append the completed occurrence timestamp into `completedHistory` (`X-COMPLETED-DATES`), reset status to `NEEDS-ACTION`, and `PUT /api/tasks/:uid` automatically advances recurring tasks on completion (Issue #95).
   - Express API routes (`/api/tasks`) proxy CalDAV `VTODO` items to frontend `tasks.js`.
   - Side panel drawer and Kanban view (`#kanban-view`) allow filter by status and inline completion.
 
@@ -104,9 +104,18 @@
   - Added user feedback toasts (`showToast`) for task creation, saving, deletion, status changes, reopening, and sidebar checkbox toggling.
   - Unit test suite: `server/test/issue89_tasks_ui.test.js` (3 tests, 100% green).
 
+- **VALARM Trigger, Reload Persistence & Background SW Support (Issue #96):**
+  - Updated `public/js/notifications.js` to persist notified alarm keys (`NOTIFIED_STORAGE_KEY = 'webcalendar_notified_alarms'`) in `localStorage` across page reloads, eliminating duplicate alarm triggers upon browser refresh.
+  - Updated `resetNotifiedAlarms()` to clear `localStorage` state as well as in-memory tracking.
+  - Expanded `checkAndTriggerAlarms` condition to allow missed/overdue alarms to fire up to 24 hours after `alarmTime` instead of restricting to a 5-minute window.
+  - Updated `server/utils/webPushNotifications.js` `evaluateUpcomingAlarms` to accept configurable `lookbackMinutes` / `graceMinutes` (defaulting to 1440m / 24h) so server-side alarm evaluation captures missed alarms.
+  - Enhanced `public/sw.js` with `push` event handler calling `self.registration.showNotification` and `notificationclick` handler for focusing/opening calendar windows.
+  - Registered service worker in `initNotificationService()` when supported by browser environment.
+  - Added test suite `server/test/issue96_alarm_firing_window_reload.test.js` (6 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 600 PASSED, 0 failed, 0 skipped (100% green)
-- Playwright E2E Suite: 18 PASSED, 0 failed (100% green)
+- Node Unit & Integration Suite: 615 PASSED, 0 failed (100% green)
+- Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
 
 
 ## Completed Tasks

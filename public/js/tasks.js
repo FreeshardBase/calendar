@@ -287,7 +287,7 @@ function createKanbanCard(task, callbacks) {
 
   card.querySelector('.btn-reopen')?.addEventListener('click', async () => {
     try {
-      await TasksAPI.update(task.uid, { ...task, status: 'NEEDS-ACTION' });
+      await TasksAPI.update(task.uid, { ...task, status: 'NEEDS-ACTION', completed: null, percentComplete: 0 });
       notifyToast('Aufgabe wieder geöffnet.', 'info');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
@@ -300,6 +300,10 @@ function createKanbanCard(task, callbacks) {
 
 export function advanceRecurringTaskJS(task) {
   if (!task || !task.recurrence) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+
+  const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
+  const completionTime = new Date().toISOString();
+  const completedHistory = [...currentHistory, completionTime];
 
   if (typeof window !== 'undefined' && window.ICAL && window.ICAL.Recur) {
     const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
@@ -331,7 +335,8 @@ export function advanceRecurringTaskJS(task) {
             due: next.toJSDate().toISOString(),
             status: 'NEEDS-ACTION',
             completed: null,
-            percentComplete: 0
+            percentComplete: 0,
+            completedHistory
           };
         }
       }
@@ -382,7 +387,8 @@ export function advanceRecurringTaskJS(task) {
     due: nextDate.toISOString(),
     status: 'NEEDS-ACTION',
     completed: null,
-    percentComplete: 0
+    percentComplete: 0,
+    completedHistory
   };
 }
 

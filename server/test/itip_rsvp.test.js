@@ -98,7 +98,7 @@ test('iTIP & RSVP Suite', async (t) => {
     assert.equal(tentativeEvent.attendees[0].status, 'TENTATIVE');
   });
 
-  await t.test('should generate valid iTIP METHOD:REPLY object', () => {
+  await t.test('should generate valid iTIP METHOD:REPLY object — raw ICS text assertions (issue #98)', () => {
     const event = {
       uid: 'invitation-123',
       title: 'Project Sync',
@@ -111,31 +111,62 @@ test('iTIP & RSVP Suite', async (t) => {
     };
 
     const replyIcs = buildItipReply(event, 'testuser@example.com', 'ACCEPTED');
-    assert.ok(replyIcs.includes('METHOD:REPLY'));
-    assert.ok(replyIcs.includes('UID:invitation-123'));
 
+    // Unfold per RFC 5545 §3.1 — CRLF followed by a single whitespace char is a fold
+    const unfolded = replyIcs.replace(/\r?\n[ \t]/g, '');
+
+    // Raw-text assertions on unfolded content catch bugs that survive ical.js re-parsing
+    assert.ok(unfolded.includes('METHOD:REPLY'), 'ICS must contain METHOD:REPLY');
+    assert.ok(unfolded.includes('UID:invitation-123'), 'ICS must contain correct UID');
+    // Critical: PARTSTAT must appear in the serialized ICS — not just after re-parsing
+    assert.ok(unfolded.includes('PARTSTAT=ACCEPTED'), 'ATTENDEE line must contain PARTSTAT=ACCEPTED');
+    // Attendee email must appear as a complete mailto: URI (after unfolding)
+    assert.ok(unfolded.includes('mailto:testuser@example.com'), 'ICS must contain attendee mailto: URI (unfolded)');
+    // ORGANIZER must be present
+    assert.ok(unfolded.includes('mailto:organizer@example.com'), 'ICS must contain organizer mailto: URI (unfolded)');
+    // DECLINED must NOT appear (we asked for ACCEPTED)
+    assert.ok(!unfolded.includes('PARTSTAT=DECLINED'), 'ICS must not contain PARTSTAT=DECLINED');
+
+    // Re-parsed round-trip (secondary check)
     const parsedReply = parseICSToEvent(replyIcs);
     assert.ok(parsedReply);
     assert.equal(parsedReply.attendees[0].email, 'testuser@example.com');
     assert.equal(parsedReply.attendees[0].status, 'ACCEPTED');
   });
 
-  await t.test('POST /api/events/:uid/rsvp without body parameters should return 400', async () => {
-    const { app } = require('../index');
-    // Using fetch against running test app port if available
-    const port = process.env.PORT || 3097;
-    try {
-      const res = await fetch(`http://localhost:${port}/api/events/ev-123/rsvp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-      assert.equal(res.status, 400);
-      const data = await res.json();
-      assert.ok(data.error);
-    } catch (e) {
-      // If server not running directly in this process, skip network call safely
-    }
+  await t.test('buildItipReply DECLINED — raw ICS must contain PARTSTAT=DECLINED (issue #98)', () => {
+    const event = {
+      uid: 'invitation-456',
+      title: 'Team Lunch',
+      start: '2026-09-02T12:00:00.000Z',
+      end: '2026-09-02T13:00:00.000Z',
+      organizer: { name: 'Boss', email: 'boss@example.com' },
+      attendees: [
+        { name: 'Test User', email: 'testuser@example.com', status: 'NEEDS-ACTION' }
+      ]
+    };
+
+    const replyIcs = buildItipReply(event, 'testuser@example.com', 'DECLINED');
+    assert.ok(replyIcs.includes('PARTSTAT=DECLINED'), 'Raw ICS must contain PARTSTAT=DECLINED');
+    assert.ok(!replyIcs.includes('PARTSTAT=ACCEPTED'), 'Raw ICS must not contain PARTSTAT=ACCEPTED when declining');
+  });
+
+  await t.test('POST /api/events/:uid/rsvp without body parameters must return 400 or 401 — no silent catch (issue #98)', async () => {
+    // Port is set at top of file; server was required above so it IS running.
+    const port = process.env.PORT || 3099;
+    const res = await fetch(`http://localhost:${port}/api/events/ev-123/rsvp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-test-user-id': 'testuser-id' },
+      body: JSON.stringify({})
+    });
+    // Must observe an error response — 400 (missing email) or 401 (unauthenticated).
+    // Either is acceptable; what is NOT acceptable is a 2xx that certifies nothing.
+    assert.ok(
+      res.status === 400 || res.status === 401,
+      `Expected 400 or 401 from RSVP without attendee email, got ${res.status}`
+    );
+    const data = await res.json();
+    assert.ok(data.error, 'Response must include an error field');
   });
 });
 

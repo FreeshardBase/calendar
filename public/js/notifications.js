@@ -5,7 +5,37 @@
 import { store } from './store.js';
 import { showToast } from './app.js';
 
-const notifiedAlarms = new Set();
+const NOTIFIED_STORAGE_KEY = 'webcalendar_notified_alarms';
+
+function loadNotifiedAlarms() {
+  const set = new Set();
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const data = localStorage.getItem(NOTIFIED_STORAGE_KEY);
+      if (data) {
+        const arr = JSON.parse(data);
+        if (Array.isArray(arr)) {
+          arr.forEach(k => set.add(k));
+        }
+      }
+    } catch (e) {
+      console.warn('[notifications] Failed to load notified alarms:', e);
+    }
+  }
+  return set;
+}
+
+function saveNotifiedAlarms() {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify(Array.from(notifiedAlarms)));
+    } catch (e) {
+      console.warn('[notifications] Failed to save notified alarms:', e);
+    }
+  }
+}
+
+const notifiedAlarms = loadNotifiedAlarms();
 
 export function parseTriggerOffsetMs(trigger) {
   if (!trigger) return -15 * 60 * 1000;
@@ -57,9 +87,10 @@ export function checkAndTriggerAlarms() {
       const alarmTime = startMs + offsetMs;
       const alarmKey = `${ev.uid || ev.id}::${alarm.trigger}::${ev.start}`;
 
-      // Trigger if alarmTime has arrived within recent window (last 5 minutes) and not yet notified
-      if (now >= alarmTime && now <= alarmTime + 5 * 60 * 1000 && !notifiedAlarms.has(alarmKey)) {
+      // Trigger if alarmTime has arrived (lookback up to 24 hours for missed alarms) and not yet notified
+      if (now >= alarmTime && now <= alarmTime + 24 * 60 * 60 * 1000 && !notifiedAlarms.has(alarmKey)) {
         notifiedAlarms.add(alarmKey);
+        saveNotifiedAlarms();
 
         const title = `⏰ Erinnerung: ${ev.title || 'Termin'}`;
         const timeStr = new Date(ev.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -95,6 +126,13 @@ export function initNotificationService() {
   // Request permission on user interaction if appropriate
   requestNotificationPermission();
 
+  // Register service worker for background push notifications if available
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('[notifications] Service Worker registration failed:', err);
+    });
+  }
+
   // Run check every 5 seconds
   _intervalId = setInterval(checkAndTriggerAlarms, 5000);
   // Initial check
@@ -103,5 +141,12 @@ export function initNotificationService() {
 
 export function resetNotifiedAlarms() {
   notifiedAlarms.clear();
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.removeItem(NOTIFIED_STORAGE_KEY);
+    } catch (e) {
+      console.warn('[notifications] Failed to clear notified alarms storage:', e);
+    }
+  }
 }
 

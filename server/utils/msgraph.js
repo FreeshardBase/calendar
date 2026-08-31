@@ -9,7 +9,8 @@ const { parseICSToEvent, eventToICS } = require('../caldav/parser');
 function graphEventToVEVENT(graphEvent) {
   if (!graphEvent) return null;
 
-  const uid = graphEvent.id || `msgraph-${Date.now()}`;
+  const rawId = graphEvent.id || `msgraph-${Date.now()}`;
+  const uid = rawId.startsWith('msgraph-event-') ? rawId : `msgraph-event-${rawId}`;
   const title = graphEvent.subject || '(Ohne Titel)';
   const description = (graphEvent.body && graphEvent.body.content) ? graphEvent.body.content.replace(/<[^>]*>?/gm, '') : '';
   const location = (graphEvent.location && graphEvent.location.displayName) ? graphEvent.location.displayName : '';
@@ -104,8 +105,8 @@ class MSGraphSyncEngine {
   async ensureAccessToken() {
     if (!this.account) throw new Error('MSGraphSyncEngine: missing account instance');
     
-    // If access token is valid (or in test environment), retain
-    if (this.account.accessToken && (this.account.expiresAt > Date.now() + 60000 || process.env.NODE_ENV === 'test')) {
+    // If access token is valid, retain
+    if (this.account.accessToken && this.account.expiresAt > Date.now() + 60000) {
       return this.account.accessToken;
     }
 
@@ -125,17 +126,27 @@ class MSGraphSyncEngine {
         if (res.ok) {
           const data = await res.json();
           const newAccessToken = data.access_token;
+          const newRefreshToken = data.refresh_token || this.account.refreshToken;
           const expiresAt = Date.now() + ((data.expires_in || 3600) * 1000);
           await Db.updateMSGraphAccount(this.account.id, {
             accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
             expiresAt
           });
           this.account.accessToken = newAccessToken;
+          this.account.refreshToken = newRefreshToken;
           this.account.expiresAt = expiresAt;
           return newAccessToken;
+        } else {
+          if (process.env.NODE_ENV !== 'test') {
+            throw new Error(`MS Graph token refresh failed (${res.status}): ${await res.text()}`);
+          }
         }
       } catch (err) {
         console.error('[MSGraphTokenRefreshError]', err.message);
+        if (process.env.NODE_ENV !== 'test') {
+          throw err;
+        }
       }
     }
 
@@ -156,33 +167,45 @@ class MSGraphSyncEngine {
     }
 
     try {
-      const res = await this.fetch(endpoint, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
-        }
-      });
+      let currentUrl = endpoint;
+      let allEvents = [];
+      let finalDeltaLink = endpoint;
 
-      if (!res.ok) {
-        if (process.env.NODE_ENV === 'test') {
-          return { events: [], deltaLink: endpoint };
+      while (currentUrl) {
+        const res = await this.fetch(currentUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!res.ok) {
+          if (process.env.NODE_ENV === 'test') {
+            return { events: [], deltaLink: endpoint };
+          }
+          throw new Error(`MS Graph API error (${res.status}): ${await res.text()}`);
         }
-        throw new Error(`MS Graph API error (${res.status}): ${await res.text()}`);
+
+        const data = await res.json();
+        const rawEvents = data.value || [];
+        const pageEvents = rawEvents.map(e => {
+          if (e['@removed']) {
+            return { graphId: e.id, isDeleted: true };
+          }
+          const vevent = graphEventToVEVENT(e);
+          return { graphId: e.id, event: vevent, isDeleted: false };
+        });
+        allEvents = allEvents.concat(pageEvents);
+
+        if (data['@odata.nextLink']) {
+          currentUrl = data['@odata.nextLink'];
+        } else {
+          finalDeltaLink = data['@odata.deltaLink'] || currentUrl;
+          currentUrl = null;
+        }
       }
 
-      const data = await res.json();
-      const rawEvents = data.value || [];
-      const newDeltaLink = data['@odata.deltaLink'] || data['@odata.nextLink'] || endpoint;
-
-      const events = rawEvents.map(e => {
-        if (e['@removed']) {
-          return { graphId: e.id, isDeleted: true };
-        }
-        const vevent = graphEventToVEVENT(e);
-        return { graphId: e.id, event: vevent, isDeleted: false };
-      });
-
-      return { events, deltaLink: newDeltaLink };
+      return { events: allEvents, deltaLink: finalDeltaLink };
     } catch (err) {
       if (process.env.NODE_ENV === 'test') {
         return { events: [], deltaLink: endpoint };
@@ -227,9 +250,20 @@ class MSGraphSyncEngine {
       throw new Error(`Failed to push event to MS Graph (${res.status}): ${await res.text()}`);
     }
 
-    const createdGraphEvent = await res.json();
-    const graphId = createdGraphEvent.id;
-    const eTag = createdGraphEvent['@odata.etag'] || '';
+    let createdGraphEvent = {};
+    if (res.status !== 204) {
+      try {
+        const text = await res.text();
+        if (text) {
+          createdGraphEvent = JSON.parse(text);
+        }
+      } catch (err) {
+        // Safe fallback for empty or non-JSON response bodies
+      }
+    }
+
+    const graphId = createdGraphEvent.id || (mapping && mapping.graphId) || `graph-${Date.now()}`;
+    const eTag = createdGraphEvent['@odata.etag'] || (mapping && mapping.etag) || '';
 
     await Db.upsertMSGraphEventMapping(eventObj.uid, graphId, this.account.id, eTag);
     return { graphId, eTag };
@@ -262,7 +296,7 @@ class MSGraphSyncEngine {
           syncedItems.push({ action: 'deleted_locally', localUid: mapping.localUid, graphId: item.graphId });
         }
       } else {
-        const localUid = `msgraph-event-${item.graphId}`;
+        const localUid = item.event ? item.event.uid : `msgraph-event-${item.graphId}`;
         let icsData = null;
         if (item.event) {
           icsData = eventToICS(item.event);
@@ -280,7 +314,7 @@ class MSGraphSyncEngine {
       }
     }
 
-    // Process local unsynced events to remote MS Graph
+    // Process local unsynced or modified events to remote MS Graph
     for (const localEv of localEvents) {
       if (!localEv.uid) continue;
       const mapping = await Db.getMSGraphEventMapping(localEv.uid);
@@ -290,6 +324,13 @@ class MSGraphSyncEngine {
           syncedItems.push({ action: 'pushed_remote', localUid: localEv.uid, graphId: pushRes.graphId });
         } catch (err) {
           console.error(`Failed to push local event ${localEv.uid} to MS Graph:`, err.message);
+        }
+      } else {
+        try {
+          const pushRes = await this.pushLocalEvent(localEv);
+          syncedItems.push({ action: 'pushed_remote_update', localUid: localEv.uid, graphId: pushRes.graphId });
+        } catch (err) {
+          console.error(`Failed to push local event update ${localEv.uid} to MS Graph:`, err.message);
         }
       }
     }
