@@ -31,7 +31,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Authelia).
 - `server/db.js` — sqlite3 wrapper, schema auto-created on boot. Tables: `linked_accounts`
   (AES-256-CBC-encrypted passwords/refresh-tokens, key = scrypt(`ENCRYPTION_KEY`)), `app_passwords`
-  (sha256, for external CalDAV clients), `calendar_shares` (public ICS tokens), `sync_queue`
+  (PBKDF2-HMAC-SHA256, for internal service/app authentication), `calendar_shares` (public ICS tokens), `sync_queue`
   (worker jobs), `users` (OIDC uuid↔username), `user_calendar_shares` (internal user-to-user shares).
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).

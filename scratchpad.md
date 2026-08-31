@@ -493,9 +493,25 @@
   - Updated public link handlers in `server/routes/calendars.js` (`GET/POST /api/calendars/:id/public-link`, `GET/POST /api/calendars/:id/shares-public`) to generate public URLs via `getPublicShareUrl`.
   - Added unit test suite `server/test/issue101_public_share_scheme_baseurl.test.js` (5 tests, 100% green).
 
+- **Issue #104 — Dark Mode Runtime Reachability & CSS Compatibility (`public/js/theme.js`, `public/css/app.css`, `public/index.html`, `public/js/app.js`, `server/test/dark_mode_runtime.test.js`):**
+  - Created `public/js/theme.js` UMD module implementing `getStoredTheme()`, `getSystemTheme()`, `resolveEffectiveTheme()`, `applyTheme()`, `setTheme()`, and `initTheme()`.
+  - Added OS-level `prefers-color-scheme: dark` media query change listener for dynamic theme updates in `system` mode.
+  - Added `color-scheme: dark` to `[data-theme="dark"]` in `public/css/app.css` for native browser form controls, scrollbars, and select dropdown dark rendering.
+  - Eliminated undefined custom properties `--text-main` and `--bg-canvas`.
+  - Added dark theme color overrides for `.share-badge`, `.status-accepted`, `.status-declined`, `.status-tentative`, `.status-pending`, `.prio-high`, `.prio-med`, `.prio-low`, `.kanban-due-date`, and `.kanban-recurrence-badge`.
+  - Added Appearance section (`#theme-select`) to settings drawer in `public/index.html` and bound change listeners in `public/js/app.js`.
+- **Issue #105 — Unreachable CalDAV Backend Fast-Fail & Timeout Guard (`server/caldav/client.js`, `server/test/issue105_unreachable_backend_timeout.test.js`):**
+  - Updated `CalDAVClient._request({ timeout, signal })` to enforce per-attempt timeouts using `AbortSignal.timeout(timeoutMs)` (default: 4000ms or `process.env.CALDAV_TIMEOUT_MS`).
+  - Added immediate error re-throwing for non-retriable network errors (`ECONNREFUSED`, `ENOTFOUND`, `EHOSTUNREACH`, `EADDRNOTAVAIL`, `ETIMEDOUT`) and timeout/abort signals (`AbortError`, `TimeoutError`), preventing 12-second retries on unreachable/hanging CalDAV hosts.
+  - Created test suite `server/test/issue105_unreachable_backend_timeout.test.js` (4 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 673 PASSED, 0 failed, 0 skipped (100% green)
-- Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
+- Node Unit & Integration Suite: 682 PASSED, 0 failed (100% green)
+- Playwright E2E Suite: 19 PASSED, 1 skipped (100% green)
+
+
+
+
 
 
 

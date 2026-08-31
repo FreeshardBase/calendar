@@ -280,6 +280,18 @@
           </div>
           <div class="settings-list" id="settings-asp-list"></div>
         </div>
+        <!-- Theme / Appearance Section -->
+        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <h5 style="margin:0 0 8px 0">Erscheinungsbild</h5>
+          <div class="form-group" style="margin-bottom:4px;">
+            <label class="form-label" for="theme-select" style="font-size:11px;">Farbschema / Theme</label>
+            <select class="form-select" id="theme-select" style="width:100%; font-size:12px; padding:4px 6px;">
+              <option value="system">System (Automatisch)</option>
+              <option value="light">Helle Ansicht (Light)</option>
+              <option value="dark">Dunkle Ansicht (Dark)</option>
+            </select>
+          </div>
+        </div>
         <!-- Timezone Settings Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <h5 style="margin:0 0 8px 0">Zeitzonen-Grid</h5>
@@ -1060,6 +1072,7 @@
   </div>
 </div>
 
+<script src="/js/theme.js"></script>
 <script src="/js/shortcuts.js"></script>
 <script src="/js/workingHours.js"></script>
 <script src="/js/offlineCache.js"></script>

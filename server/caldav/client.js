@@ -28,7 +28,7 @@ class CalDAVClient {
 
   // ── Core request ────────────────────────────────────────────────────────────
 
-  async _request(method, url, { body, headers = {} } = {}) {
+  async _request(method, url, { body, headers = {}, timeout, signal } = {}) {
     const authHeader = this.authType === 'oauth2'
       ? `Bearer ${this.accessToken}`
       : 'Basic ' + Buffer.from(`${this.username}:${this.password}`).toString('base64');
@@ -44,16 +44,33 @@ class CalDAVClient {
     // Per-request dispatcher: TLS bypass only for internal self-signed Radicale.
     // dispatcherFor() returns undefined for external URLs → uses global dispatcher (full TLS).
     const dispatcher = dispatcherFor(url);
-    const fetchOpts = { method, headers: reqHeaders, body };
-    if (dispatcher) fetchOpts.dispatcher = dispatcher;
+    const timeoutMs = timeout || Number(process.env.CALDAV_TIMEOUT_MS) || 4000;
+    const NON_RETRIABLE_CODES = new Set([
+      'ECONNREFUSED',
+      'ENOTFOUND',
+      'EHOSTUNREACH',
+      'EADDRNOTAVAIL',
+      'ETIMEDOUT'
+    ]);
 
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
+      const reqSignal = signal || AbortSignal.timeout(timeoutMs);
+      const fetchOpts = { method, headers: reqHeaders, body, signal: reqSignal };
+      if (dispatcher) fetchOpts.dispatcher = dispatcher;
+
       try {
         return await fetch(url, fetchOpts);
       } catch (err) {
         lastErr = err;
-        if (err?.cause?.code === 'UND_ERR_SOCKET' || err?.message?.includes('fetch failed')) {
+        const causeCode = err?.cause?.code;
+        const isAbortOrTimeout = err?.name === 'AbortError' || err?.name === 'TimeoutError' || err?.cause?.name === 'AbortError' || err?.cause?.name === 'TimeoutError';
+
+        if (NON_RETRIABLE_CODES.has(causeCode) || isAbortOrTimeout) {
+          throw err;
+        }
+
+        if (err?.cause?.code === 'UND_ERR_SOCKET') {
           await new Promise(r => setTimeout(r, 50));
           continue;
         }

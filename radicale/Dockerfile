@@ -9,8 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Radicale
-RUN pip install --no-cache-dir radicale
+# Copy requirements and install Radicale
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy plugin files and entrypoint
 WORKDIR /app

@@ -2,8 +2,8 @@
 
 A self-hosted CalDAV web calendar for [Freeshard](https://freeshard.net) shards.
 Month/week/day/agenda views, recurring events, calendar sharing between shard
-users, public ICS links, app-passwords for external CalDAV clients, and optional
-two-way Google Calendar sync.
+users, public ICS links, app-passwords for internal service integration, and optional
+two-way sync with Google Calendar and external CalDAV servers.
 
 ## Architecture
 
@@ -12,8 +12,12 @@ Three services around one shared SQLite database:
 | Service | Stack | Role |
 |---|---|---|
 | `webcalendar` | Node 20 / Express, vanilla-JS SPA | Web UI + REST API, talks CalDAV to any server |
-| `caldav-server` | [Radicale](https://radicale.org) + custom auth/rights plugins | Internal CalDAV storage; auth against the shared DB (OIDC users, app-passwords, user-to-user shares) |
-| `sync-worker` | Python + [vdirsyncer](https://vdirsyncer.pimutils.org) | Background two-way sync of linked Google calendars into Radicale |
+| `caldav-server` | [Radicale](https://radicale.org) + custom auth/rights plugins | Internal CalDAV storage engine (unexposed to external clients in shipping topology); auth against shared DB |
+| `sync-worker` | Python + [vdirsyncer](https://vdirsyncer.pimutils.org) | Background two-way sync of linked Google/CalDAV calendars into Radicale |
+
+### Shipping Topology & CalDAV Integration
+The internal Radicale server (`caldav-server`) runs strictly as an unexposed backend container within the private container network. Direct connection from external CalDAV desktop or mobile clients (e.g. Thunderbird, iOS Calendar, DAVx5) is not exposed in the shipping topology. Users can link external CalDAV accounts (Nextcloud, Fastmail, etc.) inside the WebCalendar UI for background two-way synchronization.
+
 
 Users authenticate via OIDC (Authelia) or a single env-configured account.
 External CalDAV accounts (Nextcloud, …) can be linked per user; credentials are

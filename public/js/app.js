@@ -15,6 +15,8 @@ import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
 import { initDialogFocusManager, openDialog, closeDialog } from './dialogFocus.js';
 
+const { initTheme, setTheme, getStoredTheme } = (typeof window !== 'undefined' && window.ThemeManager) ? window.ThemeManager : {};
+
 // ── Element refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
@@ -22,6 +24,8 @@ window.__appStore = store;
 window.__checkAndTriggerAlarms = checkAndTriggerAlarms;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+
+if (typeof initTheme === 'function') initTheme();
 
 function parseUrlDate() {
   const params = new URLSearchParams(window.location.search);
@@ -1537,6 +1541,15 @@ function attachListeners() {
       showToast(err.message, 'error');
     }
   });
+
+  // Theme / Dark Mode Settings Control
+  const themeSelect = $('theme-select');
+  if (themeSelect && typeof getStoredTheme === 'function') {
+    themeSelect.value = getStoredTheme();
+    themeSelect.addEventListener('change', e => {
+      if (typeof setTheme === 'function') setTheme(e.target.value);
+    });
+  }
 
   // Timezone Settings Controls
   function updateSecondaryTimezone(tzVal) {

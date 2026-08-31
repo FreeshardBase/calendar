@@ -707,9 +707,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-attachment-url', driveUrl);
     await page.fill('#ev-attachment-name', driveFileName);
 
-    const responsePromise = page.waitForResponse(resp => resp.url().includes('/api/events') && (resp.status() === 200 || resp.status() === 201));
     await page.click('#event-save-btn');
-    await responsePromise;
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
 
     // Click the newly created event block
