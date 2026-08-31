@@ -38,10 +38,15 @@ function getSessionConfig(env = process.env, options = {}) {
   // Known weak literals — world-readable in source; session cookies are forgeable if used.
   const WEAK_LITERALS = new Set([
     'freeshard-change-this-in-production',
+    'freeshard-webcalendar-prod-secret-change-in-env',
     'change-me',
+    'portal.id',
+    '{{ portal.id }}',
+    '{{portal.id}}',
   ]);
 
-  const isWeakSecret = !env.SESSION_SECRET || WEAK_LITERALS.has(env.SESSION_SECRET);
+  const rawSecret = (env.SESSION_SECRET || '').trim();
+  const isWeakSecret = !env.SESSION_SECRET || WEAK_LITERALS.has(rawSecret) || /portal\.id/i.test(rawSecret);
 
   // Issue #58: production AND staging must refuse to start with a weak secret.
   if (

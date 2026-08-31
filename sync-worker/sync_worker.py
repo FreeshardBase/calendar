@@ -17,6 +17,20 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 STATUS_ROOT = os.environ.get("STATUS_ROOT", "/data/vdir_status")
 ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET") or "freeshard-default-encryption-key-do-not-use-in-prod"
+_node_env = os.environ.get("NODE_ENV", "").lower()
+_weak_keys = {
+    "freeshard-default-encryption-key-do-not-use-in-prod",
+    "freeshard-default-key",
+    "change-me",
+    "change-me-32-chars-or-more",
+    "portal.id",
+    "{{ portal.id }}",
+    "{{portal.id}}",
+}
+if (_node_env in ["production", "staging"] and 
+    os.environ.get("ALLOW_INSECURE_ENCRYPTION_KEY") != "true" and 
+    (not ENCRYPTION_SECRET or ENCRYPTION_SECRET.strip() in _weak_keys or "portal.id" in ENCRYPTION_SECRET.lower())):
+    raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")

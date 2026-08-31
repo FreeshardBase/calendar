@@ -4,6 +4,8 @@
 
 import { AccountsAPI } from './api.js';
 import { showToast } from './app.js';
+import { openMSGraphModal } from './msgraph.js';
+import { openDialog, closeDialog } from './dialogFocus.js';
 
 let _onAdded = null;
 
@@ -14,12 +16,11 @@ export function openAccountModal(callbacks) {
   $('account-form').reset();
   $('account-form-error').classList.add('hidden');
   setLoading(false);
-  $('account-modal-backdrop').classList.remove('hidden');
-  setTimeout(() => $('acc-url').focus(), 50);
+  openDialog($('account-modal-backdrop'), $('acc-url'));
 }
 
 export function closeAccountModal() {
-  $('account-modal-backdrop').classList.add('hidden');
+  closeDialog($('account-modal-backdrop'));
 }
 
 export function initAccountModal() {
@@ -77,6 +78,14 @@ export function initAccountModal() {
     );
     if (popup) popup.focus();
   });
+
+  const btnMSGraph = $('btn-link-msgraph');
+  if (btnMSGraph) {
+    btnMSGraph.addEventListener('click', () => {
+      closeAccountModal();
+      openMSGraphModal();
+    });
+  }
 
 
   $('account-form').addEventListener('submit', async e => {

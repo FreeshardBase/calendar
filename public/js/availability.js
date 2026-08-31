@@ -4,6 +4,7 @@
 
 import { AvailabilityAPI, CalendarsAPI } from './api.js';
 import { showToast } from './app.js';
+import { openDialog, closeDialog } from './dialogFocus.js';
 
 export function initAvailabilityManager() {
   const btn = document.getElementById('availability-btn');
@@ -16,17 +17,17 @@ export function initAvailabilityManager() {
   if (!btn || !backdrop) return;
 
   btn.addEventListener('click', async () => {
-    backdrop.classList.remove('hidden');
+    openDialog(backdrop);
     await loadCalendars();
     await loadPages();
   });
 
   closeBtn?.addEventListener('click', () => {
-    backdrop.classList.add('hidden');
+    closeDialog(backdrop);
   });
 
   backdrop.addEventListener('click', (e) => {
-    if (e.target === backdrop) backdrop.classList.add('hidden');
+    if (e.target === backdrop) closeDialog(backdrop);
   });
 
   form?.addEventListener('submit', async (e) => {

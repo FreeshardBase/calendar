@@ -1,4 +1,4 @@
-'use strict';
+import { openDialog, closeDialog } from './dialogFocus.js';
 
 export const MSGraphAPI = {
   async listAccounts() {
@@ -45,3 +45,127 @@ export const MSGraphAPI = {
     return await res.json();
   }
 };
+
+const $ = id => document.getElementById(id);
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+export function openMSGraphModal() {
+  const form = $('msgraph-form');
+  if (form) form.reset();
+  const backdrop = $('msgraph-modal-backdrop');
+  if (backdrop) openDialog(backdrop, $('msgraph-email'));
+  loadMSGraphAccounts();
+}
+
+export function closeMSGraphModal() {
+  const backdrop = $('msgraph-modal-backdrop');
+  if (backdrop) closeDialog(backdrop);
+}
+
+export async function loadMSGraphAccounts() {
+  const list = $('msgraph-accounts-list');
+  if (!list) return;
+  list.innerHTML = '<p class="empty-state">Lade MS Graph Konten...</p>';
+  try {
+    const accounts = await MSGraphAPI.listAccounts();
+    if (!accounts || accounts.length === 0) {
+      list.innerHTML = '<p class="empty-state">Keine Office 365 Konten verbunden.</p>';
+      return;
+    }
+    list.innerHTML = accounts.map(a => `
+      <div class="settings-item" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
+        <div style="min-width:0; flex:1;">
+          <strong>${escHtml(a.accountEmail)}</strong>
+          <div style="font-size:0.75rem; color:var(--ink-muted);">Tenant: ${escHtml(a.tenantId || 'common')}</div>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-ghost btn-sm btn-sync-msgraph" data-id="${escHtml(a.id)}" title="Synchronisieren">Sync</button>
+          <button class="btn btn-ghost btn-sm btn-danger btn-delete-msgraph" data-id="${escHtml(a.id)}" title="Entfernen">Trennen</button>
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.btn-sync-msgraph').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          btn.disabled = true;
+          await MSGraphAPI.syncAccount(id);
+          if (typeof window.showToast === 'function') window.showToast('MS Graph Konto synchronisiert.', 'success');
+        } catch (e) {
+          if (typeof window.showToast === 'function') window.showToast(e.message, 'error');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    list.querySelectorAll('.btn-delete-msgraph').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm('MS Graph Konto wirklich trennen?')) return;
+        try {
+          btn.disabled = true;
+          await MSGraphAPI.deleteAccount(id);
+          if (typeof window.showToast === 'function') window.showToast('MS Graph Konto getrennt.', 'info');
+          loadMSGraphAccounts();
+        } catch (e) {
+          if (typeof window.showToast === 'function') window.showToast(e.message, 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    list.innerHTML = `<p class="empty-state" style="color:var(--danger);">${escHtml(err.message)}</p>`;
+  }
+}
+
+export function initMSGraphModal() {
+  const closeBtn = $('msgraph-modal-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeMSGraphModal);
+
+  const backdrop = $('msgraph-modal-backdrop');
+  if (backdrop) {
+    backdrop.addEventListener('click', e => {
+      if (e.target === backdrop) closeMSGraphModal();
+    });
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && backdrop && !backdrop.classList.contains('hidden')) {
+      closeMSGraphModal();
+    }
+  });
+
+  const form = $('msgraph-form');
+  if (form) {
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const accountEmail = $('msgraph-email')?.value?.trim();
+      const tenantId = $('msgraph-tenant')?.value?.trim() || 'common';
+      if (!accountEmail) return;
+
+      const saveBtn = $('btn-save-msgraph');
+      if (saveBtn) saveBtn.disabled = true;
+
+      try {
+        await MSGraphAPI.addAccount({ accountEmail, tenantId });
+        if (typeof window.showToast === 'function') {
+          window.showToast(`Office 365 Konto (${accountEmail}) verbunden.`, 'success');
+        }
+        if (form) form.reset();
+        await loadMSGraphAccounts();
+      } catch (err) {
+        if (typeof window.showToast === 'function') {
+          window.showToast(err.message, 'error');
+        }
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    });
+  }
+}
+

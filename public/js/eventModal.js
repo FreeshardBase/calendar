@@ -5,6 +5,7 @@
 import { store, calendarById } from './store.js';
 import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
+import { openDialog, closeDialog } from './dialogFocus.js';
 
 let _onSaved  = null;
 let _onDeleted = null;
@@ -254,7 +255,7 @@ export function openEditModal(event, callbacks) {
 }
 
 export function closeModal() {
-  backdrop().classList.add('hidden');
+  closeDialog(backdrop());
   _currentEvent = null;
 }
 
@@ -271,7 +272,7 @@ export function chooseRecurrenceScope(question) {
     $('scope-dialog-text').textContent = question;
 
     const done = value => {
-      bd.classList.add('hidden');
+      closeDialog(bd);
       $('scope-occurrence-btn').removeEventListener('click', onOccurrence);
       $('scope-series-btn').removeEventListener('click', onSeries);
       $('scope-cancel-btn').removeEventListener('click', onCancel);
@@ -285,15 +286,14 @@ export function chooseRecurrenceScope(question) {
     $('scope-series-btn').addEventListener('click', onSeries);
     $('scope-cancel-btn').addEventListener('click', onCancel);
 
-    bd.classList.remove('hidden');
+    openDialog(bd);
   });
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
 
 function show() {
-  backdrop().classList.remove('hidden');
-  setTimeout(() => $('ev-title').focus(), 50);
+  openDialog(backdrop(), $('ev-title'));
 }
 
 function updateRecurrenceOptions(skipDefaultSelects = false) {
@@ -313,6 +313,18 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
     const wd = ['SU','MO','TU','WE','TH','FR','SA'][date.getDay()];
     $('recur-monthly-week-idx').value = String(weekNum);
     $('recur-monthly-weekday').value = wd;
+
+    // Re-sync BYDAY checkboxes when start date changes, but ONLY in create
+    // mode (_currentEvent === null).  In edit mode the checkboxes were
+    // populated from the existing RRULE (e.g. BYDAY=WE); overwriting them on
+    // a start-date change would silently move the series to the wrong weekday
+    // (Issue #91).  Multi-day manual selections are always preserved.
+    const checkedBoxes = [...document.querySelectorAll('.recur-byday:checked')];
+    if (_currentEvent === null && checkedBoxes.length <= 1) {
+      document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
+      const cb = document.querySelector(`.recur-byday[value="${wd}"]`);
+      if (cb) cb.checked = true;
+    }
   }
 
   const freq = $('ev-recurrence').value;

@@ -4,6 +4,26 @@
 
 import { store } from './store.js';
 import { TasksAPI } from './api.js';
+import { openDialog, closeDialog } from './dialogFocus.js';
+import { showToast } from './app.js';
+
+function notifyToast(message, type = 'info') {
+  if (typeof showToast === 'function') {
+    showToast(message, type);
+  } else if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+    window.showToast(message, type);
+  }
+}
+
+export function formatRecurrenceLabel(recurrence) {
+  if (!recurrence) return '';
+  const str = String(recurrence).replace(/^RRULE:/i, '').toUpperCase();
+  if (str.includes('FREQ=DAILY')) return 'Täglich';
+  if (str.includes('FREQ=WEEKLY')) return 'Wöchentlich';
+  if (str.includes('FREQ=MONTHLY')) return 'Monatlich';
+  if (str.includes('FREQ=YEARLY')) return 'Jährlich';
+  return recurrence;
+}
 
 let taskCallbacks = {};
 
@@ -87,12 +107,12 @@ export function openTaskModal(task = null) {
     if (selectRecur) selectRecur.value = '';
   }
 
-  backdrop.classList.remove('hidden');
+  openDialog(backdrop, inputTitle);
 }
 
 export function closeTaskModal() {
   const backdrop = document.getElementById('task-modal-backdrop');
-  if (backdrop) backdrop.classList.add('hidden');
+  if (backdrop) closeDialog(backdrop);
 }
 
 async function handleTaskSave() {
@@ -126,15 +146,17 @@ async function handleTaskSave() {
   try {
     if (uid && href) {
       await TasksAPI.update(uid, { ...taskData, href, etag });
+      notifyToast('Aufgabe gespeichert.', 'success');
     } else {
       await TasksAPI.create(taskData);
+      notifyToast('Aufgabe erstellt.', 'success');
     }
     closeTaskModal();
     if (taskCallbacks.onTaskChanged) {
       await taskCallbacks.onTaskChanged();
     }
   } catch (err) {
-    alert('Fehler beim Speichern der Aufgabe: ' + err.message);
+    notifyToast('Fehler beim Speichern der Aufgabe: ' + err.message, 'error');
   }
 }
 
@@ -200,7 +222,8 @@ function createKanbanCard(task, callbacks) {
 
   let recurBadge = '';
   if (task.recurrence) {
-    recurBadge = `<span class="kanban-recurrence-badge" title="Wiederholende Aufgabe: ${escapeHtml(task.recurrence)}">🔄 ${escapeHtml(task.recurrence)}</span>`;
+    const recurLabel = formatRecurrenceLabel(task.recurrence);
+    recurBadge = `<span class="kanban-recurrence-badge" title="Wiederholende Aufgabe: ${escapeHtml(recurLabel)}">🔄 ${escapeHtml(recurLabel)}</span>`;
   }
 
   card.innerHTML = `
@@ -231,9 +254,10 @@ function createKanbanCard(task, callbacks) {
     if (confirm('Möchtest du diese Aufgabe wirklich löschen?')) {
       try {
         await TasksAPI.remove(task.uid, { calendarId: task.calendarId, href: task.href, etag: task.etag });
+        notifyToast('Aufgabe gelöscht.', 'info');
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
-        alert('Fehler beim Löschen: ' + err.message);
+        notifyToast('Fehler beim Löschen: ' + err.message, 'error');
       }
     }
   });
@@ -243,9 +267,10 @@ function createKanbanCard(task, callbacks) {
     try {
       const payload = (nextStatus === 'COMPLETED' && task.recurrence) ? advanceRecurringTaskJS(task) : { ...task, status: nextStatus };
       await TasksAPI.update(task.uid, payload);
+      notifyToast(nextStatus === 'COMPLETED' ? 'Aufgabe als erledigt markiert.' : 'Aufgabenstatus aktualisiert.', 'success');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
-      alert('Fehler beim Aktualisieren des Status: ' + err.message);
+      notifyToast('Fehler beim Aktualisieren des Status: ' + err.message, 'error');
     }
   });
 
@@ -253,18 +278,20 @@ function createKanbanCard(task, callbacks) {
     try {
       const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
       await TasksAPI.update(task.uid, payload);
+      notifyToast('Aufgabe als erledigt markiert.', 'success');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
-      alert('Fehler beim Abschließen: ' + err.message);
+      notifyToast('Fehler beim Abschließen: ' + err.message, 'error');
     }
   });
 
   card.querySelector('.btn-reopen')?.addEventListener('click', async () => {
     try {
       await TasksAPI.update(task.uid, { ...task, status: 'NEEDS-ACTION' });
+      notifyToast('Aufgabe wieder geöffnet.', 'info');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
-      alert('Fehler beim Öffnen: ' + err.message);
+      notifyToast('Fehler beim Öffnen: ' + err.message, 'error');
     }
   });
 
@@ -396,9 +423,10 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {})
       try {
         const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
         await TasksAPI.update(task.uid, payload);
+        notifyToast('Aufgabe als erledigt markiert.', 'success');
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
-        alert('Fehler beim Aktualisieren: ' + err.message);
+        notifyToast('Fehler beim Aktualisieren: ' + err.message, 'error');
       }
     });
 

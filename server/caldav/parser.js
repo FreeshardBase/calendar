@@ -393,16 +393,38 @@ function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
 
   const dueProp = vtodo.getFirstProperty('due');
   let due = null;
+  let dueIsDate = false;
   if (dueProp) {
     const val = dueProp.getFirstValue();
-    due = val ? val.toJSDate().toISOString() : null;
+    if (val) {
+      dueIsDate = !!val.isDate;
+      if (val.isDate) {
+        const y = String(val.year).padStart(4, '0');
+        const m = String(val.month).padStart(2, '0');
+        const d = String(val.day).padStart(2, '0');
+        due = `${y}-${m}-${d}T00:00:00.000Z`;
+      } else {
+        due = val.toJSDate().toISOString();
+      }
+    }
   }
 
   const dtstartProp = vtodo.getFirstProperty('dtstart');
   let dtstart = null;
+  let dtstartIsDate = false;
   if (dtstartProp) {
     const val = dtstartProp.getFirstValue();
-    dtstart = val ? val.toJSDate().toISOString() : null;
+    if (val) {
+      dtstartIsDate = !!val.isDate;
+      if (val.isDate) {
+        const y = String(val.year).padStart(4, '0');
+        const m = String(val.month).padStart(2, '0');
+        const d = String(val.day).padStart(2, '0');
+        dtstart = `${y}-${m}-${d}T00:00:00.000Z`;
+      } else {
+        dtstart = val.toJSDate().toISOString();
+      }
+    }
   }
 
   const completedProp = vtodo.getFirstProperty('completed');
@@ -444,7 +466,9 @@ function parseVTodoToTask(vtodo, meta = {}, rawIcs = null) {
     description,
     status,
     due,
+    dueIsDate,
     dtstart,
+    dtstartIsDate,
     completed,
     priority,
     percentComplete,
@@ -530,15 +554,28 @@ function taskToICS(task, existingIcs = null) {
           }
         };
 
-        const setDateProp = (name, isoVal) => {
+        const setDateProp = (name, isoVal, forceIsDate = false) => {
           if (!isoVal) {
             vtodo.removeAllProperties(name);
           } else {
             let timeVal;
             try {
+              const existingProp = vtodo.getFirstProperty(name);
+              const existingIsDate = existingProp && existingProp.getFirstValue() ? existingProp.getFirstValue().isDate : false;
+              const isDate = forceIsDate || existingIsDate || (typeof isoVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoVal));
+
               const dt = new Date(isoVal);
               if (!isNaN(dt.getTime())) {
-                timeVal = ICAL.Time.fromJSDate(dt, true);
+                if (isDate) {
+                  timeVal = new ICAL.Time({
+                    year: dt.getUTCFullYear(),
+                    month: dt.getUTCMonth() + 1,
+                    day: dt.getUTCDate(),
+                    isDate: true
+                  });
+                } else {
+                  timeVal = ICAL.Time.fromJSDate(dt, true);
+                }
               }
             } catch (_) {}
 
@@ -559,8 +596,8 @@ function taskToICS(task, existingIcs = null) {
         if ('description' in task) setProp('description', task.description);
         if ('status' in task) setProp('status', task.status);
 
-        if ('due' in task) setDateProp('due', task.due);
-        if ('dtstart' in task) setDateProp('dtstart', task.dtstart);
+        if ('due' in task) setDateProp('due', task.due, !!(task.dueIsDate || task.allDay));
+        if ('dtstart' in task) setDateProp('dtstart', task.dtstart, !!(task.dtstartIsDate || task.allDay));
         if ('completed' in task) setDateProp('completed', task.completed);
 
         if ('priority' in task) {
@@ -643,10 +680,18 @@ function taskToICS(task, existingIcs = null) {
   if (task.status)      lines.push(`STATUS:${task.status}`);
 
   if (task.due) {
-    lines.push(`DUE:${fmtDateTime(task.due)}`);
+    if (task.dueIsDate || task.allDay || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
+      lines.push(`DUE;VALUE=DATE:${fmtDate(task.due)}`);
+    } else {
+      lines.push(`DUE:${fmtDateTime(task.due)}`);
+    }
   }
   if (task.dtstart) {
-    lines.push(`DTSTART:${fmtDateTime(task.dtstart)}`);
+    if (task.dtstartIsDate || (typeof task.dtstart === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.dtstart))) {
+      lines.push(`DTSTART;VALUE=DATE:${fmtDate(task.dtstart)}`);
+    } else {
+      lines.push(`DTSTART:${fmtDateTime(task.dtstart)}`);
+    }
   }
   if (task.completed) {
     lines.push(`COMPLETED:${fmtDateTime(task.completed)}`);

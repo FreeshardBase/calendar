@@ -3,6 +3,7 @@
  */
 
 import { InvitationsAPI } from './api.js';
+import { openDialog, closeDialog } from './dialogFocus.js';
 
 let invitationsList = [];
 
@@ -57,13 +58,13 @@ function updateBadge() {
 
 export function openInvitationsModal() {
   const backdrop = document.getElementById('invitations-modal-backdrop');
-  if (backdrop) backdrop.classList.remove('hidden');
+  if (backdrop) openDialog(backdrop);
   renderInvitationsList();
 }
 
 export function closeInvitationsModal() {
   const backdrop = document.getElementById('invitations-modal-backdrop');
-  if (backdrop) backdrop.classList.add('hidden');
+  if (backdrop) closeDialog(backdrop);
 }
 
 export function escHtml(str) {

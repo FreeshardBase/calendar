@@ -12,6 +12,8 @@ import { initNotificationService, checkAndTriggerAlarms } from './notifications.
 import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
 import { initAvailabilityManager } from './availability.js';
+import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
+import { initDialogFocusManager, openDialog, closeDialog } from './dialogFocus.js';
 
 // ── Element refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -63,6 +65,8 @@ async function boot() {
   initTaskUI({ onTaskChanged: loadTasks });
   initInvitations();
   initAvailabilityManager();
+  initMSGraphModal();
+  initDialogFocusManager();
 
   if (typeof window !== 'undefined' && window.OfflineCache) {
     window.OfflineCache.registerServiceWorker();
@@ -453,7 +457,8 @@ function openImportDialog(fileName, icsText) {
     </div>`;
 
   document.body.appendChild(backdrop);
-  const close = () => backdrop.remove();
+  openDialog(backdrop);
+  const close = () => { closeDialog(backdrop); backdrop.remove(); };
   backdrop.querySelector('#import-close').addEventListener('click', close);
   backdrop.querySelector('#import-cancel').addEventListener('click', close);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
@@ -525,7 +530,8 @@ function openEditCalendarDialog(cal) {
     </div>`;
 
   document.body.appendChild(backdrop);
-  const close = () => backdrop.remove();
+  openDialog(backdrop);
+  const close = () => { closeDialog(backdrop); backdrop.remove(); };
   backdrop.querySelector('#edit-cal-close').addEventListener('click', close);
   backdrop.querySelector('#edit-cal-cancel').addEventListener('click', close);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
@@ -663,7 +669,8 @@ function openShareCalendarDialog(cal) {
     </div>`;
 
   document.body.appendChild(backdrop);
-  const close = () => backdrop.remove();
+  openDialog(backdrop);
+  const close = () => { closeDialog(backdrop); backdrop.remove(); };
   backdrop.querySelector('#share-cal-close').addEventListener('click', close);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
 
@@ -1493,11 +1500,11 @@ function attachListeners() {
 
   // Settings Drawer Toggle
   $('sidebar-settings-btn').addEventListener('click', () => {
-    $('settings-drawer').classList.add('open');
+    openDialog($('settings-drawer'));
     renderSettings();
   });
   $('close-settings-btn').addEventListener('click', () => {
-    $('settings-drawer').classList.remove('open');
+    closeDialog($('settings-drawer'));
   });
 
   // Add account from settings
@@ -1679,7 +1686,8 @@ function attachListeners() {
   const shortcutsCloseBtn = $('shortcuts-modal-close');
   if (shortcutsCloseBtn) {
     shortcutsCloseBtn.addEventListener('click', () => {
-      $('shortcuts-modal-backdrop')?.classList.add('hidden');
+      const modal = $('shortcuts-modal-backdrop');
+      if (modal) closeDialog(modal);
     });
   }
 
@@ -1754,7 +1762,11 @@ function attachListeners() {
       case 'TOGGLE_HELP':
         const helpModal = $('shortcuts-modal-backdrop');
         if (helpModal) {
-          helpModal.classList.toggle('hidden');
+          if (helpModal.classList.contains('hidden')) {
+            openDialog(helpModal);
+          } else {
+            closeDialog(helpModal);
+          }
         }
         break;
     }
@@ -1807,7 +1819,7 @@ function escHtml(str) {
 
 function initWelcomeModal() {
   const closeWelcome = () => {
-    $('welcome-modal-backdrop').classList.add('hidden');
+    closeDialog($('welcome-modal-backdrop'));
     localStorage.setItem('welcome-popup-closed', 'true');
   };
 
@@ -1832,7 +1844,7 @@ function checkWelcomePopup(accounts) {
   const hasClosed = localStorage.getItem('welcome-popup-closed') === 'true';
   
   if (onlyInternal && !hasClosed) {
-    $('welcome-modal-backdrop').classList.remove('hidden');
+    openDialog($('welcome-modal-backdrop'));
   }
 }
 

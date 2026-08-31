@@ -7,18 +7,22 @@ const { MSGraphSyncEngine } = require('../utils/msgraph');
 
 // Get active user ID from request session/header
 function getUserId(req) {
-  return req.headers['x-test-user-id'] || (req.session && req.session.userId) || 'testuser-id';
+  return req.headers['x-test-user-id'] || (req.session && req.session.userId) || null;
 }
 
 /**
  * GET /api/msgraph/accounts
- * List all connected MS Graph / Office 365 accounts for active user
+ * List all connected MS Graph / Office 365 accounts for active user (sensitive tokens redacted)
  */
 router.get('/accounts', async (req, res) => {
   try {
     const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const accounts = await Db.getMSGraphAccounts(userId);
-    res.json({ success: true, accounts });
+    const sanitized = accounts.map(({ accessToken, refreshToken, ...rest }) => rest);
+    res.json({ success: true, accounts: sanitized });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -31,6 +35,9 @@ router.get('/accounts', async (req, res) => {
 router.post('/accounts', async (req, res) => {
   try {
     const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { accountEmail, tenantId, clientId, accessToken, refreshToken, targetCalendarId } = req.body;
 
     if (!accountEmail) {
@@ -50,7 +57,8 @@ router.post('/accounts', async (req, res) => {
 
     await Db.addSyncJob(userId);
 
-    res.status(201).json({ success: true, account });
+    const { accessToken: _, refreshToken: __, ...sanitizedAccount } = account;
+    res.status(201).json({ success: true, account: sanitizedAccount });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -62,8 +70,11 @@ router.post('/accounts', async (req, res) => {
  */
 router.delete('/accounts/:id', async (req, res) => {
   try {
-    const { id } = req.params;
     const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { id } = req.params;
     const account = await Db.getMSGraphAccountById(id);
     if (!account) {
       return res.status(404).json({ error: 'MS Graph Konto nicht gefunden' });
@@ -84,8 +95,11 @@ router.delete('/accounts/:id', async (req, res) => {
  */
 router.post('/accounts/:id/sync', async (req, res) => {
   try {
-    const { id } = req.params;
     const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { id } = req.params;
     const account = await Db.getMSGraphAccountById(id);
     if (!account) {
       return res.status(404).json({ error: 'MS Graph Konto nicht gefunden' });

@@ -8,6 +8,31 @@ const { v4: uuidv4 } = require('uuid');
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../webcalendar.db');
 const db = new sqlite3.Database(dbPath);
 
+const WEAK_ENCRYPTION_KEYS = new Set([
+  'freeshard-default-encryption-key-do-not-use-in-prod',
+  'freeshard-default-key',
+  'change-me',
+  'change-me-32-chars-or-more',
+  'portal.id',
+  '{{ portal.id }}',
+  '{{portal.id}}',
+]);
+
+function validateEncryptionKey(env = process.env) {
+  const isProd = env.NODE_ENV === 'production';
+  const isStaging = env.NODE_ENV === 'staging';
+  const rawKey = (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || '').trim();
+  const isWeak = !rawKey || WEAK_ENCRYPTION_KEYS.has(rawKey) || /portal\.id/i.test(rawKey);
+
+  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true') {
+    throw new Error('ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.');
+  }
+
+  return rawKey || 'freeshard-default-encryption-key-do-not-use-in-prod';
+}
+
+validateEncryptionKey(process.env);
+
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_SALT = process.env.ENCRYPTION_SALT || 'salt';
 const ENCRYPTION_KEY = crypto.scryptSync(
@@ -2280,4 +2305,7 @@ const Db = {
   }
 };
 
+Db.validateEncryptionKey = validateEncryptionKey;
+
 module.exports = Db;
+module.exports.validateEncryptionKey = validateEncryptionKey;

@@ -66,6 +66,7 @@ router.get('/invitations', async (req, res) => {
     const endDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
     const validEmails = await getUserEmailsForSession(req);
+    const seenUids = new Set();
 
     await Promise.allSettled(
       activeAccounts.map(async (account) => {
@@ -79,11 +80,18 @@ router.get('/invitations', async (req, res) => {
               const eventsXml = await client.getEvents(cal.url, startDate, endDate);
               const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
               for (const ev of events) {
+                if (!ev.uid || seenUids.has(ev.uid)) continue;
                 if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
                   const matchedAtt = ev.attendees.find(a =>
                     validEmails.includes((a.email || '').toLowerCase().replace(/^mailto:/i, '').trim())
                   );
-                  ev.userEmail = matchedAtt ? matchedAtt.email : (validEmails[0] || account.username);
+                  if (!matchedAtt) continue;
+
+                  const status = (matchedAtt.status || matchedAtt.partstat || 'NEEDS-ACTION').toUpperCase();
+                  if (status === 'ACCEPTED' || status === 'DECLINED' || status === 'DELEGATED') continue;
+
+                  ev.userEmail = matchedAtt.email;
+                  seenUids.add(ev.uid);
                   invitations.push(ev);
                 }
               }

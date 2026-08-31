@@ -20,7 +20,7 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: 'NODE_ENV=test INTERNAL_CALDAV_URL="https://localhost:5232" NODE_TLS_REJECT_UNAUTHORIZED="0" SSL_KEY_PATH="" SSL_CERT_PATH="" node server/index.js',
+    command: 'NODE_ENV=test E2E_TEST=true INTERNAL_CALDAV_URL="https://localhost:5232" NODE_TLS_REJECT_UNAUTHORIZED="0" SSL_KEY_PATH="" SSL_CERT_PATH="" node server/index.js',
     url: 'http://localhost:3000',
     reuseExistingServer: false,
     stdout: 'ignore',

@@ -97,12 +97,15 @@
   - Added support for custom `ENCRYPTION_SALT` environment configuration.
 
 - **NPM Security Advisories Remediation (`package.json`, `package-lock.json`):**
-  - Upgraded dependencies via `npm audit fix` to resolve 3 advisories (`body-parser`, `tar`, `undici`).
-  - Audited dependency tree confirming 0 security vulnerabilities remain.
-
+- **Tasks UI Toast Notifications, Error Reporting & RRULE Badge Formatting (`public/js/tasks.js`, `server/test/issue89_tasks_ui.test.js`, `e2e/calendar.spec.js`):**
+  - Exported `formatRecurrenceLabel` in `public/js/tasks.js` to translate raw RRULE strings (`FREQ=DAILY`, `FREQ=WEEKLY`, `FREQ=MONTHLY`, `FREQ=YEARLY`) into German labels (`Täglich`, `Wöchentlich`, `Monatlich`, `Jährlich`).
+  - Kanban cards render formatted labels on recurrence badges rather than raw RRULE strings.
+  - Replaced raw browser `alert()` error calls with `showToast(..., 'error')`.
+  - Added user feedback toasts (`showToast`) for task creation, saving, deletion, status changes, reopening, and sidebar checkbox toggling.
+  - Unit test suite: `server/test/issue89_tasks_ui.test.js` (3 tests, 100% green).
 
 ## Test Execution State
-- Node Unit & Integration Suite: 562 PASSED, 0 failed, 0 skipped (100% green)
+- Node Unit & Integration Suite: 600 PASSED, 0 failed, 0 skipped (100% green)
 - Playwright E2E Suite: 18 PASSED, 0 failed (100% green)
 
 
@@ -414,13 +417,63 @@
     - `server/routes/msgraph.js`: Microsoft 365 account linking and sync endpoints (`/api/msgraph/accounts`).
   - Created unit test suite `server/test/agents_md_documentation.test.js` verifying that `agents.md` documents VTODO/Tasks, MS Graph/Outlook sync, and `server/utils/ical.js` (4 tests, 100% green).
 
-- **Issue #78 — Read-Only Calendar Event Popover Null-Safety & Delete Guard (`public/js/app.js`, `server/test/readonly_event_click_popover.test.js`):**
-  - Resolved `TypeError: Cannot set property 'onclick' of null` when clicking an event on a read-only calendar.
-  - Updated `showEventPopover(ev, mouseEvent)` in `public/js/app.js` to check existence of `$('popover-edit-btn')` and `$('popover-delete-btn')` before attaching click event handlers.
-  - Read-only calendar events omit `#popover-delete-btn` and display a `Schreibgeschützt` badge instead; modal view opens details safely without crashing UI.
-  - Created unit test suite `server/test/readonly_event_click_popover.test.js` (2 tests, 100% green).
+- **Issue #81 — MS Graph Account Authorization & Token Security (`server/routes/msgraph.js`, `server/test/msgraph_account_auth_tokens.test.js`):**
+  - Enforced strict session identity checking (`getUserId(req)`) returning `401 Unauthorized` for unauthenticated requests on `GET /api/msgraph/accounts`, `POST /api/msgraph/accounts`, `DELETE /api/msgraph/accounts/:id`, and `POST /api/msgraph/accounts/:id/sync`.
+  - Added authorization check on `DELETE` and sync routes matching `account.userId !== userId`, returning `403 Forbidden` to prevent cross-user account deletion and manipulation.
+  - Redacted sensitive `accessToken` and `refreshToken` properties from account payload responses on `GET /api/msgraph/accounts` and `POST /api/msgraph/accounts`.
+  - Created test suite `server/test/msgraph_account_auth_tokens.test.js` (6 tests, 100% green).
 
+- **Issue #82 — Per-Install ENCRYPTION_KEY & SESSION_SECRET Generation Guard (`server/utils/sessionConfig.js`, `server/db.js`, `sync-worker/sync_worker.py`, `server/test/install_secrets_generation.test.js`):**
+  - Updated `getSessionConfig(env)` in `server/utils/sessionConfig.js` to reject `portal.id` placeholders (`portal.id`, `{{ portal.id }}`, `{{portal.id}}`), predictable defaults, and `/portal\.id/i` patterns in `production` and `staging` environments.
+  - Added `validateEncryptionKey(env)` in `server/db.js` enforcing explicit, non-predictable per-install keys for `ENCRYPTION_KEY` and `ENCRYPTION_SECRET`, throwing an error in `production` and `staging` environments when weak or `portal.id` values are supplied.
+  - Added ENCRYPTION_KEY validation in `sync-worker/sync_worker.py` raising `ValueError` in `production` and `staging` when `ENCRYPTION_KEY` is missing or uses weak `portal.id` / default values.
+  - Created unit test suite `server/test/install_secrets_generation.test.js` (5 tests, 100% green).
 
+- **Issue #83 — Mobile View Tabs Accessibility & Toolbar Title Truncation (`public/css/app.css`, `e2e/calendar.spec.js`, `server/test/mobile_view_tabs_truncation.test.js`):**
+- **Issue #84 — Office 365 / MS Graph UI Reachability (`public/js/msgraph.js`, `public/js/accountModal.js`, `public/js/app.js`, `server/test/msgraph_ui_reachability.test.js`):**
+  - Fixed Defect 1: Bound `#btn-link-msgraph` click handler in `public/js/accountModal.js` to close account modal and trigger `openMSGraphModal()`.
+  - Fixed Defect 2: Implemented modal controller methods in `public/js/msgraph.js` (`initMSGraphModal`, `openMSGraphModal`, `closeMSGraphModal`, `loadMSGraphAccounts`) to bind backdrop click, Escape key, form submit (`#msgraph-form`), connected accounts rendering (`#msgraph-accounts-list`), account deletion, and account synchronization.
+  - Fixed Defect 3: Exported and imported `initMSGraphModal` into `public/js/app.js` and registered in `boot()` sequence.
+  - Test suite: `server/test/msgraph_ui_reachability.test.js` (5 tests, 100% green).
+- **Issue #85 — Task Modal Short Viewport Layout & Control Reachability Guard (`public/css/app.css`, `public/index.html`, `e2e/calendar.spec.js`, `server/test/task_modal_short_viewport.test.js`):**
+  - Configured `.modal form` flex layout (`display: flex`, `flex-direction: column`, `flex: 1`, `min-height: 0`, `overflow: hidden`) so modal form containers shrink within `max-height: 90vh`.
+  - Pinned `.modal-footer` (`flex-shrink: 0`, `display: flex`, `justify-content: flex-end`) ensuring Save (`#task-save-btn`) and Cancel (`#task-cancel-btn`) buttons remain visible and clickable on short viewports.
+  - Test suite: `server/test/task_modal_short_viewport.test.js` (4 tests, 100% green).
+- **Issue #86 — Design System Button Outline Styling Guard (`public/css/app.css`, `server/test/btn_danger_design_system.test.js`):**
+  - Defined `--success: #2e7d32;` color token in `:root` and `--success: #5bb974;` in dark mode.
+  - Added `.btn-success` outline styling (`border-color: var(--success); color: var(--success); background: transparent;`) in Section 15 (Buttons) matching `.btn-primary` and `.btn-danger`.
+  - Removed global solid fill overrides (`background: #ea4335`, `background: #34a853`, `border: none`) in invitation actions that over-weighted delete controls in dialogs.
+  - Created unit test suite `server/test/btn_danger_design_system.test.js` (100% green).
+
+- **Issue #87 — Dialog Focus Management & Tab/Escape Controls (`public/js/dialogFocus.js`, `public/js/eventModal.js`, `public/js/accountModal.js`, `public/js/invitations.js`, `public/js/tasks.js`, `public/js/msgraph.js`, `public/js/availability.js`, `public/js/app.js`, `server/test/dialog_focus_management.test.js`, `e2e/calendar.spec.js`):**
+  - Created `public/js/dialogFocus.js` exporting `getFocusableElements`, `openDialog`, `closeDialog`, `getTopDialog`, `handleTabKey`, `handleEscapeKey`, and `initDialogFocusManager`.
+  - Filtered tabbable controls in `getFocusableElements` to exclude hidden inputs (`type="hidden"`), disabled controls (`disabled`), `tabindex="-1"`, invisible elements, and controls inside `.hidden` containers.
+  - Implemented modal focus stack tracking previous focused element and focusing first tabbable element upon modal opening.
+  - Implemented focus trapping (`Tab` / `Shift+Tab`) inside active top dialog.
+  - Wired Escape key handling across all 7+ modal types (`event-modal`, `account-modal`, `welcome-modal`, `task-modal`, `invitations-modal`, `msgraph-modal`, `availability-modal`, `shortcuts-modal`, `scope-dialog`, `settings-drawer`).
+  - Added unit test suite `server/test/dialog_focus_management.test.js` (4 tests, 100% green).
+  - Added Playwright E2E spec in `e2e/calendar.spec.js` asserting initial focus and Escape key modal closing.
+
+- **Issue #88 — Invitations Inbox Deduplication and PARTSTAT Filtering (`server/routes/events.js`, `server/test/invitations_inbox_dedup_status.test.js`):**
+  - Updated `GET /api/events/invitations` in `server/routes/events.js` to deduplicate recurring invitation event instances across all accounts using a `seenUids` Set, ensuring a recurring event series (e.g., a 90-day daily standup) returns 1 invitation item instead of 90+ expanded instances.
+  - Required exact session identity match (`matchedAtt`) for event attendees.
+  - Filtered out invitations where attendee `status` or `partstat` is `ACCEPTED`, `DECLINED`, or `DELEGATED`, preventing accepted or declined events from lingering in the pending invitations inbox.
+  - Created test suite `server/test/invitations_inbox_dedup_status.test.js` (100% green).
+
+- **Issue #91 — Weekly Recurrence BYDAY Preservaton on Edit (`public/js/eventModal.js`, `server/test/issue91_weekly_wrong_weekday.test.js`):**
+  - Resolved defect where opening an existing `FREQ=WEEKLY` event and changing the start date auto-overwrote single-selected `BYDAY` checkboxes to the new start date's weekday.
+  - Guarded `updateRecurrenceOptions` BYDAY checkbox resync behind create mode check (`_currentEvent === null`).
+  - Added unit test suite `server/test/issue91_weekly_wrong_weekday.test.js` (10 tests, 100% green).
+
+- **Issue #93 — Date-Only DUE Timezone Shift & VALUE=DATE Preservation (`server/caldav/parser.js`, `server/test/issue93_vtodo_date_only_due.test.js`):**
+  - Resolved root cause where `val.toJSDate().toISOString()` in `parseVTodoToTask` converted local 00:00:00 midnight to UTC offset under non-UTC process timezones (e.g., UTC+2), shifting date-only `DUE` properties to the previous day (e.g. `2026-09-01T22:00:00.000Z`) and converting date-only deadlines into timed deadlines.
+  - Updated `parseVTodoToTask` to check `val.isDate` for `DUE` and `DTSTART` properties, extracting UTC midnight ISO strings (`YYYY-MM-DDT00:00:00.000Z`) directly without local process timezone offset dependencies, and setting `dueIsDate: true` / `dtstartIsDate: true` flags.
+  - Updated `taskToICS` serialization (`setDateProp` and fallback lines) to respect `dueIsDate` and `dtstartIsDate`, serializing date-only deadlines as `DUE;VALUE=DATE:YYYYMMDD` and `DTSTART;VALUE=DATE:YYYYMMDD` without introducing time components or shifting dates.
+  - Added unit test suite `server/test/issue93_vtodo_date_only_due.test.js` (5 tests, 100% green).
+
+## Test Execution State
+- Node Unit & Integration Suite: 617 PASSED, 0 failed, 0 skipped (100% green)
+- Playwright E2E Suite: 19 PASSED, 0 failed (100% green)
 
 
 

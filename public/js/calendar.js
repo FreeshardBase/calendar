@@ -509,8 +509,10 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   const w = 100 / totalCols;
   const l = evCol * w;
 
+  const isShort = hPx <= 35 || ((end - start) <= 1800000);
+
   const block = document.createElement('div');
-  block.className = 'event-block';
+  block.className = `event-block${isShort ? ' short-event' : ''}`;
   block.style.cssText = `
     top:${topPx}px; height:${hPx}px;
     left:${l + 1}%; width:${w - 2}%;
@@ -525,9 +527,9 @@ function createEventBlock(ev, evCol, totalCols, cb) {
     : '';
 
   block.innerHTML = `
-    <div class="event-block-time">${fmtTime(ev.start)}${ev.end ? ' – ' + fmtTime(ev.end) : ''} ${recurIcon}</div>
+    <div class="event-block-time">${fmtTime(ev.start)}${ev.end && !isShort ? ' – ' + fmtTime(ev.end) : ''} ${recurIcon}</div>
     <div class="event-block-title">${escHtml(ev.title)}</div>
-    ${ev.location ? `<div class="event-block-loc">${escHtml(ev.location)}</div>` : ''}
+    ${ev.location && !isShort ? `<div class="event-block-loc">${escHtml(ev.location)}</div>` : ''}
   `;
 
   block.addEventListener('click', e => { e.stopPropagation(); cb.onEventClick(ev.uid, e); });
@@ -779,6 +781,10 @@ export function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function fmtHour(h) {
+  return `${String(h).padStart(2, '0')}:00`;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
