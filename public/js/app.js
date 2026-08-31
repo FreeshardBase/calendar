@@ -159,9 +159,6 @@ async function loadEvents() {
     store.set({ events });
     renderCalendarView();
     checkAndTriggerAlarms();
-    const count = events.length;
-    setStatus(`${count} Termin${count !== 1 ? 'e' : ''} geladen.`);
-    setTimeout(() => setStatus(''), 3000);
   } catch (err) {
     showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
     setStatus('');
@@ -209,7 +206,10 @@ function renderCalendarView() {
     document.querySelectorAll('.view-tab').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === 'kanban');
     });
-    renderKanbanBoard(container, store.get('tasks') || [], { onTaskChanged: loadTasks });
+    const tasks = getFilteredTasks();
+    renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks });
+    const count = tasks.length;
+    setStatus(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
     return;
   }
 
@@ -236,6 +236,9 @@ function renderCalendarView() {
     store.get('events') || [],
     (d) => { store.set({ currentDate: d }); loadEvents(); }
   );
+
+  const count = events.length;
+  setStatus(`${count} Termin${count !== 1 ? 'e' : ''}`);
 }
 
 function getFilteredEvents() {
@@ -252,6 +255,16 @@ function getFilteredEvents() {
     );
   }
   return filtered;
+}
+
+function getFilteredTasks() {
+  const tasks = store.get('tasks') || [];
+  const query = store.get('searchQuery').toLowerCase();
+  if (!query) return tasks;
+  return tasks.filter(t =>
+    (t.title || '').toLowerCase().includes(query) ||
+    (t.description || '').toLowerCase().includes(query)
+  );
 }
 
 function renderSidebar() {

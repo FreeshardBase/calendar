@@ -2306,6 +2306,8 @@ const Db = {
 };
 
 Db.validateEncryptionKey = validateEncryptionKey;
+Db.db = db;
 
 module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
+module.exports.db = db;

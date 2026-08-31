@@ -109,18 +109,25 @@ test('Issue #9 — Background replication and synchronization for external CalDA
     const authBaseUrl = `http://127.0.0.1:${TEST_PORT + 1}`;
 
     try {
+      const account = await Db.addAccount(testUser, {
+        url: 'https://caldav.example.com/dav/user/',
+        username: 'test_caldav_user',
+        password: 'secret_password_123',
+        displayName: 'External Work Calendar'
+      });
+
       const res404 = await fetch(`${authBaseUrl}/api/accounts/non-existent-id/sync`, {
         method: 'POST'
       });
       assert.equal(res404.status, 404);
 
-      const res200 = await fetch(`${authBaseUrl}/api/accounts/${createdAccountId}/sync`, {
+      const res200 = await fetch(`${authBaseUrl}/api/accounts/${account.id}/sync`, {
         method: 'POST'
       });
       assert.equal(res200.status, 200);
       const data = await res200.json();
       assert.ok(data.jobId);
-      assert.equal(data.accountId, createdAccountId);
+      assert.equal(data.accountId, account.id);
 
       // Verify sync_queue row was created
       const statusList = await Db.getPendingSyncJobs();

@@ -52,11 +52,7 @@ async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Tes
   const id = uuidv4();
   const { enc, ivHex } = encryptToken('test-refresh-token');
   return new Promise((resolve, reject) => {
-    const sqlite3 = require('sqlite3').verbose();
-    const path = require('path');
-    const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../../webcalendar.db');
-    const conn = new sqlite3.Database(dbPath);
-    conn.run(
+    Db.db.run(
       `INSERT INTO linked_accounts
          (id, user_id, url, username, password_encrypted, iv, display_name, auth_type, access_token, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -66,20 +62,15 @@ async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Tes
         'testuser@example.com', enc, ivHex, displayName, 'oauth2', 'tok',
         expiresAt ?? null
       ],
-      (err) => { conn.close(); if (err) return reject(err); resolve(id); }
+      (err) => { if (err) return reject(err); resolve(id); }
     );
   });
 }
 
 async function cleanupUser(userId) {
   return new Promise((resolve) => {
-    const sqlite3 = require('sqlite3').verbose();
-    const path = require('path');
-    const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../../webcalendar.db');
-    const conn = new sqlite3.Database(dbPath);
-    conn.run('DELETE FROM linked_accounts WHERE user_id = ?', [userId], () => {
-      conn.run('DELETE FROM users WHERE user_id = ?', [userId], () => {
-        conn.close();
+    Db.db.run('DELETE FROM linked_accounts WHERE user_id = ?', [userId], () => {
+      Db.db.run('DELETE FROM users WHERE user_id = ?', [userId], () => {
         resolve();
       });
     });

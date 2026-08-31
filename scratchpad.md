@@ -118,9 +118,21 @@
   - Ensured `sync_worker.py` imports `sync_msgraph_accounts` directly from `msgraph_worker` in container image environments.
   - Added unit test suite `server/test/issue99_msgraph_worker_image.test.js` (4 tests, 100% green).
 
+- **Status Bar Synchronization & View Counts Fix (Issue #106):**
+  - Removed `setTimeout(() => setStatus(''), 3000)` timeout from `loadEvents()` in `public/js/app.js` which caused status bar to go blank in all views.
+  - Added `getFilteredTasks()` in `public/js/app.js` to filter task items by active search query.
+  - Updated `renderCalendarView()` to compute visible event/task counts and call `setStatus(...)` on every view render: `${count} Termin${count !== 1 ? 'e' : ''}` for event views (`month`, `week`, `workweek`, `day`, `agenda`) and `${count} Aufgabe${count !== 1 ? 'n' : ''}` for Kanban view (`kanban`).
+  - Added test suite `server/test/status_bar_view_counts.test.js` (2 tests, 100% green).
+
+- **Deterministic Day Events Sorting & Overflow Selection Fix (Issue #107):**
+  - Exported `sortEvents(events)` in `public/js/calendar.js` implementing standard calendar sorting order: all-day events first (`allDay`), then start time ascending (`start`), then end time ascending (`end`), then title alphabetically (`title`), then UID fallback (`uid`).
+  - Updated `eventsForDay(events, date)` to wrap filtered results in `sortEvents(filtered)`, ensuring month view day cells render events in strict chronological order and `+N weitere` truncation hides late/tail events rather than arbitrary subsets.
+  - Updated `renderAgenda` and `layoutEvents` in `public/js/calendar.js` to use `sortEvents` for consistent day event ordering.
+  - Added unit test suite `server/test/day_events_sorting.test.js` (4 tests, 100% green).
+
 ## Test Execution State
-- Node Unit & Integration Suite: 656 PASSED, 0 failed (100% green)
-- Playwright E2E Suite: 19 PASSED, 1 skipped (100% green)
+- Node Unit & Integration Suite: 684 PASSED, 0 failed (100% green)
+- Playwright E2E Suite: 20 PASSED, 0 failed (100% green)
 
 
 

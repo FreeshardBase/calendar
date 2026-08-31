@@ -587,7 +587,7 @@ function renderAgenda(container, events, currentDate, cb) {
   for (const dayKey of sortedDays) {
     const d    = new Date(dayKey);
     const isT  = sameDay(d, today);
-    const dayEvs = byDay.get(dayKey).sort((a, b) => new Date(a.start) - new Date(b.start));
+    const dayEvs = sortEvents(byDay.get(dayKey));
 
     const row = document.createElement('div');
     row.className = `agenda-day${isT ? ' today' : ''}`;
@@ -648,7 +648,7 @@ export function agendaEventHtml(ev) {
 // ── Event Layout (overlap) ────────────────────────────────────────────────────
 
 function layoutEvents(events) {
-  const sorted = [...events].sort((a, b) => new Date(a.start) - new Date(b.start));
+  const sorted = sortEvents(events);
   const result = [];
   const columns = []; // track column end times
 
@@ -680,8 +680,31 @@ function layoutEvents(events) {
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
+export function sortEvents(events) {
+  if (!Array.isArray(events)) return [];
+  return [...events].sort((a, b) => {
+    const aAllDay = !!a.allDay;
+    const bAllDay = !!b.allDay;
+    if (aAllDay !== bAllDay) return aAllDay ? -1 : 1;
+
+    const aStart = a.start ? new Date(a.start).getTime() : 0;
+    const bStart = b.start ? new Date(b.start).getTime() : 0;
+    if (aStart !== bStart) return aStart - bStart;
+
+    const aEnd = a.end ? new Date(a.end).getTime() : aStart;
+    const bEnd = b.end ? new Date(b.end).getTime() : bStart;
+    if (aEnd !== bEnd) return aEnd - bEnd;
+
+    const aTitle = String(a.title || '');
+    const bTitle = String(b.title || '');
+    if (aTitle !== bTitle) return aTitle.localeCompare(bTitle);
+
+    return String(a.uid || '').localeCompare(String(b.uid || ''));
+  });
+}
+
 function eventsForDay(events, date) {
-  return events.filter(ev => {
+  const filtered = events.filter(ev => {
     if (!ev.start) return false;
     if (ev.allDay) {
       const startStr = typeof ev.start === 'string' ? ev.start.slice(0, 10) : new Date(ev.start).toISOString().slice(0, 10);
@@ -701,6 +724,7 @@ function eventsForDay(events, date) {
     const dEnd = new Date(date); dEnd.setHours(23,59,59,999);
     return s <= dEnd && e >= d;
   });
+  return sortEvents(filtered);
 }
 
 function sameDay(a, b) {
