@@ -14,3 +14,5 @@ webcalendar.db*
 *.db-shm
 *.sqlite*
 data/
+.stryker-tmp/
+reports/
