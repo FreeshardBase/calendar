@@ -83,6 +83,7 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
     let ctag         = null;
     let syncToken    = null;
     let supportsVEVENT = true;
+    let supportsVTODO  = true;
     let ownerHref    = null;
     let shareAccess  = null;
 
@@ -133,19 +134,22 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
         // Components are listed as <comp name="VEVENT"/> child elements (attribute-based)
         const compEls = getByLocalName(compSets[0], 'comp');
         if (compEls.length > 0) {
-          supportsVEVENT = [...compEls].some(
-            el => (el.getAttribute('name') || '').toUpperCase() === 'VEVENT'
+          const compNames = [...compEls].map(
+            el => (el.getAttribute('name') || '').toUpperCase()
           );
-        }
-        // If compEls is empty, fall back to textContent (some servers list as text)
-        if (compEls.length === 0) {
-          supportsVEVENT = compSets[0].textContent.includes('VEVENT');
+          supportsVEVENT = compNames.includes('VEVENT');
+          supportsVTODO = compNames.includes('VTODO');
+        } else {
+          // If compEls is empty, fall back to textContent (some servers list as text)
+          const text = compSets[0].textContent || '';
+          supportsVEVENT = text.includes('VEVENT');
+          supportsVTODO = text.includes('VTODO');
         }
       }
     }
 
     if (!isCalendar) continue;
-    if (!supportsVEVENT) continue;
+    if (!supportsVEVENT && !supportsVTODO) continue;
 
     const url = resolveUrl(baseUrl, href);
 
@@ -175,7 +179,9 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
       syncToken,
       isShared,
       owner: ownerName,
-      readOnly
+      readOnly,
+      supportsVEVENT,
+      supportsVTODO
     });
   }
 
