@@ -4,6 +4,49 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Boot Error Handling & Onboarding Setup Wizard Guard (Issue #159):**
+  - Resolved UX defect in `boot()` (`public/js/app.js`) where any failure during `/api/accounts` retrieval (e.g. server 500, network offline, 502 Bad Gateway) triggered `catch (err) { showOnboarding(); }`, misdirecting existing users to the first-run setup wizard (`#onboarding`).
+  - Updated `boot()` error handler in `public/js/app.js` to call `hideLoading()`, `showApp()`, and present an error notification (`showToast('Fehler beim Laden der Kontodaten: ' + err.message, 'error')`), keeping existing users within the main app shell (`#app`).
+  - Created TDD unit test suite `server/test/issue159_failed_accounts_boot_wizard.test.js` (2 tests, 100% green).
+- **CalDAV Discovery Redirect Authorization Preservation & Post-Redirect Base URL Resolution (Issue #156):**
+  - Resolved security/functionality bug in `CalDAVClient._request` (`server/caldav/client.js`) where default native `fetch` redirect following stripped `Authorization` headers across cross-origin redirects (different port/scheme/host), causing redirected CalDAV discovery requests to fail with HTTP 401 Unauthorized.
+  - Implemented manual redirect loop (`redirect: 'manual'`) in `CalDAVClient._request` following HTTP 301, 302, 303, 307, 308 redirects while retaining `Authorization` header (`Basic`/`Bearer`) and tracking post-redirect `res.url`.
+  - Updated `CalDAVClient.prototype.discover` to capture and update `currentUrl` from post-redirect `res.url` across discovery phases, ensuring relative `href` strings (e.g. `calendars/testuser/`) resolve against the final post-redirect base URL rather than the pre-redirect URL.
+  - Created TDD unit test suite `server/test/issue156_caldav_discovery_redirect.test.js` (3 tests, 100% green).
+- **Path Traversal Calendar Access Control & Share Self-Grant Prevention (Issue #155):**
+  - Fixed critical authorization bypass in `checkCalendarAccess` (`server/utils/calendarAuth.js`) where unnormalized calendar hrefs with path traversal sequences (e.g. `internal-caldav::/attacker/../victim/personal/`) caused `hrefPath.split('/').filter(Boolean)` to evaluate `segments[0]` as `attacker`, erroneously setting `isOwner = true`.
+  - Enforced `path.posix.normalize` across `checkCalendarAccess`, `extractCalendarIdFromHref`, and `queueSyncForCalendar` in `server/utils/calendarAuth.js` to resolve path traversal sequences to canonical calendar paths prior to owner validation.
+  - Blocked non-owners from bypassing ACL checks or self-granting `READ`/`WRITE` shares via `POST /api/calendars/:id/shares`.
+  - Created TDD unit test suite `server/test/issue155_share_path_traversal_authorization.test.js` (4 tests, 100% green).
+- **Exact Matching for User Sync Job Deletion (Issue #154):**
+  - Resolved SQL injection / data loss flaw in `Db.clearSyncJobsForUser(userId)` where `DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?` with `[userId, `${userId}%`]` prefix-matched and wiped out sync jobs belonging to other users sharing a common ID prefix (e.g. `user1` wiping `user10`, `user15`, `user1_admin`), or empty string `""` wiping all sync jobs across all users.
+  - Replaced SQL query with strict equality `WHERE user_id = ?`, guarded against empty/falsy `userId`, and returned `{ deleted: this.changes }`.
+  - Updated test setups in `server/test/sync_retry_queue.test.js` and `server/test/sync_worker_resilience.test.js` to clear specific test user IDs explicitly rather than relying on prefix matching.
+  - Created TDD unit test suite `server/test/issue154_clear_sync_jobs_prefix.test.js` verifying prefix isolation and falsy `userId` safety (100% green).
+- **Test File Production Image Exclusion (.dockerignore) (Issue #153):**
+  - Identified gap where `.dockerignore` did not exclude test directories (`server/test/`, `e2e/`) or test files (`*.test.js`, `*.spec.js`), causing Docker build context to copy test suites into the production image.
+  - Added `server/test/`, `e2e/`, `*.test.js`, and `*.spec.js` entries to `.dockerignore`.
+  - Created TDD unit test suite `server/test/issue153_test_files_production_image.test.js` and updated `server/test/docker_compose_environment.test.js` to assert test file exclusion (100% green).
+- **Store Entry app_meta.json Schema Version Alignment (Issue #152):**
+  - Updated `app-repository/apps/webcalendar/app_meta.json` schema version `"v"` from `"1.0"` to `"1.2"` to align directly with active `shard_core` specification (`v: "1.2"`).
+  - Schema version `"1.0"` previously caused `shard_core` migration runner to overwrite `pretty_name` and render `idle_time_for_shutdown` configuration inert.
+  - Created TDD unit test suite `server/test/issue152_app_meta_schema_version.test.js` (100% green).
+- **Minimum Portal Size Entry Tier Access (Issue #151):**
+  - Updated `minimum_portal_size` from `"s"` to `"xs"` in `app-repository/apps/webcalendar/app_meta.json` to allow WebCalendar deployment on entry tier shards given its 61 MiB idle memory footprint.
+  - Created TDD unit test suite `server/test/issue151_minimum_portal_size.test.js` (100% green).
+- **Search Users SQL Wildcard Escaping & XML Injection Prevention (Issue #150):**
+  - Identified defect where `GET /api/calendars/search-users?q=%25` passed raw unescaped SQL `LIKE` wildcards (`%` and `_`) to `Db.searchUsers(query)`, causing `WHERE username LIKE '%%%'` to dump the entire `users` table. Additionally, `query` was interpolated raw into XML in `CalDAVClient.prototype.searchUsers`.
+  - Updated `Db.searchUsers(query)` in `server/db.js` to return `[]` for empty/whitespace/non-string queries, escape SQL wildcards (`%`, `_`, `\`), and execute `WHERE username LIKE ? ESCAPE '\'`.
+  - Updated `CalDAVClient.prototype.searchUsers` in `server/caldav/client.js` to escape `query` using `escapeXML` before building `<d:principal-property-search>` XML body.
+  - Created TDD unit test suite `server/test/issue150_search_users_wildcard_dump.test.js` (4 tests, 100% green).
+- **Multi-Statement Database Operations Transaction Atomicity (Issue #149):**
+  - Implemented `Db.withTransaction(fn)` in `server/db.js` managing `BEGIN TRANSACTION`, `COMMIT`, and automatic `ROLLBACK` on callback errors or exception throws.
+  - Wrapped multi-statement database operations (`Db.clearAll`, `Db.deleteUser`, `Db.addSyncJob`, `Db.deleteMSGraphAccount`, `Db.deleteResource`) in atomic transactions to prevent half-applied database state.
+  - Created TDD unit test suite `server/test/issue149_transactions_half_apply.test.js` (5 tests, 100% green).
+- **Boot-time Migration OAuth2 CalDAV URL Repointing Fix (Issue #148):**
+  - Removed harmful `UPDATE linked_accounts SET url = ...` from schema migration 1 (`001_linked_accounts_columns_and_urls`) in `server/utils/migrations.js`.
+  - Prevented non-Google OAuth2 CalDAV accounts (e.g. Nextcloud, custom CalDAV endpoints ending in `/user/`) from being forcibly repointed at `apidata.googleusercontent.com` on boot and exfiltrating OAuth bearer tokens to Google.
+  - Created TDD unit test suite `server/test/issue148_oauth2_boot_update.test.js` (100% green).
 - **Foreign Keys Enforcement & Connection Pragma Enabling (Issue #145):**
   - Resolved gap where no foreign key constraints existed and `PRAGMA foreign_keys = ON` was never enabled on any SQLite connection across Node or Python runtimes.
   - Enabled `PRAGMA foreign_keys = ON` on all 4 connection points: Express Node server (`server/db.js`), Python sync worker (`sync-worker/sync_worker.py`), MS Graph sync worker (`sync-worker/msgraph_worker.py`), Radicale custom auth plugin (`radicale/radicale_custom_auth.py`), and Radicale custom rights plugin (`radicale/radicale_custom_rights.py`).
@@ -692,4 +735,15 @@
     - Preserves existing custom `username` when `username === userId` fallback is passed.
     - Prevents overwriting or deleting another user's row when a username collision occurs.
   - Created unit test suite `server/test/issue141_oidc_username_overwrite.test.js` (3 tests, 100% green).
+
+- **Issue #146 — Hot Queries Index Optimization (`server/db.js`, `server/utils/migrations.js`, `server/test/issue146_hot_query_indexes.test.js`):**
+  - Added 17 indexes across 13 tables (`app_passwords`, `calendar_shares`, `sync_queue`, `user_calendar_shares`, `msgraph_accounts`, `msgraph_event_mappings`, `web_push_subscriptions`, `resource_bookings`, `availability_pages`, `slot_bookings`, `sync_conflicts`, `delegate_permissions`, `cross_user_deletions`) to eliminate full table scans (`SCAN TABLE`) on hot query paths including CalDAV authentication (`verifyAppPassword`).
+  - Added schema migration `004_hot_query_indexes` in `server/utils/migrations.js` and `CREATE INDEX IF NOT EXISTS` setup in `server/db.js`.
+  - Created TDD test suite `server/test/issue146_hot_query_indexes.test.js` (100% green).
+
+- **Issue #147 — Sync Queue Production Retention Pruning (`server/db.js`, `server/utils/syncRetryQueue.js`, `sync-worker/sync_worker.py`, `server/test/issue147_sync_queue_pruning.test.js`):**
+  - Added `Db.pruneSyncQueue(maxAgeMs, now)` method in `server/db.js` deleting finished sync jobs (`status IN ('SUCCESS', 'ERROR')`) older than retention window (default 24 hours).
+  - Integrated inline auto-pruning into `Db.addSyncJob(userId)` in `server/db.js` and Python worker polling loop in `sync-worker/sync_worker.py` to prevent unbounded SQLite table bloat in production.
+  - Exported `pruneSyncQueue(maxAgeMs, now)` wrapper in `server/utils/syncRetryQueue.js`.
+  - Created TDD test suite `server/test/issue147_sync_queue_pruning.test.js` (3 tests, 100% green).
 

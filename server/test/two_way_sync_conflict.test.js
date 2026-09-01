@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3099';
+process.env.PORT = process.env.PORT || '3123';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

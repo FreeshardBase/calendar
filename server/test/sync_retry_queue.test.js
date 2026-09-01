@@ -59,7 +59,19 @@ describe('Issue #6 — Automatic Retry Queue for Synchronization Failures Suite'
   });
 
   beforeEach(async () => {
-    await Db.clearSyncJobsForUser('testuser-retry-');
+    const testUsers = [
+      'testuser-retry-1',
+      'testuser-retry-init',
+      'testuser-retry-fail',
+      'testuser-retry-max',
+      'testuser-retry-due1',
+      'testuser-retry-due2',
+      'testuser-retry-reset',
+      'testuser-retry-status'
+    ];
+    for (const u of testUsers) {
+      await Db.clearSyncJobsForUser(u);
+    }
   });
 
   test('calculateBackoff computes exponential backoff within bounds', () => {

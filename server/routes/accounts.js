@@ -43,12 +43,23 @@ router.post('/', async (req, res) => {
   try {
     discoveredUrl = await client.discover();
   } catch (e) {
-    const msg = e.message === 'UNAUTHORIZED'
-      ? 'Ungültige Zugangsdaten.'
-      : e.message === 'COULD_NOT_RESOLVE_CALDAV_ENDPOINT'
-      ? 'CalDAV-Server konnte nicht automatisch ermittelt werden. Bitte prüfe die URL.'
-      : `Verbindung fehlgeschlagen: ${e.message}`;
-    return res.status(401).json({ error: msg });
+    if (e.message === 'UNAUTHORIZED') {
+      return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
+    }
+    if (e.message === 'COULD_NOT_RESOLVE_CALDAV_ENDPOINT') {
+      return res.status(400).json({ error: 'CalDAV-Server konnte nicht automatisch ermittelt werden. Bitte prüfe die URL.' });
+    }
+    return res.status(502).json({ error: 'Verbindung fehlgeschlagen. Bitte prüfe URL und Netzwerkverbindung.' });
+  }
+
+  // Issue #157: verify credentials against the discovered calendar home.
+  // Discovery can succeed unauthenticated on many servers (e.g. /.well-known/caldav
+  // redirects without auth). A wrong password would be stored and surface later as an
+  // empty calendar. testConnection() issues a PROPFIND with credentials to confirm.
+  try {
+    await client.testConnection();
+  } catch (e) {
+    return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
   }
 
   const accounts = req.session.accounts || [];

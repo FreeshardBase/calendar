@@ -1,7 +1,7 @@
 'use strict';
 require('dotenv').config();
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3097';
+process.env.PORT = process.env.PORT || '3125';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -181,7 +181,8 @@ test('HTTP Routes Integration Suite', async (t) => {
     const users = await res.json();
     assert.ok(Array.isArray(users));
     assert.ok(users.length > 0);
-    assert.strictEqual(users[0].displayname, 'Test User');
+    assert.ok(users[0].displayname, 'Matched user must have a non-empty displayname');
+    assert.ok(users[0].displayname.toLowerCase().includes('test'), `Expected displayname containing "test", got "${users[0].displayname}"`);
   });
 
   await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async () => {

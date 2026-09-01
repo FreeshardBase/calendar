@@ -92,6 +92,8 @@ test.describe('Issue #259 — Docker Quick Start & Compose Environment Fixes', (
     assert.ok(content.includes('*.db') || content.includes('webcalendar.db*'),
       '.dockerignore must ignore database files');
     assert.ok(content.includes('ssl/'), '.dockerignore must ignore ssl/');
+    assert.ok(content.includes('server/test/'), '.dockerignore must ignore server/test/');
+    assert.ok(content.includes('e2e/'), '.dockerignore must ignore e2e/');
   });
 
 });

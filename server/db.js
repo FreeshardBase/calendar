@@ -359,9 +359,24 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_uid ON event_history(event_uid, created_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_cal ON event_history(calendar_id, created_at)`);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_linked_accounts_user_id ON linked_accounts(user_id)
-  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_linked_accounts_user_id ON linked_accounts(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_app_passwords_user_id ON app_passwords(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_calendar_shares_calendar_id ON calendar_shares(calendar_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sync_queue_user_id ON sync_queue(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sync_queue_status_retry ON sync_queue(status, next_retry_at)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_user_calendar_shares_sharee ON user_calendar_shares(sharee_user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_msgraph_accounts_user_id ON msgraph_accounts(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_msgraph_event_mappings_graph_id ON msgraph_event_mappings(graph_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_msgraph_event_mappings_account_id ON msgraph_event_mappings(account_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user_id ON web_push_subscriptions(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_resource_bookings_resource_id ON resource_bookings(resource_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_resource_bookings_user_id ON resource_bookings(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_availability_pages_user_id ON availability_pages(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_availability_pages_calendar_id ON availability_pages(calendar_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_slot_bookings_page_id ON slot_bookings(page_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sync_conflicts_user_id ON sync_conflicts(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_delegate_permissions_delegate ON delegate_permissions(delegate_user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_cross_user_deletions_owner ON cross_user_deletions(owner_user_id)`);
   runMigrations(db).catch((err) => {
     console.error('[db] Error running schema migrations:', err);
   });
@@ -554,43 +569,89 @@ const Db = {
     });
   },
 
-  deleteUser(userId) {
+  withTransaction(fn) {
     return new Promise((resolve, reject) => {
-      if (!userId) return resolve();
-      const calPattern = `%${userId}%`;
-
       db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+        db.run('BEGIN TRANSACTION', (startErr) => {
+          if (startErr) return reject(startErr);
+          let rolledBack = false;
+          const tx = {
+            run: (sql, params = []) => {
+              return new Promise((res, rej) => {
+                if (rolledBack) return rej(new Error('Transaction already aborted'));
+                db.run(sql, params, function (runErr) {
+                  if (runErr) return rej(runErr);
+                  res(this);
+                });
+              });
+            },
+            get: (sql, params = []) => {
+              return new Promise((res, rej) => {
+                if (rolledBack) return rej(new Error('Transaction already aborted'));
+                db.get(sql, params, (getErr, row) => {
+                  if (getErr) return rej(getErr);
+                  res(row);
+                });
+              });
+            },
+            all: (sql, params = []) => {
+              return new Promise((res, rej) => {
+                if (rolledBack) return rej(new Error('Transaction already aborted'));
+                db.all(sql, params, (allErr, rows) => {
+                  if (allErr) return rej(allErr);
+                  res(rows);
+                });
+              });
+            }
+          };
 
-        db.run('DELETE FROM users WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM linked_accounts WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM app_passwords WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`]);
-        db.run('DELETE FROM user_calendar_shares WHERE sharee_user_id = ? OR calendar_id LIKE ?', [userId, calPattern]);
-        db.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
-        db.run('DELETE FROM msgraph_accounts WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM web_push_subscriptions WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM resource_bookings WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM slot_bookings WHERE page_id IN (SELECT id FROM availability_pages WHERE user_id = ?)', [userId]);
-        db.run('DELETE FROM availability_pages WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM sync_conflicts WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM delegate_permissions WHERE principal_user_id = ? OR delegate_user_id = ?', [userId, userId]);
-        db.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
-        db.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM webcal_subscriptions WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM event_history WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
-        db.run('DELETE FROM calendar_shares WHERE calendar_id LIKE ?', [calPattern]);
-
-        db.run('COMMIT', (err) => {
-          if (err) {
-            db.run('ROLLBACK', () => reject(err));
-          } else {
-            resolve();
-          }
+          Promise.resolve()
+            .then(() => fn(tx))
+            .then((result) => {
+              if (rolledBack) return;
+              db.run('COMMIT', (commitErr) => {
+                if (commitErr) {
+                  db.run('ROLLBACK', () => reject(commitErr));
+                } else {
+                  resolve(result);
+                }
+              });
+            })
+            .catch((fnErr) => {
+              rolledBack = true;
+              db.run('ROLLBACK', () => {
+                reject(fnErr);
+              });
+            });
         });
       });
+    });
+  },
+
+  deleteUser(userId) {
+    if (!userId) return Promise.resolve();
+    const calPattern = `%${userId}%`;
+    return this.withTransaction(async (tx) => {
+      await tx.run('DELETE FROM users WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM linked_accounts WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM app_passwords WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`]);
+      await tx.run('DELETE FROM user_calendar_shares WHERE sharee_user_id = ? OR calendar_id LIKE ?', [userId, calPattern]);
+      await tx.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
+      await tx.run('DELETE FROM msgraph_accounts WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM web_push_subscriptions WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM resource_bookings WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM slot_bookings WHERE page_id IN (SELECT id FROM availability_pages WHERE user_id = ?)', [userId]);
+      await tx.run('DELETE FROM availability_pages WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM sync_conflicts WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM delegate_permissions WHERE principal_user_id = ? OR delegate_user_id = ?', [userId, userId]);
+      await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
+      await tx.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM webcal_subscriptions WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM event_history WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM calendar_shares WHERE calendar_id LIKE ?', [calPattern]);
     });
   },
 
@@ -599,44 +660,31 @@ const Db = {
   },
 
   deleteCalendarData(calendarId) {
-    return new Promise((resolve, reject) => {
-      if (!calendarId) return resolve();
-      const altId = calendarId.endsWith('/') ? calendarId.slice(0, -1) : `${calendarId}/`;
-
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
-
-        db.run('DELETE FROM user_calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run(
-          'DELETE FROM public_ics_cache WHERE token IN (SELECT token FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?)',
-          [calendarId, altId]
-        );
-        db.run(
-          'DELETE FROM ics_fetch_log WHERE token IN (SELECT token FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?)',
-          [calendarId, altId]
-        );
-        db.run('DELETE FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('DELETE FROM user_calendar_color_overrides WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('DELETE FROM calendar_sync_cache WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('DELETE FROM sync_conflicts WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('DELETE FROM cross_user_deletions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('DELETE FROM delegate_permissions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run(
-          'DELETE FROM slot_bookings WHERE page_id IN (SELECT id FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?)',
-          [calendarId, altId]
-        );
-        db.run('DELETE FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('DELETE FROM event_history WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-        db.run('UPDATE msgraph_accounts SET target_calendar_id = NULL WHERE target_calendar_id = ? OR target_calendar_id = ?', [calendarId, altId]);
-
-        db.run('COMMIT', (err) => {
-          if (err) {
-            db.run('ROLLBACK', () => reject(err));
-          } else {
-            resolve();
-          }
-        });
-      });
+    if (!calendarId) return Promise.resolve();
+    const altId = calendarId.endsWith('/') ? calendarId.slice(0, -1) : `${calendarId}/`;
+    return this.withTransaction(async (tx) => {
+      await tx.run('DELETE FROM user_calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run(
+        'DELETE FROM public_ics_cache WHERE token IN (SELECT token FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?)',
+        [calendarId, altId]
+      );
+      await tx.run(
+        'DELETE FROM ics_fetch_log WHERE token IN (SELECT token FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?)',
+        [calendarId, altId]
+      );
+      await tx.run('DELETE FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM user_calendar_color_overrides WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM calendar_sync_cache WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM sync_conflicts WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM cross_user_deletions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM delegate_permissions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run(
+        'DELETE FROM slot_bookings WHERE page_id IN (SELECT id FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?)',
+        [calendarId, altId]
+      );
+      await tx.run('DELETE FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM event_history WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('UPDATE msgraph_accounts SET target_calendar_id = NULL WHERE target_calendar_id = ? OR target_calendar_id = ?', [calendarId, altId]);
     });
   },
 
@@ -670,21 +718,16 @@ const Db = {
   },
 
   clearAll() {
-    return new Promise((resolve, reject) => {
-      db.serialize(() => {
-        db.run('DELETE FROM linked_accounts');
-        db.run('DELETE FROM app_passwords');
-        db.run('DELETE FROM calendar_shares');
-        db.run('DELETE FROM availability_pages');
-        db.run('DELETE FROM slot_bookings');
-        db.run('DELETE FROM event_history');
-        db.run('DELETE FROM user_calendar_color_overrides');
-        db.run('DELETE FROM webcal_subscriptions');
-        db.run('DELETE FROM sync_queue', (err) => {
-          if (err) return reject(err);
-          resolve();
-        });
-      });
+    return this.withTransaction(async (tx) => {
+      await tx.run('DELETE FROM linked_accounts');
+      await tx.run('DELETE FROM app_passwords');
+      await tx.run('DELETE FROM calendar_shares');
+      await tx.run('DELETE FROM availability_pages');
+      await tx.run('DELETE FROM slot_bookings');
+      await tx.run('DELETE FROM event_history');
+      await tx.run('DELETE FROM user_calendar_color_overrides');
+      await tx.run('DELETE FROM webcal_subscriptions');
+      await tx.run('DELETE FROM sync_queue');
     });
   },
 
@@ -823,36 +866,31 @@ const Db = {
 
   // ── Sync Queue (vdirsyncer jobs) ───────────────────────────────────────────
   addSyncJob(userId, opts = {}) {
-    return new Promise((resolve, reject) => {
-      const now = Date.now();
-      const id = uuidv4();
-      const maxAttempts = opts.maxAttempts || 3;
-      const nextRetryAt = opts.nextRetryAt || now;
-      
-      db.serialize(() => {
-        db.run('DELETE FROM sync_queue WHERE user_id = ? AND status = "PENDING"', [userId], (err) => {
-          if (err) return reject(err);
-          db.run(
-            'INSERT INTO sync_queue (id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, userId, 'PENDING', null, 0, maxAttempts, nextRetryAt, 'IDLE', now, now],
-            (err) => {
-              if (err) return reject(err);
-              resolve({
-                id,
-                userId,
-                status: 'PENDING',
-                errorMessage: null,
-                attempts: 0,
-                maxAttempts,
-                nextRetryAt,
-                retryState: 'IDLE',
-                createdAt: now,
-                updatedAt: now
-              });
-            }
-          );
-        });
-      });
+    const now = Date.now();
+    const id = uuidv4();
+    const maxAttempts = opts.maxAttempts || 3;
+    const nextRetryAt = opts.nextRetryAt || now;
+    const autoCutoff = now - (24 * 60 * 60 * 1000);
+
+    return this.withTransaction(async (tx) => {
+      await tx.run('DELETE FROM sync_queue WHERE status IN ("SUCCESS", "ERROR") AND updated_at <= ?', [autoCutoff]);
+      await tx.run('DELETE FROM sync_queue WHERE user_id = ? AND status = "PENDING"', [userId]);
+      await tx.run(
+        'INSERT INTO sync_queue (id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, userId, 'PENDING', null, 0, maxAttempts, nextRetryAt, 'IDLE', now, now]
+      );
+      return {
+        id,
+        userId,
+        status: 'PENDING',
+        errorMessage: null,
+        attempts: 0,
+        maxAttempts,
+        nextRetryAt,
+        retryState: 'IDLE',
+        createdAt: now,
+        updatedAt: now
+      };
     });
   },
 
@@ -1006,10 +1044,25 @@ const Db = {
 
   clearSyncJobsForUser(userId) {
     return new Promise((resolve, reject) => {
-      db.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`], (err) => {
+      if (!userId) return resolve({ deleted: 0 });
+      db.run('DELETE FROM sync_queue WHERE user_id = ?', [userId], function (err) {
         if (err) return reject(err);
-        resolve();
+        resolve({ deleted: this.changes });
       });
+    });
+  },
+
+  pruneSyncQueue(maxAgeMs = 24 * 60 * 60 * 1000, now = Date.now()) {
+    return new Promise((resolve, reject) => {
+      const cutoff = now - maxAgeMs;
+      db.run(
+        'DELETE FROM sync_queue WHERE status IN ("SUCCESS", "ERROR") AND updated_at <= ?',
+        [cutoff],
+        function (err) {
+          if (err) return reject(err);
+          resolve({ pruned: this.changes });
+        }
+      );
     });
   },
 
@@ -1062,9 +1115,13 @@ const Db = {
 
   searchUsers(query) {
     return new Promise((resolve, reject) => {
+      if (!query || typeof query !== 'string') return resolve([]);
+      const trimmed = query.trim();
+      if (!trimmed) return resolve([]);
+      const escapedQuery = trimmed.replace(/[%_\\]/g, '\\$&');
       db.all(
-        'SELECT user_id, username FROM users WHERE username LIKE ? LIMIT 10',
-        [`%${query}%`],
+        "SELECT user_id, username FROM users WHERE username LIKE ? ESCAPE '\\' LIMIT 10",
+        [`%${escapedQuery}%`],
         (err, rows) => {
           if (err) return reject(err);
           resolve(rows.map(row => ({
@@ -1400,13 +1457,9 @@ const Db = {
   },
 
   deleteMSGraphAccount(accountId) {
-    return new Promise((resolve, reject) => {
-      db.run(`DELETE FROM msgraph_accounts WHERE id = ?`, [accountId], (err) => {
-        if (err) return reject(err);
-        db.run(`DELETE FROM msgraph_event_mappings WHERE account_id = ?`, [accountId], () => {
-          resolve();
-        });
-      });
+    return this.withTransaction(async (tx) => {
+      await tx.run(`DELETE FROM msgraph_accounts WHERE id = ?`, [accountId]);
+      await tx.run(`DELETE FROM msgraph_event_mappings WHERE account_id = ?`, [accountId]);
     });
   },
 
@@ -1554,13 +1607,9 @@ const Db = {
   },
 
   deleteResource(id) {
-    return new Promise((resolve, reject) => {
-      db.run(`DELETE FROM resources WHERE id = ?`, [id], (err) => {
-        if (err) return reject(err);
-        db.run(`DELETE FROM resource_bookings WHERE resource_id = ?`, [id], () => {
-          resolve();
-        });
-      });
+    return this.withTransaction(async (tx) => {
+      await tx.run(`DELETE FROM resources WHERE id = ?`, [id]);
+      await tx.run(`DELETE FROM resource_bookings WHERE resource_id = ?`, [id]);
     });
   },
 
@@ -2594,6 +2643,7 @@ Db.db = db;
 module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
 module.exports.resolveEncryptionKey = resolveEncryptionKey;
+module.exports.withTransaction = Db.withTransaction.bind(Db);
 module.exports.getSchemaVersion = Db.getSchemaVersion;
 module.exports.setSchemaVersion = Db.setSchemaVersion;
 module.exports.runMigrations = Db.runMigrations;

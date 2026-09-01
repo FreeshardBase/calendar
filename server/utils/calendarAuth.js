@@ -46,6 +46,8 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
       hrefPath = new URL(calendarHref).pathname;
     } catch (e) {}
   }
+  const pathPosix = require('path').posix;
+  hrefPath = pathPosix.normalize('/' + hrefPath);
   const segments = hrefPath.split('/').filter(Boolean);
   const ownerId = segments[0];
 
@@ -170,6 +172,8 @@ function extractCalendarIdFromHref(accountId, href) {
       pathStr = new URL(href).pathname;
     } catch (e) {}
   }
+  const pathPosix = require('path').posix;
+  pathStr = pathPosix.normalize('/' + pathStr);
   const parts = pathStr.split('/').filter(Boolean);
   if (parts.length < 2) return null;
   const calHref = '/' + parts.slice(0, 2).join('/') + '/';
@@ -190,7 +194,9 @@ async function queueSyncForCalendar(calendarId, fallbackUserId) {
     const parts = (calendarId || '').split('::');
     const calendarHref = parts[1] || parts[0];
     if (calendarHref) {
-      const segments = calendarHref.split('/').filter(Boolean);
+      const pathPosix = require('path').posix;
+      const normalizedHref = pathPosix.normalize('/' + calendarHref);
+      const segments = normalizedHref.split('/').filter(Boolean);
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const ownerUserId = segments.find(s => uuidRegex.test(s));
       if (ownerUserId) {

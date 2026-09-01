@@ -12,10 +12,9 @@ describe('Issue #62 — Sync Worker Exception Guard & Expiration Mismatch Suite'
   const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../../webcalendar.db');
 
   test('sync_worker process_next_job recovers from unguarded exceptions and does not strand job in RUNNING', async () => {
+    await new Promise(resolve => Db.db.run('DELETE FROM sync_queue', resolve));
     const userId = 'testuser-unguarded-exc';
-    await new Promise((resolve, reject) => {
-      Db.clearSyncJobsForUser('').then(resolve).catch(reject);
-    });
+    await Db.clearSyncJobsForUser(userId);
 
     const job = await Db.addSyncJob(userId, { maxAttempts: 3 });
     assert.equal(job.status, 'PENDING');

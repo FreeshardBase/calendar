@@ -10,4 +10,7 @@ docker-compose.yml
 data/
 webcalendar.db*
 ssl/
-
+server/test/
+e2e/
+*.test.js
+*.spec.js

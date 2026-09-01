@@ -98,7 +98,11 @@ async function boot() {
     }
   } catch (err) {
     console.error('Boot error:', err);
-    showOnboarding();
+    hideLoading();
+    showApp();
+    if (typeof showToast === 'function') {
+      showToast('Fehler beim Laden der Kontodaten: ' + err.message, 'error');
+    }
   }
 }
 

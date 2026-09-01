@@ -105,10 +105,20 @@ async function getSyncQueueStatus(userId) {
   };
 }
 
+/**
+ * Prunes completed and failed sync jobs older than retention period (default 24 hours).
+ * @param {number} maxAgeMs - Max age in milliseconds
+ * @param {number} now - Reference timestamp
+ */
+async function pruneSyncQueue(maxAgeMs, now) {
+  return await Db.pruneSyncQueue(maxAgeMs, now);
+}
+
 module.exports = {
   calculateBackoff,
   scheduleSyncFailure,
   getDueSyncJobs,
   resetSyncJobRetries,
-  getSyncQueueStatus
+  getSyncQueueStatus,
+  pruneSyncQueue
 };

@@ -694,7 +694,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const title = `E2E Drive Attachment Event ${Date.now()}`;
     const driveUrl = 'https://files.freeshard.local/d/e2e-project-brief.pdf';
     const driveFileName = 'e2e-project-brief.pdf';
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = new Date().toISOString().slice(0, 8) + '15';
 
     // Click quick add or new event button
     await page.click('#new-event-btn');

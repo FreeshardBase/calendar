@@ -41,9 +41,6 @@ class CalDAVClient {
       reqHeaders['Content-Type'] = 'application/xml; charset=utf-8';
     }
 
-    // Per-request dispatcher: TLS bypass only for internal self-signed Radicale.
-    // dispatcherFor() returns undefined for external URLs → uses global dispatcher (full TLS).
-    const dispatcher = dispatcherFor(url);
     const timeoutMs = timeout || Number(process.env.CALDAV_TIMEOUT_MS) || 4000;
     const NON_RETRIABLE_CODES = new Set([
       'ECONNREFUSED',
@@ -53,31 +50,72 @@ class CalDAVClient {
       'ETIMEDOUT'
     ]);
 
-    let lastErr;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const reqSignal = signal || AbortSignal.timeout(timeoutMs);
-      const fetchOpts = { method, headers: reqHeaders, body, signal: reqSignal };
-      if (dispatcher) fetchOpts.dispatcher = dispatcher;
+    let currentUrl = url;
+    let currentMethod = method;
+    let currentBody = body;
+    const maxRedirects = 5;
 
-      try {
-        return await fetch(url, fetchOpts);
-      } catch (err) {
-        lastErr = err;
-        const causeCode = err?.cause?.code;
-        const isAbortOrTimeout = err?.name === 'AbortError' || err?.name === 'TimeoutError' || err?.cause?.name === 'AbortError' || err?.cause?.name === 'TimeoutError';
+    for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
+      const dispatcher = dispatcherFor(currentUrl);
 
-        if (NON_RETRIABLE_CODES.has(causeCode) || isAbortOrTimeout) {
+      let res;
+      let lastErr;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const reqSignal = signal || AbortSignal.timeout(timeoutMs);
+        const fetchOpts = {
+          method: currentMethod,
+          headers: reqHeaders,
+          body: currentBody,
+          signal: reqSignal,
+          redirect: 'manual'
+        };
+        if (dispatcher) fetchOpts.dispatcher = dispatcher;
+
+        try {
+          res = await fetch(currentUrl, fetchOpts);
+          break;
+        } catch (err) {
+          lastErr = err;
+          const causeCode = err?.cause?.code;
+          const isAbortOrTimeout = err?.name === 'AbortError' || err?.name === 'TimeoutError' || err?.cause?.name === 'AbortError' || err?.cause?.name === 'TimeoutError';
+
+          if (NON_RETRIABLE_CODES.has(causeCode) || isAbortOrTimeout) {
+            throw err;
+          }
+
+          if (err?.cause?.code === 'UND_ERR_SOCKET') {
+            await new Promise(r => setTimeout(r, 50));
+            continue;
+          }
           throw err;
         }
+      }
 
-        if (err?.cause?.code === 'UND_ERR_SOCKET') {
-          await new Promise(r => setTimeout(r, 50));
+      if (!res) {
+        if (lastErr) throw lastErr;
+        throw new Error('FETCH_FAILED');
+      }
+
+      if ([301, 302, 303, 307, 308].includes(res.status)) {
+        const location = res.headers.get('location');
+        if (location && redirectCount < maxRedirects) {
+          currentUrl = new URL(location, currentUrl).href;
+          if (res.status === 303) {
+            currentMethod = 'GET';
+            currentBody = undefined;
+          }
           continue;
         }
-        throw err;
       }
+
+      if (!res.url || res.url !== currentUrl) {
+        try {
+          Object.defineProperty(res, 'url', { value: currentUrl, writable: false, configurable: true });
+        } catch (_) {}
+      }
+
+      return res;
     }
-    throw lastErr;
   }
 
 
@@ -241,7 +279,7 @@ class CalDAVClient {
       
       if (res.status === 401) throw new Error('UNAUTHORIZED');
       if (!res.ok && res.status !== 207) return null;
-      return res.text();
+      return { text: await res.text(), url: res.url || url };
     };
 
     const extractTagValue = (xml, tagName) => {
@@ -253,7 +291,11 @@ class CalDAVClient {
 
     // Phase 1: Try the provided URL directly
     try {
-      xmlResponse = await queryProps(currentUrl);
+      const resObj = await queryProps(currentUrl);
+      if (resObj) {
+        xmlResponse = resObj.text;
+        currentUrl = resObj.url;
+      }
     } catch (e) {
       if (e.message === 'UNAUTHORIZED') throw e;
     }
@@ -268,8 +310,12 @@ class CalDAVClient {
         });
         if (redirectRes.status === 401) throw new Error('UNAUTHORIZED');
         if (redirectRes.ok || redirectRes.status === 207) {
-          currentUrl = redirectRes.url;
-          xmlResponse = await queryProps(currentUrl);
+          currentUrl = redirectRes.url || wellKnownUrl;
+          const resObj = await queryProps(currentUrl);
+          if (resObj) {
+            xmlResponse = resObj.text;
+            currentUrl = resObj.url;
+          }
         }
       } catch (e) {
         if (e.message === 'UNAUTHORIZED') throw e;
@@ -293,9 +339,10 @@ class CalDAVClient {
         const principalHref = extractTagValue(principalBlock, 'href');
         if (principalHref) {
           const principalUrl = new URL(principalHref, currentUrl).href;
-          const principalXml = await queryProps(principalUrl);
-          if (principalXml) {
-            const innerHomeSetBlock = extractTagValue(principalXml, 'calendar-home-set');
+          const principalResObj = await queryProps(principalUrl);
+          if (principalResObj) {
+            currentUrl = principalResObj.url;
+            const innerHomeSetBlock = extractTagValue(principalResObj.text, 'calendar-home-set');
             if (innerHomeSetBlock) {
               homeSetHref = extractTagValue(innerHomeSetBlock, 'href');
             }
@@ -665,13 +712,14 @@ class CalDAVClient {
       }
     }
 
+    const escapedQuery = escapeXML(query || '');
     const xml = `<?xml version="1.0" encoding="utf-8" ?>
 <d:principal-property-search xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
   <d:property-search>
     <d:prop>
       <d:displayname />
     </d:prop>
-    <d:match>${query}</d:match>
+    <d:match>${escapedQuery}</d:match>
   </d:property-search>
   <d:prop>
     <d:displayname />

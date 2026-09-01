@@ -631,14 +631,22 @@ def process_next_job(db_path=None):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Fetch the oldest pending job that is due for execution
+    # Auto-prune completed/errored jobs older than 24 hours (86400000 ms)
     now_ms = int(time.time() * 1000)
+    cutoff_ms = now_ms - (24 * 60 * 60 * 1000)
+    cursor.execute(
+        "DELETE FROM sync_queue WHERE status IN ('SUCCESS', 'ERROR') AND updated_at <= ?",
+        (cutoff_ms,)
+    )
+
+    # Fetch the oldest pending job that is due for execution
     cursor.execute(
         "SELECT id, user_id, COALESCE(attempts, 0) AS attempts, COALESCE(max_attempts, 3) AS max_attempts FROM sync_queue WHERE status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY created_at ASC LIMIT 1",
         (now_ms,)
     )
     job = cursor.fetchone()
     if not job:
+        conn.commit()
         conn.close()
         return False
 

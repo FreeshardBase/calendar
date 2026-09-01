@@ -38,11 +38,6 @@ const MIGRATIONS = [
       await runSql(db, "ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'");
       await runSql(db, "ALTER TABLE linked_accounts ADD COLUMN access_token TEXT");
       await runSql(db, "ALTER TABLE linked_accounts ADD COLUMN expires_at INTEGER");
-      await runSql(db, `
-        UPDATE linked_accounts 
-        SET url = 'https://apidata.googleusercontent.com/caldav/v2/' || replace(username, '@', '%40') || '/' 
-        WHERE auth_type = 'oauth2' AND url LIKE '%/user/'
-      `);
     }
   },
   {
@@ -63,6 +58,29 @@ const MIGRATIONS = [
       await runSql(db, "ALTER TABLE user_calendar_shares ADD COLUMN role TEXT DEFAULT 'WRITE'");
       await runSql(db, "ALTER TABLE user_calendar_shares ADD COLUMN can_view_private INTEGER DEFAULT 0");
       await runSql(db, "ALTER TABLE user_calendar_shares ADD COLUMN can_manage_shares INTEGER DEFAULT 0");
+    }
+  },
+  {
+    version: 4,
+    name: '004_hot_query_indexes',
+    up: async (db) => {
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_app_passwords_user_id ON app_passwords(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_calendar_shares_calendar_id ON calendar_shares(calendar_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_sync_queue_user_id ON sync_queue(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_sync_queue_status_retry ON sync_queue(status, next_retry_at)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_user_calendar_shares_sharee ON user_calendar_shares(sharee_user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_msgraph_accounts_user_id ON msgraph_accounts(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_msgraph_event_mappings_graph_id ON msgraph_event_mappings(graph_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_msgraph_event_mappings_account_id ON msgraph_event_mappings(account_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user_id ON web_push_subscriptions(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_resource_bookings_resource_id ON resource_bookings(resource_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_resource_bookings_user_id ON resource_bookings(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_availability_pages_user_id ON availability_pages(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_availability_pages_calendar_id ON availability_pages(calendar_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_slot_bookings_page_id ON slot_bookings(page_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_sync_conflicts_user_id ON sync_conflicts(user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_delegate_permissions_delegate ON delegate_permissions(delegate_user_id)');
+      await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_cross_user_deletions_owner ON cross_user_deletions(owner_user_id)');
     }
   }
 ];
