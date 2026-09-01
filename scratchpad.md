@@ -4,6 +4,27 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Generic OIDC Provider & Multi-User Shard Identity (Issue #121):**
+  - Replaced hardcoded references to Authelia across documentation (`README.md`, `agents.md`), comments, and route handlers in `server/routes/auth.js` with generic OpenID Connect / OIDC standard identity provider terminology.
+  - Updated `server/routes/auth.js` claims extraction logic to standardly extract `userId` (`claims.sub`) and `username` (`claims.preferred_username || claims.username || claims.email || claims.name || claims.sub`).
+  - Added support in `server/index.js` session middleware for reverse-proxy / shard identity headers (`x-forwarded-user`, `x-user-id`, `remote-user`) when `AUTH_METHOD=oidc` or `HTTP_HEADER_AUTH=true`.
+  - Ensured multi-user session auto-provisioning correctly registers user identity in SQLite DB (`Db.upsertUser`) and mounts user-isolated internal CalDAV storage (`/internal-caldav/<userId>/`).
+  - Created unit test suite `server/test/issue121_oidc_generic_multiuser_shard.test.js` (5 tests, 100% green).
+
+- **SQLite WAL Quiesce, Backup & Restorability (Issue #120):**
+  - Implemented `Db.quiesceDatabase(mode)` in `server/db.js` running `PRAGMA wal_checkpoint(TRUNCATE)` (or `PASSIVE`, `FULL`, `RESTART`) to flush all uncheckpointed WAL log frames into the main database file and truncate the WAL file.
+  - Implemented `Db.createBackup(targetPath)` combining WAL quiescing with `VACUUM INTO` atomic backups (and safe file-copy fallback) to produce clean, single-file database backups.
+  - Implemented `Db.verifyDatabaseIntegrity(targetPath)` running `PRAGMA integrity_check` to verify database health and restorability.
+  - Exposed internal endpoint `POST /internal/db/quiesce` in `server/index.js` protected by `requireInternal` middleware for automated shard backup orchestration.
+  - Created unit test suite `server/test/issue120_wal_quiesce_backup.test.js` (3 tests, 100% green).
+
+- **Store Metadata Alignment, Version Scheme & update_check.py (Issue #119):**
+  - Created `app-repository/apps/webcalendar/app_meta.json` defining store metadata (`app_version: "1.0.0"`, `name: "webcalendar"`, entrypoints, paths, and descriptions).
+  - Implemented `app-repository/apps/webcalendar/update_check.py` with `check(current_version)` to integrate into store orchestrator (`python3 update/update.py check`) without errors.
+  - Replaced template FileBrowser icon with a dedicated custom WebCalendar SVG icon (`app-repository/apps/webcalendar/icon.svg`).
+  - Added compose template `app-repository/apps/webcalendar/docker-compose.yml.template`.
+  - Created unit test suite `server/test/issue119_version_scheme_store_meta.test.js` (3 tests, 100% green).
+
 - **Dev Compose & Shipping Topology Alignment (Issue #118):**
   - Removed host port binding (`5232:5232`) from `caldav-server` service in `docker-compose.yml` to match shipping container topology where Radicale is unexposed to the host.
   - Aligned internal container URLs (`https://caldav-server:5232`) for `webcalendar` and `sync-worker` services.

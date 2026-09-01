@@ -19,7 +19,7 @@ Three services around one shared SQLite database:
 The internal Radicale server (`caldav-server`) runs strictly as an unexposed backend container within the private container network. Direct connection from external CalDAV desktop or mobile clients (e.g. Thunderbird, iOS Calendar, DAVx5) is not exposed in the shipping topology. Users can link external CalDAV accounts (Nextcloud, Fastmail, etc.) inside the WebCalendar UI for background two-way synchronization.
 
 
-Users authenticate via OIDC (Authelia) or a single env-configured account.
+Users authenticate via generic OpenID Connect (OIDC) / identity headers or a single env-configured account.
 External CalDAV accounts (Nextcloud, …) can be linked per user; credentials are
 stored AES-encrypted. See `agents.md` for a deeper code map.
 

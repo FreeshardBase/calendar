@@ -2,6 +2,7 @@
 
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
@@ -2300,6 +2301,70 @@ const Db = {
       db.run(`DELETE FROM sessions WHERE expired < ?`, [now], function(err) {
         if (err) return reject(err);
         resolve(this.changes || 0);
+      });
+    });
+  },
+
+  quiesceDatabase(mode = 'TRUNCATE') {
+    return new Promise((resolve, reject) => {
+      const validModes = new Set(['PASSIVE', 'FULL', 'RESTART', 'TRUNCATE']);
+      const normalizedMode = String(mode || 'TRUNCATE').toUpperCase();
+      if (!validModes.has(normalizedMode)) {
+        return reject(new Error(`Invalid wal_checkpoint mode: ${mode}`));
+      }
+      db.get(`PRAGMA wal_checkpoint(${normalizedMode})`, (err, row) => {
+        if (err) return reject(err);
+        resolve({
+          busy: row ? (row.busy ?? 0) : 0,
+          log: row ? (row.log ?? 0) : 0,
+          checkpointed: row ? (row.checkpointed ?? 0) : 0
+        });
+      });
+    });
+  },
+
+  async createBackup(targetPath) {
+    if (!targetPath) {
+      throw new Error('targetPath is required for database backup');
+    }
+    const quiesceResult = await this.quiesceDatabase('TRUNCATE');
+    const dir = path.dirname(targetPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    return new Promise((resolve, reject) => {
+      db.run(`VACUUM INTO ?`, [targetPath], (err) => {
+        if (!err) {
+          const stats = fs.statSync(targetPath);
+          return resolve({ backupPath: targetPath, size: stats.size, quiesceResult });
+        }
+        try {
+          fs.copyFileSync(dbPath, targetPath);
+          const stats = fs.statSync(targetPath);
+          resolve({ backupPath: targetPath, size: stats.size, quiesceResult, fallback: true });
+        } catch (copyErr) {
+          reject(copyErr);
+        }
+      });
+    });
+  },
+
+  verifyDatabaseIntegrity(targetPath = dbPath) {
+    return new Promise((resolve, reject) => {
+      let checkDb = db;
+      let shouldClose = false;
+      if (targetPath && targetPath !== dbPath) {
+        checkDb = new sqlite3.Database(targetPath, sqlite3.OPEN_READONLY);
+        shouldClose = true;
+      }
+      checkDb.get('PRAGMA integrity_check', (err, row) => {
+        if (shouldClose) {
+          checkDb.close();
+        }
+        if (err) return reject(err);
+        const val = row ? Object.values(row)[0] : null;
+        resolve(val === 'ok');
       });
     });
   }

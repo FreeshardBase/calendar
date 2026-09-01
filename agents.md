@@ -28,7 +28,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `server/index.js` — Express app. Session middleware injects accounts into `req.session.accounts`
   on every request: DB-stored linked accounts + `env-default` (from `CALDAVURL` env) +
   `internal-caldav` (Radicale at `INTERNAL_CALDAV_URL`, authed with `SYSTEM_SYNC_SECRET`).
-  Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Authelia).
+  Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Generic OpenID Connect / OIDC standard identity provider or reverse-proxy header auth).
 - `server/db.js` — sqlite3 wrapper, schema auto-created on boot. Tables: `linked_accounts`
   (AES-256-CBC-encrypted passwords/refresh-tokens, key = scrypt(`ENCRYPTION_KEY`)), `app_passwords`
   (PBKDF2-HMAC-SHA256, for internal service/app authentication), `calendar_shares` (public ICS tokens), `sync_queue`
@@ -37,7 +37,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).
 - `server/utils/msgraph.js` — MS Graph API client and `MSGraphSyncEngine` for Microsoft 365 / Outlook calendar integration and event format mapping (`veventToGraphEvent` / `graphEventToVEVENT`).
-- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `msgraph` (`/api/msgraph/accounts` MS Graph OAuth account management), `auth` (Authelia OIDC login, Back-Channel Logout, Google OAuth2 account linking).
+- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `msgraph` (`/api/msgraph/accounts` MS Graph OAuth account management), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)

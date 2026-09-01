@@ -60,6 +60,12 @@ app.use(async (req, res, next) => {
   } else if (req.headers['x-test-user-id']) {
     userId = req.headers['x-test-user-id'];
     req.session.userId = userId;
+  } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
+    const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'];
+    if (headerUser) {
+      userId = String(headerUser).trim();
+      req.session.userId = userId;
+    }
   } else if (!userId && authMethod === 'env' && (process.env.NODE_ENV !== 'test' || process.env.E2E_TEST === 'true')) {
     userId = process.env.CALDAV_USERNAME || 'test';
     req.session.userId = userId;
@@ -350,6 +356,18 @@ app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) =>
     res.json({ message: `Successfully deleted accounts for user ${user_id}` });
   } catch (err) {
     console.error(`[webhook] Error deleting accounts for user ${user_id}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/internal/db/quiesce', requireInternal, async (req, res) => {
+  try {
+    const mode = req.body?.mode || 'TRUNCATE';
+    const result = await Db.quiesceDatabase(mode);
+    console.log(`[internal] Database WAL quiesce executed (mode=${mode}):`, result);
+    res.json({ success: true, message: 'Database WAL quiesced', details: result });
+  } catch (err) {
+    console.error('[internal] Error quiescing database WAL:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

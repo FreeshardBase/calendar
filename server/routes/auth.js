@@ -7,7 +7,7 @@ const Db = require('../db');
 const { getOidcClient } = require('../utils/oidcClient');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
 
-// GET /api/auth/login — Redirect user to Authelia login page
+// GET /api/auth/login — Redirect user to OIDC identity provider login page
 router.get('/login', async (req, res) => {
   try {
     const client = await getOidcClient();
@@ -24,7 +24,7 @@ router.get('/login', async (req, res) => {
   }
 });
 
-// GET /api/auth/callback — Authelia redirects here with auth code
+// GET /api/auth/callback — OIDC identity provider redirects here with auth code
 router.get('/callback', async (req, res) => {
   try {
     const client = await getOidcClient();
@@ -39,14 +39,14 @@ router.get('/callback', async (req, res) => {
     );
 
     const claims = tokenSet.claims();
-    const userId = claims.sub; // Authelia unique user subject
-    let username = claims.preferred_username || claims.username || userId;
+    const userId = claims.sub; // Generic OIDC unique user subject
+    let username = claims.preferred_username || claims.username || claims.email || claims.name || userId;
 
-    // Fetch userinfo if preferred_username is missing from the ID Token claims (typical for Authelia default policy)
+    // Fetch userinfo if preferred_username is missing from the ID Token claims (typical for generic OIDC default policy)
     if (username === userId && tokenSet.access_token) {
       try {
         const userinfo = await client.userinfo(tokenSet.access_token);
-        username = userinfo.preferred_username || userinfo.username || userinfo.sub || username;
+        username = userinfo.preferred_username || userinfo.username || userinfo.email || userinfo.name || userinfo.sub || username;
       } catch (uiErr) {
         console.warn('[OIDC callback] Failed to fetch UserInfo claims:', uiErr.message);
       }
