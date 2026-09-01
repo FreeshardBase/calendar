@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Platform Identity Headers & App Meta Declaration (Issue #143):**
+  - Resolved gap where `app-repository/apps/webcalendar/app_meta.json` declared no platform proxy identity headers under `paths`, preventing reverse proxies from passing user and client identity headers (`X-Ptl-Client-Id`, `X-Ptl-Client-Name`, `X-Ptl-Client-Type`).
+  - Added header declarations to `app_meta.json`: `X-Ptl-Client-Id: "{{ auth.client_id }}"`, `X-Ptl-Client-Name: "{{ auth.client_name }}"`, `X-Ptl-Client-Type: "{{ auth.client_type }}"` for private path `""`, and `X-Ptl-Client-Type: "{{ auth.client_type }}"` for public path `"/api/public/"`.
+  - Updated session middleware in `server/index.js` to recognize platform identity header `req.headers['x-ptl-client-id']` alongside `x-forwarded-user`, `x-user-id`, and `remote-user` when `AUTH_METHOD=oidc` or `HTTP_HEADER_AUTH=true`.
+  - Created unit test suite `server/test/issue143_platform_identity_headers.test.js` (2 tests, 100% green).
 - **Radicale Container HEALTHCHECK & Store Template Health-Gating (Issue #142):**
   - Resolved deployment vulnerability where Radicale CalDAV backend lacked container HEALTHCHECK instructions, allowing `webcalendar` and `sync-worker` containers to start accepting traffic before Radicale finished booting.
   - Installed `curl` in `radicale/Dockerfile` and added `HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD curl -f -k https://localhost:5232/ || curl -f http://localhost:5232/ || exit 1`.

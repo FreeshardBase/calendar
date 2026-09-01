@@ -61,7 +61,7 @@ app.use(async (req, res, next) => {
     userId = req.headers['x-test-user-id'];
     req.session.userId = userId;
   } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
-    const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'];
+    const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
     if (headerUser) {
       userId = String(headerUser).trim();
       req.session.userId = userId;
