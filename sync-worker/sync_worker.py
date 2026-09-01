@@ -616,13 +616,17 @@ def process_next_job(db_path=None):
     attempts = job["attempts"]
     max_attempts = job["max_attempts"]
 
-    # Mark job as RUNNING
+    # Mark job as RUNNING atomically using conditional UPDATE
     cursor.execute(
-        "UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ?",
+        "UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ? AND status = 'PENDING'",
         (int(time.time() * 1000), job_id)
     )
     conn.commit()
+    claimed = cursor.rowcount > 0
     conn.close()
+
+    if not claimed:
+        return False
 
     # Safely execute sync_user
     success = False

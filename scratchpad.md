@@ -4,6 +4,12 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Atomic Sync Queue Job Claiming (Issue #123):**
+  - Resolved non-atomic sync job claiming in `sync-worker/sync_worker.py` and `server/db.js` where race conditions between concurrent worker threads/processes enabled duplicate execution of identical sync jobs.
+  - Enforced atomic conditional updates: `UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ? AND status = 'PENDING'` with strict `rowcount > 0` / `changes > 0` validation to guarantee exactly one worker claims a given job.
+  - Added atomic methods `Db.claimSyncJob(id)` and `Db.claimNextSyncJob(now)` to `server/db.js`.
+  - Created unit test suite `server/test/issue123_atomic_sync_claim.test.js` verifying single-claim execution under high concurrency across Node.js and Python `sync_worker`.
+
 - **Generic OIDC Provider & Multi-User Shard Identity (Issue #121):**
   - Replaced hardcoded references to Authelia across documentation (`README.md`, `agents.md`), comments, and route handlers in `server/routes/auth.js` with generic OpenID Connect / OIDC standard identity provider terminology.
   - Updated `server/routes/auth.js` claims extraction logic to standardly extract `userId` (`claims.sub`) and `username` (`claims.preferred_username || claims.username || claims.email || claims.name || claims.sub`).

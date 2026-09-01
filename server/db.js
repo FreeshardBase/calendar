@@ -839,6 +839,51 @@ const Db = {
     });
   },
 
+  claimSyncJob(id) {
+    return new Promise((resolve, reject) => {
+      const now = Date.now();
+      db.run(
+        'UPDATE sync_queue SET status = "RUNNING", updated_at = ? WHERE id = ? AND status = "PENDING"',
+        [now, id],
+        function (err) {
+          if (err) return reject(err);
+          resolve({ claimed: this.changes > 0, id, updatedAt: now });
+        }
+      );
+    });
+  },
+
+  claimNextSyncJob(now = Date.now()) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT id, user_id, COALESCE(attempts, 0) AS attempts, COALESCE(max_attempts, 3) AS max_attempts FROM sync_queue WHERE status = "PENDING" AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY created_at ASC LIMIT 1',
+        [now],
+        (err, row) => {
+          if (err) return reject(err);
+          if (!row) return resolve(null);
+          const updateNow = Date.now();
+          db.run(
+            'UPDATE sync_queue SET status = "RUNNING", updated_at = ? WHERE id = ? AND status = "PENDING"',
+            [updateNow, row.id],
+            function (err2) {
+              if (err2) return reject(err2);
+              if (this.changes === 0) {
+                return resolve(null);
+              }
+              resolve({
+                id: row.id,
+                userId: row.user_id,
+                attempts: row.attempts,
+                maxAttempts: row.max_attempts,
+                updatedAt: updateNow
+              });
+            }
+          );
+        }
+      );
+    });
+  },
+
   clearSyncJobsForUser(userId) {
     return new Promise((resolve, reject) => {
       db.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`], (err) => {
