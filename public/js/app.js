@@ -644,9 +644,9 @@ function openShareCalendarDialog(cal) {
     caldavSharingHtml = `
       <!-- Section 1: CalDAV Sharing Excluded -->
       <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
-        <h4 class="share-section-title">Mit anderen Benutzern teilen (CalDAV)</h4>
+        <h4 class="share-section-title">Mit anderen Nutzer*innen teilen (CalDAV)</h4>
         <div style="background: rgba(234, 67, 53, 0.06); color: #d93025; padding: 12px 14px; border-radius: var(--radius-control); font-size: 0.8rem; line-height: 1.45; border: 1px solid rgba(234, 67, 53, 0.15); margin-top: 8px;">
-          <strong>Teilen nicht möglich:</strong> Dieser Kalender wird über einen externen Server (${escHtml(serverHost)}) gehostet. Das direkte CalDAV-Teilen funktioniert nur mit Benutzern auf demselben CalDAV-Server. Nutze stattdessen unten die öffentliche Link-Freigabe.
+          <strong>Teilen nicht möglich:</strong> Dieser Kalender wird über einen externen Server (${escHtml(serverHost)}) gehostet. Das direkte CalDAV-Teilen funktioniert nur mit Nutzer*innen auf demselben CalDAV-Server. Nutze stattdessen unten die öffentliche Link-Freigabe.
         </div>
       </div>
     `;
@@ -654,12 +654,12 @@ function openShareCalendarDialog(cal) {
     caldavSharingHtml = `
       <!-- Section 1: CalDAV Sharing -->
       <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
-        <h4 class="share-section-title">Mit anderen Benutzern teilen (CalDAV)</h4>
-        <p class="share-section-desc">Gib die E-Mail-Adresse oder den Namen eines Benutzers auf dem CalDAV-Server (${escHtml(serverHost)}) ein, um ihn einzuladen.</p>
+        <h4 class="share-section-title">Mit anderen Nutzer*innen teilen (CalDAV)</h4>
+        <p class="share-section-desc">Gib die E-Mail-Adresse oder den Namen einer Person auf dem CalDAV-Server (${escHtml(serverHost)}) ein, um sie einzuladen.</p>
         
         <div class="share-input-row">
           <div class="autocomplete-container">
-            <input class="form-input" id="share-search-input" type="text" placeholder="Benutzer suchen oder E-Mail eingeben..." autocomplete="off" />
+            <input class="form-input" id="share-search-input" type="text" placeholder="Personen/Nutzer*innen suchen oder E-Mail eingeben..." autocomplete="off" />
             <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown"></div>
           </div>
           <select class="form-select" id="share-role-select" style="width:140px; flex-shrink:0;">
@@ -741,7 +741,7 @@ function openShareCalendarDialog(cal) {
     addBtn.addEventListener('click', async () => {
       const sharee = searchInput.value.trim();
       if (!sharee) {
-        showToast('Bitte wähle einen Benutzer oder eine E-Mail-Adresse.', 'warning');
+        showToast('Bitte wähle eine/n Nutzer*in oder eine E-Mail-Adresse.', 'warning');
         return;
       }
       const readWrite = roleSelect.value === 'true';

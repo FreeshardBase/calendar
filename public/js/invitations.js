@@ -126,10 +126,10 @@ export function renderInvitationsHTML(invList, options = {}) {
           <strong class="invitation-title">${escHtml(inv.title || 'Unbenannter Termin')}</strong>
           <span class="invitation-date">${escHtml(formattedDate)}</span>
         </div>
-        ${inv.organizer ? `<div class="invitation-organizer">Organisator: ${escHtml(inv.organizer.name || inv.organizer.email)}</div>` : ''}
+        ${inv.organizer ? `<div class="invitation-organizer">Organisator*in: ${escHtml(inv.organizer.name || inv.organizer.email)}</div>` : ''}
         ${inv.description ? `<div class="invitation-desc">${escHtml(inv.description)}</div>` : ''}
         <div class="invitation-attendees">
-          <small>Teilnehmer:</small>
+          <small>Teilnehmende:</small>
           ${attendeesHtml}
         </div>
         <div class="invitation-actions">

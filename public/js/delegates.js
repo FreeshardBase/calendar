@@ -57,7 +57,7 @@ const DelegatesModule = {
   renderDelegatesList(delegates, containerEl, onRevoke) {
     if (!containerEl) return;
     if (!delegates || delegates.length === 0) {
-      containerEl.innerHTML = '<div class="text-sm text-slate-500 py-2">Keine Stellvertreter eingerichtet.</div>';
+      containerEl.innerHTML = '<div class="text-sm text-slate-500 py-2">Keine Stellvertretung eingerichtet.</div>';
       return;
     }
 

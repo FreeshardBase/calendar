@@ -4,6 +4,13 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Gendergerecht German Copy Alignment (Issue #168):**
+  - Updated generic masculine UI labels and descriptions to gendergerecht / inclusive German phrasing across frontend components (`public/index.html`, `public/js/invitations.js`, `public/js/delegates.js`, `public/js/app.js`).
+  - Replaced `<label class="form-label">Teilnehmer</label>` and `<small>Teilnehmer:</small>` with `Teilnehmende`.
+  - Replaced `Organisator:` with `Organisator*in:`.
+  - Replaced `Keine Stellvertreter eingerichtet.` with `Keine Stellvertretung eingerichtet.`.
+  - Replaced generic masculine `Mit anderen Benutzern teilen`, `Benutzern auf demselben CalDAV-Server`, `Namen eines Benutzers`, `Benutzer suchen`, and `Bitte wähle einen Benutzer` in `public/js/app.js` with `Nutzer*innen` and `Personen` phrasing.
+  - Created TDD unit test suite `server/test/issue168_gendergerecht_german_copy.test.js` (4 tests, 100% green).
 - **German Typography Fixes (Issue #167):**
   - Resolved straight closing quote defect where German opening quotation mark `„` was closed with a straight quote `"` instead of German closing quote `“` across `public/js/app.js`, `public/js/accountModal.js`, and `public/js/eventModal.js`.
   - Updated month view overflow rendering in `public/js/calendar.js` to distinguish singular vs plural overflow items (`+1 weiterer` for masculine Termin singular vs `+N weitere` for plural).
