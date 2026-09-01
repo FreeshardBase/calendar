@@ -18,6 +18,7 @@ def get_db_path():
 def get_db(db_path=None):
     target_path = db_path or get_db_path()
     conn = sqlite3.connect(target_path)
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
 

@@ -30,7 +30,8 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
   await Db.upsertUser(ownerUserId, 'owner_color@example.com');
   await Db.upsertUser(inviteeUserId, 'invitee_color@example.com');
 
-  const ownerCalId = `internal-caldav::/${ownerUserId}/personal/`;
+  const ownerCanonical = (await Db.getUsernameByUserId(ownerUserId)) || ownerUserId;
+  const ownerCalId = `internal-caldav::/${ownerCanonical}/personal/`;
 
   await t.test('Low-level Db helper functions for local calendar color overrides', async () => {
     const calId = 'internal-caldav::/user1/test-cal/';

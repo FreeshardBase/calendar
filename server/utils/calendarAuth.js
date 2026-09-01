@@ -73,12 +73,46 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
 
   // 2. Check internal calendar share table
   const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
-  const userShares = await Db.getSharedCalendarsForUser(userUuid);
-  const matchingShare =
-    userShares.find(s => s.calendar_id === calendarId) ||
-    (userUuid !== userId
-      ? (await Db.getSharedCalendarsForUser(userId)).find(s => s.calendar_id === calendarId)
-      : null);
+  const username = (await Db.getUsernameByUserId(userId)) || userId;
+  
+  const sharesSet = new Map();
+  for (const uid of [userId, userUuid, username]) {
+    if (!uid) continue;
+    const shares = await Db.getSharedCalendarsForUser(uid);
+    for (const s of shares) {
+      sharesSet.set(s.calendar_id, s);
+    }
+  }
+  const userShares = Array.from(sharesSet.values());
+
+  const ownerUuid = (await Db.getUserIdByUsername(ownerId)) || ownerId;
+  const ownerUsername = (await Db.getUsernameByUserId(ownerId)) || ownerId;
+
+  const matchingShare = userShares.find(s => {
+    if (s.calendar_id === calendarId) return true;
+    const parts = s.calendar_id.split('::');
+    if (parts.length < 2) return false;
+    const sHref = parts[1];
+    const sSegs = sHref.split('/').filter(Boolean);
+    const sOwner = sSegs[0];
+    const sSlug = sSegs.slice(1).join('/');
+
+    const reqParts = calendarId.split('::');
+    const reqHref = reqParts[1] || '';
+    const reqSegs = reqHref.split('/').filter(Boolean);
+    const reqOwner = reqSegs[0];
+    const reqSlug = reqSegs.slice(1).join('/');
+
+    const slugMatches = (sSlug === reqSlug);
+    const ownerMatches = (
+      sOwner === reqOwner ||
+      sOwner === ownerUuid ||
+      sOwner === ownerUsername ||
+      reqOwner === ownerUuid ||
+      reqOwner === ownerUsername
+    );
+    return slugMatches && ownerMatches;
+  });
 
   if (matchingShare) {
     const role = matchingShare.role || (matchingShare.read_write ? 'WRITE' : 'READ');

@@ -389,6 +389,7 @@ password = "{SYSTEM_SYNC_SECRET}"
 def sync_user(user_id):
     print(f"[Sync-Worker] Sync starting for user {user_id}...")
     conn = sqlite3.connect(get_db_path())
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -626,6 +627,7 @@ def process_next_job(db_path=None):
         return False
 
     conn = sqlite3.connect(target_db)
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -670,6 +672,7 @@ def process_next_job(db_path=None):
     # Safely update job status after execution
     try:
         conn = sqlite3.connect(target_db)
+        conn.execute("PRAGMA foreign_keys = ON")
         cursor = conn.cursor()
         now_ms = int(time.time() * 1000)
         if success:

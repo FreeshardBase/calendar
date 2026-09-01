@@ -14,6 +14,7 @@ class Auth(BaseAuth):
         if os.path.exists(db_path):
             try:
                 conn = sqlite3.connect(db_path)
+                conn.execute("PRAGMA foreign_keys = ON")
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT user_id FROM users WHERE username = ? OR user_id = ?",
@@ -37,6 +38,7 @@ class Auth(BaseAuth):
 
         try:
             conn = sqlite3.connect(db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT password_hash FROM app_passwords WHERE user_id = ?",

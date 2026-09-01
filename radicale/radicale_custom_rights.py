@@ -38,6 +38,7 @@ class Rights(BaseRights):
 
         try:
             conn = sqlite3.connect(db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT read_write, role, status FROM user_calendar_shares WHERE calendar_id = ? AND sharee_user_id = ?",

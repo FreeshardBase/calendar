@@ -386,23 +386,24 @@ router.get('/', async (req, res) => {
         allCalendars.push(...calendars);
       }
     })
-  ).then(results => {
-    results.forEach((r, i) => {
+  ).then(async (results) => {
+    await Promise.all(results.map(async (r, i) => {
       if (r.status === 'rejected') {
         errors.push({ accountId: accounts[i].id, error: r.reason.message });
         console.error(`[calendars] Account ${accounts[i].id}:`, r.reason.message);
         if (process.env.DISABLE_INTERNAL_CALDAV === '1' && req.session?.userId) {
+          const canonicalUser = (await Db.getUsernameByUserId(req.session.userId)) || req.session.userId;
           allCalendars.push({
-            id: `internal-caldav::/${req.session.userId}/personal/`,
+            id: `internal-caldav::/${canonicalUser}/personal/`,
             accountId: accounts[i].id,
             name: 'Persönlich',
             color: '#7c3aed',
-            href: `/${req.session.userId}/personal/`,
+            href: `/${canonicalUser}/personal/`,
             source: 'local'
           });
         }
       }
-    });
+    }));
   });
 
   // Fetch shared calendars for the logged-in user

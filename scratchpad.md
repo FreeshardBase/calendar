@@ -4,6 +4,16 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Foreign Keys Enforcement & Connection Pragma Enabling (Issue #145):**
+  - Resolved gap where no foreign key constraints existed and `PRAGMA foreign_keys = ON` was never enabled on any SQLite connection across Node or Python runtimes.
+  - Enabled `PRAGMA foreign_keys = ON` on all 4 connection points: Express Node server (`server/db.js`), Python sync worker (`sync-worker/sync_worker.py`), MS Graph sync worker (`sync-worker/msgraph_worker.py`), Radicale custom auth plugin (`radicale/radicale_custom_auth.py`), and Radicale custom rights plugin (`radicale/radicale_custom_rights.py`).
+  - Added explicit `FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE` constraint declarations to user-indexed SQLite table schemas in `server/db.js`.
+  - Created TDD unit test suite `server/test/issue145_foreign_keys.test.js` (6 tests, 100% green).
+- **User ID & CalDAV Collection Path Canonicalization (Issue #144):**
+  - Resolved multi-user identity issue where UUID `sub` claims baked into CalDAV collection paths orphaned existing calendars under canonical usernames.
+  - Updated `server/index.js` session middleware to resolve `canonicalUsername` via `Db.getUsernameByUserId` and construct internal CalDAV account URLs consistently under canonical username paths (`/${canonicalUsername}/`).
+  - Enhanced `checkCalendarAccess` in `server/utils/calendarAuth.js` to resolve shared calendar permissions dynamically across both `userId`, `userUuid`, and `canonicalUsername` identity mappings.
+  - Created unit test suite `server/test/issue144_user_id_caldav_collection_path.test.js` (5 tests, 100% green).
 - **Platform Identity Headers & App Meta Declaration (Issue #143):**
   - Resolved gap where `app-repository/apps/webcalendar/app_meta.json` declared no platform proxy identity headers under `paths`, preventing reverse proxies from passing user and client identity headers (`X-Ptl-Client-Id`, `X-Ptl-Client-Name`, `X-Ptl-Client-Type`).
   - Added header declarations to `app_meta.json`: `X-Ptl-Client-Id: "{{ auth.client_id }}"`, `X-Ptl-Client-Name: "{{ auth.client_name }}"`, `X-Ptl-Client-Type: "{{ auth.client_type }}"` for private path `""`, and `X-Ptl-Client-Type: "{{ auth.client_type }}"` for public path `"/api/public/"`.

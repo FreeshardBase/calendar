@@ -73,6 +73,13 @@ db.serialize(() => {
   // a MEMORY journal would risk corruption on concurrent multi-process writes.
   db.run('PRAGMA journal_mode = WAL');
   db.run('PRAGMA busy_timeout = 15000');
+  db.run('PRAGMA foreign_keys = ON');
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      user_id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS linked_accounts (
       id TEXT PRIMARY KEY,
@@ -84,7 +91,8 @@ db.serialize(() => {
       display_name TEXT NOT NULL,
       auth_type TEXT DEFAULT 'basic',
       access_token TEXT,
-      expires_at INTEGER
+      expires_at INTEGER,
+      FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     )
   `);
   db.run(`
@@ -93,7 +101,8 @@ db.serialize(() => {
       user_id TEXT NOT NULL,
       label TEXT NOT NULL,
       password_hash TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     )
   `);
   db.run(`
@@ -115,19 +124,14 @@ db.serialize(() => {
       next_retry_at INTEGER,
       retry_state TEXT NOT NULL DEFAULT 'IDLE',
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     )
   `);
   db.run(`ALTER TABLE sync_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`, () => {});
   db.run(`ALTER TABLE sync_queue ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3`, () => {});
   db.run(`ALTER TABLE sync_queue ADD COLUMN next_retry_at INTEGER`, () => {});
   db.run(`ALTER TABLE sync_queue ADD COLUMN retry_state TEXT NOT NULL DEFAULT 'IDLE'`, () => {});
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      user_id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL
-    )
-  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS user_calendar_shares (
       id TEXT PRIMARY KEY,

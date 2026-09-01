@@ -96,15 +96,22 @@ app.use(async (req, res, next) => {
       }
 
       // Inject the internal CalDAV account (Radicale) unless disabled
-      if (!process.env.DISABLE_INTERNAL_CALDAV && !accounts.some(a => a.id === 'internal-caldav')) {
+      const canonicalUsername = (await Db.getUsernameByUserId(userId)) || userId;
+      if (!process.env.DISABLE_INTERNAL_CALDAV) {
         const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://localhost:5232';
-        accounts.unshift({
-          id: 'internal-caldav',
-          url: `${localCalDAVCUrl}/${userId}/`,
-          username: userId,
-          password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
-          displayName: 'Interner Kalender'
-        });
+        const internalAcc = accounts.find(a => a.id === 'internal-caldav');
+        if (!internalAcc) {
+          accounts.unshift({
+            id: 'internal-caldav',
+            url: `${localCalDAVCUrl}/${canonicalUsername}/`,
+            username: canonicalUsername,
+            password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+            displayName: 'Interner Kalender'
+          });
+        } else {
+          internalAcc.username = canonicalUsername;
+          internalAcc.url = `${localCalDAVCUrl}/${canonicalUsername}/`;
+        }
       }
       
       req.session.accounts = accounts;
