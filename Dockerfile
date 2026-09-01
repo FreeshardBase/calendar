@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 LABEL org.opencontainers.image.title="FreeShard WebCalendar"
 LABEL org.opencontainers.image.description="CalDAV web client for FreeShard"

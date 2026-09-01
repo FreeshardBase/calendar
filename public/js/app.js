@@ -3,7 +3,7 @@
  * Entry point for all frontend logic.
  */
 
-import { store, toggleCalendar, invalidateEventCache } from './store.js';
+import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI } from './api.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
@@ -149,23 +149,48 @@ async function loadCalendars() {
   }
 }
 
+async function syncCalendarDelta(calendarId) {
+  try {
+    const cachedSync = getCalendarSyncCache(calendarId);
+    const syncToken = cachedSync?.syncToken || null;
+    const ctag = cachedSync?.ctag || null;
+    const res = await CalendarsAPI.deltaSync(calendarId, syncToken, ctag);
+    if (res && res.syncToken) {
+      setCalendarSyncCache(calendarId, ctag, res.syncToken);
+    }
+    return res;
+  } catch (err) {
+    console.warn('[delta-sync] Delta sync failed for calendar:', calendarId, err.message);
+    return null;
+  }
+}
+
 async function loadEvents() {
   const view = store.get('view');
   const date = store.get('currentDate');
   const { start, end } = getDateRange(view, date);
+  const cacheKey = `${view}_${start.toISOString()}_${end.toISOString()}`;
 
-  store.set({ loadingEvents: true });
-  setStatus('Lade Termine…');
+  const cached = getCachedEvents(cacheKey);
+  if (cached && Array.isArray(cached)) {
+    store.set({ events: cached });
+    renderCalendarView();
+  } else {
+    store.set({ loadingEvents: true });
+    setStatus('Lade Termine…');
+  }
 
   try {
     const events = await EventsAPI.list(start.toISOString(), end.toISOString());
-    // Merge into store (replace for current view range)
+    cacheEvents(cacheKey, events);
     store.set({ events });
     renderCalendarView();
     checkAndTriggerAlarms();
   } catch (err) {
-    showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
-    setStatus('');
+    if (!cached) {
+      showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
+      setStatus('');
+    }
   } finally {
     store.set({ loadingEvents: false });
   }

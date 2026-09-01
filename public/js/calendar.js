@@ -14,9 +14,19 @@ const HOUR_H = 60; // px per hour in time grid
 const DAY_START = 0; // render from hour 0
 const TOTAL_HOURS = 24;
 
+let currentTimeLineTimer = null;
+
+export function clearCurrentTimeLineTimer() {
+  if (currentTimeLineTimer) {
+    clearInterval(currentTimeLineTimer);
+    currentTimeLineTimer = null;
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function renderView(container, events, view, currentDate, callbacks) {
+  clearCurrentTimeLineTimer();
   container.innerHTML = '';
   switch (view) {
     case 'month':  renderMonth(container, events, currentDate, callbacks); break;
@@ -545,6 +555,8 @@ function createEventBlock(ev, evCol, totalCols, cb) {
 }
 
 function appendCurrentTimeLine(container, days) {
+  clearCurrentTimeLineTimer();
+
   const now   = new Date();
   const isVisible = days.some(d => sameDay(d, now));
   if (!isVisible) return;
@@ -560,9 +572,10 @@ function appendCurrentTimeLine(container, days) {
   line.innerHTML = '<div class="current-time-dot"></div>';
   container.appendChild(line);
 
-  // Update every minute
-  setInterval(() => {
-    const t = (now.getHours() + now.getMinutes() / 60) * HOUR_H;
+  // Update every minute with current date/time recalculation
+  currentTimeLineTimer = setInterval(() => {
+    const curr = new Date();
+    const t = (curr.getHours() + curr.getMinutes() / 60) * HOUR_H;
     line.style.top = `${t}px`;
   }, 60_000);
 }

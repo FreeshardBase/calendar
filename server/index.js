@@ -21,6 +21,7 @@ const Db = require('./db');
 const { getTrustProxySetting, getSessionConfig } = require('./utils/sessionConfig');
 const { createRequireInternalMiddleware } = require('./utils/internalAuth');
 const securityHeaders = require('./utils/securityHeaders');
+const compression = require('./utils/compression');
 
 const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
@@ -44,7 +45,9 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', getTrustProxySetting());
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+app.use(compression());
 app.use(securityHeaders);
+app.use(express.static(path.join(__dirname, '../public')));
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -53,29 +56,36 @@ app.use(session(getSessionConfig()));
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
   const authMethod = process.env.AUTH_METHOD || 'env';
-  let userId = req.session.userId;
+  let newUserId = req.session.userId;
   if (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none') {
-    delete req.session.userId;
-    userId = null;
+    if (req.session.userId !== undefined) {
+      delete req.session.userId;
+    }
+    newUserId = null;
   } else if (req.headers['x-test-user-id']) {
-    userId = req.headers['x-test-user-id'];
-    req.session.userId = userId;
+    newUserId = req.headers['x-test-user-id'];
   } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
     const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
     if (headerUser) {
-      userId = String(headerUser).trim();
-      req.session.userId = userId;
+      newUserId = String(headerUser).trim();
     }
-  } else if (!userId && authMethod === 'env' && (process.env.NODE_ENV !== 'test' || process.env.E2E_TEST === 'true')) {
-    userId = process.env.CALDAV_USERNAME || 'test';
-    req.session.userId = userId;
+  } else if (!newUserId && authMethod === 'env' && (process.env.NODE_ENV !== 'test' || process.env.E2E_TEST === 'true')) {
+    newUserId = process.env.CALDAV_USERNAME || 'test';
   }
+
+  if (newUserId && req.session.userId !== newUserId) {
+    req.session.userId = newUserId;
+  }
+  const userId = newUserId;
 
   if (userId) {
     try {
-      await Db.upsertUser(userId, (req.session && req.session.username) || userId);
-      if (process.env.NODE_ENV === 'test') {
-        await Db.upsertUser('testuser-id', 'testuser@example.com');
+      if (req.session.userUpserted !== userId) {
+        await Db.upsertUser(userId, (req.session && req.session.username) || userId);
+        if (process.env.NODE_ENV === 'test') {
+          await Db.upsertUser('testuser-id', 'testuser@example.com');
+        }
+        req.session.userUpserted = userId;
       }
       const dbAccounts = await Db.getAccounts(userId);
       const accounts = [...dbAccounts];
@@ -114,13 +124,20 @@ app.use(async (req, res, next) => {
         }
       }
       
-      req.session.accounts = accounts;
+      const accountsStr = JSON.stringify(accounts);
+      if (!req.session.accounts || JSON.stringify(req.session.accounts) !== accountsStr) {
+        req.session.accounts = accounts;
+      }
     } catch (e) {
       console.error('[db] Error loading accounts:', e.message);
-      req.session.accounts = [];
+      if (req.session.accounts && req.session.accounts.length > 0) {
+        req.session.accounts = [];
+      }
     }
   } else {
-    req.session.accounts = [];
+    if (req.session.accounts && req.session.accounts.length > 0) {
+      req.session.accounts = [];
+    }
   }
   next();
 });
@@ -348,7 +365,7 @@ app.get('/', (req, res, next) => {
 });
 
 // ── Static files ──────────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, '../public')));
+// Express static middleware is mounted above session middleware to avoid session overhead on static assets
 
 // ── Webhook route (Only accessible internally / local connection) ──────────────
 app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) => {

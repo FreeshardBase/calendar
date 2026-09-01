@@ -248,7 +248,27 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const limitStart = new Date(rangeStart);
   const limitEnd = new Date(rangeEnd);
 
-  const iterator = icalEvent.iterator();
+  const rruleProp = master.getFirstProperty('rrule');
+  const rruleStr = rruleProp ? rruleProp.toICALString() : '';
+  const hasCount = /\bCOUNT=/i.test(rruleStr);
+
+  let iterStart;
+  const startJsDate = icalEvent.startDate ? icalEvent.startDate.toJSDate() : null;
+
+  if (!hasCount && startJsDate && limitStart > startJsDate) {
+    const durationMs = icalEvent.duration ? (icalEvent.duration.toSeconds() * 1000) : (24 * 60 * 60 * 1000);
+    const lookbackMs = Math.max(durationMs, 24 * 60 * 60 * 1000 * 2);
+    const fastForwardDate = new Date(limitStart.getTime() - lookbackMs);
+
+    if (fastForwardDate > startJsDate) {
+      iterStart = icalEvent.startDate.clone();
+      iterStart.year = fastForwardDate.getUTCFullYear();
+      iterStart.month = fastForwardDate.getUTCMonth() + 1;
+      iterStart.day = fastForwardDate.getUTCDate();
+    }
+  }
+
+  const iterator = icalEvent.iterator(iterStart);
   const instances = [];
   let next;
   let iterations = 0;

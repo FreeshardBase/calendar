@@ -366,7 +366,7 @@ router.put('/:uid', async (req, res) => {
       result = await client.put(eventUrl, ics, ifMatch);
     } catch (putErr) {
       if (putErr.message === 'ETAG_CONFLICT') {
-        result = await client.put(eventUrl, ics, null);
+        result = await client.put(eventUrl, ics, false);
       } else {
         throw putErr;
       }

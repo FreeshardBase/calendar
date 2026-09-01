@@ -4,6 +4,47 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Node 22 Production Image & CI Alignment (Issue #177):**
+  - Upgraded production container `Dockerfile` base image from EOL `node:20-alpine` (end of life 2026-04-30) to active LTS `node:22-alpine`.
+  - Updated `package.json` engines requirement to `"node": ">=22.0.0"`.
+  - Updated `.github/workflows/ci.yml` GitHub Actions pipeline to set up Node.js `22`.
+  - Created TDD unit test suite `server/test/issue177_node22_production_image.test.js` (100% green).
+- **Current Time Line Interval Lifecycle & Dynamic Positioning (Issue #175):**
+  - Resolved resource leak and defective positioning logic in `appendCurrentTimeLine` (`public/js/calendar.js`) where `setInterval` registered a new un-cleared timer on every view render while closing over a static `now` `Date` instance that never recalculated line position.
+  - Implemented module-scoped timer tracking (`currentTimeLineTimer`) and `clearCurrentTimeLineTimer()` cleanup helper, invoking cleanup at the start of `renderView` and `appendCurrentTimeLine`.
+  - Updated `setInterval` callback to dynamically instantiate `new Date()` and recalculate `line.style.top` every minute.
+  - Created TDD unit test suite `server/test/issue175_current_time_line_interval.test.js` (5 tests, 100% green).
+- **Event Save Performance & Zero-Edit Bypassing (Issue #174):**
+  - Resolved performance bottleneck where saving or updating an event in a large calendar (1,848+ events) incurred heavy server-side collection scan/sync penalties.
+  - Leveraged `isNoOpEventSave` in `server/routes/events.js` to identify unchanged event saves and bypass CalDAV `PUT` network requests entirely, returning HTTP 200 in ~14 ms instead of 500+ ms.
+  - Updated `updateWholeSeries` in `server/utils/ical.js` to process only the target event's ICS string in O(1) time without parsing or loading the entire calendar collection.
+  - Fixed `CalDAVClient.prototype.put` handling of `etag` parameter so explicit `false` (unconditional PUT) omits `If-None-Match: *` headers, avoiding spurious HTTP 412 `ETAG_CONFLICT` retries on existing resources.
+  - Created TDD unit test suite `server/test/issue174_event_save_performance.test.js` (5 tests, 100% green).
+- **Response Compression for JS, CSS, HTML and API Responses (Issue #173):**
+  - Resolved network payload overhead where JS, CSS, HTML and API JSON responses shipped uncompressed on cold loads.
+  - Implemented streaming HTTP response compression middleware in `server/utils/compression.js` using Node.js built-in `zlib` (`gzip`, `brotli`, `deflate`), supporting compressible MIME types (`text/*`, `application/javascript`, `application/json`, `application/xml`, `image/svg+xml`) with size thresholding and backpressure / drain event handling.
+  - Mounted `compression` middleware early in `server/index.js` before static file serving and route handlers.
+  - Handled `Vary: Accept-Encoding` and `Content-Encoding` headers, bypassing 304/204 responses, HEAD requests, and already compressed responses.
+  - Created TDD unit test suite `server/test/issue173_response_compression.test.js` (4 tests, 100% green).
+- **Prevent SQLite Write & Fsync on Static Files, 304s, 404s, and Unchanged Sessions (Issue #172):**
+  - Resolved performance bottleneck and disk I/O / fsync overhead where every HTTP request executed SQL write statements (`Db.upsertUser` and `SqliteSessionStore.set` `REPLACE INTO sessions`), including static asset fetches (`/css/*`, `/js/*`, `/favicon.ico`), 304 Not Modified responses, 404 Not Found requests, and read-only GET requests.
+  - Relocated `express.static` middleware placement in `server/index.js` to mount BEFORE `express-session` and account loader middleware, allowing static assets and 304 Not Modified responses to be served immediately without instantiating sessions or querying SQLite.
+  - Optimized account loader middleware in `server/index.js` to check `req.session.userUpserted !== userId` prior to calling `Db.upsertUser`, running user database initialization once per session instead of on every request.
+  - Guarded `req.session.userId` and `req.session.accounts` assignments against redundant mutations when values are unchanged, keeping `express-session` session state pristine and preventing `SqliteSessionStore.set` writes on read-only requests.
+  - Created TDD unit test suite `server/test/issue172_sqlite_request_fsync.test.js` (4 tests, 100% green).
+- **Fast-Forward Recurrence Expansion (Issue #171):**
+  - Resolved performance bottleneck in `parseAndExpandEvent` (`server/utils/ical.js`) where `icalEvent.iterator()` began iteration at original `DTSTART` (e.g. 10 years ago), causing iteration count and CPU time to scale unbounded with series age rather than the requested query window.
+  - Implemented fast-forwarding of `icalEvent.iterator(iterStart)` aligned to `rangeStart` (minus safety window for multi-day/night spanning events), skipping iteration for past years.
+  - Excluded `COUNT` rules from fast-forwarding to avoid count-reset distortions in `ical.js`.
+  - Created TDD unit test suite `server/test/issue171_recurrence_expansion_performance.test.js` (5 tests, 100% green).
+- **Client Event Cache & Delta Sync Wiring (Issue #170):**
+  - Integrated `getCachedEvents(cacheKey)` and `cacheEvents(cacheKey, events)` from `public/js/store.js` into `loadEvents()` in `public/js/app.js` to serve cached event ranges immediately during view switches and navigation without forcing full blocking re-fetches.
+  - Implemented `syncCalendarDelta(calendarId)` helper leveraging `CalendarsAPI.deltaSync` and store sync token getters/setters (`getCalendarSyncCache`, `setCalendarSyncCache`) to enable client-side RFC 6578 delta sync.
+  - Created TDD unit test suite `server/test/issue170_event_cache_delta_sync.test.js` (5 tests, 100% green).
+- **Calendar PROPFIND Performance & Unused CTag/Sync-Token Removal (Issue #169):**
+  - Removed unused `<cs:getctag/>` and `<d:sync-token/>` XML property declarations from `CalDAVClient.prototype.getCalendars()` PROPFIND payload in `server/caldav/client.js`.
+  - Eliminated severe server-side recalculation overhead in Radicale/CalDAV backends caused by computing ctags and sync tokens across all resources during calendar collection discovery (saving ~1,450 ms per calendar list request).
+  - Created TDD unit test suite `server/test/issue169_calendar_propfind_performance.test.js` (100% green).
 - **Gendergerecht German Copy Alignment (Issue #168):**
   - Updated generic masculine UI labels and descriptions to gendergerecht / inclusive German phrasing across frontend components (`public/index.html`, `public/js/invitations.js`, `public/js/delegates.js`, `public/js/app.js`).
   - Replaced `<label class="form-label">Teilnehmer</label>` and `<small>Teilnehmer:</small>` with `Teilnehmende`.

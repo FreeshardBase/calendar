@@ -393,8 +393,6 @@ class CalDAVClient {
     <d:resourcetype/>
     <d:displayname/>
     <a:calendar-color/>
-    <cs:getctag/>
-    <d:sync-token/>
     <c:supported-calendar-component-set/>
   </d:prop>
 </d:propfind>`;
