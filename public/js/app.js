@@ -1851,8 +1851,15 @@ function attachListeners() {
 
 export function showToast(message, type = 'info') {
   const container = $('toast-container');
+  if (!container) return;
   const toast     = document.createElement('div');
   toast.className = `toast ${type}`;
+
+  if (type === 'error') {
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    setStatus('Fehler: ' + message);
+  }
 
   const icons = { success: '✓', error: '✕', info: 'ℹ' };
   toast.innerHTML = `
@@ -1863,11 +1870,14 @@ export function showToast(message, type = 'info') {
   container.appendChild(toast);
   toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
 
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  // Error toasts persist until closed; success/info toasts auto-dismiss after 4 seconds
+  if (type !== 'error') {
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s';
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

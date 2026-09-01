@@ -42,6 +42,10 @@ function sanitizeErrorMessage(err, fallback = 'Ein Fehler ist aufgetreten.') {
     return 'Verbindung zum Kalenderserver fehlgeschlagen.';
   }
 
+  if (msg.includes('OAuth credentials') || msg.includes('GOOGLE_CLIENT_ID') || msg.includes('missing in .env')) {
+    return 'Fehler bei der Authentifizierung mit dem externen Anbieter.';
+  }
+
   // Generic cleanup of remaining HTTP_xxx codes
   msg = msg.replace(/^HTTP_\d+:\s*/i, '');
 

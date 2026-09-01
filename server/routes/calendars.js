@@ -14,6 +14,7 @@ const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
+const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
 
 function slugify(name) {
   if (!name) return '';
@@ -80,7 +81,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       const hitCount = await Db.getIcsFetchCount(token, ICS_RATE_LIMIT_WINDOW_SECONDS);
       if (hitCount >= ICS_RATE_LIMIT_MAX) {
         res.setHeader('Retry-After', String(ICS_RATE_LIMIT_WINDOW_SECONDS));
-        return res.status(429).send('Too many requests. Please try again later.');
+        return res.status(429).json({ error: 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.' });
       }
     } catch (rlErr) {
       console.warn('[ICS rate-limit check error]', rlErr.message);
@@ -137,7 +138,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
 
     if (!payload) {
       await Db.deleteIcsCache(token).catch(() => {});
-      return res.status(404).send('Calendar share not found or token invalid.');
+      return res.status(404).json({ error: 'Kalenderfreigabe nicht gefunden oder Token ungültig.' });
     }
 
     const client = await getClientForAccount({
@@ -156,11 +157,11 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       } catch (propErr) {
         console.warn('[share token check warning]', propErr);
         await Db.deleteIcsCache(token).catch(() => {});
-        return res.status(404).send('This public calendar share is no longer valid.');
+        return res.status(404).json({ error: 'Diese öffentliche Kalenderfreigabe ist nicht mehr gültig.' });
       }
       if (!activeTokenId || activeTokenId !== payload.publicShareId) {
         await Db.deleteIcsCache(token).catch(() => {});
-        return res.status(404).send('This public calendar share has been disabled or regenerated.');
+        return res.status(404).json({ error: 'Diese öffentliche Kalenderfreigabe wurde deaktiviert oder neu erstellt.' });
       }
     }
 
@@ -198,7 +199,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     res.send(ics);
   } catch (err) {
     console.error('[Public Share Export Error]', err.message);
-    res.status(500).send('Error generating calendar export: ' + err.message);
+    res.status(500).json({ error: sanitizeErrorMessage(err, 'Fehler beim Erstellen des Kalenderexports.') });
   }
 });
 

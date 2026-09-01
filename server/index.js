@@ -401,6 +401,11 @@ app.use('/api/notifications',     notificationsRouter);
 app.use('/api/webcal',            webcalRouter);
 app.use('/api',                   availabilityRouter);
 
+// ── Unmatched API 404 Handler ────────────────────────────────────────────────
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not Found' });
+});
+
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));

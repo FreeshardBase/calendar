@@ -69,8 +69,10 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, '${path.dirname(syncWorkerPy)}')
 import sync_worker
 
-# Mock sync_user to succeed immediately without network calls
-sync_worker.sync_user = lambda uid: (True, "")
+def mock_sync(uid):
+    time.sleep(0.1)
+    return (True, "")
+sync_worker.sync_user = mock_sync
 
 db_path = '${testDbPath}'
 

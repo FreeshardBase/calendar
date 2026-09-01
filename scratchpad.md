@@ -4,6 +4,21 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **SPA Catch-All API Route Isolation (Issue #164):**
+  - Mounted an unmatched `/api` 404 middleware handler (`app.use('/api', (req, res) => res.status(404).json({ error: 'Not Found' }))`) in `server/index.js` prior to the SPA wildcard fallback route (`app.get('*', ...)`).
+  - Ensured all unmatched requests targeting `/api` or subpaths return a 404 JSON error payload (`{ error: 'Not Found' }`) with `Content-Type: application/json` rather than HTTP 200 HTML `index.html`.
+  - Preserved SPA route handling for non-API frontend page navigation (`GET /`, `GET /dashboard`, etc.).
+  - Created TDD unit test suite `server/test/issue164_spa_api_catchall.test.js` (3 tests, 100% green).
+- **Accessible Error Announcements & Persistent Delete Failure Channel (Issue #163):**
+  - Updated `showToast(message, type)` in `public/js/app.js` to set `role="alert"` and `aria-live="assertive"` on error toasts, ensuring immediate screen reader accessibility.
+  - Guarded the 4-second auto-dismiss timeout in `showToast` for `type === 'error'`, preventing error toasts from vanishing automatically so users have a persistent notification channel.
+  - Updated `showToast` for `type === 'error'` to invoke `setStatus('Fehler: ' + message)` to maintain persistent error visibility on the status bar.
+  - Created TDD unit test suite `server/test/issue163_error_announcements.test.js` (5 tests, 100% green).
+- **Public Share Route JSON & Clean Error Responses (Issue #162):**
+  - Updated unauthenticated public calendar export route `GET /api/public/calendars/share/:token.ics` in `server/routes/calendars.js` to return structured JSON error payloads (`{ error: '...' }`) with `Content-Type: application/json` instead of plain text English error strings (`.send(...)`).
+  - Integrated `sanitizeErrorMessage` from `server/utils/errorSanitizer.js` into the 500 error handler to prevent internal exception details, stack traces, or configuration secrets (`GOOGLE_CLIENT_ID`) from leaking to unauthenticated clients.
+  - Added OAuth credential missing error rule to `server/utils/errorSanitizer.js` to sanitize raw configuration variable names.
+  - Created TDD unit test suite `server/test/issue162_public_share_json_error.test.js` (2 tests, 100% green).
 - **Clean Error Messages Below Account Setup (Issue #160):**
   - Created `server/utils/errorSanitizer.js` to strip HTML/XML tags, raw protocol HTTP status strings (e.g. `PROPFIND 500`), and response body slices (`— <html>...`) from errors.
   - Updated `CalDAVClient` methods (`propfind`, `report`, `mkcalendar`, `_updateSharesApple`, `_updateSharesNextcloud`) and route exception handlers (`server/routes/calendars.js`, `server/routes/events.js`) to sanitize error messages before rethrowing or responding to clients.
