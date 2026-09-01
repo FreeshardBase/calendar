@@ -4,26 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FreeShard Calendar</title>
-  <script>
-    window.onerror = function(message, source, lineno, colno, error) {
-      const errDiv = document.createElement('div');
-      errDiv.style.position = 'fixed';
-      errDiv.style.inset = '0';
-      errDiv.style.background = '#fff';
-      errDiv.style.color = '#ff3333';
-      errDiv.style.padding = '20px';
-      errDiv.style.fontFamily = 'monospace';
-      errDiv.style.zIndex = '100000';
-      errDiv.style.whiteSpace = 'pre-wrap';
-      errDiv.innerHTML = '<h3>Laufzeitfehler (Frontend):</h3>' + 
-        'Message: ' + message + '\n' +
-        'Source: ' + source + '\n' +
-        'Line: ' + lineno + ', Col: ' + colno + '\n\n' +
-        'Stack:\n' + (error ? error.stack : 'N/A');
-      document.body.appendChild(errDiv);
-      return false;
-    };
-  </script>
   <meta name="description" content="FreeShard WebCalendar — CalDAV-Webclient, Daylight Instrument." />
   <meta name="theme-color" content="#2563eb" />
   <meta name="apple-mobile-web-app-capable" content="yes" />

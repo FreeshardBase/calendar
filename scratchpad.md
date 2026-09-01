@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Production Debug Error Overlay & innerHTML Stack Trace Removal (Issue #124):**
+  - Removed the inline `<script>` block in `public/index.html` that attached a `window.onerror` debug error handler.
+  - The previous handler created a full-screen debug overlay using raw string concatenation via `errDiv.innerHTML`, exposing `error.stack`, `message`, `source`, `lineno`, and `colno` directly to end-users in production while creating an XSS vulnerability vector.
+  - Created unit test suite `server/test/issue124_debug_error_overlay.test.js` (2 tests, 100% green).
+
 - **Atomic Sync Queue Job Claiming (Issue #123):**
   - Resolved non-atomic sync job claiming in `sync-worker/sync_worker.py` and `server/db.js` where race conditions between concurrent worker threads/processes enabled duplicate execution of identical sync jobs.
   - Enforced atomic conditional updates: `UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ? AND status = 'PENDING'` with strict `rowcount > 0` / `changes > 0` validation to guarantee exactly one worker claims a given job.
