@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.licenses="FSL-1.1-ALv2"
 # Install system dependencies (openssl for fallback self-signed SSL certs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Radicale
@@ -36,6 +37,9 @@ RUN chown -R radicale:radicale /etc/radicale
 
 # Expose Radicale port
 EXPOSE 5232
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD curl -f -k https://localhost:5232/ || curl -f http://localhost:5232/ || exit 1
 
 USER radicale
 

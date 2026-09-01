@@ -73,7 +73,7 @@ app.use(async (req, res, next) => {
 
   if (userId) {
     try {
-      await Db.upsertUser(userId, userId);
+      await Db.upsertUser(userId, (req.session && req.session.username) || userId);
       if (process.env.NODE_ENV === 'test') {
         await Db.upsertUser('testuser-id', 'testuser@example.com');
       }

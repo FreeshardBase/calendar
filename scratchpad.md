@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Radicale Container HEALTHCHECK & Store Template Health-Gating (Issue #142):**
+  - Resolved deployment vulnerability where Radicale CalDAV backend lacked container HEALTHCHECK instructions, allowing `webcalendar` and `sync-worker` containers to start accepting traffic before Radicale finished booting.
+  - Installed `curl` in `radicale/Dockerfile` and added `HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD curl -f -k https://localhost:5232/ || curl -f http://localhost:5232/ || exit 1`.
+  - Updated `docker-compose.yml` and store template `app-repository/apps/webcalendar/docker-compose.yml.template` to configure `healthcheck` on `caldav-server` and health-gate dependant services using `depends_on: caldav-server: condition: service_healthy`.
+  - Created unit test suite `server/test/issue142_radicale_healthcheck_gate.test.js` (3 tests, 100% green).
 - **Structured SQLite Schema Migration System & Version Tracking (Issue #139):**
   - Resolved architectural gap where SQLite database schema changes relied on ad-hoc `ALTER TABLE ...` calls with empty error callbacks `() => {}`, providing no version tracking, sequential execution order, or failure safety.
   - Implemented `server/utils/migrations.js` providing `getSchemaVersion(db)`, `setSchemaVersion(db, version)`, `runMigrations(db, migrationList)`, and structured versioned migration definitions using SQLite `PRAGMA user_version`.
@@ -662,4 +667,14 @@
   - Added fallback attribute resolution for `organizer` (`name`, `cn`, `displayName`) and `attendee` (`attendeeName` 4th argument, `att.name`, `att.cn`, `att.displayName`, `event.attendeeName`).
   - Stripped `mailto:` prefixes across `organizer.email` and `attendeeEmail`.
   - Created unit test suite `server/test/issue127_builditipreply_cn_escaping.test.js` (3 tests, 100% green).
+
+- **Issue #141 — OIDC Username Preservation & SQLite REPLACE Collision Safety (`server/db.js`, `server/index.js`, `server/test/issue141_oidc_username_overwrite.test.js`):**
+  - Identified two bugs in user registration and request handling:
+    1. Session middleware in `server/index.js` invoked `Db.upsertUser(userId, userId)` on every request, overwriting user OIDC usernames (e.g. `alice@example.com`) in SQLite `users` table with raw `userId` (`sub-123`).
+    2. `Db.upsertUser` used `INSERT OR REPLACE INTO users (user_id, username) VALUES (?, ?)`. In SQLite, `REPLACE` conflict resolution on the `username TEXT UNIQUE` constraint DELETED any existing user row sharing that username.
+  - Updated `server/index.js` session middleware to pass `(req.session && req.session.username) || userId` to `Db.upsertUser`.
+  - Refactored `Db.upsertUser(userId, username)` in `server/db.js` to perform safe `SELECT` checks prior to insertion/update:
+    - Preserves existing custom `username` when `username === userId` fallback is passed.
+    - Prevents overwriting or deleting another user's row when a username collision occurs.
+  - Created unit test suite `server/test/issue141_oidc_username_overwrite.test.js` (3 tests, 100% green).
 

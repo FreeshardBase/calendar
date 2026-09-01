@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"
+    depends_on:
+      caldav-server:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -34,6 +37,12 @@ services:
     environment:
       DATABASE_PATH: /data/webcalendar.db
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f -k https://localhost:5232/ || curl -f http://localhost:5232/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
       - shared-data:/data
       - radicale-collections:/data/collections
@@ -44,6 +53,9 @@ services:
     image: ${REGISTRY:-ghcr.io/freeshardbase}/sync-worker:${TAG:-latest}
     container_name: freeshard-sync-worker
     restart: unless-stopped
+    depends_on:
+      caldav-server:
+        condition: service_healthy
     env_file:
       - .env
     environment:

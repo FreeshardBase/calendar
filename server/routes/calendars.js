@@ -692,10 +692,12 @@ router.delete('/:id', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const delRes = await client._request('DELETE', calendarUrl);
-    if (!delRes.ok && delRes.status !== 204) {
+    if (!delRes.ok && delRes.status !== 204 && delRes.status !== 404) {
       const text = await delRes.text().catch(() => '');
       throw new Error(`DELETE ${delRes.status}: ${text.slice(0, 200) || delRes.statusText}`);
     }
+
+    await Db.deleteCalendarData(calendarId);
 
     queueSyncForCalendar(calendarId, req.session.userId);
 

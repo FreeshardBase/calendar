@@ -594,6 +594,48 @@ const Db = {
     return this.deleteUser(userId);
   },
 
+  deleteCalendarData(calendarId) {
+    return new Promise((resolve, reject) => {
+      if (!calendarId) return resolve();
+      const altId = calendarId.endsWith('/') ? calendarId.slice(0, -1) : `${calendarId}/`;
+
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        db.run('DELETE FROM user_calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run(
+          'DELETE FROM public_ics_cache WHERE token IN (SELECT token FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?)',
+          [calendarId, altId]
+        );
+        db.run(
+          'DELETE FROM ics_fetch_log WHERE token IN (SELECT token FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?)',
+          [calendarId, altId]
+        );
+        db.run('DELETE FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('DELETE FROM user_calendar_color_overrides WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('DELETE FROM calendar_sync_cache WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('DELETE FROM sync_conflicts WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('DELETE FROM cross_user_deletions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('DELETE FROM delegate_permissions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run(
+          'DELETE FROM slot_bookings WHERE page_id IN (SELECT id FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?)',
+          [calendarId, altId]
+        );
+        db.run('DELETE FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('DELETE FROM event_history WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+        db.run('UPDATE msgraph_accounts SET target_calendar_id = NULL WHERE target_calendar_id = ? OR target_calendar_id = ?', [calendarId, altId]);
+
+        db.run('COMMIT', (err) => {
+          if (err) {
+            db.run('ROLLBACK', () => reject(err));
+          } else {
+            resolve();
+          }
+        });
+      });
+    });
+  },
+
   /**
    * Returns OAuth token expiry status for all oauth2 accounts belonging to userId.
    * Matches the 60-second grace window used by caldav/helper.js:
@@ -969,14 +1011,48 @@ const Db = {
 
   upsertUser(userId, username) {
     return new Promise((resolve, reject) => {
-      db.run(
-        'INSERT OR REPLACE INTO users (user_id, username) VALUES (?, ?)',
-        [userId, username],
-        (err) => {
-          if (err) return reject(err);
-          resolve();
+      if (!userId) return resolve();
+      const newUsername = username || userId;
+
+      db.get('SELECT user_id, username FROM users WHERE user_id = ?', [userId], (err, existingUser) => {
+        if (err) return reject(err);
+
+        if (!existingUser) {
+          db.get('SELECT user_id FROM users WHERE username = ?', [newUsername], (err2, conflictingUser) => {
+            if (err2) return reject(err2);
+            const targetName = (conflictingUser && newUsername !== userId) ? userId : newUsername;
+            db.run(
+              'INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)',
+              [userId, targetName],
+              (err3) => {
+                if (err3) return reject(err3);
+                resolve();
+              }
+            );
+          });
+        } else {
+          if (newUsername === userId && existingUser.username && existingUser.username !== userId) {
+            return resolve();
+          }
+          if (newUsername === existingUser.username) {
+            return resolve();
+          }
+          db.get('SELECT user_id FROM users WHERE username = ? AND user_id != ?', [newUsername, userId], (err2, conflictingUser) => {
+            if (err2) return reject(err2);
+            if (conflictingUser) {
+              return resolve();
+            }
+            db.run(
+              'UPDATE users SET username = ? WHERE user_id = ?',
+              [newUsername, userId],
+              (err3) => {
+                if (err3) return reject(err3);
+                resolve();
+              }
+            );
+          });
         }
-      );
+      });
     });
   },
 
