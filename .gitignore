@@ -8,6 +8,9 @@ playwright-report/
 .share_key
 ssl/
 *.swp
-webcalendar.db
+webcalendar.db*
 *.db
+*.db-wal
+*.db-shm
+*.sqlite*
 data/

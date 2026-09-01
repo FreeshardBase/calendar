@@ -7,7 +7,11 @@ WORKDIR /app
 
 # Install dependencies first (layer cache)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN apk add --no-cache --virtual .build-deps python3 make g++ build-base sqlite-dev && \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-maxtimeout 60000 && \
+    npm ci --omit=dev && \
+    apk del .build-deps
 
 # Copy application code
 COPY server/  ./server/

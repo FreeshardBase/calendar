@@ -19,8 +19,6 @@ STATUS_ROOT = os.environ.get("STATUS_ROOT", "/data/vdir_status")
 
 def get_db_path():
     return os.environ.get("DATABASE_PATH", DB_PATH)
-ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET") or "freeshard-default-encryption-key-do-not-use-in-prod"
-_node_env = os.environ.get("NODE_ENV", "").lower()
 _weak_keys = {
     "freeshard-default-encryption-key-do-not-use-in-prod",
     "freeshard-default-key",
@@ -30,10 +28,41 @@ _weak_keys = {
     "{{ portal.id }}",
     "{{portal.id}}",
 }
-if (_node_env in ["production", "staging"] and 
-    os.environ.get("ALLOW_INSECURE_ENCRYPTION_KEY") != "true" and 
-    (not ENCRYPTION_SECRET or ENCRYPTION_SECRET.strip() in _weak_keys or "portal.id" in ENCRYPTION_SECRET.lower())):
-    raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
+
+def resolve_encryption_secret(env=None, target_db_path=None):
+    if env is None:
+        env = os.environ
+    if target_db_path is None:
+        target_db_path = get_db_path()
+
+    key_file_path = env.get("ENCRYPTION_KEY_FILE") or os.path.join(os.path.dirname(target_db_path), ".encryption_key")
+    if os.path.exists(key_file_path):
+        try:
+            with open(key_file_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    return content
+        except Exception:
+            pass
+
+    secret = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET") or os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET") or "freeshard-default-encryption-key-do-not-use-in-prod"
+    node_env = env.get("NODE_ENV", "").lower()
+    if (node_env in ["production", "staging"] and 
+        env.get("ALLOW_INSECURE_ENCRYPTION_KEY") != "true" and 
+        (not secret or secret.strip() in _weak_keys or "portal.id" in secret.lower())):
+        raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
+
+    try:
+        key_dir = os.path.dirname(key_file_path)
+        if os.path.exists(key_dir):
+            with open(key_file_path, "w", encoding="utf-8") as f:
+                f.write(secret)
+    except Exception:
+        pass
+
+    return secret
+
+ENCRYPTION_SECRET = resolve_encryption_secret()
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")

@@ -21,6 +21,8 @@
  * NODE_ENV=test always bypasses the check (existing test-suite contract).
  */
 
+const { getTrustProxySetting } = require('./sessionConfig');
+
 /**
  * @param {object} env  - Object with env-like keys (default: process.env)
  * @returns {function}  - Express middleware (req, res, next)
@@ -40,8 +42,8 @@ function createRequireInternalMiddleware(env = process.env) {
     }
 
     // No secret configured: fall back to IP-based check ONLY when trust proxy is off
-    const trustProxy = env.TRUST_PROXY;
-    const trustProxyEnabled = trustProxy === 'true' || trustProxy === '1' || trustProxy === true;
+    const trustProxySetting = getTrustProxySetting(env);
+    const trustProxyEnabled = Boolean(trustProxySetting);
 
     if (trustProxyEnabled) {
       // req.ip is spoofable — refuse to use it as a security gate

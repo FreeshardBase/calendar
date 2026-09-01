@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = require('./utils/migrations');
 
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../webcalendar.db');
 const db = new sqlite3.Database(dbPath);
@@ -22,7 +23,7 @@ const WEAK_ENCRYPTION_KEYS = new Set([
 function validateEncryptionKey(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
   const isStaging = env.NODE_ENV === 'staging';
-  const rawKey = (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || '').trim();
+  const rawKey = (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || '').trim();
   const isWeak = !rawKey || WEAK_ENCRYPTION_KEYS.has(rawKey) || /portal\.id/i.test(rawKey);
 
   if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true') {
@@ -32,12 +33,36 @@ function validateEncryptionKey(env = process.env) {
   return rawKey || 'freeshard-default-encryption-key-do-not-use-in-prod';
 }
 
-validateEncryptionKey(process.env);
+function resolveEncryptionKey(env = process.env, targetDbPath = dbPath) {
+  const keyFilePath = env.ENCRYPTION_KEY_FILE || path.join(path.dirname(targetDbPath), '.encryption_key');
+  try {
+    if (fs.existsSync(keyFilePath)) {
+      const keyFromFile = fs.readFileSync(keyFilePath, 'utf8').trim();
+      if (keyFromFile) {
+        return keyFromFile;
+      }
+    }
+  } catch (err) {
+    // Ignore read error
+  }
+
+  const rawKey = validateEncryptionKey(env);
+  try {
+    const keyDir = path.dirname(keyFilePath);
+    if (fs.existsSync(keyDir)) {
+      fs.writeFileSync(keyFilePath, rawKey, { encoding: 'utf8', mode: 0o600 });
+    }
+  } catch (err) {
+    // Ignore write error if directory not writable
+  }
+  return rawKey;
+}
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_SALT = process.env.ENCRYPTION_SALT || 'salt';
+const ENCRYPTION_SECRET = resolveEncryptionKey(process.env, dbPath);
 const ENCRYPTION_KEY = crypto.scryptSync(
-  process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || 'freeshard-default-encryption-key-do-not-use-in-prod',
+  ENCRYPTION_SECRET,
   ENCRYPTION_SALT,
   32
 );
@@ -330,18 +355,12 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_uid ON event_history(event_uid, created_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_cal ON event_history(calendar_id, created_at)`);
-  // Silent migrations for existing local databases
-  db.run("ALTER TABLE linked_accounts ADD COLUMN auth_type TEXT DEFAULT 'basic'", () => {});
-  db.run("ALTER TABLE linked_accounts ADD COLUMN access_token TEXT", () => {});
-  db.run("ALTER TABLE linked_accounts ADD COLUMN expires_at INTEGER", () => {});
-  db.run(`
-    UPDATE linked_accounts 
-    SET url = 'https://apidata.googleusercontent.com/caldav/v2/' || replace(username, '@', '%40') || '/' 
-    WHERE auth_type = 'oauth2' AND url LIKE '%/user/'
-  `, () => {});
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_linked_accounts_user_id ON linked_accounts(user_id)
   `);
+  runMigrations(db).catch((err) => {
+    console.error('[db] Error running schema migrations:', err);
+  });
 });
 
 function encrypt(text) {
@@ -390,21 +409,26 @@ const Db = {
         [userId],
         (err, rows) => {
           if (err) return reject(err);
-          try {
-            const mapped = rows.map(row => ({
-              id: row.id,
-              url: row.url,
-              username: row.username,
-              password: decrypt(row.password_encrypted, row.iv), // decrypts either password or refresh_token
-              displayName: row.display_name,
-              authType: row.auth_type || 'basic',
-              accessToken: row.access_token,
-              expiresAt: row.expires_at
-            }));
-            resolve(mapped);
-          } catch (decryptionError) {
-            reject(decryptionError);
+          const mapped = [];
+          for (const row of rows) {
+            try {
+              mapped.push({
+                id: row.id,
+                url: row.url,
+                username: row.username,
+                password: decrypt(row.password_encrypted, row.iv), // decrypts either password or refresh_token
+                displayName: row.display_name,
+                authType: row.auth_type || 'basic',
+                accessToken: row.access_token,
+                expiresAt: row.expires_at
+              });
+            } catch (decryptionError) {
+              // Issue #136: skip undecryptable rows (wrong key, corrupted ciphertext, etc.)
+              // rather than rejecting the whole promise and 401-ing every API route.
+              console.error(`[db] Skipping undecryptable linked_accounts row id=${row.id}:`, decryptionError.message);
+            }
           }
+          resolve(mapped);
         }
       );
     });
@@ -433,6 +457,25 @@ const Db = {
           } catch (decryptionError) {
             reject(decryptionError);
           }
+        }
+      );
+    });
+  },
+
+  /**
+   * Issue #136: fetch only user_id for an account row without decrypting the
+   * password ciphertext.  Used by DELETE /api/accounts/:id to confirm ownership
+   * of rows that cannot be decrypted (wrong key, corrupted ciphertext, etc.)
+   * so those accounts can still be removed from the UI.
+   */
+  getAccountOwner(id) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT id, user_id FROM linked_accounts WHERE id = ?',
+        [id],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row ? { id: row.id, userId: row.user_id } : null);
         }
       );
     });
@@ -507,17 +550,48 @@ const Db = {
     });
   },
 
-  deleteUserAccounts(userId) {
+  deleteUser(userId) {
     return new Promise((resolve, reject) => {
-      db.run(
-        'DELETE FROM linked_accounts WHERE user_id = ?',
-        [userId],
-        (err) => {
-          if (err) return reject(err);
-          resolve();
-        }
-      );
+      if (!userId) return resolve();
+      const calPattern = `%${userId}%`;
+
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        db.run('DELETE FROM users WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM linked_accounts WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM app_passwords WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`]);
+        db.run('DELETE FROM user_calendar_shares WHERE sharee_user_id = ? OR calendar_id LIKE ?', [userId, calPattern]);
+        db.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
+        db.run('DELETE FROM msgraph_accounts WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM web_push_subscriptions WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM resource_bookings WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM slot_bookings WHERE page_id IN (SELECT id FROM availability_pages WHERE user_id = ?)', [userId]);
+        db.run('DELETE FROM availability_pages WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM sync_conflicts WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM delegate_permissions WHERE principal_user_id = ? OR delegate_user_id = ?', [userId, userId]);
+        db.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
+        db.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM webcal_subscriptions WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM event_history WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
+        db.run('DELETE FROM calendar_shares WHERE calendar_id LIKE ?', [calPattern]);
+
+        db.run('COMMIT', (err) => {
+          if (err) {
+            db.run('ROLLBACK', () => reject(err));
+          } else {
+            resolve();
+          }
+        });
+      });
     });
+  },
+
+  deleteUserAccounts(userId) {
+    return this.deleteUser(userId);
   },
 
   /**
@@ -2412,12 +2486,36 @@ const Db = {
         resolve(val === 'ok');
       });
     });
-  }
+  },
+
+  getSchemaVersion(targetDb = db) {
+    return getSchemaVersion(targetDb);
+  },
+
+  setSchemaVersion(targetDb = db, version) {
+    return setSchemaVersion(targetDb, version);
+  },
+
+  runMigrations(targetDb = db, migrationList = migrations) {
+    return runMigrations(targetDb, migrationList);
+  },
+
+  migrations
 };
 
 Db.validateEncryptionKey = validateEncryptionKey;
+Db.resolveEncryptionKey = resolveEncryptionKey;
+Db.getSchemaVersion = (targetDb = db) => getSchemaVersion(targetDb);
+Db.setSchemaVersion = (targetDb = db, version) => setSchemaVersion(targetDb, version);
+Db.runMigrations = (targetDb = db, migrationList = migrations) => runMigrations(targetDb, migrationList);
+Db.migrations = migrations;
 Db.db = db;
 
 module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
+module.exports.resolveEncryptionKey = resolveEncryptionKey;
+module.exports.getSchemaVersion = Db.getSchemaVersion;
+module.exports.setSchemaVersion = Db.setSchemaVersion;
+module.exports.runMigrations = Db.runMigrations;
+module.exports.migrations = migrations;
 module.exports.db = db;

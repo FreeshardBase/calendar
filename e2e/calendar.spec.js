@@ -687,21 +687,22 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
-    await page.goto('/?date=2028-05-15');
+    await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
     const title = `E2E Drive Attachment Event ${Date.now()}`;
     const driveUrl = 'https://files.freeshard.local/d/e2e-project-brief.pdf';
     const driveFileName = 'e2e-project-brief.pdf';
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     // Click quick add or new event button
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
 
     await page.fill('#ev-title', title);
-    await page.fill('#ev-start-date', '2028-05-15');
-    await page.fill('#ev-end-date', '2028-05-15');
+    await page.fill('#ev-start-date', todayStr);
+    await page.fill('#ev-end-date', todayStr);
     await page.check('#ev-allday');
     await page.fill('#ev-attachment-url', driveUrl);
     await page.fill('#ev-attachment-name', driveFileName);

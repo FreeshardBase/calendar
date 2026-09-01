@@ -34,6 +34,48 @@ const COMMON_TIMEZONES = [
   'UTC'
 ];
 
+export function formatAlarmTriggerLabel(trigger) {
+  if (!trigger) return 'Keine Erinnerung';
+  let str = String(trigger).trim();
+  if (str.toUpperCase().startsWith('TRIGGER:')) {
+    str = str.substring(8).trim();
+  }
+  if (str === 'PT0S' || str === 'PT0M' || str === '0') return 'Zum Zeitpunkt des Termins';
+
+  const presets = {
+    'PT0S': 'Zum Zeitpunkt des Termins',
+    '-PT5M': '5 Minuten vorher',
+    '-PT15M': '15 Minuten vorher',
+    '-PT30M': '30 Minuten vorher',
+    '-PT1H': '1 Stunde vorher',
+    '-P1D': '1 Tag vorher'
+  };
+  if (presets[str]) return presets[str];
+
+  const match = str.match(/^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i);
+  if (!match) return `Erinnerung (${str})`;
+
+  const isNegative = match[1] === '-';
+  const weeks = parseInt(match[2] || '0', 10);
+  const days = parseInt(match[3] || '0', 10);
+  const hours = parseInt(match[4] || '0', 10);
+  const minutes = parseInt(match[5] || '0', 10);
+  const seconds = parseInt(match[6] || '0', 10);
+
+  const parts = [];
+  if (weeks > 0) parts.push(`${weeks} Woche${weeks > 1 ? 'n' : ''}`);
+  if (days > 0) parts.push(`${days} Tag${days > 1 ? 'e' : ''}`);
+  if (hours > 0) parts.push(`${hours} Stunde${hours > 1 ? 'n' : ''}`);
+  if (minutes > 0) parts.push(`${minutes} Minute${minutes > 1 ? 'n' : ''}`);
+  if (seconds > 0) parts.push(`${seconds} Sekunde${seconds > 1 ? 'n' : ''}`);
+
+  if (parts.length === 0) return 'Zum Zeitpunkt des Termins';
+
+  const suffix = isNegative ? 'vorher' : 'nachher';
+  return `${parts.join(' ')} ${suffix}`;
+}
+
+
 function populateTimezoneSelects(selectedStartTz, selectedEndTz) {
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
   const startTz = selectedStartTz || localTz;
@@ -244,7 +286,27 @@ export function openEditModal(event, callbacks) {
 
   // Alarms
   const firstAlarm = (event.alarms && event.alarms.length > 0) ? event.alarms[0] : null;
-  $('ev-alarm').value = firstAlarm ? (firstAlarm.trigger || '') : '';
+  const alarmSelect = $('ev-alarm');
+  if (alarmSelect) {
+    Array.from(alarmSelect.options).forEach(opt => {
+      if (opt.dataset && opt.dataset.customAlarm === 'true') {
+        opt.remove();
+      }
+    });
+    const triggerVal = firstAlarm ? (firstAlarm.trigger || '') : '';
+    if (triggerVal) {
+      let optionExists = Array.from(alarmSelect.options).some(opt => opt.value === triggerVal);
+      if (!optionExists) {
+        const opt = document.createElement('option');
+        opt.value = triggerVal;
+        opt.textContent = formatAlarmTriggerLabel(triggerVal);
+        opt.dataset.customAlarm = 'true';
+        alarmSelect.appendChild(opt);
+      }
+    }
+    alarmSelect.value = triggerVal;
+  }
+
 
   // Attachments
   const firstAttach = (event.attachments && event.attachments.length > 0) ? event.attachments[0] : null;
@@ -339,7 +401,15 @@ function resetForm() {
   $('ev-href').value = '';
   $('ev-etag').value = '';
   $('ev-recurrence').value = '';
-  if ($('ev-alarm')) $('ev-alarm').value = '';
+  if ($('ev-alarm')) {
+    Array.from($('ev-alarm').options).forEach(opt => {
+      if (opt.dataset && opt.dataset.customAlarm === 'true') {
+        opt.remove();
+      }
+    });
+    $('ev-alarm').value = '';
+  }
+
   if ($('ev-attachment-url')) $('ev-attachment-url').value = '';
   if ($('ev-attachment-name')) $('ev-attachment-name').value = '';
   $('event-form-error').classList.add('hidden');

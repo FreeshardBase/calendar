@@ -21,8 +21,9 @@
 
     const key = e.key;
     const tagName = (e.targetTagName || '').toUpperCase();
+    const role = (e.targetRole || '').toLowerCase();
     const isEditable = e.isTargetEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
-    const isButton = e.isTargetButton || tagName === 'BUTTON';
+    const isButton = e.isTargetButton || tagName === 'BUTTON' || role === 'button' || tagName === 'SUMMARY';
 
     // Escape always closes modal/popover, even when focused on an input or button
     if (key === 'Escape') {

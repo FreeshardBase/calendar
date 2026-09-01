@@ -16,8 +16,8 @@ class Auth(BaseAuth):
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT user_id FROM users WHERE username = ?",
-                    (login,)
+                    "SELECT user_id FROM users WHERE username = ? OR user_id = ?",
+                    (login, login)
                 )
                 row = cursor.fetchone()
                 if row:

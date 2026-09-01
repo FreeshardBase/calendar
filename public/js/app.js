@@ -1742,11 +1742,31 @@ function attachListeners() {
     const isModalOpen = Array.from(document.querySelectorAll('.modal-backdrop'))
       .some(m => !m.classList.contains('hidden'));
 
+    const targetEl = e.target;
+    const tagName = targetEl ? (targetEl.tagName || '').toUpperCase() : '';
+    const role = targetEl && typeof targetEl.getAttribute === 'function' ? (targetEl.getAttribute('role') || '').toLowerCase() : '';
+    const isButton = Boolean(
+      targetEl && (
+        tagName === 'BUTTON' ||
+        tagName === 'SUMMARY' ||
+        role === 'button' ||
+        (typeof targetEl.closest === 'function' && targetEl.closest('button, [role="button"], summary') !== null)
+      )
+    );
+    const isEditable = Boolean(
+      targetEl && (
+        targetEl.isContentEditable ||
+        (typeof targetEl.getAttribute === 'function' && targetEl.getAttribute('contenteditable') === 'true') ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName)
+      )
+    );
+
     const eventPayload = {
       key: e.key,
-      targetTagName: e.target ? e.target.tagName : '',
-      isTargetEditable: e.target ? (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') : false,
-      isTargetButton: e.target ? (e.target.tagName === 'BUTTON') : false,
+      targetTagName: tagName,
+      targetRole: role,
+      isTargetEditable: isEditable,
+      isTargetButton: isButton,
       ctrlKey: e.ctrlKey,
       altKey: e.altKey,
       metaKey: e.metaKey

@@ -18,7 +18,9 @@ describe('Issue #123 — Atomic Sync Queue Claiming Suite', () => {
   });
 
   beforeEach(async () => {
-    await Db.clearSyncJobsForUser(testUserId);
+    if (Db.clearSyncJobsForUser) {
+      await Db.clearSyncJobsForUser(testUserId);
+    }
   });
 
   test('Db.claimSyncJob should atomically claim a PENDING job', async () => {

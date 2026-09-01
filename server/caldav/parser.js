@@ -1013,11 +1013,11 @@ function updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId =
   return comp.toString();
 }
 
-function buildItipReply(event, attendeeEmail, status) {
-  const uid = event.uid || `${uuidv4()}@freeshard.webcalendar`;
+function buildItipReply(event, attendeeEmail, status, attendeeName) {
+  const uid = event?.uid || `${uuidv4()}@freeshard.webcalendar`;
   const dtstamp = fmtDateTime(new Date().toISOString());
   const partstat = (status || 'ACCEPTED').toUpperCase();
-  const email = (attendeeEmail || '').replace(/^mailto:/i, '');
+  const email = (attendeeEmail || '').replace(/^mailto:/i, '').trim();
 
   const lines = [
     'BEGIN:VCALENDAR',
@@ -1027,24 +1027,26 @@ function buildItipReply(event, attendeeEmail, status) {
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${dtstamp}`,
-    `SUMMARY:${escIcal(event.title || 'Event Reply')}`
+    `SUMMARY:${escIcal(event?.title || 'Event Reply')}`
   ];
 
-  const recurrenceId = event.recurrenceId || event.recurrence_id;
+  const recurrenceId = event?.recurrenceId || event?.recurrence_id;
   if (recurrenceId) {
     lines.push(`RECURRENCE-ID:${fmtDateTime(recurrenceId)}`);
   }
 
-  if (event.start) lines.push(`DTSTART:${fmtDateTime(event.start)}`);
-  if (event.end) lines.push(`DTEND:${fmtDateTime(event.end)}`);
+  if (event?.start) lines.push(`DTSTART:${fmtDateTime(event.start)}`);
+  if (event?.end) lines.push(`DTEND:${fmtDateTime(event.end)}`);
 
-  if (event.organizer?.email) {
-    const cn = event.organizer.name ? `;CN="${escParamVal(event.organizer.name)}"` : '';
-    lines.push(`ORGANIZER${cn}:mailto:${escIcal(event.organizer.email)}`);
+  if (event?.organizer?.email) {
+    const orgName = event.organizer.name || event.organizer.cn || event.organizer.displayName;
+    const cn = orgName ? `;CN="${escParamVal(orgName)}"` : '';
+    lines.push(`ORGANIZER${cn}:mailto:${escIcal(event.organizer.email.replace(/^mailto:/i, ''))}`);
   }
 
-  const att = (event.attendees || []).find(a => a.email?.toLowerCase() === email.toLowerCase());
-  const cn = (att && att.name) ? `;CN="${escParamVal(att.name)}"` : '';
+  const att = (event?.attendees || []).find(a => (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim() === email.toLowerCase());
+  const name = attendeeName || att?.name || att?.cn || att?.displayName || event?.attendeeName || '';
+  const cn = name ? `;CN="${escParamVal(name)}"` : '';
   lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn};PARTSTAT=${escParamVal(partstat)}:mailto:${escIcal(email)}`);
 
   lines.push('END:VEVENT', 'END:VCALENDAR');

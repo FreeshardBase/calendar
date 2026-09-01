@@ -119,7 +119,24 @@ router.delete('/:id', async (req, res) => {
     return res.status(403).json({ error: 'Systemkonto kann nicht gelöscht werden.' });
   }
 
-  const account = (req.session.accounts || []).find(a => a.id === req.params.id);
+  // Primary path: account is present in session (normal case).
+  let account = (req.session.accounts || []).find(a => a.id === req.params.id);
+
+  // Issue #136 fallback: the account may have been dropped from req.session.accounts
+  // by the per-row decrypt guard in Db.getAccounts() (undecryptable ciphertext / key
+  // mismatch).  Fall back to a raw ownership lookup (no decryption) so the user can
+  // still remove the broken row from the UI.
+  if (!account) {
+    try {
+      const owner = await Db.getAccountOwner(req.params.id);
+      if (owner && owner.userId === req.session.userId) {
+        account = owner; // minimal object — only id/userId needed to authorise the DELETE
+      }
+    } catch (err) {
+      console.error('[accounts] getAccountOwner failed during DELETE fallback:', err.message);
+    }
+  }
+
   if (!account) return res.status(404).json({ error: 'Account not found.' });
 
   try {

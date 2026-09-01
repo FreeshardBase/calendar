@@ -351,9 +351,9 @@ app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) =>
   }
 
   try {
-    await Db.deleteUserAccounts(user_id);
-    console.log(`[webhook] Cleaned up accounts for deleted user: ${user_id}`);
-    res.json({ message: `Successfully deleted accounts for user ${user_id}` });
+    await Db.deleteUser(user_id);
+    console.log(`[webhook] Cleaned up all user data for deleted user: ${user_id}`);
+    res.json({ message: `Successfully deleted user ${user_id}` });
   } catch (err) {
     console.error(`[webhook] Error deleting accounts for user ${user_id}:`, err.message);
     res.status(500).json({ error: err.message });

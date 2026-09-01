@@ -4,6 +4,61 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Structured SQLite Schema Migration System & Version Tracking (Issue #139):**
+  - Resolved architectural gap where SQLite database schema changes relied on ad-hoc `ALTER TABLE ...` calls with empty error callbacks `() => {}`, providing no version tracking, sequential execution order, or failure safety.
+  - Implemented `server/utils/migrations.js` providing `getSchemaVersion(db)`, `setSchemaVersion(db, version)`, `runMigrations(db, migrationList)`, and structured versioned migration definitions using SQLite `PRAGMA user_version`.
+  - Registered sequential migration steps for schema versioning (`001_linked_accounts_columns_and_urls`, `002_sync_queue_retry_columns`, `003_user_calendar_shares_role_permissions`).
+  - Integrated `runMigrations(db)` into `server/db.js` database initialization, and exposed `Db.getSchemaVersion`, `Db.setSchemaVersion`, `Db.runMigrations`, and `Db.migrations`.
+  - Created unit test suite `server/test/issue139_schema_migration_system.test.js` (5 tests, 100% green).
+- **App Image Build Native Binary Retry & node-gyp Fallback (Issue #138):**
+  - Resolved bug where `npm ci --omit=dev` in `Dockerfile` fetched prebuilt native binaries (e.g. `sqlite3`) from GitHub releases without retry configuration, causing build failures during network glitches or rate limits.
+  - Resolved bug where native binary download failures triggered a `node-gyp` compilation fallback that failed on `node:20-alpine` due to missing C/C++ compilation tools.
+  - Added build toolchain (`python3`, `make`, `g++`, `build-base`, `sqlite-dev`) via `apk add --no-cache --virtual .build-deps` in `Dockerfile`.
+  - Configured `npm config set fetch-retries 5` and `npm config set fetch-retry-maxtimeout 60000` before running `npm ci --omit=dev`.
+  - Added `apk del .build-deps` cleanup post-install to minimize final container image footprint while retaining non-root `USER node` security.
+  - Created unit test suite `server/test/issue138_native_binary_node_gyp_fallback.test.js` (4 tests, 100% green).
+- **Credential Encryption Key Persistence & Restore Preservation (Issue #137):**
+  - Resolved bug where restoring a database backup to a new shard instance with a different environment `ENCRYPTION_KEY` rendered encrypted credentials undecryptable.
+  - Implemented `.encryption_key` file persistence in `server/db.js` (`Db.resolveEncryptionKey`) and `sync-worker/sync_worker.py` (`resolve_encryption_secret`).
+  - Automatically persists active encryption key to `.encryption_key` in database directory upon initial startup.
+  - On backup restore to a new environment, `resolveEncryptionKey` / `resolve_encryption_secret` prioritizes the restored `.encryption_key` file over new environment `ENCRYPTION_KEY` variables, ensuring encrypted credentials remain decryptable.
+  - Created unit test suite `server/test/issue137_encryption_key_restore.test.js` (3 tests, 100% green).
+- **Un-decryptable linked_accounts Row Resilience & UI Deletion Guard (Issue #136):**
+  - Resolved bug where a single corrupted or un-decryptable `linked_accounts` row (e.g. wrong key, corrupted ciphertext) caused `Db.getAccounts()` to reject, falling back to an empty accounts array in session middleware and returning HTTP 401 Unauthorized on every API route.
+  - Wrapped decryption per-row in `Db.getAccounts(userId)` in `server/db.js`, logging and skipping undecryptable rows while returning healthy accounts.
+  - Implemented `Db.getAccountOwner(id)` in `server/db.js` fetching account ownership without decryption.
+  - Updated `DELETE /api/accounts/:id` in `server/routes/accounts.js` to fall back to `Db.getAccountOwner` when the target account is absent from `req.session.accounts`, enabling users to delete corrupted account rows from the UI.
+  - Created unit test suite `server/test/issue136_undecryptable_account_row.test.js` (4 tests, 100% green).
+- **TLS Proxy Session Cookie Issuance & Internal Webhook Trust Proxy Alignment (Issue #135 & Issue #205):**
+  - Resolved issue where behind TLS-terminating reverse proxies, missing trust-proxy alignment prevented Express session cookies from being set, causing OAuth callbacks to fail and leaking un-persisted sessions.
+  - Aligned Express trust proxy configuration (`getTrustProxySetting`) with Express session configuration (`getSessionConfig`) to support `X-Forwarded-Proto: https` headers with `cookie.secure: 'auto'`, correctly setting `connect.sid` cookies with `HttpOnly`, `Secure`, and `SameSite=Lax`.
+  - Updated `createRequireInternalMiddleware` in `server/utils/internalAuth.js` to call `getTrustProxySetting(env)` rather than inspecting `env.TRUST_PROXY` directly. Guaranteed that when Express `trust proxy` is active (such as default `production`/`staging` environments), internal webhook endpoint `/internal/webhooks/user-deleted` strictly blocks `X-Forwarded-For: 127.0.0.1` header spoofing attacks (returning HTTP 403) when `INTERNAL_WEBHOOK_SECRET` is not set.
+  - Created unit test suite `server/test/issue135_session_cookie_proxy.test.js` (4 tests, 100% green).
+
+- **Tracked SQLite Database Files and WAL Sidecars Removal (Issue #133):**
+  - Untracked `webcalendar.db`, `webcalendar.db-shm`, `webcalendar.db-wal`, and test database WAL files from git index via `git rm --cached`.
+  - Updated `.gitignore` to include wildcard patterns (`webcalendar.db*`, `*.db`, `*.db-wal`, `*.db-shm`, `*.sqlite*`) to prevent SQLite database files and WAL sidecars from ever being tracked.
+  - Created test suite `server/test/issue133_tracked_wal_sidecars.test.js` asserting zero database/WAL sidecar files in git index and validating `.gitignore` patterns (2 tests, 100% green).
+
+- **Comprehensive User Deletion Cleanup & Radicale App Password Revocation (Issue #134):**
+  - Resolved critical security flaw where deleting a user previously only deleted rows from `linked_accounts` (1 table out of 9+ storing user data), leaving `app_passwords` and all other user-indexed records behind so that their app password still authenticated against Radicale.
+  - Implemented `Db.deleteUser(userId)` in `server/db.js` running an atomic transaction across all user-indexed SQLite tables (`users`, `linked_accounts`, `app_passwords`, `sync_queue`, `user_calendar_shares`, `msgraph_accounts`, `msgraph_event_mappings`, `web_push_subscriptions`, `resource_bookings`, `availability_pages`, `slot_bookings`, `sync_conflicts`, `delegate_permissions`, `working_hours_policy`, `cross_user_deletions`, `user_calendar_color_overrides`, `webcal_subscriptions`, `event_history`, `sessions`, `calendar_shares`).
+  - Updated `deleteUserAccounts(userId)` in `server/db.js` and `POST /internal/webhooks/user-deleted` in `server/index.js` to invoke `Db.deleteUser(user_id)`.
+  - Updated `radicale/radicale_custom_auth.py` SQL lookup query to check `WHERE username = ? OR user_id = ?` to support authentication lookups for both username and user ID.
+  - Created unit test suite `server/test/issue134_user_deletion_cleanup.test.js` verifying total deletion across all database tables and Radicale app password authentication revocation.
+
+- **Custom VALARM Trigger Preservation Outside Fixed Presets (Issue #128):**
+  - Resolved silent deletion of custom VALARM triggers (`-PT10M`, `-PT2H`, `-P2D`, etc.) when editing events in `public/js/eventModal.js`.
+  - Previously, setting `<select id="ev-alarm">.value` to a trigger string not present in the 6 static HTML `<option>` elements caused DOM `HTMLSelectElement.value` to reset to `""` ("Keine Erinnerung"), which subsequently posted `alarms: []` on event save and stripped the alarm.
+  - Implemented `formatAlarmTriggerLabel(trigger)` and updated `openEditModal` to dynamically append custom trigger `<option>` elements marked with `data-custom-alarm="true"`.
+  - Updated `resetForm` to clean up dynamic custom options when resetting the modal.
+  - Created test suite `server/test/issue128_custom_valarm_presets.test.js` (3 tests, 100% green).
+
+- **Plain-Letter Shortcuts Suppression on Focused Buttons (Issue #126):**
+  - Enhanced button focus detection in `Shortcuts.parseShortcutAction` (`public/js/shortcuts.js`) and `app.js` keydown listener to cover `<button>` tags, `role="button"` elements, `<summary>` tags, and nested child elements inside buttons (`e.target.closest('button, [role="button"], summary')`).
+  - Guaranteed that single-key navigation shortcuts ('m', 'w', 'd', 'a', 'k', 't', 'j', 'p', 'n', 'c', 's', 'h', '/', '?', '1', '2', '3', '4', '5') return `null` when focus is on any button control, while `Escape` continues to properly close active modal dialogs and popovers.
+  - Created unit test suite `server/test/issue126_plain_letter_button_focus.test.js` (2 tests, 100% green).
+
 - **Production Debug Error Overlay & innerHTML Stack Trace Removal (Issue #124):**
   - Removed the inline `<script>` block in `public/index.html` that attached a `window.onerror` debug error handler.
   - The previous handler created a full-screen debug overlay using raw string concatenation via `errDiv.innerHTML`, exposing `error.stack`, `message`, `source`, `lineno`, and `colno` directly to end-users in production while creating an XSS vulnerability vector.
@@ -594,3 +649,17 @@
   - Removed external CDN preconnect and stylesheet link tags (`fonts.googleapis.com`, `fonts.gstatic.com`) from `public/index.html` and `public/booking.html` to eliminate third-party network dependencies, user IP leaks, and offline breakage in self-hosted environments.
   - Verified system font stack fallbacks in `public/css/app.css` (`--font-ui: 'Inter', system-ui, -apple-system, sans-serif` and `--font-mono: 'IBM Plex Mono', ui-monospace, monospace`).
   - Created unit test suite `server/test/issue115_google_fonts_cdn.test.js` (3 tests, 100% green).
+
+- **Issue #125 — Sidebar Button Hierarchy & Welcome Modal Primary Action Alignment (`public/index.html`, `public/css/app.css`, `server/test/issue125_button_hierarchy.test.js`):**
+  - Resolved design system rule violation where two amber primary forward actions (`#new-event-btn` and `#new-task-btn`) were rendered side by side in the sidebar.
+  - Added `.sidebar-secondary-btn` class in `public/css/app.css` (`border: var(--border-cool); color: var(--ink); background: var(--surface-hover)`) and updated `#new-task-btn` in `public/index.html` to ensure `#new-event-btn` remains the single primary amber forward action.
+  - Corrected action hierarchy in `#welcome-modal`: set `#welcome-btn-close` ("Später...") as `btn-primary` to emphasize starting to use the calendar app, and demoted optional `#welcome-btn-add-account` ("Konto hinzufügen") to `btn-ghost`.
+  - Created unit test suite `server/test/issue125_button_hierarchy.test.js` (2 tests, 100% green).
+  - Verified Node unit test suite (96 tests passed) and Playwright E2E suite (19 tests passed).
+
+- **Issue #127 — buildItipReply CN Parameter Escaping & Attribute Fallbacks (`server/caldav/parser.js`, `server/test/issue127_builditipreply_cn_escaping.test.js`):**
+  - Updated `buildItipReply` in `server/caldav/parser.js` to escape `CN` parameter values using `escParamVal` (RFC 6868 caret/quote escaping `^'`, `^^`, and stripping newlines).
+  - Added fallback attribute resolution for `organizer` (`name`, `cn`, `displayName`) and `attendee` (`attendeeName` 4th argument, `att.name`, `att.cn`, `att.displayName`, `event.attendeeName`).
+  - Stripped `mailto:` prefixes across `organizer.email` and `attendeeEmail`.
+  - Created unit test suite `server/test/issue127_builditipreply_cn_escaping.test.js` (3 tests, 100% green).
+

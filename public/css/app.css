@@ -335,6 +335,21 @@ a { color: inherit; text-decoration: none; }
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .sidebar-new-btn svg { width: 14px; height: 14px; display: block; }
+.sidebar-secondary-btn {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: 9px var(--sp-4);
+  border: var(--border-w) solid var(--border-cool);
+  border-radius: var(--radius-control);
+  font: 500 var(--fs-small)/1 var(--font-ui);
+  color: var(--ink);
+  background: var(--surface-hover);
+  cursor: pointer; transition: all var(--t);
+}
+.sidebar-secondary-btn:hover {
+  background: var(--bg);
+  border-color: var(--ink-muted);
+}
+.sidebar-secondary-btn svg { width: 14px; height: 14px; display: block; }
 
 /* ── 9. Toolbar ───────────────────────────────────────────────────────────── */
 .toolbar {
