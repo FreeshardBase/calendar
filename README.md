@@ -32,7 +32,7 @@ mkdir -p ssl && openssl req -x509 -newkey rsa:2048 -keyout ssl/key.pem \
 docker compose up --build
 ```
 
-The app listens on https://localhost:3000, Radicale on :5232.
+The app listens on https://localhost:3000 (Radicale runs unexposed on the internal container network).
 
 ## Development
 

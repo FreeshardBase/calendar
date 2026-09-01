@@ -657,11 +657,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const slug = `e2e-slot-${Date.now()}`;
     await page.fill('#ap-title', 'E2E Public Consultation');
     await page.fill('#ap-slug', slug);
+    await expect(page.locator('#ap-calendar option')).not.toHaveCount(0, { timeout: 10000 });
     const savePromise = page.waitForResponse(resp => resp.url().includes('/api/availability') && (resp.status() === 200 || resp.status() === 201));
     await page.click('#ap-save-btn');
     await savePromise;
-
-    // Verify created page appears in list
     const pageCard = page.locator(`.availability-page-card:has-text("${slug}")`);
     await expect(pageCard).toBeVisible({ timeout: 10000 });
 
@@ -688,7 +687,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
-    await page.goto('/?date=2032-09-20');
+    await page.goto('/?date=2028-05-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -701,8 +700,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
 
     await page.fill('#ev-title', title);
-    await page.fill('#ev-start-date', '2032-09-20');
-    await page.fill('#ev-end-date', '2032-09-20');
+    await page.fill('#ev-start-date', '2028-05-15');
+    await page.fill('#ev-end-date', '2028-05-15');
     await page.check('#ev-allday');
     await page.fill('#ev-attachment-url', driveUrl);
     await page.fill('#ev-attachment-name', driveFileName);

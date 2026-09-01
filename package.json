@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
+    "lint": "node --check server/index.js server/**/*.js public/js/*.js && python3 -m py_compile sync-worker/*.py radicale/*.py",
     "test": "NODE_ENV=test node --test --test-concurrency=1 server/test/*.test.js",
     "publish:containers": "node -e \"require('./server/utils/containerPublish').publishContainerImages(process.env.REGISTRY, process.env.TAG, { dryRun: process.env.DRY_RUN !== 'false' })\""
   },

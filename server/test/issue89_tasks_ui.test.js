@@ -221,6 +221,7 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
       TasksAPI,
       openDialog: () => {},
       closeDialog: () => {},
+      confirmDialog: async () => true,
       showToast: env.window.showToast,
       String,
       Set,

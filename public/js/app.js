@@ -13,7 +13,7 @@ import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from
 import { initInvitations } from './invitations.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
-import { initDialogFocusManager, openDialog, closeDialog } from './dialogFocus.js';
+import { initDialogFocusManager, openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 
 const { initTheme, setTheme, getStoredTheme } = (typeof window !== 'undefined' && window.ThemeManager) ? window.ThemeManager : {};
 
@@ -850,7 +850,7 @@ function openShareCalendarDialog(cal) {
         listContainer.querySelectorAll('.btn-revoke-share').forEach(btn => {
           btn.addEventListener('click', async () => {
             const href = btn.dataset.href;
-            if (!confirm(`Freigabe für „${href}“ entziehen?`)) return;
+            if (!(await confirmDialog(`Freigabe für „${href}“ entziehen?`))) return;
             try {
               btn.disabled = true;
               await CalendarsAPI.removeShare(cal.id, href);
@@ -915,7 +915,7 @@ function openShareCalendarDialog(cal) {
   });
 
   publicRegen.addEventListener('click', async () => {
-    if (!confirm('Bestehenden Link wirklich ungültig machen und neuen Link generieren?')) return;
+    if (!(await confirmDialog('Bestehenden Link wirklich ungültig machen und neuen Link generieren?'))) return;
     try {
       const data = await CalendarsAPI.enablePublicLink(cal.id);
       publicInput.value = data.url;
@@ -983,7 +983,7 @@ async function renderSettingsAppPasswords() {
     list.querySelectorAll('[data-delete-asp]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.deleteAsp;
-        if (!confirm('Dieses App-Passwort wirklich löschen? Externe Clients mit diesem Passwort verlieren den Zugriff.')) return;
+        if (!(await confirmDialog('Dieses App-Passwort wirklich löschen? Externe Clients mit diesem Passwort verlieren den Zugriff.'))) return;
         try {
           await AccountsAPI.removeAppPassword(id);
           showToast('App-Passwort gelöscht.', 'info');
@@ -1098,7 +1098,7 @@ function renderSettingsAccounts() {
       const id = btn.dataset.deleteAcc;
       const acc = accounts.find(a => a.id === id);
       if (!acc) return;
-      if (!confirm(`Möchtest du den Account „${acc.displayName || acc.username}" wirklich entfernen? Alle zugehörigen Kalender werden ausgeblendet.`)) return;
+      if (!(await confirmDialog(`Möchtest du den Account „${acc.displayName || acc.username}" wirklich entfernen? Alle zugehörigen Kalender werden ausgeblendet.`))) return;
       try {
         await AccountsAPI.remove(id);
         const updated = store.get('accounts').filter(a => a.id !== id);
@@ -1186,7 +1186,7 @@ function renderSettingsCalendars() {
       const id = btn.dataset.deleteCalSettings;
       const cal = cals.find(c => c.id === id);
       if (!cal) return;
-      if (!confirm(`Kalender „${cal.name}" und alle darin enthaltenen Termine unwiderruflich löschen?`)) return;
+      if (!(await confirmDialog(`Kalender „${cal.name}" und alle darin enthaltenen Termine unwiderruflich löschen?`))) return;
       try {
         await CalendarsAPI.remove(id);
         store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
@@ -1397,7 +1397,7 @@ function showEventPopover(ev, mouseEvent) {
         scope = await chooseRecurrenceScope(`„${ev.title}" löschen:`);
         if (!scope) return;
       } else {
-        if (!confirm(`„${ev.title}" löschen?`)) return;
+        if (!(await confirmDialog(`„${ev.title}" löschen?`))) return;
       }
       try {
         const targetUid = ev.masterUid || ev.uid;

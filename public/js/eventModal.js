@@ -5,7 +5,7 @@
 import { store, calendarById } from './store.js';
 import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
-import { openDialog, closeDialog } from './dialogFocus.js';
+import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 
 let _onSaved  = null;
 let _onDeleted = null;
@@ -613,7 +613,7 @@ async function handleDelete() {
     scope = await chooseRecurrenceScope(`„${_currentEvent.title}" löschen:`);
     if (!scope) return;
   } else {
-    if (!confirm(`„${_currentEvent.title}" wirklich löschen?`)) return;
+    if (!(await confirmDialog(`„${_currentEvent.title}" wirklich löschen?`))) return;
   }
 
   setButtonLoading('event-save-btn', true);

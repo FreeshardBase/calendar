@@ -4,7 +4,7 @@
 
 import { store } from './store.js';
 import { TasksAPI } from './api.js';
-import { openDialog, closeDialog } from './dialogFocus.js';
+import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { showToast } from './app.js';
 
 function notifyToast(message, type = 'info') {
@@ -250,7 +250,7 @@ function createKanbanCard(task, callbacks) {
   let dueBadge = '';
   if (task.due) {
     const d = new Date(task.due);
-    dueBadge = `<span class="kanban-due-date">📅 ${d.toLocaleDateString('de-DE')}</span>`;
+    dueBadge = `<span class="kanban-due-date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${d.toLocaleDateString('de-DE')}</span>`;
   }
 
   let prioBadge = '';
@@ -261,7 +261,7 @@ function createKanbanCard(task, callbacks) {
   let recurBadge = '';
   if (task.recurrence) {
     const recurLabel = formatRecurrenceLabel(task.recurrence);
-    recurBadge = `<span class="kanban-recurrence-badge" title="Wiederholende Aufgabe: ${escapeHtml(recurLabel)}">🔄 ${escapeHtml(recurLabel)}</span>`;
+    recurBadge = `<span class="kanban-recurrence-badge" title="Wiederholende Aufgabe: ${escapeHtml(recurLabel)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-right:4px;vertical-align:middle;display:inline-block;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>${escapeHtml(recurLabel)}</span>`;
   }
 
   card.innerHTML = `
@@ -276,20 +276,20 @@ function createKanbanCard(task, callbacks) {
     </div>
     <div class="kanban-card-actions">
       ${task.status !== 'COMPLETED' ? `
-        <button class="kanban-btn btn-status-next" title="Status weiterschalten">➡️</button>
-        <button class="kanban-btn btn-complete" title="Als erledigt markieren">✓</button>
+        <button class="kanban-btn btn-status-next" title="Status weiterschalten" aria-label="Status weiterschalten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+        <button class="kanban-btn btn-complete" title="Als erledigt markieren" aria-label="Als erledigt markieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
       ` : `
-        <button class="kanban-btn btn-reopen" title="Wieder öffnen">↩️</button>
+        <button class="kanban-btn btn-reopen" title="Wieder öffnen" aria-label="Wieder öffnen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
       `}
-      <button class="kanban-btn btn-edit" title="Bearbeiten">✏️</button>
-      <button class="kanban-btn btn-delete" title="Löschen">🗑️</button>
+      <button class="kanban-btn btn-edit" title="Bearbeiten" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+      <button class="kanban-btn btn-delete" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg></button>
     </div>
   `;
 
   card.querySelector('.btn-edit')?.addEventListener('click', () => openTaskModal(task));
 
   card.querySelector('.btn-delete')?.addEventListener('click', async () => {
-    if (confirm('Möchtest du diese Aufgabe wirklich löschen?')) {
+    if (await confirmDialog('Möchtest du diese Aufgabe wirklich löschen?')) {
       try {
         await TasksAPI.remove(task.uid, { calendarId: task.calendarId, href: task.href, etag: task.etag });
         notifyToast('Aufgabe gelöscht.', 'info');
@@ -456,8 +456,8 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {})
       <div class="sidebar-task-info" style="cursor:pointer; flex:1;">
         <div class="sidebar-task-title ${prioClass}">${escapeHtml(task.title)}</div>
         <div class="sidebar-task-meta" style="font-size:0.75rem; color:var(--ink-muted);">
-          ${task.due ? `📅 ${new Date(task.due).toLocaleDateString('de-DE')}` : ''}
-          ${task.recurrence ? ` 🔄` : ''}
+          ${task.due ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${new Date(task.due).toLocaleDateString('de-DE')}` : ''}
+          ${task.recurrence ? ` <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>` : ''}
         </div>
       </div>
     `;

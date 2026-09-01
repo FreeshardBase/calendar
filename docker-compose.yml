@@ -29,8 +29,6 @@ services:
     image: ${REGISTRY:-ghcr.io/freeshardbase}/radicale:${TAG:-latest}
     container_name: freeshard-radicale
     restart: unless-stopped
-    ports:
-      - "5232:5232"
     env_file:
       - .env
     environment:

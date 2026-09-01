@@ -4,6 +4,23 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Dev Compose & Shipping Topology Alignment (Issue #118):**
+  - Removed host port binding (`5232:5232`) from `caldav-server` service in `docker-compose.yml` to match shipping container topology where Radicale is unexposed to the host.
+  - Aligned internal container URLs (`https://caldav-server:5232`) for `webcalendar` and `sync-worker` services.
+  - Updated `README.md` quick start section to document Radicale as an unexposed backend service.
+  - Created unit test suite `server/test/issue118_dev_compose_shipping_topology.test.js` (3 tests, 100% green).
+
+- **CI Workflow, Justfile & Linter Integration (Issue #117):**
+  - Created `.github/workflows/ci.yml` defining automated CI test & lint pipeline for Node 20 and Python 3.12.
+  - Created root `justfile` with standard task recipes (`lint`, `test`, `test-e2e`, `ci`).
+  - Configured `"lint"` script in `package.json` performing syntax check (`node --check`) for JS code and compilation check (`python3 -m py_compile`) for Python code.
+  - Created test suite `server/test/issue117_ci_justfile_linter.test.js` (4 tests, 100% green).
+
+- **Security Headers & Content Security Policy Middleware (Issue #116):**
+  - Created `server/utils/securityHeaders.js` setting HTTP hardening headers (`Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security`, `X-Permitted-Cross-Domain-Policies: none`).
+  - Mounted `securityHeaders` globally at the top of the Express middleware chain in `server/index.js`.
+  - Added unit and integration test suite `server/test/issue116_security_headers.test.js`.
+
 - **Sync Queue Mechanism (`server/db.js` & `sync-worker/sync_worker.py`):**
   - `sync_queue` table tracks vdirsyncer background job scheduling and execution states (`PENDING`, `RUNNING`, `SUCCESS`, `ERROR`).
   - `addSyncJob(userId)` enforces single pending job per user by purging existing `PENDING` records prior to insertion.
@@ -541,17 +558,7 @@
   - Enforced `animation-duration: 0.01ms !important`, `animation-iteration-count: 1 !important`, `transition-duration: 0.01ms !important`, and `scroll-behavior: auto !important` on `*, *::before, *::after`.
   - Created unit test suite `server/test/issue113_prefers_reduced_motion.test.js` (3 tests, 100% green).
 
-
-
-## Test Execution State
-- Node Unit & Integration Suite: 698 PASSED, 0 failed (100% green)
-- Playwright E2E Suite: 19 PASSED, 1 skipped (100% green)
-
-
-
-
-
-
-
-
-
+- **Issue #115 — Google Fonts CDN Removal & Self-Hosting Isolation (`public/index.html`, `public/booking.html`, `public/css/app.css`, `server/test/issue115_google_fonts_cdn.test.js`):**
+  - Removed external CDN preconnect and stylesheet link tags (`fonts.googleapis.com`, `fonts.gstatic.com`) from `public/index.html` and `public/booking.html` to eliminate third-party network dependencies, user IP leaks, and offline breakage in self-hosted environments.
+  - Verified system font stack fallbacks in `public/css/app.css` (`--font-ui: 'Inter', system-ui, -apple-system, sans-serif` and `--font-mono: 'IBM Plex Mono', ui-monospace, monospace`).
+  - Created unit test suite `server/test/issue115_google_fonts_cdn.test.js` (3 tests, 100% green).

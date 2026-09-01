@@ -20,6 +20,7 @@ const fs = require('fs');
 const Db = require('./db');
 const { getTrustProxySetting, getSessionConfig } = require('./utils/sessionConfig');
 const { createRequireInternalMiddleware } = require('./utils/internalAuth');
+const securityHeaders = require('./utils/securityHeaders');
 
 const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
@@ -43,6 +44,7 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', getTrustProxySetting());
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+app.use(securityHeaders);
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
 

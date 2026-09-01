@@ -12,8 +12,11 @@ DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
 SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET", "super-secret-bypass")
 
+def get_db_path():
+    return os.environ.get("DATABASE_PATH", DB_PATH)
+
 def get_db(db_path=None):
-    target_path = db_path or DB_PATH
+    target_path = db_path or get_db_path()
     conn = sqlite3.connect(target_path)
     conn.row_factory = sqlite3.Row
     return conn

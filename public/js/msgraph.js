@@ -1,4 +1,4 @@
-import { openDialog, closeDialog } from './dialogFocus.js';
+import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 
 export const MSGraphAPI = {
   async listAccounts() {
@@ -106,7 +106,7 @@ export async function loadMSGraphAccounts() {
     list.querySelectorAll('.btn-delete-msgraph').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
-        if (!confirm('MS Graph Konto wirklich trennen?')) return;
+        if (!(await confirmDialog('MS Graph Konto wirklich trennen?'))) return;
         try {
           btn.disabled = true;
           await MSGraphAPI.deleteAccount(id);

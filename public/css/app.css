@@ -1179,7 +1179,7 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
 
 /* Buttons — size variants */
 .btn-full { width: 100%; justify-content: center; height: 40px; }
-.btn-sm   { height: 30px; padding: 0 var(--sp-3); font-size: 12px; }
+.btn-sm   { min-height: 44px; min-width: 44px; padding: 0 var(--sp-3); font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
 
 /* Form extras */
 .form-hint {
@@ -1705,7 +1705,12 @@ textarea.form-input, .form-textarea {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 4px 6px;
+  padding: 6px 10px;
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 4px;
   font-size: 12px;
   transition: background 0.15s;

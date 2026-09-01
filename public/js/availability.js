@@ -4,7 +4,7 @@
 
 import { AvailabilityAPI, CalendarsAPI } from './api.js';
 import { showToast } from './app.js';
-import { openDialog, closeDialog } from './dialogFocus.js';
+import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 
 export function initAvailabilityManager() {
   const btn = document.getElementById('availability-btn');
@@ -98,9 +98,9 @@ export function initAvailabilityManager() {
                 <a href="${publicUrl}" target="_blank" style="font-size: 12px; color: var(--accent); text-decoration: underline;">${publicUrl}</a>
               </div>
             </div>
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${publicUrl}" style="padding: 4px 8px; font-size: 12px;">Link kopieren</button>
-              <button class="btn btn-danger btn-sm delete-page-btn" data-id="${p.id}" style="padding: 4px 8px; font-size: 12px;">Löschen</button>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${publicUrl}">Link kopieren</button>
+              <button class="btn btn-danger btn-sm delete-page-btn" data-id="${p.id}">Löschen</button>
             </div>
           </div>
         `;
@@ -117,7 +117,7 @@ export function initAvailabilityManager() {
       pagesList.querySelectorAll('.delete-page-btn').forEach(b => {
         b.addEventListener('click', async () => {
           const id = b.getAttribute('data-id');
-          if (confirm('Möchtest du diese Buchungsseite wirklich löschen?')) {
+          if (await confirmDialog('Möchtest du diese Buchungsseite wirklich löschen?')) {
             try {
               await AvailabilityAPI.deletePage(id);
               showToast('Buchungsseite gelöscht', 'success');

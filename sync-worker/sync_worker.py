@@ -16,6 +16,9 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 # Configuration variables from environment
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 STATUS_ROOT = os.environ.get("STATUS_ROOT", "/data/vdir_status")
+
+def get_db_path():
+    return os.environ.get("DATABASE_PATH", DB_PATH)
 ENCRYPTION_SECRET = os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET") or "freeshard-default-encryption-key-do-not-use-in-prod"
 _node_env = os.environ.get("NODE_ENV", "").lower()
 _weak_keys = {
@@ -356,7 +359,7 @@ password = "{SYSTEM_SYNC_SECRET}"
 
 def sync_user(user_id):
     print(f"[Sync-Worker] Sync starting for user {user_id}...")
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
