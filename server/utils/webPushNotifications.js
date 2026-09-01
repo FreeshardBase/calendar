@@ -74,7 +74,7 @@ function evaluateUpcomingAlarms(events, options = {}) {
  */
 function formatPushPayload(alarm) {
   const eventTitle = alarm.title || 'Termin';
-  const startTimeStr = alarm.start ? new Date(alarm.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const startTimeStr = alarm.start ? new Date(alarm.start).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
 
   return {
     title: `Erinnerung: ${eventTitle}`,

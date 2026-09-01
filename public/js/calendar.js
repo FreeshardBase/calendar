@@ -193,7 +193,10 @@ function renderMonth(container, events, currentDate, cb) {
     cell.dataset.date = date.toISOString();
 
     let chipsHtml = dayEvents.slice(0, MAX_VISIBLE).map(ev => chipHtml(ev)).join('');
-    if (overflow > 0) chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}">+${overflow} weitere</div>`;
+    if (overflow > 0) {
+      const overflowText = overflow === 1 ? '+1 weiterer' : `+${overflow} weitere`;
+      chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}">${overflowText}</div>`;
+    }
 
     cell.innerHTML = `<div class="month-day-num">${date.getDate()}</div>${chipsHtml}`;
 

@@ -4,6 +4,22 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **German Typography Fixes (Issue #167):**
+  - Resolved straight closing quote defect where German opening quotation mark `„` was closed with a straight quote `"` instead of German closing quote `“` across `public/js/app.js`, `public/js/accountModal.js`, and `public/js/eventModal.js`.
+  - Updated month view overflow rendering in `public/js/calendar.js` to distinguish singular vs plural overflow items (`+1 weiterer` for masculine Termin singular vs `+N weitere` for plural).
+  - Created TDD unit test suite `server/test/issue167_german_typography.test.js` (3 tests, 100% green).
+- **Reminder Body 24-Hour Clock Locale Alignment (Issue #166):**
+  - Resolved formatting flaw where notification reminders constructed start times via `.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })` using system default locale (`[]`), causing German users on English browser/OS settings to receive 12-hour AM/PM time strings (e.g. `"2:30 PM"`).
+  - Explicitly specified `'de-DE'` locale in `public/js/notifications.js` (`new Date(ev.start).toLocaleTimeString('de-DE', ...)`) and `server/utils/webPushNotifications.js` (`new Date(alarm.start).toLocaleTimeString('de-DE', ...)`), ensuring standard 24-hour German time formatting (`"14:30"`).
+  - Created TDD unit test suite `server/test/issue166_reminder_locale_24h.test.js` (4 tests, 100% green).
+- **Error States for Failed Tasks & Invitations Fetch (Issue #165):**
+  - Resolved UI bug where `/api/tasks` failure rendered `"Keine offenen Aufgaben."` in sidebar and `"Keine Aufgaben vorhanden"` on Kanban board, misinforming users when tasks failed to load.
+  - Updated `loadTasks()` (`public/js/app.js`) to record `tasksError` in state store, passing `{ error: tasksError }` options to `renderSidebarTasks` and `renderKanbanBoard`.
+  - Updated `renderSidebarTasks` (`public/js/tasks.js`) to render `<div class="sidebar-tasks-error">Fehler beim Laden der Aufgaben.</div>` and badge indicator `!` on error.
+  - Updated `renderKanbanBoard` (`public/js/tasks.js`) to render dedicated `<div class="kanban-empty-state kanban-error-state">` error notice on error.
+  - Resolved UI bug where `/api/events/invitations` fetch failure cleared badge count and hid invitations badge (`display: none`).
+  - Updated `loadInvitations()` & `updateBadge()` (`public/js/invitations.js`) to display badge with `!` error indicator and title `"Fehler beim Laden der Einladungen"`, and render `<p class="empty-state invitations-error-state">` error notice in invitations modal on failure.
+  - Created TDD unit test suite `server/test/issue165_failed_tasks_and_invitations.test.js` (4 tests, 100% green).
 - **SPA Catch-All API Route Isolation (Issue #164):**
   - Mounted an unmatched `/api` 404 middleware handler (`app.use('/api', (req, res) => res.status(404).json({ error: 'Not Found' }))`) in `server/index.js` prior to the SPA wildcard fallback route (`app.get('*', ...)`).
   - Ensured all unmatched requests targeting `/api` or subpaths return a 404 JSON error payload (`{ error: 'Not Found' }`) with `Content-Type: application/json` rather than HTTP 200 HTML `index.html`.

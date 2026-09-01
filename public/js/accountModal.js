@@ -107,7 +107,7 @@ export function initAccountModal() {
     try {
       const result = await AccountsAPI.add({ url, username, password, displayName });
       closeAccountModal();
-      showToast(`Account „${displayName || username}" hinzugefügt.`, 'success');
+      showToast(`Account „${displayName || username}“ hinzugefügt.`, 'success');
       _onAdded?.(result);
     } catch (err) {
       showError(err.message);

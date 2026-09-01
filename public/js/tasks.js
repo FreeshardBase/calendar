@@ -161,6 +161,18 @@ async function handleTaskSave() {
 }
 
 export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}) {
+  if (!container) return;
+
+  if (options && options.error) {
+    container.innerHTML = `
+      <div class="kanban-empty-state kanban-error-state" style="padding: 40px; text-align: center;">
+        <div class="kanban-empty-title" style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: var(--danger, #e53e3e);">Fehler beim Laden der Aufgaben</div>
+        <div class="kanban-empty-subtitle" style="font-size: 0.85rem; color: var(--ink-muted, #718096);">Die Aufgaben konnten nicht geladen werden.</div>
+      </div>
+    `;
+    return;
+  }
+
   const searchQuery = (options && options.searchQuery !== undefined)
     ? options.searchQuery
     : (typeof store !== 'undefined' && store && store.get ? store.get('searchQuery') : '');
@@ -430,10 +442,27 @@ export function advanceRecurringTaskJS(task) {
   };
 }
 
-export function renderSidebarTasks(container, countBadge, tasks, callbacks = {}) {
-  if (!container) return;
+export function renderSidebarTasks(container, countBadge, tasks, callbacks = {}, options = {}) {
+  if (options && options.error) {
+    if (countBadge) {
+      countBadge.textContent = '!';
+      countBadge.title = 'Fehler beim Laden der Aufgaben';
+    }
+    if (container) {
+      container.innerHTML = `<div class="sidebar-tasks-error" style="font-size:0.78rem;color:var(--danger);padding:4px 8px">Fehler beim Laden der Aufgaben.</div>`;
+    }
+    return;
+  }
+
   const pendingTasks = (tasks || []).filter(t => t.status !== 'COMPLETED' && t.status !== 'CANCELLED');
-  if (countBadge) countBadge.textContent = pendingTasks.length;
+  if (countBadge) {
+    countBadge.textContent = pendingTasks.length || '0';
+    if (typeof countBadge.removeAttribute === 'function') {
+      countBadge.removeAttribute('title');
+    }
+  }
+
+  if (!container) return;
 
   if (pendingTasks.length === 0) {
     container.innerHTML = `<div class="sidebar-tasks-empty" style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">Keine offenen Aufgaben.</div>`;

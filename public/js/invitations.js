@@ -6,6 +6,7 @@ import { InvitationsAPI } from './api.js';
 import { openDialog, closeDialog } from './dialogFocus.js';
 
 let invitationsList = [];
+let invitationsError = false;
 
 export function initInvitations() {
   const btn = document.getElementById('invitations-btn');
@@ -37,15 +38,33 @@ export async function loadInvitations() {
   try {
     const data = await InvitationsAPI.list();
     invitationsList = Array.isArray(data) ? data : [];
+    invitationsError = false;
     updateBadge();
   } catch (err) {
     console.error('[invitations] Failed to load:', err);
+    invitationsError = true;
+    updateBadge();
   }
 }
 
 function updateBadge() {
   const badge = document.getElementById('invitations-badge');
   if (!badge) return;
+
+  if (invitationsError) {
+    badge.textContent = '!';
+    if (badge.classList && typeof badge.classList.add === 'function') {
+      badge.classList.add('badge-error');
+    }
+    badge.style.display = 'inline-flex';
+    badge.title = 'Fehler beim Laden der Einladungen';
+    return;
+  } else if (badge.classList && typeof badge.classList.remove === 'function') {
+    badge.classList.remove('badge-error');
+    if (typeof badge.removeAttribute === 'function') {
+      badge.removeAttribute('title');
+    }
+  }
 
   const count = invitationsList.length;
   if (count > 0) {
@@ -76,7 +95,11 @@ export function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-export function renderInvitationsHTML(invList) {
+export function renderInvitationsHTML(invList, options = {}) {
+  if (options.error || invitationsError) {
+    return '<p class="empty-state invitations-error-state" style="padding: 20px; text-align: center; color: var(--danger);">Fehler beim Laden der Einladungen.</p>';
+  }
+
   if (!Array.isArray(invList) || invList.length === 0) {
     return '<p class="empty-state" style="padding: 20px; text-align: center; color: var(--text-muted);">Keine ausstehenden Einladungen vorhanden.</p>';
   }

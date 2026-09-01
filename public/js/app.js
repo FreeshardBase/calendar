@@ -175,13 +175,18 @@ async function loadTasks() {
   store.set({ loadingTasks: true });
   try {
     const tasks = await TasksAPI.list();
-    store.set({ tasks });
+    store.set({ tasks, tasksError: null });
     renderTaskSidebar();
     if (store.get('view') === 'kanban') {
       renderCalendarView();
     }
   } catch (err) {
     console.error('Fehler beim Laden der Aufgaben:', err.message);
+    store.set({ tasksError: err.message || true });
+    renderTaskSidebar();
+    if (store.get('view') === 'kanban') {
+      renderCalendarView();
+    }
     if (typeof showToast === 'function') {
       showToast('Fehler beim Laden der Aufgaben: ' + err.message, 'error');
     }
@@ -194,7 +199,8 @@ function renderTaskSidebar() {
   const container = $('sidebar-task-list');
   const countBadge = $('sidebar-task-count');
   const tasks = store.get('tasks') || [];
-  renderSidebarTasks(container, countBadge, tasks, { onTaskChanged: loadTasks });
+  const tasksError = store.get('tasksError');
+  renderSidebarTasks(container, countBadge, tasks, { onTaskChanged: loadTasks }, { error: tasksError });
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -220,9 +226,12 @@ function renderCalendarView() {
       btn.classList.toggle('active', btn.dataset.view === 'kanban');
     });
     const tasks = getFilteredTasks();
-    renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks }, { searchQuery });
+    const tasksError = store.get('tasksError');
+    renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks }, { searchQuery, error: tasksError });
     const count = tasks.length;
-    if (searchQuery && searchQuery.trim() && count === 0) {
+    if (tasksError) {
+      setStatus('Fehler beim Laden der Aufgaben');
+    } else if (searchQuery && searchQuery.trim() && count === 0) {
       setStatus(`0 Ergebnisse für „${searchQuery.trim()}“`);
     } else {
       setStatus(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
@@ -609,7 +618,7 @@ function openEditCalendarDialog(cal) {
       );
       store.set({ calendars: cals });
       close();
-      showToast(`Kalender umbenannt in „${name}".`, 'success');
+      showToast(`Kalender umbenannt in „${name}“.`, 'success');
       renderCalendarList();
       renderCalendarView();
     } catch (err) {
@@ -1102,7 +1111,7 @@ function renderSettingsAccounts() {
       const id = btn.dataset.deleteAcc;
       const acc = accounts.find(a => a.id === id);
       if (!acc) return;
-      if (!(await confirmDialog(`Möchtest du den Account „${acc.displayName || acc.username}" wirklich entfernen? Alle zugehörigen Kalender werden ausgeblendet.`))) return;
+      if (!(await confirmDialog(`Möchtest du den Account „${acc.displayName || acc.username}“ wirklich entfernen? Alle zugehörigen Kalender werden ausgeblendet.`))) return;
       try {
         await AccountsAPI.remove(id);
         const updated = store.get('accounts').filter(a => a.id !== id);
@@ -1190,11 +1199,11 @@ function renderSettingsCalendars() {
       const id = btn.dataset.deleteCalSettings;
       const cal = cals.find(c => c.id === id);
       if (!cal) return;
-      if (!(await confirmDialog(`Kalender „${cal.name}" und alle darin enthaltenen Termine unwiderruflich löschen?`))) return;
+      if (!(await confirmDialog(`Kalender „${cal.name}“ und alle darin enthaltenen Termine unwiderruflich löschen?`))) return;
       try {
         await CalendarsAPI.remove(id);
         store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
-        showToast(`Kalender „${cal.name}" gelöscht.`, 'info');
+        showToast(`Kalender „${cal.name}“ gelöscht.`, 'info');
         invalidateEventCache();
         await loadEvents();
         renderSidebar();
@@ -1295,7 +1304,7 @@ function openAddCalendarDialog() {
     try {
       await CalendarsAPI.create({ accountId, name, color });
       closeDialog();
-      showToast(`Kalender „${name}" erstellt.`, 'success');
+      showToast(`Kalender „${name}“ erstellt.`, 'success');
       await loadCalendars();
       renderSidebar();
       renderCalendarView();
@@ -1398,10 +1407,10 @@ function showEventPopover(ev, mouseEvent) {
     deleteBtn.onclick = async () => {
       let scope = 'series';
       if (ev.recurrenceId) {
-        scope = await chooseRecurrenceScope(`„${ev.title}" löschen:`);
+        scope = await chooseRecurrenceScope(`„${ev.title}“ löschen:`);
         if (!scope) return;
       } else {
-        if (!(await confirmDialog(`„${ev.title}" löschen?`))) return;
+        if (!(await confirmDialog(`„${ev.title}“ löschen?`))) return;
       }
       try {
         const targetUid = ev.masterUid || ev.uid;

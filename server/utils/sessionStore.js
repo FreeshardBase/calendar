@@ -24,9 +24,13 @@ class SqliteSessionStore extends session.Store {
         return null;
       }
       if (row.expired && row.expired < Date.now()) {
-        this.db.deleteSession(sid).catch(() => {});
-        cb(null, null);
-        return null;
+        return this.db.deleteSession(sid).then(() => {
+          cb(null, null);
+          return null;
+        }).catch(() => {
+          cb(null, null);
+          return null;
+        });
       }
       try {
         const sess = JSON.parse(row.sess);

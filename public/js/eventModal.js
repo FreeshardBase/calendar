@@ -680,10 +680,10 @@ async function handleDelete() {
 
   let scope = 'series';
   if (_currentEvent.recurrenceId) {
-    scope = await chooseRecurrenceScope(`„${_currentEvent.title}" löschen:`);
+    scope = await chooseRecurrenceScope(`„${_currentEvent.title}“ löschen:`);
     if (!scope) return;
   } else {
-    if (!(await confirmDialog(`„${_currentEvent.title}" wirklich löschen?`))) return;
+    if (!(await confirmDialog(`„${_currentEvent.title}“ wirklich löschen?`))) return;
   }
 
   setButtonLoading('event-save-btn', true);
