@@ -4,6 +4,14 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Clean Error Messages Below Account Setup (Issue #160):**
+  - Created `server/utils/errorSanitizer.js` to strip HTML/XML tags, raw protocol HTTP status strings (e.g. `PROPFIND 500`), and response body slices (`— <html>...`) from errors.
+  - Updated `CalDAVClient` methods (`propfind`, `report`, `mkcalendar`, `_updateSharesApple`, `_updateSharesNextcloud`) and route exception handlers (`server/routes/calendars.js`, `server/routes/events.js`) to sanitize error messages before rethrowing or responding to clients.
+  - Created TDD unit test suite `server/test/issue160_clean_error_messages.test.js` (4 tests, 100% green).
+- **Month Grid Date Range Alignment (Issue #161):**
+  - Resolved mismatch in `getDateRange('month', date)` in `public/js/calendar.js` where month query ranges were fetched starting on Sunday (`start.setDate(start.getDate() - start.getDay())`), while `renderMonth` rendered a Monday-start week grid (`(first.getDay() + 6) % 7`).
+  - Updated `getDateRange` to calculate Monday start (`start.setDate(start.getDate() - startDay)`) and cover 42 grid cells (6 full weeks) to `end.setDate(start.getDate() + 41)` at 23:59:59.999.
+  - Created TDD unit test suite `server/test/issue161_month_grid_date_range.test.js` (3 tests, 100% green).
 - **Boot Error Handling & Onboarding Setup Wizard Guard (Issue #159):**
   - Resolved UX defect in `boot()` (`public/js/app.js`) where any failure during `/api/accounts` retrieval (e.g. server 500, network offline, 502 Bad Gateway) triggered `catch (err) { showOnboarding(); }`, misdirecting existing users to the first-run setup wizard (`#onboarding`).
   - Updated `boot()` error handler in `public/js/app.js` to call `hideLoading()`, `showApp()`, and present an error notification (`showToast('Fehler beim Laden der Kontodaten: ' + err.message, 'error')`), keeping existing users within the main app shell (`#app`).

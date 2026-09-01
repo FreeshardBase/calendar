@@ -20,6 +20,7 @@ const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
+const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
 
 async function getUserEmailsForSession(req) {
   const emails = new Set();
@@ -285,7 +286,7 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.error('[events POST]', err.message);
     if (err.message === 'ETAG_CONFLICT') return res.status(409).json({ error: 'Conflict.' });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeErrorMessage(err.message) });
   }
 });
 
@@ -397,7 +398,7 @@ router.put('/:uid', async (req, res) => {
         error: 'This event was modified by another client. Please refresh.'
       });
     }
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeErrorMessage(err.message) });
   }
 });
 

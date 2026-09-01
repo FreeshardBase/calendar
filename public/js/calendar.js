@@ -54,9 +54,11 @@ export function getDateRange(view, date) {
   switch (view) {
     case 'month': {
       start = new Date(date.getFullYear(), date.getMonth(), 1);
-      start.setDate(start.getDate() - start.getDay()); // back to Sunday
-      end   = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-      end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday
+      const startDay = (start.getDay() + 6) % 7;
+      start.setDate(start.getDate() - startDay); // back to Monday
+      start.setHours(0, 0, 0, 0);
+      end = new Date(start);
+      end.setDate(start.getDate() + 41); // 42 days total (6 full weeks)
       end.setHours(23, 59, 59, 999);
       break;
     }

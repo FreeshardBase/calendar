@@ -127,8 +127,7 @@ class CalDAVClient {
       headers: { Depth: String(depth) }
     });
     if (res.status !== 207 && !res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`PROPFIND ${res.status}: ${res.statusText} — ${text.slice(0, 200)}`);
+      throw new Error(`PROPFIND ${res.status}: ${res.statusText}`);
     }
     return res.text();
   }
@@ -139,8 +138,7 @@ class CalDAVClient {
       headers: { Depth: '1' }
     });
     if (res.status !== 207 && !res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`REPORT ${res.status}: ${res.statusText} — ${text.slice(0, 200)}`);
+      throw new Error(`REPORT ${res.status}: ${res.statusText}`);
     }
     return res.text();
   }
@@ -225,8 +223,7 @@ class CalDAVClient {
 
     const res = await this._request('MKCALENDAR', url, { body: mkBody });
     if (!res.ok && res.status !== 201) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`MKCALENDAR ${res.status}: ${text.slice(0, 200) || res.statusText}`);
+      throw new Error(`MKCALENDAR ${res.status}: ${res.statusText}`);
     }
 
     // Step 2: Set the calendar color via PROPPATCH (Apple + Nextcloud namespace)
@@ -630,8 +627,7 @@ class CalDAVClient {
       });
 
       if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Failed to update shares: ${res.status} ${txt.slice(0, 200)}`);
+        throw new Error(`Failed to update shares: ${res.status} ${res.statusText}`);
       }
       return true;
     } else {
@@ -665,8 +661,7 @@ class CalDAVClient {
       });
 
       if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Failed to update shares: ${res.status} ${txt.slice(0, 200)}`);
+        throw new Error(`Failed to update shares: ${res.status} ${res.statusText}`);
       }
       return true;
     }
