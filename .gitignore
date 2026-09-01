@@ -16,3 +16,4 @@ webcalendar.db*
 data/
 .stryker-tmp/
 reports/
+.worktrees/
