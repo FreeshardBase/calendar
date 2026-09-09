@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Node Test Suite Enforcement of Multi-Identity Mechanism & #50 ACL Guard (Issue #245):**
+  - Verified and ensured that the Node test suite's multi-identity mechanism (`x-test-user-id` header in `server/index.js`) dynamically switches user identity (`req.session.userId`) and loads user accounts (`req.session.accounts`) per HTTP request.
+  - Verified that strict ACL authorization (`checkCalendarAccess` enforcing #50) functions correctly across multi-user HTTP requests, returning 401 Unauthorized for `x-test-user-id: unauthenticated` / `none`, 403 Forbidden for unauthorized strangers, read-only vs write permissions for sharees, and 200/201 for calendar owners.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue245_node_test_suite_red_on_50_fix.test.js` (6 tests, 100% green).
+
 - **Node Test Suite Enforcement of Public Share Ownership Check (Issue #244):**
   - Verified and ensured that all public share endpoints (`GET`, `POST`, `DELETE /api/calendars/:id/shares-public`) strictly enforce calendar ownership (`checkCalendarAccess(req, calendarId, 'owner')`).
   - Guaranteed that unauthenticated requests return 401, stranger requests return 403, and non-owner sharee requests return 403, while legitimate calendar owners return 200/201.
