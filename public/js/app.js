@@ -522,9 +522,9 @@ function openImportDialog(fileName, icsText) {
   backdrop.id = 'import-dialog-backdrop';
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal modal-sm" role="dialog" aria-modal="true">
+    <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title">ICS importieren</h3>
+        <h3 class="modal-title" id="import-dialog-title">ICS importieren</h3>
         <button class="icon-btn" id="import-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -593,9 +593,9 @@ function openEditCalendarDialog(cal) {
   backdrop.id = 'edit-cal-dialog-backdrop';
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal modal-sm" role="dialog" aria-modal="true">
+    <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="edit-cal-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title">Kalender bearbeiten</h3>
+        <h3 class="modal-title" id="edit-cal-dialog-title">Kalender bearbeiten</h3>
         <button class="icon-btn" id="edit-cal-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -729,9 +729,9 @@ function openShareCalendarDialog(cal) {
   backdrop.id = 'share-cal-dialog-backdrop';
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" style="max-width:560px;">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="share-cal-dialog-title" style="max-width:560px;">
       <div class="modal-header">
-        <h3 class="modal-title">Freigabe & Sharing: ${escHtml(cal.name)}</h3>
+        <h3 class="modal-title" id="share-cal-dialog-title">Freigabe & Sharing: ${escHtml(cal.name)}</h3>
         <button class="icon-btn" id="share-cal-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -1284,9 +1284,9 @@ function openAddCalendarDialog() {
   backdrop.id = 'add-cal-dialog-backdrop';
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal modal-sm" role="dialog" aria-modal="true">
+    <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="add-cal-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title">Neuer Kalender</h3>
+        <h3 class="modal-title" id="add-cal-dialog-title">Neuer Kalender</h3>
         <button class="icon-btn modal-close" id="add-cal-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>

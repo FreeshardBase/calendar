@@ -863,9 +863,10 @@
   - Added schema migration `004_hot_query_indexes` in `server/utils/migrations.js` and `CREATE INDEX IF NOT EXISTS` setup in `server/db.js`.
   - Created TDD test suite `server/test/issue146_hot_query_indexes.test.js` (100% green).
 
-- **Issue #147 — Sync Queue Production Retention Pruning (`server/db.js`, `server/utils/syncRetryQueue.js`, `sync-worker/sync_worker.py`, `server/test/issue147_sync_queue_pruning.test.js`):**
-  - Added `Db.pruneSyncQueue(maxAgeMs, now)` method in `server/db.js` deleting finished sync jobs (`status IN ('SUCCESS', 'ERROR')`) older than retention window (default 24 hours).
-  - Integrated inline auto-pruning into `Db.addSyncJob(userId)` in `server/db.js` and Python worker polling loop in `sync-worker/sync_worker.py` to prevent unbounded SQLite table bloat in production.
-  - Exported `pruneSyncQueue(maxAgeMs, now)` wrapper in `server/utils/syncRetryQueue.js`.
-  - Created TDD test suite `server/test/issue147_sync_queue_pruning.test.js` (3 tests, 100% green).
+- **Issue #186 — Dialog Accessible Names & ARIA Labelledby (`public/index.html`, `public/js/app.js`, `server/test/issue186_dialog_accessible_names.test.js`):**
+  - Resolved missing accessible names for 8 modal dialogs declaring `role="dialog"`.
+  - Added `aria-labelledby` and matching heading `id` attributes to 4 static HTML dialogs in `public/index.html` (`#account-modal`, `#welcome-modal`, `#scope-dialog`, `#msgraph-modal`).
+  - Added `aria-labelledby` and matching heading `id` attributes to 4 dynamic JS dialogs in `public/js/app.js` (`showImportDialog`, `openEditCalendarDialog`, `openShareDialog`, `openAddCalendarDialog`).
+  - Created TDD unit test suite `server/test/issue186_dialog_accessible_names.test.js` (3 tests, 100% green).
+
 
