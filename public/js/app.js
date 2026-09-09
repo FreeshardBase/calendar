@@ -166,7 +166,10 @@ async function syncCalendarDelta(calendarId) {
   }
 }
 
+let loadEventsSeq = 0;
+
 async function loadEvents() {
+  const seq = ++loadEventsSeq;
   const view = store.get('view');
   const date = store.get('currentDate');
   const { start, end } = getDateRange(view, date);
@@ -183,17 +186,21 @@ async function loadEvents() {
 
   try {
     const events = await EventsAPI.list(start.toISOString(), end.toISOString());
+    if (seq !== loadEventsSeq) return;
     cacheEvents(cacheKey, events);
     store.set({ events });
     renderCalendarView();
     checkAndTriggerAlarms();
   } catch (err) {
+    if (seq !== loadEventsSeq) return;
     if (!cached) {
       showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
       setStatus('');
     }
   } finally {
-    store.set({ loadingEvents: false });
+    if (seq === loadEventsSeq) {
+      store.set({ loadingEvents: false });
+    }
   }
 }
 

@@ -4,6 +4,12 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Calendar Navigation Request Sequence Tracking & Out-Of-Order Response Protection (Issue #220):**
+  - Resolved bug where rapid calendar date/view navigation triggered unsequenced `loadEvents()` calls whose out-of-order async HTTP responses (`EventsAPI.list`) could overwrite store event state with stale results from an earlier date.
+  - Implemented sequence counter tracking (`loadEventsSeq`) in `public/js/app.js` incremented on each `loadEvents()` invocation (`const seq = ++loadEventsSeq`).
+  - Added sequence validation checks (`if (seq !== loadEventsSeq) return;`) dis-applying out-of-order responses from updating store events, caching, or triggering `renderCalendarView()`.
+  - Added sequence check in `finally` block (`if (seq === loadEventsSeq)`) ensuring `loadingEvents` status flag is only cleared when the latest in-flight request finishes.
+  - Created TDD unit test suite `server/test/issue220_unsequenced_calendar_navigation.test.js` (5 tests, 100% green).
 - **Public Link Dialog Unsequenced Writers & Out-Of-Order Response Protection (Issue #215):**
   - Resolved race condition in `openShareCalendarDialog` where multiple unsequenced async requests (`loadPublicLink`, `publicEnable` change listener, `publicRegen` click listener) could resolve out-of-order, causing a stale response (e.g. initial `getPublicLink` fetch returning `enabled: false`) to overwrite state after a newer request enabled or regenerated the share link.
   - Implemented sequence counter tracking (`publicLinkSeq`) in `openShareCalendarDialog` (`public/js/app.js`) incremented on each async invocation (`seq = ++publicLinkSeq`).
