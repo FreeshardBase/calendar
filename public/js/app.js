@@ -1407,17 +1407,30 @@ function showEventPopover(ev, mouseEvent) {
       ${actionsHtml}
     </div>`;
 
-  // Position near mouse
+  // Position near mouse or target element if keyboard activated
   popover.classList.remove('hidden');
   _popoverUid = ev.uid;
 
-  const rect = popover.getBoundingClientRect();
-  let top  = mouseEvent.clientY + 10;
-  let left = mouseEvent.clientX + 10;
-  if (top  + 200 > window.innerHeight) top  = mouseEvent.clientY - 220;
-  if (left + 300 > window.innerWidth)  left = mouseEvent.clientX - 300;
-  popover.style.top  = `${top}px`;
-  popover.style.left = `${left}px`;
+  let mouseX = mouseEvent && typeof mouseEvent.clientX === 'number' && mouseEvent.clientX > 0 ? mouseEvent.clientX : null;
+  let mouseY = mouseEvent && typeof mouseEvent.clientY === 'number' && mouseEvent.clientY > 0 ? mouseEvent.clientY : null;
+  if (mouseX === null && mouseEvent && mouseEvent.target && typeof mouseEvent.target.getBoundingClientRect === 'function') {
+    const tRect = mouseEvent.target.getBoundingClientRect();
+    mouseX = tRect.left;
+    mouseY = tRect.bottom;
+  }
+  if (mouseX === null) {
+    mouseX = (typeof window !== 'undefined' ? window.innerWidth : 800) / 2 - 150;
+    mouseY = (typeof window !== 'undefined' ? window.innerHeight : 600) / 2 - 100;
+  }
+
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 600;
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 800;
+  let top  = mouseY + 10;
+  let left = mouseX + 10;
+  if (top  + 200 > winH) top  = mouseY - 220;
+  if (left + 300 > winW) left = mouseX - 300;
+  popover.style.top  = `${Math.max(10, top)}px`;
+  popover.style.left = `${Math.max(10, left)}px`;
 
   const editBtn = $('popover-edit-btn');
   if (editBtn) {
@@ -1425,6 +1438,7 @@ function showEventPopover(ev, mouseEvent) {
       closePopover();
       openEditModal(ev, { onSaved: onEventSaved, onDeleted: onEventDeleted });
     };
+    if (typeof editBtn.focus === 'function') editBtn.focus();
   }
 
   const deleteBtn = $('popover-delete-btn');

@@ -230,11 +230,20 @@ function renderMonth(container, events, currentDate, cb) {
   div.appendChild(grid);
   container.appendChild(div);
 
-  // Re-attach chip click after DOM insert
+  // Re-attach chip click / keydown after DOM insert
   container.addEventListener('click', e => {
     const chip = e.target.closest('[data-event-uid]');
     if (chip) cb.onEventClick(chip.dataset.eventUid, e);
   }, { once: false });
+  container.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const chip = e.target.closest('[data-event-uid]');
+      if (chip) {
+        e.preventDefault();
+        cb.onEventClick(chip.dataset.eventUid, e);
+      }
+    }
+  });
 }
 
 export function chipHtml(ev) {
@@ -247,6 +256,9 @@ export function chipHtml(ev) {
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
   return `<div class="event-chip${ev.allDay ? ' all-day' : ''}"
+              tabindex="0"
+              role="button"
+              aria-label="${escHtml(ev.title)}"
               style="background:${escHtml(bg)};color:${escHtml(textColor)};"
               data-event-uid="${escHtml(ev.uid)}"
               title="${escHtml(ev.title)}">
@@ -539,6 +551,9 @@ function createEventBlock(ev, evCol, totalCols, cb) {
     border-left-color:${escHtml(color)};
   `;
   block.dataset.eventUid = ev.uid;
+  block.setAttribute('tabindex', '0');
+  block.setAttribute('role', 'button');
+  block.setAttribute('aria-label', ev.title || '');
 
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
@@ -551,6 +566,13 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   `;
 
   block.addEventListener('click', e => { e.stopPropagation(); cb.onEventClick(ev.uid, e); });
+  block.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      cb.onEventClick(ev.uid, e);
+    }
+  });
   return block;
 }
 
@@ -630,6 +652,15 @@ function renderAgenda(container, events, currentDate, cb) {
     const item = e.target.closest('[data-event-uid]');
     if (item) cb.onEventClick(item.dataset.eventUid, e);
   });
+  container.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const item = e.target.closest('[data-event-uid]');
+      if (item) {
+        e.preventDefault();
+        cb.onEventClick(item.dataset.eventUid, e);
+      }
+    }
+  });
 }
 
 export function agendaEventHtml(ev) {
@@ -643,7 +674,7 @@ export function agendaEventHtml(ev) {
     : '';
 
   return `
-    <div class="agenda-event" data-event-uid="${escHtml(ev.uid)}" style="cursor:pointer">
+    <div class="agenda-event" tabindex="0" role="button" aria-label="${escHtml(ev.title)}" data-event-uid="${escHtml(ev.uid)}" style="cursor:pointer">
       <div class="agenda-event-color" style="background:${escHtml(color)}"></div>
       <div class="agenda-event-body">
         <div class="agenda-event-title">${escHtml(ev.title)} ${recurIcon}</div>

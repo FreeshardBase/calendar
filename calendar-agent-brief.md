@@ -1,7 +1,7 @@
 ---
 type: project
 first_mentioned: 2026-09-01
-status: active brief — supersedes the current queue for Aaron's agent on FreeshardBase/calendar
+status: active brief — supersedes the current queue for testuser's agent on FreeshardBase/calendar
 ---
 
 # Freeshard Calendar — brief for the next agent run

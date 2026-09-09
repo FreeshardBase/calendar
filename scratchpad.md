@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Calendar Grid Keyboard Reachability & Activation (Issue #181):**
+  - Added `tabindex="0"`, `role="button"`, and `aria-label` attributes to event elements across Month (`chipHtml`), Week/Day (`createEventBlock`), and Agenda (`agendaEventHtml`) views.
+  - Added `keydown` event handling (`Enter` and `Space`) on event elements and view containers to enable keyboard invocation of `onEventClick`.
+  - Updated `showEventPopover` in `public/js/app.js` to handle positioning for keyboard events lacking `clientX`/`clientY` mouse coordinates and auto-focus the edit button when opened.
+  - Created TDD unit test suite `server/test/issue181_keyboard_reachable_events.test.js` (6 tests, 100% green).
 - **Upgraded openid-client Major Dependency Range (Issue #179):**
   - Updated `openid-client` dependency requirement in `package.json` from unmaintained v5 line (`^5.7.1`) to maintained major 6 range (`^6.0.0`).
   - Created TDD unit test suite `server/test/issue179_openid_client_version_range.test.js` verifying range alignment and module loading (100% green).
