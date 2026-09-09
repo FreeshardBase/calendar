@@ -10,6 +10,7 @@ import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 let _onSaved  = null;
 let _onDeleted = null;
 let _currentEvent = null; // null = create mode, object = edit mode
+let _recurrenceTouched = false;
 
 // ── DOM refs (lazily grabbed) ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -313,6 +314,7 @@ export function openEditModal(event, callbacks) {
   if ($('ev-attachment-url')) $('ev-attachment-url').value = firstAttach ? (firstAttach.url || '') : '';
   if ($('ev-attachment-name')) $('ev-attachment-name').value = firstAttach ? (firstAttach.name || '') : '';
 
+  _recurrenceTouched = false;
   show();
 }
 
@@ -396,6 +398,7 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
 }
 
 function resetForm() {
+  _recurrenceTouched = false;
   form().reset();
   $('ev-uid').value  = '';
   $('ev-href').value = '';
@@ -572,43 +575,67 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     endUtc   = getUtcDate(endDateVal, endTimeVal, endTimeZone).toISOString();
   }
 
-  const recurrenceVal = $('ev-recurrence').value;
   let recurrence = null;
-  if (recurrenceVal === 'DAILY') {
-    recurrence = 'FREQ=DAILY';
-  } else if (recurrenceVal === 'YEARLY') {
-    recurrence = 'FREQ=YEARLY';
-  } else if (recurrenceVal === 'WEEKLY') {
-    const byday = [...document.querySelectorAll('.recur-byday:checked')].map(cb => cb.value).join(',');
-    recurrence = byday ? `FREQ=WEEKLY;BYDAY=${byday}` : 'FREQ=WEEKLY';
-  } else if (recurrenceVal === 'MONTHLY') {
-    const startD = new Date(startDateVal);
-    if (!isNaN(startD.getTime())) {
-      const type = document.querySelector('input[name="recur-monthly-type"]:checked').value;
-      if (type === 'BYMONTHDAY') {
-        recurrence = `FREQ=MONTHLY;BYMONTHDAY=${startD.getDate()}`;
-      } else if (type === 'BYDAY') {
-        const wd = ['SU','MO','TU','WE','TH','FR','SA'][startD.getDay()];
-        const weekNum = Math.ceil(startD.getDate() / 7);
-        recurrence = `FREQ=MONTHLY;BYDAY=${weekNum}${wd}`;
+  if (_currentEvent && typeof _currentEvent.recurrence === 'string' && _currentEvent.recurrence.trim() !== '' && !_recurrenceTouched) {
+    recurrence = _currentEvent.recurrence;
+  } else {
+    const recurrenceVal = $('ev-recurrence').value;
+    if (recurrenceVal === 'DAILY') {
+      recurrence = 'FREQ=DAILY';
+    } else if (recurrenceVal === 'YEARLY') {
+      recurrence = 'FREQ=YEARLY';
+    } else if (recurrenceVal === 'WEEKLY') {
+      const byday = [...document.querySelectorAll('.recur-byday:checked')].map(cb => cb.value).join(',');
+      recurrence = byday ? `FREQ=WEEKLY;BYDAY=${byday}` : 'FREQ=WEEKLY';
+    } else if (recurrenceVal === 'MONTHLY') {
+      const startD = new Date(startDateVal);
+      if (!isNaN(startD.getTime())) {
+        const typeEl = document.querySelector('input[name="recur-monthly-type"]:checked');
+        const type = typeEl ? typeEl.value : 'BYMONTHDAY';
+        if (type === 'BYMONTHDAY') {
+          recurrence = `FREQ=MONTHLY;BYMONTHDAY=${startD.getDate()}`;
+        } else if (type === 'BYDAY') {
+          const wd = ['SU','MO','TU','WE','TH','FR','SA'][startD.getDay()];
+          const weekNum = Math.ceil(startD.getDate() / 7);
+          recurrence = `FREQ=MONTHLY;BYDAY=${weekNum}${wd}`;
+        }
+      } else {
+        recurrence = 'FREQ=MONTHLY';
       }
-    } else {
-      recurrence = 'FREQ=MONTHLY';
     }
-  }
 
-  if (recurrence) {
-    const endType = document.querySelector('input[name="recur-end-type"]:checked').value;
-    if (endType === 'UNTIL') {
-      const untilDateVal = $('recur-end-date').value;
-      if (untilDateVal) {
-        const datePart = untilDateVal.replace(/-/g, '');
-        recurrence += `;UNTIL=${datePart}T235959Z`;
+    if (recurrence) {
+      const endTypeEl = document.querySelector('input[name="recur-end-type"]:checked');
+      const endType = endTypeEl ? endTypeEl.value : 'NEVER';
+      if (endType === 'UNTIL') {
+        const untilDateVal = $('recur-end-date').value;
+        if (untilDateVal) {
+          const datePart = untilDateVal.replace(/-/g, '');
+          recurrence += `;UNTIL=${datePart}T235959Z`;
+        }
+      } else if (endType === 'COUNT') {
+        const countVal = $('recur-end-count').value;
+        if (countVal && parseInt(countVal, 10) > 0) {
+          recurrence += `;COUNT=${parseInt(countVal, 10)}`;
+        }
       }
-    } else if (endType === 'COUNT') {
-      const countVal = $('recur-end-count').value;
-      if (countVal && parseInt(countVal, 10) > 0) {
-        recurrence += `;COUNT=${parseInt(countVal, 10)}`;
+    }
+
+    if (_currentEvent && typeof _currentEvent.recurrence === 'string' && _currentEvent.recurrence.trim() !== '' && recurrence) {
+      const origFreqMatch = _currentEvent.recurrence.match(/FREQ=([A-Z]+)/);
+      const newFreqMatch = recurrence.match(/FREQ=([A-Z]+)/);
+      if (origFreqMatch && newFreqMatch && origFreqMatch[1] === newFreqMatch[1]) {
+        const origParts = _currentEvent.recurrence.split(';');
+        const newParts = recurrence.split(';');
+        const newKeys = new Set(newParts.map(p => p.split('=')[0]));
+        const mergedParts = [...newParts];
+        origParts.forEach(part => {
+          const key = part.split('=')[0];
+          if (!newKeys.has(key) && key !== '') {
+            mergedParts.push(part);
+          }
+        });
+        recurrence = mergedParts.join(';');
       }
     }
   }
@@ -756,10 +783,29 @@ export function initEventModal() {
   form().addEventListener('submit', handleSubmit);
   $('delete-event-btn').addEventListener('click', handleDelete);
 
+  const markRecurrenceTouched = () => { _recurrenceTouched = true; };
+
   $('ev-allday').addEventListener('change', e => updateAlldayUI(e.target.checked));
-  $('ev-recurrence').addEventListener('change', () => updateRecurrenceOptions(false));
+  $('ev-recurrence').addEventListener('change', () => {
+    markRecurrenceTouched();
+    updateRecurrenceOptions(false);
+  });
   $('ev-start-date').addEventListener('change', () => updateRecurrenceOptions(false));
   $('add-attendee-btn').addEventListener('click', handleAddAttendee);
+
+  document.querySelectorAll('.recur-byday').forEach(cb => cb.addEventListener('change', markRecurrenceTouched));
+  document.querySelectorAll('input[name="recur-monthly-type"]').forEach(r => r.addEventListener('change', markRecurrenceTouched));
+  if ($('recur-monthly-week-idx')) $('recur-monthly-week-idx').addEventListener('change', markRecurrenceTouched);
+  if ($('recur-monthly-weekday')) $('recur-monthly-weekday').addEventListener('change', markRecurrenceTouched);
+  document.querySelectorAll('input[name="recur-end-type"]').forEach(r => r.addEventListener('change', markRecurrenceTouched));
+  if ($('recur-end-date')) {
+    $('recur-end-date').addEventListener('input', markRecurrenceTouched);
+    $('recur-end-date').addEventListener('change', markRecurrenceTouched);
+  }
+  if ($('recur-end-count')) {
+    $('recur-end-count').addEventListener('input', markRecurrenceTouched);
+    $('recur-end-count').addEventListener('change', markRecurrenceTouched);
+  }
 
   // Remove attendee on click
   $('ev-attendee-list').addEventListener('click', e => {

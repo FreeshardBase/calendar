@@ -4,6 +4,12 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Preservation of Recurrence Rules on Zero-Edit Event Save (Issue #222):**
+  - Resolved bug where opening an existing recurring event and clicking Save without modifying recurrence options (a zero-edit save or non-recurrence edit) rewrote or deleted complex RRULE parameters (e.g. `INTERVAL`, `WKST`, `BYSETPOS`, `BYMONTH`, `EXDATE`, or custom `UNTIL` timestamps).
+  - Implemented `_recurrenceTouched` state flag tracking in `public/js/eventModal.js` reset to `false` in `openEditModal`, `openCreateModal`, and `resetForm`.
+  - Added change/input event listeners on all recurrence form fields (`#ev-recurrence`, `.recur-byday`, `recur-monthly-type`, `recur-monthly-*`, `recur-end-type`, `recur-end-*`) to mark `_recurrenceTouched = true` on user interaction.
+  - Updated `handleSubmit` in `public/js/eventModal.js` to preserve `_currentEvent.recurrence` verbatim when `_recurrenceTouched` is `false`, and merge un-editable original parameters (e.g. `INTERVAL`, `WKST`) when sub-options are edited with `FREQ` unchanged.
+  - Created TDD unit test suite `server/test/issue222_no_op_save_recurring_event.test.js` (100% green).
 - **Daylight-Saving Changeover Event Saving Accuracy (Issue #221):**
   - Resolved bug where events saved inside or near a daylight-saving time (DST) transition window (such as 01:30 CET on spring transition day 2026-03-29 in Europe/Berlin) were stored 1 hour wrong due to single-pass timezone offset calculation in `getUtcDate`.
   - Implemented 2-pass target offset re-evaluation in `getUtcDate` (`server/utils/ical.js` and `public/js/eventModal.js`) that re-checks the calculated UTC timestamp in the target timezone to account for DST offset shifts between pre- and post-transition windows.
