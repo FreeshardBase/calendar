@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Daylight-Saving Changeover Event Saving Accuracy (Issue #221):**
+  - Resolved bug where events saved inside or near a daylight-saving time (DST) transition window (such as 01:30 CET on spring transition day 2026-03-29 in Europe/Berlin) were stored 1 hour wrong due to single-pass timezone offset calculation in `getUtcDate`.
+  - Implemented 2-pass target offset re-evaluation in `getUtcDate` (`server/utils/ical.js` and `public/js/eventModal.js`) that re-checks the calculated UTC timestamp in the target timezone to account for DST offset shifts between pre- and post-transition windows.
+  - Exported `getUtcDate` from `server/utils/ical.js`.
+  - Created TDD unit test suite `server/test/issue221_dst_changeover_event_save.test.js` (5 tests, 100% green).
 - **Calendar Navigation Request Sequence Tracking & Out-Of-Order Response Protection (Issue #220):**
   - Resolved bug where rapid calendar date/view navigation triggered unsequenced `loadEvents()` calls whose out-of-order async HTTP responses (`EventsAPI.list`) could overwrite store event state with stale results from an earlier date.
   - Implemented sequence counter tracking (`loadEventsSeq`) in `public/js/app.js` incremented on each `loadEvents()` invocation (`const seq = ++loadEventsSeq`).

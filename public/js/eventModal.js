@@ -531,18 +531,27 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     hour12: false
   });
   
-  const parts = formatter.formatToParts(temp);
-  const partMap = {};
-  for (const p of parts) partMap[p.type] = p.value;
-  
-  let hour = partMap.hour;
-  if (hour === '24') hour = '00';
-  
-  const localIso = `${partMap.year}-${partMap.month}-${partMap.day}T${hour}:${partMap.minute}:${partMap.second}.000Z`;
+  const getPartMap = (d) => {
+    const parts = formatter.formatToParts(d);
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    if (map.hour === '24') map.hour = '00';
+    return map;
+  };
+
+  const partMap = getPartMap(temp);
+  const localIso = `${partMap.year}-${partMap.month}-${partMap.day}T${partMap.hour}:${partMap.minute}:${partMap.second}.000Z`;
   const localTemp = new Date(localIso);
-  
   const diff = temp.getTime() - localTemp.getTime();
-  return new Date(temp.getTime() + diff);
+  const targetMs = temp.getTime() + diff;
+
+  // Re-check targetMs in target timeZone to handle DST changeover offset shifts
+  const targetPartMap = getPartMap(new Date(targetMs));
+  const targetLocalIso = `${targetPartMap.year}-${targetPartMap.month}-${targetPartMap.day}T${targetPartMap.hour}:${targetPartMap.minute}:${targetPartMap.second}.000Z`;
+  const targetLocalTemp = new Date(targetLocalIso);
+  const secondDiff = temp.getTime() - targetLocalTemp.getTime();
+
+  return new Date(targetMs + secondDiff);
 }
 
   let startUtc, endUtc;

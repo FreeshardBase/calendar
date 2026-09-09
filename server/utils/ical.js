@@ -843,6 +843,48 @@ function fmtDateTimeTzid(iso, tzid) {
   }
 }
 
+function getUtcDate(dateStr, timeStr, timeZone) {
+  if (!dateStr) return new Date();
+  const iso = `${dateStr}T${timeStr || '00:00'}:00.000Z`;
+  const temp = new Date(iso);
+  if (isNaN(temp.getTime())) return temp;
+
+  if (!timeZone || !isValidTimezone(timeZone)) return temp;
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
+  const getPartMap = (d) => {
+    const parts = formatter.formatToParts(d);
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    if (map.hour === '24') map.hour = '00';
+    return map;
+  };
+
+  const partMap = getPartMap(temp);
+  const localIso = `${partMap.year}-${partMap.month}-${partMap.day}T${partMap.hour}:${partMap.minute}:${partMap.second}.000Z`;
+  const localTemp = new Date(localIso);
+  const diff = temp.getTime() - localTemp.getTime();
+  const targetMs = temp.getTime() + diff;
+
+  // Re-check targetMs in target timeZone to handle DST changeover offset shifts
+  const targetPartMap = getPartMap(new Date(targetMs));
+  const targetLocalIso = `${targetPartMap.year}-${targetPartMap.month}-${targetPartMap.day}T${targetPartMap.hour}:${targetPartMap.minute}:${targetPartMap.second}.000Z`;
+  const targetLocalTemp = new Date(targetLocalIso);
+  const secondDiff = temp.getTime() - targetLocalTemp.getTime();
+
+  return new Date(targetMs + secondDiff);
+}
+
 function fmtDate(iso) {
   return new Date(iso).toISOString().slice(0, 10).replace(/-/g, '');
 }
@@ -1193,6 +1235,7 @@ module.exports = {
   escParamVal,
   buildVTimezoneBlock,
   isValidTimezone,
+  getUtcDate,
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,
