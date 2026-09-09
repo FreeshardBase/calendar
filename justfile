@@ -10,4 +10,4 @@ test:
 test-e2e:
     npx playwright test
 
-ci: lint test
+ci: lint test test-e2e
