@@ -180,14 +180,36 @@ function renderMonth(container, events, currentDate, cb) {
 
   const div = document.createElement('div');
   div.className = 'month-view';
+  div.setAttribute('role', 'grid');
+  div.setAttribute('aria-label', 'Monatsansicht');
 
   // Day-of-week header
-  div.innerHTML = `<div class="month-dow-header">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => `<div class="month-dow">${d}</div>`).join('')}</div>`;
+  const dowNames = [
+    { short: 'Mo', full: 'Montag' },
+    { short: 'Di', full: 'Dienstag' },
+    { short: 'Mi', full: 'Mittwoch' },
+    { short: 'Do', full: 'Donnerstag' },
+    { short: 'Fr', full: 'Freitag' },
+    { short: 'Sa', full: 'Samstag' },
+    { short: 'So', full: 'Sonntag' }
+  ];
+  div.innerHTML = `<div class="month-dow-header" role="row">${dowNames.map(d => `<div class="month-dow" role="columnheader" aria-label="${d.full}">${d.short}</div>`).join('')}</div>`;
 
   const grid = document.createElement('div');
   grid.className = 'month-grid';
+  grid.setAttribute('role', 'rowgroup');
+
+  let currentWeekRow = null;
 
   for (let i = 0; i < 42; i++) {
+    if (i % 7 === 0) {
+      currentWeekRow = document.createElement('div');
+      currentWeekRow.className = 'month-row';
+      currentWeekRow.setAttribute('role', 'row');
+      currentWeekRow.style.display = 'contents';
+      grid.appendChild(currentWeekRow);
+    }
+
     const col = i - startDay;
     const date = new Date(year, month, col + 1);
     const isCurrentMonth = col >= 0 && col < daysInMonth;
@@ -201,11 +223,16 @@ function renderMonth(container, events, currentDate, cb) {
     const cell = document.createElement('div');
     cell.className = `month-day${isCurrentMonth ? '' : ' other-month'}${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}`;
     cell.dataset.date = date.toISOString();
+    cell.setAttribute('role', 'gridcell');
+
+    const dateFormatted = date.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const eventSummary = dayEvents.length === 0 ? '' : (dayEvents.length === 1 ? ', 1 Termin' : `, ${dayEvents.length} Termine`);
+    cell.setAttribute('aria-label', `${dateFormatted}${eventSummary}`);
 
     let chipsHtml = dayEvents.slice(0, MAX_VISIBLE).map(ev => chipHtml(ev)).join('');
     if (overflow > 0) {
       const overflowText = overflow === 1 ? '+1 weiterer' : `+${overflow} weitere`;
-      chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}">${overflowText}</div>`;
+      chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}" role="button" tabindex="0" aria-label="${overflowText}">${overflowText}</div>`;
     }
 
     cell.innerHTML = `<div class="month-day-num">${date.getDate()}</div>${chipsHtml}`;
@@ -224,7 +251,7 @@ function renderMonth(container, events, currentDate, cb) {
       if (chip) { e.stopPropagation(); cb.onEventClick(chip.dataset.eventUid, e); }
     });
 
-    grid.appendChild(cell);
+    currentWeekRow.appendChild(cell);
   }
 
   div.appendChild(grid);

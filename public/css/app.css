@@ -467,6 +467,9 @@ a { color: inherit; text-decoration: none; }
   background: var(--border);
   gap: 1px;
 }
+.month-row {
+  display: contents;
+}
 .month-day {
   padding: var(--sp-2);
   cursor: pointer; transition: background var(--t);

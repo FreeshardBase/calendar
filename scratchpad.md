@@ -4,6 +4,14 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Month Grid ARIA Semantic Nodes for Screen Readers (Issue #183):**
+  - Added `role="grid"` and `aria-label="Monatsansicht"` attributes to `.month-view` container in `renderMonth` (`public/js/calendar.js`).
+  - Added `role="row"` to `.month-dow-header` and `role="columnheader"` with full weekday names (`Montag`...`Sonntag`) in `aria-label` attributes to `.month-dow` elements.
+  - Grouped 42 month day cells into 6 week rows wrapped in `<div class="month-row" role="row">` elements with `role="rowgroup"` on `.month-grid`.
+  - Added `role="gridcell"` and descriptive `aria-label` (providing full German formatted date and event count summary) to `.month-day` cell elements.
+  - Added `role="button"`, `tabindex="0"`, and `aria-label` attributes to overflow `.month-more` links.
+  - Added `.month-row { display: contents; }` to `public/css/app.css` to preserve 7-column CSS grid layout.
+  - Created TDD unit test suite `server/test/issue183_month_grid_semantic_nodes.test.js` (7 tests, 100% green).
 - **Calendar Visibility & ICS Import Keyboard Reachability (Issue #182):**
   - Added `tabindex="0"`, `role="button"`, and `aria-label="ICS-Datei importieren"` to `#ics-dropzone` in `public/index.html`.
   - Added `keydown` event listener (`Enter` and `Space`) to `#ics-dropzone` in `initIcsImport` (`public/js/app.js`) to trigger file picker when activated by keyboard.
