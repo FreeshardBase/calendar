@@ -9,14 +9,14 @@ const path = require('path');
 
 describe('Issue #62 — Sync Worker Exception Guard & Expiration Mismatch Suite', () => {
   const scriptDir = path.join(__dirname, '../../sync-worker');
-  const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../../webcalendar.db');
+  const dbPath = (Db.getDbPath && Db.getDbPath()) || process.env.DATABASE_PATH || path.resolve(__dirname, '../../webcalendar.db');
 
   test('sync_worker process_next_job recovers from unguarded exceptions and does not strand job in RUNNING', async () => {
     await new Promise(resolve => Db.db.run('DELETE FROM sync_queue', resolve));
     const userId = 'testuser-unguarded-exc';
     await Db.clearSyncJobsForUser(userId);
 
-    const job = await Db.addSyncJob(userId, { maxAttempts: 3 });
+    const job = await Db.addSyncJob(userId, { maxAttempts: 3, nextRetryAt: Date.now() - 1000 });
     assert.equal(job.status, 'PENDING');
 
     const pyCode = `

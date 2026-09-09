@@ -28,5 +28,7 @@ RUN groupadd -r syncworker && useradd -r -g syncworker -m -s /bin/false syncwork
 
 USER syncworker
 
+ENV PYTHONUNBUFFERED=1
+
 # Run the daemon
-CMD ["python", "/app/sync_worker.py"]
+CMD ["python", "-u", "/app/sync_worker.py"]

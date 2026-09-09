@@ -62,16 +62,16 @@ const DelegatesModule = {
     }
 
     containerEl.innerHTML = delegates.map(d => `
-      <div class="delegate-item flex items-center justify-between p-3 bg-slate-50 border rounded-lg mb-2" data-id="${d.id}">
+      <div class="delegate-item flex items-center justify-between p-3 bg-slate-50 border rounded-lg mb-2" data-id="${escHtml(d.id)}">
         <div>
-          <div class="font-semibold text-slate-800 text-sm">${d.delegate_user_id}</div>
+          <div class="font-semibold text-slate-800 text-sm">${escHtml(d.delegate_user_id)}</div>
           <div class="text-xs text-slate-500">
-            Rolle: <span class="font-medium text-slate-700">${d.role}</span> | 
+            Rolle: <span class="font-medium text-slate-700">${escHtml(d.role)}</span> | 
             Einladungen: ${d.can_manage_invitations ? 'Ja' : 'Nein'} | 
             Privat: ${d.can_view_private ? 'Ja' : 'Nein'}
           </div>
         </div>
-        <button type="button" class="revoke-delegate-btn text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 border border-red-200 rounded hover:bg-red-50" data-id="${d.id}">
+        <button type="button" class="revoke-delegate-btn text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 border border-red-200 rounded hover:bg-red-50" data-id="${escHtml(d.id)}">
           Entfernen
         </button>
       </div>
@@ -85,6 +85,15 @@ const DelegatesModule = {
     });
   }
 };
+
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 if (typeof window !== 'undefined') {
   window.DelegatesModule = DelegatesModule;

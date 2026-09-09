@@ -68,7 +68,7 @@ export function initAvailabilityManager() {
         return;
       }
       calSelect.innerHTML = list.map(c => `
-        <option value="${c.id}">${c.displayName || c.name || c.id}</option>
+        <option value="${escapeHtml(c.id)}">${escapeHtml(c.displayName || c.name || c.id)}</option>
       `).join('');
     } catch (err) {
       console.error('[availability] Error loading calendars:', err);
@@ -99,8 +99,8 @@ export function initAvailabilityManager() {
               </div>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
-              <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${publicUrl}">Link kopieren</button>
-              <button class="btn btn-danger btn-sm delete-page-btn" data-id="${p.id}">Löschen</button>
+              <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeHtml(publicUrl)}">Link kopieren</button>
+              <button class="btn btn-danger btn-sm delete-page-btn" data-id="${escapeHtml(p.id)}">Löschen</button>
             </div>
           </div>
         `;

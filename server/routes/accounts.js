@@ -185,6 +185,36 @@ router.get('/oauth-token-status', async (req, res) => {
   }
 });
 
+// GET /api/accounts/sync-status — get background sync queue status and error messages for user
+router.get('/sync-status', async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    const jobs = await Db.getSyncJobs(req.session.userId);
+    res.json({ jobs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/accounts/sync-jobs/:id — get specific sync job status and error message
+router.get('/sync-jobs/:id', async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    const job = await Db.getSyncJobById(req.params.id);
+    if (!job || job.userId !== req.session.userId) {
+      return res.status(404).json({ error: 'Sync-Job nicht gefunden.' });
+    }
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // ── App-Specific Passwords (ASPs) API ───────────────────────────────────────
 
 // GET /api/accounts/app-passwords — list ASPs

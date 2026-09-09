@@ -22,7 +22,7 @@ class Rights(BaseRights):
         if user.lower() == owner_id.lower():
             if len(segments) == 1:
                 return "RW"
-            return "rw"
+            return "RWDrwd"
 
         # 2. Accessing someone else's space
         if len(segments) < 2:
@@ -54,6 +54,8 @@ class Rights(BaseRights):
                 has_write = bool(rw_flag) or role in ('WRITE', 'ADMIN')
                 if role in ('READ', 'FREE_BUSY'):
                     has_write = False
+                if len(segments) > 2:
+                    return "rwd" if has_write else "rd"
                 return "rw" if has_write else "r"
 
             return ""

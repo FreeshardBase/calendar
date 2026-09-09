@@ -10,7 +10,7 @@ module.exports = defineConfig({
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:3098',
     ignoreHTTPSErrors: true,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [
@@ -20,9 +20,9 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: 'PORT=3098 NODE_ENV=test E2E_TEST=true INTERNAL_CALDAV_URL="https://localhost:5232" NODE_TLS_REJECT_UNAUTHORIZED="0" UNDICI_NO_AUTO_SELECT_FAMILY="1" SSL_KEY_PATH="" SSL_CERT_PATH="" node server/index.js',
+    command: 'PORT=3098 NODE_ENV=production SESSION_SECRET="e2e-playwright-test-session-secret-key-32bytes!" E2E_TEST=true INTERNAL_CALDAV_URL="https://localhost:5232" NODE_TLS_REJECT_UNAUTHORIZED="0" UNDICI_NO_AUTO_SELECT_FAMILY="1" SSL_KEY_PATH="" SSL_CERT_PATH="" node server/index.js',
     url: 'http://localhost:3098',
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     stdout: 'ignore',
     stderr: 'pipe',
   },

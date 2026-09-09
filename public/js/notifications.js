@@ -37,26 +37,43 @@ function saveNotifiedAlarms() {
 
 const notifiedAlarms = loadNotifiedAlarms();
 
-export function parseTriggerOffsetMs(trigger) {
-  if (!trigger) return -15 * 60 * 1000;
+export function parseTriggerOffsetMs(trigger, startIso) {
+  if (!trigger || typeof trigger === 'object') return null;
   let str = String(trigger).trim();
   if (str.toUpperCase().startsWith('TRIGGER:')) {
     str = str.substring(8).trim();
   }
+  if (str.toUpperCase().startsWith('VALUE=DATE-TIME:')) {
+    str = str.substring(16).trim();
+  }
   if (str === 'PT0S' || str === 'PT0M' || str === '0') return 0;
 
   const match = str.match(/^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i);
-  if (!match) return -15 * 60 * 1000;
+  if (match) {
+    const hasComponent = match[2] || match[3] || match[4] || match[5] || match[6];
+    if (hasComponent) {
+      const sign = match[1] === '-' ? -1 : 1;
+      const weeks = parseInt(match[2] || '0', 10);
+      const days = parseInt(match[3] || '0', 10);
+      const hours = parseInt(match[4] || '0', 10);
+      const mins = parseInt(match[5] || '0', 10);
+      const secs = parseInt(match[6] || '0', 10);
 
-  const sign = match[1] === '-' ? -1 : 1;
-  const weeks = parseInt(match[2] || '0', 10);
-  const days = parseInt(match[3] || '0', 10);
-  const hours = parseInt(match[4] || '0', 10);
-  const mins = parseInt(match[5] || '0', 10);
-  const secs = parseInt(match[6] || '0', 10);
+      const totalMs = ((((weeks * 7 + days) * 24 + hours) * 60 + mins) * 60 + secs) * 1000;
+      return sign * totalMs;
+    }
+  }
 
-  const totalMs = ((((weeks * 7 + days) * 24 + hours) * 60 + mins) * 60 + secs) * 1000;
-  return sign * totalMs;
+  const absMs = new Date(str).getTime();
+  if (!isNaN(absMs)) {
+    if (startIso) {
+      const startMs = new Date(startIso).getTime();
+      if (!isNaN(startMs)) return absMs - startMs;
+    }
+    return absMs;
+  }
+
+  return null;
 }
 
 export async function requestNotificationPermission() {
@@ -83,7 +100,9 @@ export function checkAndTriggerAlarms() {
     if (isNaN(startMs)) continue;
 
     for (const alarm of ev.alarms) {
-      const offsetMs = parseTriggerOffsetMs(alarm.trigger);
+      if (!alarm.trigger) continue;
+      const offsetMs = parseTriggerOffsetMs(alarm.trigger, ev.start);
+      if (offsetMs === null || isNaN(offsetMs)) continue;
       const alarmTime = startMs + offsetMs;
       const alarmKey = `${ev.uid || ev.id}::${alarm.trigger}::${ev.start}`;
 

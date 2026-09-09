@@ -125,6 +125,7 @@ function showApp() {
   $('app').classList.remove('hidden');
   renderSidebar();
   renderCalendarView();
+  announce('Kalender geladen');
 }
 
 // ── Data loading ──────────────────────────────────────────────────────────────
@@ -177,7 +178,7 @@ async function loadEvents() {
     renderCalendarView();
   } else {
     store.set({ loadingEvents: true });
-    setStatus('Lade Termine…');
+    announce('Lade Termine…');
   }
 
   try {
@@ -258,11 +259,11 @@ function renderCalendarView() {
     renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks }, { searchQuery, error: tasksError });
     const count = tasks.length;
     if (tasksError) {
-      setStatus('Fehler beim Laden der Aufgaben');
+      announce('Fehler beim Laden der Aufgaben');
     } else if (searchQuery && searchQuery.trim() && count === 0) {
-      setStatus(`0 Ergebnisse für „${searchQuery.trim()}“`);
+      announce(`0 Ergebnisse für „${searchQuery.trim()}“`);
     } else {
-      setStatus(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
+      announce(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
     }
     return;
   }
@@ -291,10 +292,13 @@ function renderCalendarView() {
     banner.className = 'search-empty-banner';
     banner.innerHTML = `<span class="search-empty-icon">🔍</span> Keine Termine für „${escapeHtml(searchQuery.trim())}“ gefunden.`;
     container.insertBefore(banner, container.firstChild);
-    setStatus(`0 Ergebnisse für „${searchQuery.trim()}“`);
+    announce(`0 Ergebnisse für „${searchQuery.trim()}“`);
+  } else if (searchQuery && searchQuery.trim()) {
+    const count = events.length;
+    announce(`${count} Ergebnis${count !== 1 ? 'se' : ''} für „${searchQuery.trim()}“`);
   } else {
     const count = events.length;
-    setStatus(`${count} Termin${count !== 1 ? 'e' : ''}`);
+    announce(`${count} Termin${count !== 1 ? 'e' : ''}`);
   }
 
   // Mini calendar
@@ -708,8 +712,8 @@ function openShareCalendarDialog(cal) {
         
         <div class="share-input-row">
           <div class="autocomplete-container">
-            <input class="form-input" id="share-search-input" type="text" placeholder="Personen/Nutzer*innen suchen oder E-Mail eingeben..." autocomplete="off" />
-            <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown"></div>
+            <input class="form-input" id="share-search-input" type="text" placeholder="Personen/Nutzer*innen suchen oder E-Mail eingeben..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="share-autocomplete-dropdown" aria-haspopup="listbox" />
+            <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown" role="listbox" aria-label="Nutzer-Vorschläge"></div>
           </div>
           <select class="form-select" id="share-role-select" style="width:140px; flex-shrink:0;">
             <option value="false">Nur Lesen</option>
@@ -808,11 +812,72 @@ function openShareCalendarDialog(cal) {
     });
 
     let searchTimeout = null;
+    let activeIndex = -1;
+
+    function hideDropdown() {
+      autocompleteDropdown.classList.add('hidden');
+      searchInput.setAttribute('aria-expanded', 'false');
+      searchInput.removeAttribute('aria-activedescendant');
+      activeIndex = -1;
+    }
+
+    function showDropdown() {
+      autocompleteDropdown.classList.remove('hidden');
+      searchInput.setAttribute('aria-expanded', 'true');
+    }
+
+    function updateActiveOption(items) {
+      items.forEach((item, idx) => {
+        const isActive = idx === activeIndex;
+        item.classList.toggle('active', isActive);
+        item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        if (isActive) {
+          searchInput.setAttribute('aria-activedescendant', item.id);
+          if (typeof item.scrollIntoView === 'function') {
+            item.scrollIntoView({ block: 'nearest' });
+          }
+        }
+      });
+      if (activeIndex < 0) {
+        searchInput.removeAttribute('aria-activedescendant');
+      }
+    }
+
+    searchInput.addEventListener('keydown', e => {
+      const items = Array.from(autocompleteDropdown.querySelectorAll('.autocomplete-item'));
+      const isVisible = !autocompleteDropdown.classList.contains('hidden') && items.length > 0;
+
+      if (e.key === 'ArrowDown') {
+        if (!isVisible) return;
+        e.preventDefault();
+        activeIndex = (activeIndex + 1) % items.length;
+        updateActiveOption(items);
+      } else if (e.key === 'ArrowUp') {
+        if (!isVisible) return;
+        e.preventDefault();
+        activeIndex = activeIndex <= 0 ? items.length - 1 : activeIndex - 1;
+        updateActiveOption(items);
+      } else if (e.key === 'Enter') {
+        if (isVisible && activeIndex >= 0 && activeIndex < items.length) {
+          e.preventDefault();
+          e.stopPropagation();
+          searchInput.value = items[activeIndex].dataset.value;
+          hideDropdown();
+        }
+      } else if (e.key === 'Escape') {
+        if (isVisible) {
+          e.preventDefault();
+          e.stopPropagation();
+          hideDropdown();
+        }
+      }
+    });
+
     searchInput.addEventListener('input', () => {
       clearTimeout(searchTimeout);
       const q = searchInput.value.trim();
       if (q.length < 2) {
-        autocompleteDropdown.classList.add('hidden');
+        hideDropdown();
         return;
       }
 
@@ -820,22 +885,28 @@ function openShareCalendarDialog(cal) {
         try {
           const users = await CalendarsAPI.searchUsers(q, cal.accountId);
           if (users.length === 0) {
-            autocompleteDropdown.classList.add('hidden');
+            hideDropdown();
             return;
           }
 
-          autocompleteDropdown.innerHTML = users.map(u => `
-            <div class="autocomplete-item" data-value="${escHtml(u.href || u.email)}">
+          autocompleteDropdown.innerHTML = users.map((u, idx) => `
+            <div class="autocomplete-item" id="share-opt-${idx}" role="option" aria-selected="false" data-value="${escHtml(u.href || u.email)}">
               <strong>${escHtml(u.displayname)}</strong> (${escHtml(u.email || u.href)})
             </div>
           `).join('');
 
-          autocompleteDropdown.classList.remove('hidden');
+          activeIndex = -1;
+          showDropdown();
 
-          autocompleteDropdown.querySelectorAll('.autocomplete-item').forEach(item => {
+          const items = autocompleteDropdown.querySelectorAll('.autocomplete-item');
+          items.forEach((item, idx) => {
             item.addEventListener('click', () => {
               searchInput.value = item.dataset.value;
-              autocompleteDropdown.classList.add('hidden');
+              hideDropdown();
+            });
+            item.addEventListener('mouseenter', () => {
+              activeIndex = idx;
+              updateActiveOption(items);
             });
           });
         } catch (e) {
@@ -846,7 +917,7 @@ function openShareCalendarDialog(cal) {
 
     document.addEventListener('click', e => {
       if (!e.target.closest('.autocomplete-container')) {
-        autocompleteDropdown.classList.add('hidden');
+        hideDropdown();
       }
     });
 
@@ -933,9 +1004,13 @@ function openShareCalendarDialog(cal) {
     loadShares();
   }
 
+  let publicLinkSeq = 0;
+
   async function loadPublicLink() {
+    const seq = ++publicLinkSeq;
     try {
       const data = await CalendarsAPI.getPublicLink(cal.id);
+      if (seq !== publicLinkSeq) return;
       if (data.enabled) {
         publicEnable.checked = true;
         publicArea.classList.remove('hidden');
@@ -946,26 +1021,32 @@ function openShareCalendarDialog(cal) {
         publicInput.value = '';
       }
     } catch (e) {
+      if (seq !== publicLinkSeq) return;
       console.error('Failed to load public link status:', e);
     }
   }
 
   publicEnable.addEventListener('change', async () => {
+    const seq = ++publicLinkSeq;
+    const targetState = publicEnable.checked;
     try {
-      if (publicEnable.checked) {
+      if (targetState) {
         const data = await CalendarsAPI.enablePublicLink(cal.id);
+        if (seq !== publicLinkSeq) return;
         publicArea.classList.remove('hidden');
         publicInput.value = data.url;
         showToast('Öffentlicher Link aktiviert.', 'success');
       } else {
         await CalendarsAPI.disablePublicLink(cal.id);
+        if (seq !== publicLinkSeq) return;
         publicArea.classList.add('hidden');
         publicInput.value = '';
         showToast('Öffentlicher Link deaktiviert.', 'info');
       }
     } catch (e) {
+      if (seq !== publicLinkSeq) return;
       showToast('Änderung fehlgeschlagen: ' + e.message, 'error');
-      publicEnable.checked = !publicEnable.checked;
+      publicEnable.checked = !targetState;
     }
   });
 
@@ -978,11 +1059,14 @@ function openShareCalendarDialog(cal) {
 
   publicRegen.addEventListener('click', async () => {
     if (!(await confirmDialog('Bestehenden Link wirklich ungültig machen und neuen Link generieren?'))) return;
+    const seq = ++publicLinkSeq;
     try {
       const data = await CalendarsAPI.enablePublicLink(cal.id);
+      if (seq !== publicLinkSeq) return;
       publicInput.value = data.url;
       showToast('Neuer Freigabe-Link generiert.', 'success');
     } catch (e) {
+      if (seq !== publicLinkSeq) return;
       showToast('Regenerierung fehlgeschlagen: ' + e.message, 'error');
     }
   });
@@ -1420,9 +1504,13 @@ function showEventPopover(ev, mouseEvent) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         <span>${timeStr}</span>
       </div>
-      ${ev.location ? `<div class="popover-row">
+      ${ev.location ? `<div class="popover-row popover-location">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
         <span>${escHtml(ev.location)}</span>
+      </div>` : ''}
+      ${ev.description ? `<div class="popover-row popover-description" style="margin-top:4px; font-size:12px; color:var(--text-muted);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+        <span>${escHtml(ev.description)}</span>
       </div>` : ''}
       ${attHtml}
       ${attachHtml}
@@ -1533,6 +1621,16 @@ function attachListeners() {
       b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
     store.set({ view: viewName });
+    const viewLabels = {
+      month: 'Monatsansicht',
+      week: 'Wochenansicht',
+      workweek: 'Arbeitswoche',
+      day: 'Tagesansicht',
+      agenda: 'Agendaansicht',
+      kanban: 'Kanban-Ansicht'
+    };
+    const label = viewLabels[viewName] || viewName;
+    announce(`Ansicht gewechselt: ${label}`);
     loadEvents();
   }
 
@@ -1557,17 +1655,22 @@ function attachListeners() {
 
   // Navigation
   $('prev-btn').addEventListener('click', () => {
-    store.set({ currentDate: navigate(store.get('view'), store.get('currentDate'), -1) });
+    const newDate = navigate(store.get('view'), store.get('currentDate'), -1);
+    store.set({ currentDate: newDate });
     loadEvents();
+    announce(`Datum: ${getToolbarTitle(store.get('view'), newDate)}`);
   });
   $('next-btn').addEventListener('click', () => {
-    store.set({ currentDate: navigate(store.get('view'), store.get('currentDate'), 1) });
+    const newDate = navigate(store.get('view'), store.get('currentDate'), 1);
+    store.set({ currentDate: newDate });
     loadEvents();
+    announce(`Datum: ${getToolbarTitle(store.get('view'), newDate)}`);
   });
   $('today-btn').addEventListener('click', () => {
     const t = new Date(); t.setHours(0,0,0,0);
     store.set({ currentDate: t });
     loadEvents();
+    announce(`Datum: ${getToolbarTitle(store.get('view'), t)}`);
   });
 
   const exportPdfBtn = $('export-pdf-btn');
@@ -1956,6 +2059,22 @@ export function showToast(message, type = 'info') {
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
+
+function announce(msg) {
+  if (!msg) return;
+  const announcer = $('aria-announcer');
+  if (announcer) {
+    announcer.textContent = '';
+    if (typeof setTimeout !== 'undefined') {
+      setTimeout(() => {
+        announcer.textContent = msg;
+      }, 50);
+    } else {
+      announcer.textContent = msg;
+    }
+  }
+  setStatus(msg);
+}
 
 function setStatus(msg) {
   const el = $('status-bar');

@@ -82,7 +82,7 @@ app.use(async (req, res, next) => {
     try {
       if (req.session.userUpserted !== userId) {
         await Db.upsertUser(userId, (req.session && req.session.username) || userId);
-        if (process.env.NODE_ENV === 'test') {
+        if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
           await Db.upsertUser('testuser-id', 'testuser@example.com');
         }
         req.session.userUpserted = userId;

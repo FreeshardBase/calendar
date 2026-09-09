@@ -686,8 +686,8 @@ router.delete('/:id', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
     const access = await checkCalendarAccess(req, calendarId, 'owner');
-    if (!access.allowed) {
-      return res.status(access.status || 403).json({ error: access.reason });
+    if (!access.allowed || !access.isOwner) {
+      return res.status(access.status || 403).json({ error: access.reason || 'Owner permission required to delete calendar' });
     }
 
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);

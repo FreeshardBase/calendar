@@ -121,6 +121,7 @@
 
 <!-- ── Main App ─────────────────────────────────────────────────────────────── -->
 <div id="app" class="app hidden">
+  <h1 class="sr-only">FreeShard Calendar</h1>
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
@@ -213,7 +214,7 @@
     <!-- Settings Drawer -->
     <div class="sidebar-settings-drawer" id="settings-drawer">
       <div class="settings-drawer-header">
-        <h4>Einstellungen</h4>
+        <h2>Einstellungen</h2>
         <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -224,7 +225,7 @@
         <!-- Accounts Section -->
         <div class="settings-section">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h5 style="margin:0">Accounts verwalten</h5>
+            <h3 style="margin:0">Accounts verwalten</h3>
             <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                 <path d="M12 5v14M5 12h14"/>
@@ -236,7 +237,7 @@
         <!-- Calendars Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h5 style="margin:0">Kalender löschen</h5>
+            <h3 style="margin:0">Kalender löschen</h3>
             <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender erstellen" style="padding:2px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                 <path d="M12 5v14M5 12h14"/>
@@ -248,7 +249,7 @@
         <!-- App-Specific Passwords Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h5 style="margin:0">App-Passwörter (CalDAV)</h5>
+            <h3 style="margin:0">App-Passwörter (CalDAV)</h3>
             <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" style="padding:2px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                 <path d="M12 5v14M5 12h14"/>
@@ -259,7 +260,7 @@
         </div>
         <!-- Theme / Appearance Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h5 style="margin:0 0 8px 0">Erscheinungsbild</h5>
+          <h3 style="margin:0 0 8px 0">Erscheinungsbild</h3>
           <div class="form-group" style="margin-bottom:4px;">
             <label class="form-label" for="theme-select" style="font-size:11px;">Farbschema / Theme</label>
             <select class="form-select" id="theme-select" style="width:100%; font-size:12px; padding:4px 6px;">
@@ -271,7 +272,7 @@
         </div>
         <!-- Timezone Settings Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h5 style="margin:0 0 8px 0">Zeitzonen-Grid</h5>
+          <h3 style="margin:0 0 8px 0">Zeitzonen-Grid</h3>
           <div class="form-group" style="margin-bottom:8px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="show-secondary-tz-toggle" />
@@ -306,7 +307,7 @@
         </div>
         <!-- Working Hours & Out of Office Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h5 style="margin:0 0 8px 0">Arbeitszeiten & Abwesenheit</h5>
+          <h3 style="margin:0 0 8px 0">Arbeitszeiten & Abwesenheit</h3>
           <div style="display:flex; gap:8px; margin-bottom:8px;">
             <div style="flex:1;">
               <label class="form-label" for="wh-start-hour" style="font-size:11px;">Beginn</label>
@@ -404,7 +405,7 @@
         </button>
       </div>
 
-      <h2 class="toolbar-title" id="toolbar-title"></h2>
+      <h3 class="toolbar-title" id="toolbar-title"></h3>
 
       <div class="view-tabs" role="group" aria-label="Ansicht wählen" style="margin-left:auto">
         <button class="view-tab active" data-view="month"     id="view-month" aria-selected="true" aria-pressed="true">Monat</button>
@@ -478,7 +479,7 @@
       <!-- Rendered by JS -->
     </div>
 
-    <div class="status-bar" id="status-bar"></div>
+    <div class="status-bar" id="status-bar" aria-live="polite" aria-atomic="true"></div>
 
   </main>
 </div>
@@ -948,6 +949,7 @@
 
 <!-- ── Toast Notifications ──────────────────────────────────────────────────── -->
 <div class="toast-container" id="toast-container" aria-live="polite"></div>
+<div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
 <!-- ── Invitations Modal ────────────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="invitations-modal-backdrop">

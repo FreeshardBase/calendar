@@ -628,8 +628,32 @@ const Db = {
     });
   },
 
+  cleanUserTmpCredentials(userId) {
+    if (!userId) return;
+    try {
+      const tmpDir = '/tmp';
+      if (fs.existsSync(tmpDir)) {
+        const files = fs.readdirSync(tmpDir);
+        for (const file of files) {
+          if (file.startsWith(`vdir_${userId}.ini`) ||
+              file.startsWith(`vdir_basic_${userId}.ini`) ||
+              file.startsWith(`google_token_${userId}_`)) {
+            try {
+              fs.unlinkSync(path.join(tmpDir, file));
+            } catch (e) {
+              // ignore single file error
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore directory error
+    }
+  },
+
   deleteUser(userId) {
     if (!userId) return Promise.resolve();
+    this.cleanUserTmpCredentials(userId);
     const calPattern = `%${userId}%`;
     return this.withTransaction(async (tx) => {
       await tx.run('DELETE FROM users WHERE user_id = ?', [userId]);

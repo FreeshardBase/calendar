@@ -4,31 +4,27 @@
  * Parses an RFC 5545 ISO 8601 duration string (e.g., -PT15M, -PT1H, -P1D, PT5M)
  * into a millisecond offset number.
  */
-function parseValarmOffset(triggerStr) {
-  if (typeof triggerStr !== 'string') return 0;
-  const isNegative = triggerStr.startsWith('-');
-  const clean = triggerStr.replace(/^[+-]/, '');
+const { parseTriggerOffsetMs } = require('./ical');
 
-  const regex = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
-  const match = clean.match(regex);
-  if (!match) return 0;
-
-  const days = parseInt(match[1] || '0', 10);
-  const hours = parseInt(match[2] || '0', 10);
-  const minutes = parseInt(match[3] || '0', 10);
-  const seconds = parseInt(match[4] || '0', 10);
-
-  const totalMs = (days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds) * 1000;
-  return isNegative ? -totalMs : totalMs;
+/**
+ * Parses an RFC 5545 ISO 8601 duration string (e.g., -PT15M, -PT1H, -P1D, PT5M)
+ * into a millisecond offset number. Returns null for corrupted/invalid triggers.
+ */
+function parseValarmOffset(triggerStr, eventStart) {
+  if (!triggerStr || typeof triggerStr === 'object') return null;
+  return parseTriggerOffsetMs(triggerStr, eventStart);
 }
 
 /**
  * Calculates the exact timestamp (ms) when a VALARM trigger fires relative to event start time.
+ * Returns null if eventStart or triggerStr is invalid or corrupted.
  */
 function calculateAlarmTime(eventStart, triggerStr) {
+  if (!eventStart) return null;
   const startDate = new Date(eventStart);
-  if (isNaN(startDate.getTime())) return Date.now();
-  const offsetMs = parseValarmOffset(triggerStr);
+  if (isNaN(startDate.getTime())) return null;
+  const offsetMs = parseValarmOffset(triggerStr, eventStart);
+  if (offsetMs === null || isNaN(offsetMs)) return null;
   return startDate.getTime() + offsetMs;
 }
 
@@ -49,8 +45,10 @@ function evaluateUpcomingAlarms(events, options = {}) {
     if (!ev || !ev.start || !Array.isArray(ev.alarms)) continue;
 
     for (const alarm of ev.alarms) {
-      const triggerStr = alarm.trigger || alarm.TRIGGER || '-PT15M';
+      const triggerStr = alarm.trigger || alarm.TRIGGER;
+      if (!triggerStr) continue;
       const alarmTime = calculateAlarmTime(ev.start, triggerStr);
+      if (alarmTime === null || isNaN(alarmTime)) continue;
 
       // Trigger if alarm falls within [graceStartMs, windowEndMs]
       if (alarmTime >= graceStartMs && alarmTime <= windowEndMs) {

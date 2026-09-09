@@ -23,7 +23,7 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
     assert.equal(parseValarmOffset('-P1D'), -24 * 60 * 60 * 1000);
     assert.equal(parseValarmOffset('-PT30M'), -30 * 60 * 1000);
     assert.equal(parseValarmOffset('PT5M'), 5 * 60 * 1000);
-    assert.equal(parseValarmOffset('invalid'), 0);
+    assert.equal(parseValarmOffset('invalid'), null);
   });
 
   await t.test('calculateAlarmTime computes correct timestamp relative to event start', () => {

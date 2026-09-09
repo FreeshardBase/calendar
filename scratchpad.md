@@ -4,6 +4,121 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Public Link Dialog Unsequenced Writers & Out-Of-Order Response Protection (Issue #215):**
+  - Resolved race condition in `openShareCalendarDialog` where multiple unsequenced async requests (`loadPublicLink`, `publicEnable` change listener, `publicRegen` click listener) could resolve out-of-order, causing a stale response (e.g. initial `getPublicLink` fetch returning `enabled: false`) to overwrite state after a newer request enabled or regenerated the share link.
+  - Implemented sequence counter tracking (`publicLinkSeq`) in `openShareCalendarDialog` (`public/js/app.js`) incremented on each async invocation (`seq = ++publicLinkSeq`).
+  - Added sequence validation checks (`if (seq !== publicLinkSeq) return;`) before modifying DOM elements (`publicEnable.checked`, `publicArea`, `publicInput.value`) or reverting state on error in `loadPublicLink()`, `publicEnable` change listener, and `publicRegen` click listener.
+  - Created TDD unit test suite `server/test/issue215_public_link_unsequenced_writers.test.js` (5 tests, 100% green).
+- **Non-Vacuous Playwright E2E Specs (Issue #214):**
+  - Resolved gap where Playwright E2E specs previously passed vacuously without observing real application behavior (e.g., empty ICS feed export, 500 invitations endpoint error masking, hand-built alarm object injection, unasserted day view container visibility).
+  - Updated `e2e/calendar.spec.js` public share link spec to explicitly create an event before export and assert `BEGIN:VEVENT` content in the exported ICS feed.
+  - Updated invitations inbox spec to verify endpoint HTTP 200 response and check for absence of `.invitations-error-state`.
+  - Updated push notification spec to construct events through real UI form inputs (`#ev-alarm`) without manually injecting hand-built objects into the client store.
+  - Updated view switching specs to assert container visibility (`.day-view`, `.agenda-view`) in layout rather than just button active classes.
+  - Created TDD unit test suite `server/test/issue214_non_vacuous_e2e_specs.test.js` (5 subtests, 100% green).
+- **User-to-User Calendar Sharing & Sabotage Prevention Suite (Issue #213):**
+  - Resolved test coverage and security boundary verification gap for internal CalDAV user-to-user calendar sharing (`user_calendar_shares`).
+  - Verified user-to-user share invitation creation (`POST /api/calendars/:id/shares`), status tracking (`PENDING`/`ACCEPTED`/`DECLINED`), invitation listing (`GET /api/calendars/share-invitations`), granular permission updates (`PUT /api/calendars/:id/shares/:shareeId`), and share revocation (`DELETE /api/calendars/:id/shares`).
+  - Enforced strict authorization and sabotage prevention guards blocking non-owners and strangers from self-granting access, accepting foreign share invitations, modifying share roles, or revoking shares on owner calendars (`403 Forbidden`).
+  - Created TDD unit test suite `server/test/issue213_user_to_user_share.test.js` (12 subtests + top-level test, 100% green).
+- **Playwright webServer Config reuseExistingServer CI Condition (Issue #212):**
+  - Resolved configuration flaw where `reuseExistingServer: true` was set unconditionally in `playwright.config.js` webServer config.
+  - Hardcoded `reuseExistingServer: true` caused Playwright test runs in CI or local environments with a running process on port 3098 to silently execute tests against a stale server instance running un-updated application code.
+  - Updated `playwright.config.js` `webServer.reuseExistingServer` to `!process.env.CI`, guaranteeing that CI test environments always launch a fresh application server instance.
+  - Created TDD unit test suite `server/test/issue212_playwright_reuse_server.test.js` (100% green).
+- **Playwright webServer Config NODE_ENV Production Alignment (Issue #211):**
+  - Resolved configuration flaw where Playwright E2E tests ran the application server under `NODE_ENV=test`, a non-production mode that disabled security/authentication guards.
+  - Updated `playwright.config.js` `webServer.command` to execute under `NODE_ENV=production` with an explicit `SESSION_SECRET` key, ensuring E2E tests execute against realistic production security settings.
+  - Created TDD unit test suite `server/test/issue211_playwright_node_env.test.js` (100% green).
+- **VALARM Corruption Resilience Across Non-Write Routes (Issue #208):**
+  - Resolved gap where corrupted/invalid VALARM triggers or unparseable trigger strings arriving via non-write routes (CalDAV ICS parsing, web push notification evaluation, client notification checks) silently defaulted to `-15 * 60 * 1000` or `0` ms offsets, creating false alarm triggers and masking data corruption.
+  - Refactored `parseTriggerOffsetMs(trigger, startIso)` in `server/utils/ical.js` and `public/js/notifications.js` to return `null` for invalid/corrupted trigger inputs (such as `'INVALID_TRIGGER'`, `'P'`, `'PT'`, `'P123'`, `{}`), while supporting ISO 8601 duration offsets (weeks, days, hours, minutes, seconds, negative & positive signs) and absolute `DATE-TIME` triggers.
+  - Refactored `parseValarmOffset` and `calculateAlarmTime` in `server/utils/webPushNotifications.js` to delegate to `parseTriggerOffsetMs` and return `null` for corrupted trigger inputs.
+  - Updated `evaluateUpcomingAlarms` in `webPushNotifications.js` and `checkAndTriggerAlarms` in `notifications.js` to skip corrupted triggers (`null` alarm time) without firing false alarms.
+  - Created TDD unit test suite `server/test/issue208_valarm_corruption_resilience.test.js` (6 tests, 100% green).
+- **Deleted User Credentials & /tmp Spillage Prevention (Issue #207):**
+  - Resolved security vulnerability where temporary vdirsyncer INI config files (`/tmp/vdir_<user_id>.ini`, `/tmp/vdir_basic_<user_id>.ini`) and Google OAuth token JSON files (`/tmp/google_token_<user_id>_<idx>.json`) containing plaintext credentials survived in `/tmp` upon user deletion and process termination (SIGTERM/SIGINT container stops).
+  - Implemented `cleanUserTmpCredentials(userId)` in `server/db.js` unlinking residual `/tmp/vdir_${userId}.ini`, `/tmp/vdir_basic_${userId}.ini`, and `/tmp/google_token_${userId}_*.json` files whenever `Db.deleteUser(userId)` is executed.
+  - Implemented `purge_tmp_credential_files(user_id=None)` in `sync-worker/sync_worker.py` unlinking credential files in `/tmp` for specific user IDs during sync completion/failure, and sweeping all residual `/tmp/vdir_*.ini` and `/tmp/google_token_*.json` files upon process termination signal (`handle_shutdown_signal`) and daemon startup recovery (`recover_stranded_jobs`).
+  - Created TDD unit test suite `server/test/issue207_deleted_user_tmp_credentials.test.js` (3 tests, 100% green) and updated Python test suite `server/test/python/test_sync_worker.py` (100% green).
+- **VTIMEZONE Registration, Timezone Drift Prevention & Warning Log Channel (Issue #203):**
+  - Resolved cumulative timezone drift vulnerability where re-serializing events with `TZID` without calling `convertToZone` shifted timestamps by the timezone offset on every save and synced back to Radicale/Google.
+  - Updated `parseICSToEvent` and `parseAndExpandEvent` in `server/utils/ical.js` (`_registerEmbeddedTimezones`) to register all embedded `VTIMEZONE` blocks into `ICAL.TimezoneService`.
+  - Added `isValidTimezone(tzid)` validating IANA timezones using `Intl.DateTimeFormat`.
+  - Updated `buildVTimezoneBlock(tzid)` to return `null` and log a warning channel (`console.warn`) for invalid timezones rather than emitting corrupt 0-offset `VTIMEZONE` blocks.
+  - Updated `setEventDateProp` in `server/utils/ical.js` to convert UTC `dt` values using `timeVal.convertToZone(zone)` when updating existing ICS components.
+  - Created TDD unit test suite `server/test/issue203_vtimezone_drift_error_channel.test.js` (7 tests, 100% green).
+- **Stored XSS & Attribute Injection Prevention in Frontend Select Options & List Rendering (Issue #202):**
+  - Resolved stored XSS & attribute injection vulnerabilities across frontend select dropdowns and list component rendering.
+  - Escaped calendar `id` and `name` properties in `eventModal.js` `populateCalendarSelect`.
+  - Escaped `c.id`, `displayName`/`name`/`id`, `publicUrl`, and `p.id` in `availability.js`.
+  - Escaped `d.id`, `d.delegate_user_id`, and `d.role` in `delegates.js` list rendering.
+  - Created TDD unit test suite `server/test/issue202_stored_xss_session_takeover_prevention.test.js` (4 tests, 100% green).
+- **Prevent Unauthenticated & Sharee Permanent Calendar Deletion (Issue #201):**
+  - Resolved critical security vulnerability where calendar collection deletion permissions were inverted across Radicale rights plugin (`radicale_custom_rights.py`) and Express calendar routes (`server/routes/calendars.js`).
+  - Previously, `radicale_custom_rights.py` returned `"rw"` for calendar owners on collection paths (`len(segments) >= 2`), which lacked Radicale collection delete permission `"D"`/`"d"`, preventing legitimate owners from deleting their own calendars via Radicale. Simultaneously, `radicale_custom_rights.py` returned `"rwd"` for write sharees, where `'d'` allowed sharees to HTTP `DELETE` the owner's calendar collection on Radicale.
+  - Updated `radicale_custom_rights.py` to grant owners `"RWDrwd"` (full collection and item rights including collection delete `"D"`/`"d"`).
+  - Restricted sharees at collection level (`len(segments) == 2`) to `"rw"` (write sharees) or `"r"` (read sharees) without `'d'` or `'D'`, while granting `"rwd"` or `"rd"` at item level (`len(segments) > 2`).
+  - Enforced `if (!access.allowed || !access.isOwner)` check in `DELETE /api/calendars/:id` (`server/routes/calendars.js`) to block non-owners and sharees from deleting foreign calendars via Express.
+  - Created TDD unit test suite `server/test/issue201_prevent_unauthenticated_calendar_deletion.test.js` (4 tests, 100% green).
+- **Validated PKCS#7 Unpadding in Sync Worker Decrypt (Issue #199):**
+  - Resolved security/decryption flaw where `decrypt` in `sync-worker/sync_worker.py` unvalidated PKCS#7 padding length (`padding_len = decrypted[-1]`) and padding bytes (`decrypted[-padding_len:]`).
+  - When decryption failed or produced corrupted bytes ending in `0x00`, `decrypted[:-0]` evaluated to `b""`, converting failed credential decryptions into silent empty string credentials (`""`) rather than raising a decryption exception.
+  - Enforced strict PKCS#7 validation checks in `decrypt`: validating non-empty decrypted payload, verifying `1 <= padding_len <= 16` and `padding_len <= len(decrypted)`, and asserting that all `padding_len` trailing bytes match `bytes([padding_len] * padding_len)`.
+  - Guaranteed that invalid padding length or byte mismatches raise a `ValueError` exception, allowing upstream credential handling to properly capture decryption failures.
+  - Created TDD unit test suite `server/test/issue199_pkcs7_unpadding_validation.test.js` (5 tests, 100% green).
+- **Sync Worker Status & Error Message API Exposure (Issue #198):**
+  - Resolved architectural gap where `sync_worker.py` writes sync job statuses (`ERROR`, `SUCCESS`, `PENDING`, `RUNNING`) and error messages (`error_message`) into SQLite `sync_queue` table, but no server route exposed this data to authenticated users or API clients outside test suites.
+  - Implemented `GET /api/accounts/sync-status` in `server/routes/accounts.js` returning all sync queue jobs for the authenticated user (`req.session.userId`), including `status`, `errorMessage`, `attempts`, `maxAttempts`, `nextRetryAt`, `retryState`, `createdAt`, and `updatedAt`.
+  - Implemented `GET /api/accounts/sync-jobs/:id` in `server/routes/accounts.js` returning status and error details for a specific sync job owned by the user (returning 404 for non-existent or un-owned jobs).
+  - Exported `AccountsAPI.getSyncStatus()` and `AccountsAPI.getSyncJob(id)` in `public/js/api.js`.
+  - Created TDD unit test suite `server/test/issue198_sync_worker_status_exposure.test.js` (6 tests, 100% green).
+- **vdirsyncer Pair Conflict Resolution Configuration (Issue #197):**
+  - Verified and ensured that all dynamically generated `vdirsyncer` pair blocks in `sync-worker/sync_worker.py` (both Basic CalDAV and OAuth2 Google CalDAV pipelines) explicitly declare `conflict_resolution = "b wins"`.
+  - Guaranteed that concurrent modification of an event on both external and local endpoints does not throw unhandled vdirsyncer conflict exceptions or stall account synchronization permanently.
+  - Created TDD unit test suite `server/test/issue197_vdirsyncer_conflict_resolution.test.js` verifying structural template requirements and execution behavior (100% green).
+- **Google Refresh Token /tmp File Cleanup & Resilience on Early Return (Issue #196):**
+  - Resolved security vulnerability where temporary Google OAuth token files (`/tmp/google_token_<user_id>_<idx>.json`) containing plaintext refresh tokens were left sitting in `/tmp` whenever `sync_user` encountered early returns (e.g. collection discovery failure, token refresh error, credential decryption error).
+  - Wrapped Google OAuth2 account iteration, token file writing, collection discovery, and `vdirsyncer` execution in a `try...finally` block in `sync-worker/sync_worker.py`.
+  - Guaranteed that all created `updated_accounts` token files and `config_path` files in `/tmp` are reliably unlinked and deleted on any early return or exception path.
+  - Created TDD unit test suite `server/test/issue196_google_token_tmp_cleanup.test.js` (2 tests, 100% green).
+- **Sync Worker SIGTERM Signal Handling, Active Job Recovery & Startup Resiliency (Issue #195):**
+  - Resolved flaw where `sync-worker/sync_worker.py` lacked process termination signal handlers, causing Docker container stops to SIGKILL Python PID 1 and strand active jobs in `RUNNING` status permanently.
+  - Registered `SIGTERM` and `SIGINT` signal handlers (`handle_shutdown_signal`) in `sync-worker/sync_worker.py` to catch process termination signals, set graceful shutdown flag `shutdown_requested = True`, and reset any active `RUNNING` job back to `PENDING` status in SQLite.
+  - Implemented `recover_stranded_jobs(target_db)` in `sync-worker/sync_worker.py` automatically invoked on daemon initialization to detect and reset pre-existing stranded `RUNNING` jobs left over from unclean terminations or SIGKILL.
+  - Configured `ENV PYTHONUNBUFFERED=1` and updated `CMD ["python", "-u", "/app/sync_worker.py"]` in `sync-worker/Dockerfile` for direct signal delivery to PID 1 and unbuffered stdout log processing.
+  - Created TDD unit test suite `server/test/issue195_sync_worker_sigterm_graceful.test.js` (3 tests, 100% green).
+- **Google Collection Discovery Error Handling & Job Failure Status (Issue #194):**
+  - Resolved flaw in `sync-worker/sync_worker.py` where exceptions in `discover_google_collections` (network/HTTP/XML errors) were caught and returned as `[]`, causing `sync_user` to fall back to `collections = ["from a"]`, run sync, and report `SUCCESS` for broken collection discovery.
+  - Updated `discover_google_collections` to raise a `RuntimeError` on PROPFIND discovery failures instead of swallowing exceptions.
+  - Updated `sync_user` to wrap `discover_google_collections` in a `try...except` block and return `(False, f"Google collection discovery failed: {disc_err}")` on failure.
+  - Added `get_status_root()` helper in `sync_worker.py` to allow dynamic `STATUS_ROOT` configuration in test environments.
+  - Created TDD unit test suite `server/test/issue194_failed_collection_discovery.test.js` (3 tests, 100% green).
+- **Share Dialog User Autocomplete Combobox ARIA Semantics & Keyboard Selection (Issue #190):**
+  - Added `role="combobox"`, `aria-autocomplete="list"`, `aria-expanded="false"`, `aria-controls="share-autocomplete-dropdown"`, and `aria-haspopup="listbox"` attributes to `#share-search-input`.
+  - Added `role="listbox"` and `aria-label="Nutzer-Vorschläge"` to `#share-autocomplete-dropdown`.
+  - Added `role="option"`, `id="share-opt-${idx}"`, and `aria-selected` attributes to `.autocomplete-item` suggestions.
+  - Implemented `ArrowDown`, `ArrowUp`, `Enter`, and `Escape` keyboard navigation and `aria-activedescendant` active option tracking.
+  - Added `.autocomplete-item.active` and `.autocomplete-item[aria-selected="true"]` rules to `public/css/app.css`.
+  - Created TDD unit test suite `server/test/issue190_share_combobox_autocomplete.test.js` (5 tests, 100% green).
+- **Application View Heading Hierarchy & Order Alignment (Issue #189):**
+  - Added visually-hidden `<h1 class="sr-only">FreeShard Calendar</h1>` at top of `#app` container to establish document landmark hierarchy.
+  - Promoted settings drawer section heading from `<h4>` to `<h2>`.
+  - Promoted settings sub-section headings from `<h5>` to `<h3>`.
+  - Demoted toolbar title from `<h2>` to `<h3>` under page `<h1>`.
+  - Created TDD unit test suite `server/test/issue189_heading_order.test.js` (8 tests, 100% green).
+- **WCAG 2.5.8 Minimum Target Size for Action Buttons & Event Chips (Issue #188):**
+  - Updated `.cal-action-btn` target dimensions in `public/css/app.css` from undersized 20px x 20px to WCAG 2.5.8 compliant `24px x 24px` (`width: 24px; height: 24px; min-width: 24px; min-height: 24px;`).
+  - Added `min-height: 24px;` to `.event-chip` target elements in `public/css/app.css` to satisfy WCAG 2.5.8 (Level AA minimum 24px target height).
+  - Created TDD unit test suite `server/test/issue188_target_size_wcag258.test.js` (4 tests, 100% green).
+- **Screen Reader Live Announcements for Loading, View, Date & Search (Issue #187):**
+  - Added `aria-live="polite"` and `aria-atomic="true"` to `#status-bar` and added `#aria-announcer` live region container with `class="sr-only"` in `public/index.html`.
+  - Implemented `announce(msg)` helper function in `public/js/app.js` to dispatch dynamic live region updates to screen readers and update status bar.
+  - Added live announcements for loading state transitions (`showApp`, `loadEvents`).
+  - Added live announcements for view switching (`switchView`) across all views (`Monatsansicht`, `Wochenansicht`, `Arbeitswoche`, `Tagesansicht`, `Agendaansicht`, `Kanban-Ansicht`).
+  - Added live announcements for date navigation (`prev-btn`, `next-btn`, `today-btn`).
+  - Added live announcements for search result count updates (`search-input` input listener and `renderCalendarView`).
+  - Created TDD unit test suite `server/test/issue187_live_announcements.test.js` (7 tests, 100% green).
 - **Form Controls Programmatic Labels & Password Reveal Accessible Name (Issue #185):**
   - Added `aria-label` attributes to 8 unlabelled form controls in `public/index.html` (`#ev-title`, `#search-input`, `#recur-monthly-week-idx`, `#recur-monthly-weekday`, `#recur-end-date`, `#recur-end-count`, `#ev-attendee-name`, `#ev-attendee-email`).
   - Added `aria-label="Passwort anzeigen"` to password-reveal toggle button for `#acc-password` in account dialog modal.
@@ -515,6 +630,9 @@
   - Enhanced `parseICSToEvent(icsString, meta)` to filter VEVENT components by `recurrenceId` when specified, or isolate master `VEVENT` (without `RECURRENCE-ID`) when omitted, even if detached override subcomponents are ordered first in raw ICS.
   - Enhanced `isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null)` to support targeting specific occurrence overrides or master series. Returns `false` when an occurrence save targets a non-existent override.
   - Updated `PUT /api/events/:uid` to evaluate `isNoOpEventSave(current.ics, eventData, recurrenceId)` for single-occurrence edits (`scope === 'occurrence'`) to avoid redundant CalDAV PUT requests. (Issue #242).
+- **Google Synced Calendar Collection Slug Namespace & Merge Isolation (`sync-worker/sync_worker.py`, `server/test/issue193_google_calendar_privat_merge_prevention.test.js`):**
+  - Updated collection mapping in `sync-worker/sync_worker.py` to enforce `google-` prefixing on all discovered Google collection slugs (`slug = f"google-{slug}"` if not already starting with `google-`).
+  - Isolated synced external Google collections (e.g. named "Privat") from colliding or two-way merging with existing local app calendars (e.g. "Privat" / "Persönlich"). (Issue #193).
 
 ## Test Execution State
 - Node Unit & Integration Suite: 193 PASSED, 7 skipped (100% green)
@@ -868,5 +986,11 @@
   - Added `aria-labelledby` and matching heading `id` attributes to 4 static HTML dialogs in `public/index.html` (`#account-modal`, `#welcome-modal`, `#scope-dialog`, `#msgraph-modal`).
   - Added `aria-labelledby` and matching heading `id` attributes to 4 dynamic JS dialogs in `public/js/app.js` (`showImportDialog`, `openEditCalendarDialog`, `openShareDialog`, `openAddCalendarDialog`).
   - Created TDD unit test suite `server/test/issue186_dialog_accessible_names.test.js` (3 tests, 100% green).
+
+- **Issue #192 — Read-Write Sharee Deny-Delete Permission Enforcement (`radicale/radicale_custom_rights.py`, `server/test/issue192_sharee_deny_delete_permission.test.js`):**
+  - Updated `radicale/radicale_custom_rights.py` to emit Radicale's explicit collection deny-delete permission flag `d` (`rwd` for read-write sharees, `rd` for read-only sharees).
+  - Preserved owner permissions (`rw`) to ensure owners retain authority to delete their own calendar collections.
+  - Created TDD unit test suite `server/test/issue192_sharee_deny_delete_permission.test.js` verifying static source syntax alignment and Python rights execution logic (3 tests, 100% green).
+
 
 

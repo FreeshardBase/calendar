@@ -31,6 +31,8 @@ export const AccountsAPI = {
   list:                ()              => request('GET',    '/api/accounts'),
   getPresets:          (email)         => request('GET',    `/api/accounts/presets?email=${encodeURIComponent(email || '')}`),
   getOAuthTokenStatus: ()              => request('GET',    '/api/accounts/oauth-token-status'),
+  getSyncStatus:       ()              => request('GET',    '/api/accounts/sync-status'),
+  getSyncJob:          (id)            => request('GET',    `/api/accounts/sync-jobs/${encodeURIComponent(id)}`),
   add:                 (data)          => request('POST',   '/api/accounts', data),
   remove: (id)            => request('DELETE', `/api/accounts/${id}`),
   update: (id, data)      => request('PATCH',  `/api/accounts/${id}`, data),

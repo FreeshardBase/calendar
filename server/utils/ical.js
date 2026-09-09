@@ -11,26 +11,43 @@ const { v4: uuidv4 } = require('uuid');
  * Parse an iCalendar TRIGGER string into millisecond offset.
  * Handles ISO 8601 duration values like -PT15M, -P1D, -PT1H, -P1W, PT0S, etc.
  */
-function parseTriggerOffsetMs(trigger) {
-  if (!trigger) return -15 * 60 * 1000;
+function parseTriggerOffsetMs(trigger, startIso) {
+  if (!trigger || typeof trigger === 'object') return null;
   let str = String(trigger).trim();
   if (str.toUpperCase().startsWith('TRIGGER:')) {
     str = str.substring(8).trim();
   }
+  if (str.toUpperCase().startsWith('VALUE=DATE-TIME:')) {
+    str = str.substring(16).trim();
+  }
   if (str === 'PT0S' || str === 'PT0M' || str === '0') return 0;
 
   const match = str.match(/^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i);
-  if (!match) return -15 * 60 * 1000;
+  if (match) {
+    const hasComponent = match[2] || match[3] || match[4] || match[5] || match[6];
+    if (hasComponent) {
+      const sign = match[1] === '-' ? -1 : 1;
+      const weeks = parseInt(match[2] || '0', 10);
+      const days = parseInt(match[3] || '0', 10);
+      const hours = parseInt(match[4] || '0', 10);
+      const mins = parseInt(match[5] || '0', 10);
+      const secs = parseInt(match[6] || '0', 10);
 
-  const sign = match[1] === '-' ? -1 : 1;
-  const weeks = parseInt(match[2] || '0', 10);
-  const days = parseInt(match[3] || '0', 10);
-  const hours = parseInt(match[4] || '0', 10);
-  const mins = parseInt(match[5] || '0', 10);
-  const secs = parseInt(match[6] || '0', 10);
+      const totalMs = ((((weeks * 7 + days) * 24 + hours) * 60 + mins) * 60 + secs) * 1000;
+      return sign * totalMs;
+    }
+  }
 
-  const totalMs = ((((weeks * 7 + days) * 24 + hours) * 60 + mins) * 60 + secs) * 1000;
-  return sign * totalMs;
+  const absMs = new Date(str).getTime();
+  if (!isNaN(absMs)) {
+    if (startIso) {
+      const startMs = new Date(startIso).getTime();
+      if (!isNaN(startMs)) return absMs - startMs;
+    }
+    return absMs;
+  }
+
+  return null;
 }
 
 /**
@@ -40,7 +57,8 @@ function calculateAlarmTime(startIso, trigger) {
   if (!startIso) return null;
   const startMs = new Date(startIso).getTime();
   if (isNaN(startMs)) return null;
-  const offsetMs = parseTriggerOffsetMs(trigger);
+  const offsetMs = parseTriggerOffsetMs(trigger, startIso);
+  if (offsetMs === null || isNaN(offsetMs)) return null;
   return new Date(startMs + offsetMs);
 }
 
@@ -120,13 +138,33 @@ function parseVEventToEvent(vevent, meta = {}) {
   let startTimeZone = null;
   const startProp = vevent.getFirstProperty('dtstart');
   if (startProp) {
-    startTimeZone = startProp.getParameter('tzid') || null;
+    const tzid = startProp.getParameter('tzid');
+    if (tzid) {
+      if (isValidTimezone(tzid)) {
+        startTimeZone = tzid;
+        _registerVTimezoneBlock(tzid, buildVTimezoneBlock(tzid));
+      } else if (ICAL.TimezoneService.has(tzid)) {
+        startTimeZone = tzid;
+      } else {
+        console.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTSTART`);
+      }
+    }
   }
 
   let endTimeZone = null;
   const endProp = vevent.getFirstProperty('dtend');
   if (endProp) {
-    endTimeZone = endProp.getParameter('tzid') || null;
+    const tzid = endProp.getParameter('tzid');
+    if (tzid) {
+      if (isValidTimezone(tzid)) {
+        endTimeZone = tzid;
+        _registerVTimezoneBlock(tzid, buildVTimezoneBlock(tzid));
+      } else if (ICAL.TimezoneService.has(tzid)) {
+        endTimeZone = tzid;
+      } else {
+        console.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTEND`);
+      }
+    }
   }
 
   // Alarms (VALARM)
@@ -192,6 +230,7 @@ function parseVEventToEvent(vevent, meta = {}) {
 function parseICSToEvent(icsString, meta = {}) {
   const jcal = ICAL.parse(icsString);
   const comp  = new ICAL.Component(jcal);
+  _registerEmbeddedTimezones(comp);
   const vevents = comp.getAllSubcomponents('vevent');
   if (vevents.length === 0) return null;
 
@@ -223,6 +262,7 @@ function parseICSToEvent(icsString, meta = {}) {
 function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const jcal = ICAL.parse(icsString);
   const comp = new ICAL.Component(jcal);
+  _registerEmbeddedTimezones(comp);
   const vevents = comp.getAllSubcomponents('vevent');
   if (vevents.length === 0) return [];
 
@@ -378,12 +418,16 @@ function eventToICS(event, existingIcs = null) {
             timeVal.isDate = true;
           } else {
             timeVal = ICAL.Time.fromJSDate(dt, true);
-            if (tzid) {
-              timeVal.zone = ICAL.TimezoneService.get(tzid) || ICAL.Timezone.utcTimezone;
+            if (tzid && isValidTimezone(tzid)) {
+              _registerVTimezoneBlock(tzid, buildVTimezoneBlock(tzid));
+              const zone = ICAL.TimezoneService.get(tzid);
+              if (zone) {
+                timeVal = timeVal.convertToZone(zone);
+              }
             }
           }
           const prop = new ICAL.Property(propName, master);
-          if (tzid && !isAllDay) {
+          if (tzid && !isAllDay && isValidTimezone(tzid)) {
             prop.setParameter('tzid', tzid);
           }
           prop.setValue(timeVal);
@@ -559,11 +603,15 @@ function eventToICS(event, existingIcs = null) {
   // Collect unique TZID values that need VTIMEZONE blocks (non-allDay only)
   const tzids = [];
   if (!event.allDay) {
-    if (event.startTimeZone && !tzids.includes(event.startTimeZone)) {
+    if (event.startTimeZone && isValidTimezone(event.startTimeZone) && !tzids.includes(event.startTimeZone)) {
       tzids.push(event.startTimeZone);
+    } else if (event.startTimeZone && !isValidTimezone(event.startTimeZone)) {
+      console.warn(`[timezone] Invalid startTimeZone "${event.startTimeZone}" omitted from ICS`);
     }
-    if (event.endTimeZone && !tzids.includes(event.endTimeZone)) {
+    if (event.endTimeZone && isValidTimezone(event.endTimeZone) && !tzids.includes(event.endTimeZone)) {
       tzids.push(event.endTimeZone);
+    } else if (event.endTimeZone && !isValidTimezone(event.endTimeZone)) {
+      console.warn(`[timezone] Invalid endTimeZone "${event.endTimeZone}" omitted from ICS`);
     }
   }
 
@@ -580,8 +628,10 @@ function eventToICS(event, existingIcs = null) {
   // TZID-qualified DTSTART/DTEND values without falling back to floating.
   for (const tzid of tzids) {
     const block = buildVTimezoneBlock(tzid);
-    lines.push(block);
-    _registerVTimezoneBlock(tzid, block);
+    if (block) {
+      lines.push(block);
+      _registerVTimezoneBlock(tzid, block);
+    }
   }
 
   lines.push(
@@ -603,13 +653,13 @@ function eventToICS(event, existingIcs = null) {
     lines.push(`DTSTART;VALUE=DATE:${startStr}`);
     lines.push(`DTEND;VALUE=DATE:${endStr}`);
   } else {
-    if (event.startTimeZone) {
+    if (event.startTimeZone && isValidTimezone(event.startTimeZone)) {
       lines.push(`DTSTART;TZID=${escParamVal(event.startTimeZone)}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
     } else {
       lines.push(`DTSTART:${fmtDateTime(event.start)}`);
     }
 
-    if (event.endTimeZone) {
+    if (event.endTimeZone && isValidTimezone(event.endTimeZone)) {
       lines.push(`DTEND;TZID=${escParamVal(event.endTimeZone)}:${fmtDateTimeTzid(event.end, event.endTimeZone)}`);
     } else {
       lines.push(`DTEND:${fmtDateTime(event.end)}`);
@@ -764,24 +814,33 @@ function fmtDateTime(iso) {
 }
 
 function fmtDateTimeTzid(iso, tzid) {
-  const date = new Date(iso);
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: tzid,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-  const parts = formatter.formatToParts(date);
-  const partMap = {};
-  for (const p of parts) partMap[p.type] = p.value;
+  if (!isValidTimezone(tzid)) {
+    console.warn(`[timezone] Invalid tzid "${tzid}" passed to fmtDateTimeTzid, falling back to UTC formatting`);
+    return fmtDateTime(iso);
+  }
+  try {
+    const date = new Date(iso);
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzid,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(date);
+    const partMap = {};
+    for (const p of parts) partMap[p.type] = p.value;
 
-  let hour = partMap.hour;
-  if (hour === '24') hour = '00';
-  return `${partMap.year}${partMap.month}${partMap.day}T${hour}${partMap.minute}${partMap.second}`;
+    let hour = partMap.hour;
+    if (hour === '24') hour = '00';
+    return `${partMap.year}${partMap.month}${partMap.day}T${hour}${partMap.minute}${partMap.second}`;
+  } catch (err) {
+    console.warn(`[timezone] Failed formatting date for tzid "${tzid}":`, err.message);
+    return fmtDateTime(iso);
+  }
 }
 
 function fmtDate(iso) {
@@ -818,6 +877,31 @@ function foldLines(text) {
   }).join('\r\n');
 }
 
+function isValidTimezone(tzid) {
+  if (!tzid || typeof tzid !== 'string') return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tzid });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function _registerEmbeddedTimezones(comp) {
+  if (!comp || !comp.getAllSubcomponents) return;
+  const vtimezones = comp.getAllSubcomponents('vtimezone');
+  for (const vtz of vtimezones) {
+    try {
+      const tzid = vtz.getFirstPropertyValue('tzid');
+      if (tzid && !ICAL.TimezoneService.has(tzid)) {
+        ICAL.TimezoneService.register(vtz);
+      }
+    } catch (e) {
+      console.warn('[timezone] Failed to register embedded VTIMEZONE:', e.message);
+    }
+  }
+}
+
 /**
  * Compute the UTC offset in minutes for a given IANA timezone at a given Date.
  * Uses Intl.DateTimeFormat 'longOffset' to extract the GMT±HH:MM string.
@@ -839,7 +923,8 @@ function _tzOffsetMinutes(tzid, date) {
     if (!m) return 0;
     const sign = m[1] === '-' ? -1 : 1;
     return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10));
-  } catch {
+  } catch (err) {
+    console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}":`, err.message);
     return 0;
   }
 }
@@ -870,9 +955,13 @@ function _fmtOffset(offsetMins) {
  * cumulative timezone drift when ical.js parses the resulting ICS.
  *
  * @param {string} tzid - IANA timezone identifier (e.g., 'Europe/Berlin')
- * @returns {string} Multi-line VTIMEZONE block (lines joined with \r\n)
+ * @returns {string|null} Multi-line VTIMEZONE block (lines joined with \r\n) or null if invalid
  */
 function buildVTimezoneBlock(tzid) {
+  if (!isValidTimezone(tzid)) {
+    console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}"`);
+  }
+
   // Reference dates: northern-hemisphere winter and summer
   const winterDate = new Date('2026-01-15T12:00:00Z');
   const summerDate = new Date('2026-07-15T12:00:00Z');
@@ -925,6 +1014,7 @@ function buildVTimezoneBlock(tzid) {
  * @param {string} block - VTIMEZONE block as returned by buildVTimezoneBlock
  */
 function _registerVTimezoneBlock(tzid, block) {
+  if (!tzid || !block) return;
   if (ICAL.TimezoneService.has(tzid)) return;
   try {
     const wrapper = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${block}\r\nEND:VCALENDAR\r\n`;
@@ -1102,6 +1192,7 @@ module.exports = {
   escIcal,
   escParamVal,
   buildVTimezoneBlock,
+  isValidTimezone,
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,

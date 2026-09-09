@@ -18,7 +18,8 @@ describe('Issue #123 — Atomic Sync Queue Claiming Suite', () => {
   });
 
   beforeEach(async () => {
-    await new Promise((resolve) => Db.db.run('DELETE FROM sync_queue', resolve));
+    await Db.clearAll();
+    await Db.upsertUser(testUserId, 'pass123');
   });
 
   test('Db.claimSyncJob should atomically claim a PENDING job', async () => {
@@ -52,7 +53,7 @@ describe('Issue #123 — Atomic Sync Queue Claiming Suite', () => {
   });
 
   test('Python sync_worker process_next_job atomic claim prevents concurrent executions', async () => {
-    const job = await Db.addSyncJob(testUserId);
+    const job = await Db.addSyncJob(testUserId, { nextRetryAt: Date.now() - 1000 });
     assert.ok(job && job.id);
 
     const testDbPath = Db.getDbPath ? Db.getDbPath() : path.join(__dirname, '../../webcalendar.db');

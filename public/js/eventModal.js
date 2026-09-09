@@ -454,7 +454,7 @@ function populateCalendarSelect(selectedId) {
   const targetId = selectedId || (filteredCals[0] ? filteredCals[0].id : '');
 
   sel.innerHTML = filteredCals.map(c =>
-    `<option value="${c.id}" ${c.id === targetId ? 'selected' : ''}>${c.name}${c.readOnly ? ' (schreibgeschützt)' : ''}</option>`
+    `<option value="${escHtml(c.id)}" ${c.id === targetId ? 'selected' : ''}>${escHtml(c.name)}${c.readOnly ? ' (schreibgeschützt)' : ''}</option>`
   ).join('') || '<option value="">— Kein beschreibbarer Kalender verfügbar —</option>';
 }
 
