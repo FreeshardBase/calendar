@@ -18,6 +18,9 @@ router.get('/presets', (req, res) => {
 
 // GET /api/accounts — list accounts (passwords redacted)
 router.get('/', (req, res) => {
+  if (req.accountLoadError) {
+    return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${req.accountLoadError}` });
+  }
   const accounts = req.session.accounts || [];
   res.json(accounts.map(a => ({
     id:          a.id,

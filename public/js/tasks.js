@@ -75,7 +75,13 @@ export function openTaskModal(task = null) {
   // Populate calendar options
   const calendars = store.get('calendars') || [];
   if (selectCal) {
-    selectCal.innerHTML = calendars.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+    selectCal.innerHTML = '';
+    calendars.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      selectCal.appendChild(opt);
+    });
   }
 
   if (task) {
@@ -513,5 +519,6 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

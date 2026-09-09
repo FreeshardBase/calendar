@@ -208,7 +208,7 @@ async function queueSyncForCalendar(calendarId, fallbackUserId) {
         const mockReq = { session: { userId: fallbackUserId } };
         const access = await checkCalendarAccess(mockReq, calendarId, 'read');
         if (access && access.allowed) {
-          if (access.isOwner || !access.readOnly) {
+          if (access.isOwner) {
             await Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
           }
           await Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));

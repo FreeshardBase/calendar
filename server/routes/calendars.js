@@ -221,11 +221,7 @@ async function fetchCalendarICS(client, calendarUrl) {
 
   // Fallback: query events via REPORT and re-assemble a combined calendar
   try {
-    const now = new Date();
-    const start = new Date(now.getFullYear() - 1, 0, 1);
-    const end = new Date(now.getFullYear() + 5, 11, 31);
-
-    const eventsXml = await client.getEvents(calendarUrl, start, end);
+    const eventsXml = await client.getEvents(calendarUrl);
     const { parseEventDataList } = require('../caldav/parser');
 
     let ics = `BEGIN:VCALENDAR\r
@@ -1449,5 +1445,6 @@ module.exports = {
   protectedRouter: router,
   publicRouter: publicRouter,
   resolveCalendar,
-  queueSyncForCalendar
+  queueSyncForCalendar,
+  fetchCalendarICS
 };

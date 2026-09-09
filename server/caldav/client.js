@@ -400,10 +400,13 @@ class CalDAVClient {
     return this.propfind(this.baseUrl, 1, body);
   }
 
-  /** Fetch events within a date range from a specific calendar URL. */
+  /** Fetch events (VEVENT) from a specific calendar URL, optionally filtered by date range. */
   async getEvents(calendarUrl, startDate, endDate) {
-    const start = toICalDateTime(startDate);
-    const end   = toICalDateTime(endDate);
+    const veventFilter = (startDate && endDate)
+      ? `<c:comp-filter name="VEVENT">
+        <c:time-range start="${toICalDateTime(startDate)}" end="${toICalDateTime(endDate)}"/>
+      </c:comp-filter>`
+      : `<c:comp-filter name="VEVENT"/>`;
 
     const body = `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -413,9 +416,7 @@ class CalDAVClient {
   </d:prop>
   <c:filter>
     <c:comp-filter name="VCALENDAR">
-      <c:comp-filter name="VEVENT">
-        <c:time-range start="${start}" end="${end}"/>
-      </c:comp-filter>
+      ${veventFilter}
     </c:comp-filter>
   </c:filter>
 </c:calendar-query>`;
@@ -607,12 +608,12 @@ class CalDAVClient {
       if (remove) {
         xml += `
   <o:remove>
-    <d:href>${resolvedHref}</d:href>
+    <d:href>${escapeXML(resolvedHref)}</d:href>
   </o:remove>`;
       } else {
         xml += `
   <o:set>
-    <d:href>${resolvedHref}</d:href>
+    <d:href>${escapeXML(resolvedHref)}</d:href>
     ${readWrite ? '<o:read-write/>' : ''}
   </o:set>`;
       }
@@ -640,12 +641,12 @@ class CalDAVClient {
       if (remove) {
         xml += `
   <cs:remove>
-    <d:href>${targetHref}</d:href>
+    <d:href>${escapeXML(targetHref)}</d:href>
   </cs:remove>`;
       } else {
         xml += `
   <cs:set>
-    <d:href>${targetHref}</d:href>
+    <d:href>${escapeXML(targetHref)}</d:href>
     ${readWrite ? '<cs:read-write/>' : '<cs:read/>'}
   </cs:set>`;
       }

@@ -558,6 +558,15 @@ a { color: inherit; text-decoration: none; }
 .week-day-header.today .week-day-num {
   background: var(--data); color: var(--surface); font-weight: 600;
 }
+.all-day-events {
+  margin-top: var(--sp-1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  max-height: 80px;
+  overflow-y: auto;
+}
 .week-grid-body, .day-grid-body {
   display: grid; flex: 1; overflow-y: auto; overflow-x: hidden;
   background: var(--bg);

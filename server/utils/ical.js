@@ -1204,8 +1204,11 @@ function updateWholeSeries(existingIcs, eventData) {
     return eventToICS(eventData);
   }
 
+  const existingExdateIcs = new Set(newMaster.getAllProperties('exdate').map(p => p.toICALString()));
   for (const exProp of exdateProps) {
-    newMaster.addProperty(exProp);
+    if (!existingExdateIcs.has(exProp.toICALString())) {
+      newMaster.addProperty(exProp);
+    }
   }
 
   comp.removeSubcomponent(master);

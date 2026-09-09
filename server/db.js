@@ -72,7 +72,7 @@ db.serialize(() => {
   // WAL: the DB file is shared with the Radicale plugins and the sync-worker;
   // a MEMORY journal would risk corruption on concurrent multi-process writes.
   db.run('PRAGMA journal_mode = WAL');
-  db.run('PRAGMA busy_timeout = 15000');
+  db.run('PRAGMA busy_timeout = 30000');
   db.run('PRAGMA foreign_keys = ON');
   db.run(`
     CREATE TABLE IF NOT EXISTS users (

@@ -50,11 +50,19 @@ export function getToolbarTitle(view, date) {
 export function navigate(view, date, direction) {
   const d = new Date(date);
   switch (view) {
-    case 'month':  d.setMonth(d.getMonth() + direction);  break;
-    case 'week':   d.setDate(d.getDate() + 7 * direction); break;
+    case 'month':
+    case 'agenda': {
+      // Clamp day to last day of target month to prevent JS Date overflow
+      // e.g. Jan 31 + 1 month must land in February, not March.
+      const targetMonth = d.getMonth() + direction;
+      const daysInTarget = new Date(d.getFullYear(), targetMonth + 1, 0).getDate();
+      d.setDate(Math.min(d.getDate(), daysInTarget));
+      d.setMonth(targetMonth);
+      break;
+    }
+    case 'week':
     case 'workweek': d.setDate(d.getDate() + 7 * direction); break;
-    case 'day':    d.setDate(d.getDate() + direction);     break;
-    case 'agenda': d.setMonth(d.getMonth() + direction);  break;
+    case 'day':      d.setDate(d.getDate() + direction);      break;
   }
   return d;
 }
@@ -257,12 +265,12 @@ function renderMonth(container, events, currentDate, cb) {
   div.appendChild(grid);
   container.appendChild(div);
 
-  // Re-attach chip click / keydown after DOM insert
-  container.addEventListener('click', e => {
+  // Re-attach chip click / keydown on view element
+  div.addEventListener('click', e => {
     const chip = e.target.closest('[data-event-uid]');
     if (chip) cb.onEventClick(chip.dataset.eventUid, e);
-  }, { once: false });
-  container.addEventListener('keydown', e => {
+  });
+  div.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') {
       const chip = e.target.closest('[data-event-uid]');
       if (chip) {
@@ -379,10 +387,15 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   header.innerHTML = gutterHtml;
   days.forEach(d => {
     const isToday = sameDay(d, today);
+    const allDayEvs = eventsForDay(events, d).filter(e => Boolean(e.allDay));
+    const allDayHtml = allDayEvs.length > 0
+      ? `<div class="all-day-events">${allDayEvs.map(ev => chipHtml(ev)).join('')}</div>`
+      : '';
     header.innerHTML += `
       <div class="week-day-header${isToday ? ' today' : ''}" data-date="${d.toISOString()}">
         <div class="week-day-label">${DAYS[d.getDay()]}</div>
         <div class="week-day-num">${d.getDate()}</div>
+        ${allDayHtml}
       </div>`;
   });
   wrap.appendChild(header);
@@ -425,6 +438,24 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
 
   body.appendChild(cols);
   wrap.appendChild(body);
+
+  wrap.addEventListener('click', e => {
+    const chip = e.target.closest('[data-event-uid]');
+    if (chip && !e.target.closest('.time-slot-click-area')) {
+      e.stopPropagation();
+      cb.onEventClick(chip.dataset.eventUid, e);
+    }
+  });
+  wrap.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const chip = e.target.closest('[data-event-uid]');
+      if (chip) {
+        e.preventDefault();
+        cb.onEventClick(chip.dataset.eventUid, e);
+      }
+    }
+  });
+
   container.appendChild(wrap);
 
   // Scroll to 8am
@@ -434,6 +465,8 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
 // ── Day View ──────────────────────────────────────────────────────────────────
 
 function renderDay(container, events, currentDate, cb) {
+  const wrap = document.createElement('div');
+  wrap.className = 'day-view';
   const today = new Date(); today.setHours(0,0,0,0);
   const isToday = sameDay(currentDate, today);
 
@@ -453,17 +486,20 @@ function renderDay(container, events, currentDate, cb) {
        </div>`
     : `<div class="day-time-gutter"></div>`;
 
-  const wrap = document.createElement('div');
-  wrap.className = 'day-view';
+  const allDayEvs = eventsForDay(events, currentDate).filter(e => Boolean(e.allDay));
+  const allDayHtml = allDayEvs.length > 0
+    ? `<div class="all-day-events">${allDayEvs.map(ev => chipHtml(ev)).join('')}</div>`
+    : '';
 
   const header = document.createElement('div');
   header.className = 'day-header-row';
   header.style.gridTemplateColumns = `${gutterW} 1fr`;
   header.innerHTML = `
     ${gutterHtml}
-    <div class="week-day-header${isToday ? ' today' : ''}">
+    <div class="week-day-header${isToday ? ' today' : ''}" data-date="${currentDate.toISOString()}">
       <div class="week-day-label">${DAYS[currentDate.getDay()]}</div>
       <div class="week-day-num">${currentDate.getDate()}</div>
+      ${allDayHtml}
     </div>`;
   wrap.appendChild(header);
 
@@ -499,6 +535,24 @@ function renderDay(container, events, currentDate, cb) {
 
   body.appendChild(cols);
   wrap.appendChild(body);
+
+  wrap.addEventListener('click', e => {
+    const chip = e.target.closest('[data-event-uid]');
+    if (chip && !e.target.closest('.time-slot-click-area')) {
+      e.stopPropagation();
+      cb.onEventClick(chip.dataset.eventUid, e);
+    }
+  });
+  wrap.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const chip = e.target.closest('[data-event-uid]');
+      if (chip) {
+        e.preventDefault();
+        cb.onEventClick(chip.dataset.eventUid, e);
+      }
+    }
+  });
+
   container.appendChild(wrap);
   setTimeout(() => { body.scrollTop = 8 * HOUR_H - 30; }, 10);
 }
@@ -675,11 +729,11 @@ function renderAgenda(container, events, currentDate, cb) {
   }
 
   container.appendChild(div);
-  container.addEventListener('click', e => {
+  div.addEventListener('click', e => {
     const item = e.target.closest('[data-event-uid]');
     if (item) cb.onEventClick(item.dataset.eventUid, e);
   });
-  container.addEventListener('keydown', e => {
+  div.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') {
       const item = e.target.closest('[data-event-uid]');
       if (item) {
@@ -726,33 +780,67 @@ export function agendaEventHtml(ev) {
 
 // ── Event Layout (overlap) ────────────────────────────────────────────────────
 
-function layoutEvents(events) {
+export function layoutEvents(events) {
   const sorted = sortEvents(events);
-  const result = [];
-  const columns = []; // track column end times
+  if (!sorted || sorted.length === 0) return [];
+
+  const clusters = [];
+  let currentCluster = [];
+  let clusterMaxEnd = -1;
 
   for (const ev of sorted) {
     const start = new Date(ev.start).getTime();
-    const end   = new Date(ev.end || ev.start).getTime();
+    const rawEnd = new Date(ev.end || ev.start).getTime();
+    const end = Math.max(start + 1, rawEnd);
 
-    let placed = false;
-    for (let c = 0; c < columns.length; c++) {
-      if (columns[c] <= start) {
-        columns[c] = end;
-        result.push({ ev, col: c, totalCols: 1 });
-        placed = true;
-        break;
+    if (currentCluster.length > 0 && start < clusterMaxEnd) {
+      currentCluster.push(ev);
+      if (end > clusterMaxEnd) {
+        clusterMaxEnd = end;
       }
-    }
-    if (!placed) {
-      columns.push(end);
-      result.push({ ev, col: columns.length - 1, totalCols: 1 });
+    } else {
+      if (currentCluster.length > 0) {
+        clusters.push(currentCluster);
+      }
+      currentCluster = [ev];
+      clusterMaxEnd = end;
     }
   }
+  if (currentCluster.length > 0) {
+    clusters.push(currentCluster);
+  }
 
-  // Set totalCols = max overlapping columns
-  const maxCol = Math.max(0, ...result.map(r => r.col));
-  for (const r of result) r.totalCols = maxCol + 1;
+  const result = [];
+  for (const cluster of clusters) {
+    const columns = [];
+    const clusterResult = [];
+
+    for (const ev of cluster) {
+      const start = new Date(ev.start).getTime();
+      const rawEnd = new Date(ev.end || ev.start).getTime();
+      const end = Math.max(start + 1, rawEnd);
+
+      let placed = false;
+      for (let c = 0; c < columns.length; c++) {
+        if (columns[c] <= start) {
+          columns[c] = end;
+          clusterResult.push({ ev, col: c, totalCols: 1 });
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        columns.push(end);
+        clusterResult.push({ ev, col: columns.length - 1, totalCols: 1 });
+      }
+    }
+
+    const clusterTotalCols = columns.length;
+    for (const r of clusterResult) {
+      r.totalCols = clusterTotalCols;
+      result.push(r);
+    }
+  }
 
   return result;
 }

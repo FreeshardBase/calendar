@@ -6,13 +6,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 test('Issue #202 — Stored XSS & Attribute Injection Prevention in Frontend Select Options & List Rendering', async (t) => {
-  await t.test('eventModal.js populates calendar select with escaped id and name', () => {
+  await t.test('eventModal.js populates calendar select with escaped id and name or DOM createElement', () => {
     const eventModalPath = path.join(__dirname, '../../public/js/eventModal.js');
     const content = fs.readFileSync(eventModalPath, 'utf8');
 
-    // Verify populateCalendarSelect escapes both c.id and c.name
-    assert.match(content, /`<option value="\${escHtml\(c\.id\)}"/, 'c.id in option value must be wrapped in escHtml');
-    assert.match(content, /\${escHtml\(c\.name\)}/, 'c.name in option label must be wrapped in escHtml');
+    // Verify populateCalendarSelect uses DOM createElement or escHtml escaping
+    const usesDom = content.includes('createElement(\'option\')') || content.includes('createElement("option")');
+    const usesEsc = content.includes('`<option value="${escHtml(c.id)}"');
+    assert.ok(usesDom || usesEsc, 'c.id in option value must use DOM createElement(\'option\') or escHtml');
   });
 
   await t.test('availability.js populates calendar select and page cards with escaped properties', () => {

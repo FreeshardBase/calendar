@@ -128,11 +128,10 @@ app.use(async (req, res, next) => {
       if (!req.session.accounts || JSON.stringify(req.session.accounts) !== accountsStr) {
         req.session.accounts = accounts;
       }
+      delete req.accountLoadError;
     } catch (e) {
       console.error('[db] Error loading accounts:', e.message);
-      if (req.session.accounts && req.session.accounts.length > 0) {
-        req.session.accounts = [];
-      }
+      req.accountLoadError = e.message;
     }
   } else {
     if (req.session.accounts && req.session.accounts.length > 0) {
@@ -431,6 +430,9 @@ app.get('*', (req, res) => {
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('[ERROR]', err.message);
+  if (res.headersSent) {
+    return next(err);
+  }
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 

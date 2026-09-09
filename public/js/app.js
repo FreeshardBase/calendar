@@ -193,6 +193,7 @@ async function loadEvents() {
     checkAndTriggerAlarms();
   } catch (err) {
     if (seq !== loadEventsSeq) return;
+    renderCalendarView();
     if (!cached) {
       showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
       setStatus('');
@@ -1901,6 +1902,7 @@ function attachListeners() {
 
   // Global Message Listener for OAuth Popups
   window.addEventListener('message', async e => {
+    if (e.origin !== window.location.origin) return;
     if (e.data === 'google-account-linked') {
       const modalBackdrop = $('account-modal-backdrop');
       if (modalBackdrop && !modalBackdrop.classList.contains('hidden')) {

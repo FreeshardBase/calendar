@@ -85,8 +85,9 @@ def recover_stranded_jobs(target_db=None):
         return 0
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 30000")
         cursor = conn.cursor()
         now_ms = int(time.time() * 1000)
         cursor.execute(
@@ -482,8 +483,9 @@ password = "{SYSTEM_SYNC_SECRET}"
 
 def sync_user(user_id):
     print(f"[Sync-Worker] Sync starting for user {user_id}...")
-    conn = sqlite3.connect(get_db_path())
+    conn = sqlite3.connect(get_db_path(), timeout=30.0)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 

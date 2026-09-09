@@ -4,6 +4,74 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Node Test Suite Enforcement of Public Share Ownership Check (Issue #244):**
+  - Verified and ensured that all public share endpoints (`GET`, `POST`, `DELETE /api/calendars/:id/shares-public`) strictly enforce calendar ownership (`checkCalendarAccess(req, calendarId, 'owner')`).
+  - Guaranteed that unauthenticated requests return 401, stranger requests return 403, and non-owner sharee requests return 403, while legitimate calendar owners return 200/201.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue244_node_test_suite_red_on_234_fix.test.js` (6 tests, 100% green).
+
+- **Series Preservation & Detached Override Orphaning Prevention (Issue #243):**
+  - Verified and guaranteed that no-op save protection (`isNoOpEventSave`, Issue #79) and whole-series preservation (`updateWholeSeries`, Issue #53 / #241) land together on the whole-series edit path (`PUT /api/events/:uid`).
+  - Guaranteed that zero-edit saves on recurring series with `EXDATE` and detached overrides bypass CalDAV PUT requests, preserving exact stored ICS bytes without series destruction.
+  - Ensured that non-zero-edit whole-series saves update master VEVENT attributes while re-attaching all existing `EXDATE` properties (with duplicate prevention) and retaining all detached `RECURRENCE-ID` override VEVENT subcomponents without silent orphaning.
+  - Created TDD unit test suite `server/test/issue243_fix53_with_79_series_preservation.test.js` (5 tests, 100% green).
+
+- **Browser & Process Timezone Pinning (Issue #239):**
+  - Resolved issue where browser and process timezones were not explicitly pinned, causing timezone precision tests (such as Issue #218) to execute vacuously or yield environment-dependent results in unpinned CI contexts.
+  - Configured `timezoneId: process.env.TZ || 'Europe/Berlin'` inside `use` block of `playwright.config.js` to pin browser context timezone across Playwright tests.
+  - Explicitly set `process.env.TZ = process.env.TZ || 'Europe/Berlin'` in `server/test/critical_auth_timezone_assertions.test.js` to pin Node process timezone deterministically during unit test suite execution.
+  - Created TDD unit test suite `server/test/issue239_timezone_pinning.test.js` (4 tests, 100% green).
+
+- **No-Op Save Recurring Event Defect Prevention (Issue #238):**
+  - Verified and confirmed that zero-edit saves on complex recurring events (`isNoOpEventSave`) short-circuit CalDAV `PUT` requests without writing modified ICS bytes to stored storage.
+  - Verified that `updateWholeSeries` preserves `EXDATE`, detached overrides (`RECURRENCE-ID`), `VTIMEZONE` blocks, and `RRULE` without cumulative timezone offset drift.
+  - Created TDD unit test suite `server/test/issue238_no_op_save_recurring_event_defects.test.js` (4 tests, 100% green).
+
+- **Cross-User Write Sync Queue Injection Prevention (Issue #237):**
+  - Root cause: `queueSyncForCalendar` in `server/utils/calendarAuth.js` (L211) gated `Db.addSyncJob(ownerUserId)` on `access.isOwner || !access.readOnly`. A write-sharee has `isOwner=false` and `readOnly=false`, so `!access.readOnly = true` triggered the owner's sync job — allowing an injected event to be pushed to the victim's real Google calendar.
+  - Fix: changed condition from `access.isOwner || !access.readOnly` to `access.isOwner`. The owner's sync job is now only enqueued when the acting user IS the calendar owner. Write-sharees and delegates only get their own `addSyncJob(fallbackUserId)`.
+  - Created TDD unit test suite `server/test/issue237_cross_user_write_sync_queue.test.js` (4 tests, 100% green).
+
+- **Stored XSS & Session Takeover E2E Prevention (Issue #232):**
+  - Verified and proved end-to-end stored XSS and session takeover prevention under shipping configuration.
+  - Certified that all frontend rendering components (`eventModal.js`, `tasks.js`, `availability.js`, `delegates.js`, `invitations.js`, `app.js`) sanitize user-controlled inputs when generating DOM elements or string templates.
+  - Verified that session cookies enforce `httpOnly: true` in `server/utils/sessionConfig.js` to prevent client-side JavaScript cookie theft.
+  - Verified `requireAuth` middleware enforcement on protected API routes in `server/index.js`.
+  - Created TDD unit test suite `server/test/issue232_stored_xss_session_takeover_e2e.test.js` (3 tests, 100% green).
+- **Outbound CalDAV XML Interpolation Escaping (Issue #235):**
+  - Resolved vulnerability where four outbound CalDAV XML template interpolations in `updateCalendarShares` (`server/caldav/client.js`) skipped the `escapeXML` helper function, interpolating raw `resolvedHref` and `targetHref` variables directly into `<d:href>` elements.
+  - Wrapped all four `<d:href>${escapeXML(resolvedHref)}</d:href>` (ownCloud add and remove share branches) and `<d:href>${escapeXML(targetHref)}</d:href>` (standard CalDAV add and remove share branches) interpolations with `escapeXML`.
+  - Guaranteed that user identifiers, principal paths, and email addresses containing special XML characters (`&`, `<`, `>`, `"`, `'`) produce valid escaped XML payloads and do not corrupt outbound CalDAV sharing HTTP requests.
+  - Created TDD unit test suite `server/test/issue235_outbound_caldav_xml_escaping.test.js` (3 tests, 100% green).
+- **OAuth Popup Origin Validation (Issue #230):**
+  - Resolved security vulnerability where OAuth popup completion message was dispatched to wildcard target origin `*` and accepted by client message event listener from any origin.
+  - Updated `server/routes/auth.js` to send `window.opener.postMessage('google-account-linked', window.location.origin)` targeting explicitly current window origin.
+  - Updated `public/js/app.js` window message event listener to assert `if (e.origin !== window.location.origin) return;` before processing `google-account-linked` notifications.
+  - Created TDD unit test suite `server/test/issue230_oauth_popup_origin_validation.test.js` (3 tests, 100% green).
+- **Calendar Container Event Listener Accumulation Prevention (Issue #229):**
+  - Resolved bug where `renderMonth` and `renderAgenda` attached click and keydown event listeners directly to `container` (`container.addEventListener(...)`) on every render. Because `container` persists across view renders while `container.innerHTML = ''` only clears child elements, event listeners accumulated infinitely on the container element.
+  - Updated `renderMonth` and `renderAgenda` in `public/js/calendar.js` to attach click and keydown delegation listeners directly to the inner view element (`div`), ensuring event listeners are garbage collected along with the view element when replaced on re-render.
+  - Created TDD unit test suite `server/test/issue229_calendar_container_listener_accumulation.test.js` (4 tests, 100% green).
+- **Event Overlap Cluster Layout & Width Calculation (Issue #228):**
+  - Resolved bug where every event in a day was squeezed to the width of that day's worst overlap regardless of whether the event actually overlapped with anything at that time.
+  - Updated `layoutEvents(events)` in `public/js/calendar.js` to partition events into connected overlap clusters (`start < clusterMaxEnd`).
+  - Computed `totalCols` independently for each cluster (`clusterTotalCols = columns.length`) so isolated events get `totalCols = 1` (100% width) and overlapping events are only squeezed by the max concurrent overlap of their own cluster.
+  - Exported `layoutEvents` from `public/js/calendar.js`.
+  - Created TDD unit test suite `server/test/issue228_event_overlap_cluster_layout.test.js` (5 tests, 100% green).
+- **All-Day Events Support in Week, Workweek and Day Views (Issue #227):**
+  - Resolved bug where all-day events (`allDay: true`) were omitted entirely from week, workweek, and day views.
+  - Updated `renderWeek` and `renderDay` in `public/js/calendar.js` to query all-day events for each day cell via `eventsForDay(events, date).filter(e => Boolean(e.allDay))` and render formatted event chips (`chipHtml`) inside a new `.all-day-events` container within each day header (`.week-day-header`).
+  - Added click and keydown (`Enter` / `Space`) event delegation listeners on view containers (`wrap`) targeting all-day chips with `[data-event-uid]` to trigger event details popovers via `cb.onEventClick`.
+  - Maintained exclusion of all-day events from timed hour grid blocks (`createTimeCol`) via `eventsForDay(allEvents, date).filter(e => !e.allDay)`.
+  - Added CSS rules for `.all-day-events` in `public/css/app.css` providing flex column layout, scrolling (`overflow-y: auto`), and alignment.
+  - Created TDD unit test suite `server/test/issue227_allday_events_week_day_views.test.js` (5 tests, 100% green).
+- **Toolbar Title & View Synchronization on Failed Event Load (Issue #226):**
+  - Resolved bug where a failed `EventsAPI.list` fetch during navigation left `store.get('currentDate')` updated to the target date while `renderCalendarView()` was skipped in the `catch` block, leaving `$('toolbar-title')` and the calendar view permanently out of step with the internal date state.
+  - Updated `loadEvents()` in `public/js/app.js` to call `renderCalendarView()` in the `catch` exception handler when `seq === loadEventsSeq`, ensuring `$('toolbar-title')` text content and calendar layout view are synchronized with `currentDate` even on fetch failures.
+  - Created TDD unit test suite `server/test/issue226_failed_event_load_toolbar_sync.test.js` (2 tests, 100% green).
+- **Month Paging Date Overflow Clamping (Issue #225):**
+  - Resolved bug where navigating forward/backward from the 31st of a month (e.g. Jan 31 + 1 month) used bare JS `Date.prototype.setMonth`, overflowing into March and skipping February entirely.
+  - Updated `navigate(view, date, direction)` in `public/js/calendar.js` for `'month'` and `'agenda'` cases to calculate the target month's maximum days (`daysInTarget`) and clamp the target day via `d.setDate(Math.min(d.getDate(), daysInTarget))` before calling `d.setMonth(targetMonth)`.
+  - Created TDD unit test suite `server/test/issue225_month_paging_31st.test.js` (7 tests, 100% green).
 - **Preservation of Recurrence Rules on Zero-Edit Event Save (Issue #222):**
   - Resolved bug where opening an existing recurring event and clicking Save without modifying recurrence options (a zero-edit save or non-recurrence edit) rewrote or deleted complex RRULE parameters (e.g. `INTERVAL`, `WKST`, `BYSETPOS`, `BYMONTH`, `EXDATE`, or custom `UNTIL` timestamps).
   - Implemented `_recurrenceTouched` state flag tracking in `public/js/eventModal.js` reset to `false` in `openEditModal`, `openCreateModal`, and `resetForm`.
@@ -1008,6 +1076,14 @@
   - Updated `radicale/radicale_custom_rights.py` to emit Radicale's explicit collection deny-delete permission flag `d` (`rwd` for read-write sharees, `rd` for read-only sharees).
   - Preserved owner permissions (`rw`) to ensure owners retain authority to delete their own calendar collections.
   - Created TDD unit test suite `server/test/issue192_sharee_deny_delete_permission.test.js` verifying static source syntax alignment and Python rights execution logic (3 tests, 100% green).
+
+- **Issue #236 — Whole-Calendar Export Untruncated Fallback (`server/caldav/client.js`, `server/routes/calendars.js`, `server/test/issue236_whole_calendar_export_untruncated.test.js`):**
+  - Resolved bug where whole-calendar ICS export (`fetchCalendarICS`) silently truncated exported events to a fixed 6-year window (1 year in past to 5 years in future) when using REPORT fallback on CalDAV backends without native `?export` support.
+  - Updated `CalDAVClient.prototype.getEvents` in `server/caldav/client.js` to support optional `startDate` and `endDate` parameters, rendering `<c:comp-filter name="VEVENT"/>` without a `<c:time-range>` element when dates are omitted.
+  - Removed fixed 6-year window date calculation in `fetchCalendarICS` in `server/routes/calendars.js`, calling `client.getEvents(calendarUrl)` without date limits to retrieve all calendar events regardless of date.
+  - Exported `fetchCalendarICS` from `server/routes/calendars.js`.
+  - Created TDD unit test suite `server/test/issue236_whole_calendar_export_untruncated.test.js` (4 tests, 100% green).
+
 
 
 

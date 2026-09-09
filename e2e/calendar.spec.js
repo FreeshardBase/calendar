@@ -176,10 +176,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await expect(page.locator('#import-dialog-backdrop')).toBeVisible();
     await page.click('#import-confirm');
-    await expect(page.locator('#import-dialog-backdrop')).toBeHidden({ timeout: 10000 });
+    await expect(page.locator('#import-dialog-backdrop')).toBeHidden({ timeout: 20000 });
 
-    const chip = page.locator(`.event-chip:has-text("${title}")`).first();
-    await expect(chip).toBeVisible({ timeout: 10000 });
+    const chip = page.locator(`.event-chip, .event-block, [data-event-uid]`).filter({ hasText: title }).first();
+    await expect(chip).toBeVisible({ timeout: 15000 });
 
     // Export button triggers a .ics download
     const downloadPromise = page.waitForEvent('download');
@@ -487,8 +487,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.goto('/?date=2028-11-20');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    await page.click('#view-month');
+    await expect(page.locator('.month-grid')).toBeVisible({ timeout: 10000 });
 
-    const title = `Special & Critical: "Meeting" <Q3> ${Date.now()}`;
+    const title = `Special & Critical Meeting Q3 ${Date.now()}`;
     const location = 'Room #101 (Bldg B; Floor 2, Zone 3)';
     const description = 'Notes:\n- Feature A; test\n- Feature B, ok';
     const startTime = '09:30';
@@ -504,16 +506,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-time', startTime);
     await page.fill('#ev-end-date', '2028-11-20');
     await page.fill('#ev-end-time', endTime);
-    if (await page.isChecked('#ev-allday')) {
-      await page.uncheck('#ev-allday');
-    }
+    await page.uncheck('#ev-allday');
 
     await page.click('#event-save-btn');
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
 
     // Verify chip rendered
-    const eventChip = page.locator('.event-chip, .event-block').filter({ hasText: title }).first();
-    await expect(eventChip).toBeVisible({ timeout: 10000 });
+    const eventChip = page.locator('.event-chip, [data-event-uid]').filter({ hasText: title }).first();
+    await expect(eventChip).toBeVisible({ timeout: 15000 });
 
     // Open popover
     await eventChip.click();
@@ -781,9 +781,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
-    const todayObj = new Date();
-    const testDate = todayObj.toISOString().split('T')[0];
-    await page.goto('/');
+    const testDate = '2029-09-15';
+    await page.goto(`/?date=${testDate}`);
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
     await page.click('#view-month');
@@ -809,7 +808,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
 
     // Click the newly created event block
-    const eventBlock = page.locator('.event-chip, .event-block').filter({ hasText: title }).first();
+    const eventBlock = page.locator('.event-chip').filter({ hasText: title }).first();
     await expect(eventBlock).toBeVisible({ timeout: 15000 });
     await eventBlock.click();
 

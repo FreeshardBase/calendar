@@ -12,6 +12,7 @@ module.exports = defineConfig({
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    timezoneId: process.env.TZ || 'Europe/Berlin',
   },
   projects: [
     {

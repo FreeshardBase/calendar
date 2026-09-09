@@ -200,7 +200,9 @@ router.get('/google/callback', async (req, res) => {
       <html>
         <body>
           <script>
-            window.opener.postMessage('google-account-linked', '*');
+            if (window.opener) {
+              window.opener.postMessage('google-account-linked', window.location.origin);
+            }
             window.close();
           </script>
           Verbindung erfolgreich! Dieses Fenster schließt sich automatisch...

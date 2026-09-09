@@ -449,6 +449,7 @@ function updateAlldayUI(allDay) {
 
 function populateCalendarSelect(selectedId) {
   const sel = $('ev-calendar');
+  if (!sel) return;
   const cals = store.get('calendars') || [];
   
   // For creating a new event (selectedId is not provided), we should only show writable calendars!
@@ -456,9 +457,23 @@ function populateCalendarSelect(selectedId) {
   const filteredCals = isEditing ? cals : cals.filter(c => !c.readOnly);
   const targetId = selectedId || (filteredCals[0] ? filteredCals[0].id : '');
 
-  sel.innerHTML = filteredCals.map(c =>
-    `<option value="${escHtml(c.id)}" ${c.id === targetId ? 'selected' : ''}>${escHtml(c.name)}${c.readOnly ? ' (schreibgeschützt)' : ''}</option>`
-  ).join('') || '<option value="">— Kein beschreibbarer Kalender verfügbar —</option>';
+  sel.innerHTML = '';
+  if (filteredCals.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '— Kein beschreibbarer Kalender verfügbar —';
+    sel.appendChild(opt);
+  } else {
+    filteredCals.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name + (c.readOnly ? ' (schreibgeschützt)' : '');
+      if (c.id === targetId) {
+        opt.selected = true;
+      }
+      sel.appendChild(opt);
+    });
+  }
 }
 
 function setFormDisabled(disabled) {
@@ -885,5 +900,5 @@ function statusLabel(s) {
   return { ACCEPTED: 'Zugesagt', DECLINED: 'Abgelehnt', TENTATIVE: 'Vorläufig', 'NEEDS-ACTION': 'Ausstehend' }[s] || s;
 }
 function escHtml(str) {
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
