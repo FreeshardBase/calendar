@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Active View & Calendar On/Off ARIA State Accessibility (Issue #184):**
+  - Added `aria-selected="true"` / `aria-pressed="true"` to `#view-month` and `aria-selected="false"` / `aria-pressed="false"` to remaining view tabs in `public/index.html`.
+  - Updated `renderCalendarView` (kanban & standard branches) and `switchView` in `public/js/app.js` to set `aria-selected` and `aria-pressed` dynamically alongside `classList.toggle('active', isActive)`.
+  - Verified `role="checkbox"` and `aria-checked` attributes on `.calendar-item` in `renderCalendarList` (`public/js/app.js`).
+  - Created TDD unit test suite `server/test/issue184_active_view_calendar_aria_state.test.js` (3 tests, 100% green).
 - **Month Grid ARIA Semantic Nodes for Screen Readers (Issue #183):**
   - Added `role="grid"` and `aria-label="Monatsansicht"` attributes to `.month-view` container in `renderMonth` (`public/js/calendar.js`).
   - Added `role="row"` to `.month-dow-header` and `role="columnheader"` with full weekday names (`Montag`...`Sonntag`) in `aria-label` attributes to `.month-dow` elements.

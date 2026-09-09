@@ -248,7 +248,10 @@ function renderCalendarView() {
   if (view === 'kanban') {
     $('toolbar-title').textContent = 'Aufgaben (Kanban)';
     document.querySelectorAll('.view-tab').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.view === 'kanban');
+      const isActive = btn.dataset.view === 'kanban';
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
     const tasks = getFilteredTasks();
     const tasksError = store.get('tasksError');
@@ -269,7 +272,10 @@ function renderCalendarView() {
 
   // Sync view tabs active state
   document.querySelectorAll('.view-tab').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.view === view);
+    const isActive = btn.dataset.view === view;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
 
   renderView(container, events, view, date, {
@@ -1521,7 +1527,10 @@ function attachListeners() {
 
   function switchView(viewName) {
     document.querySelectorAll('.view-tab').forEach(b => {
-      b.classList.toggle('active', b.dataset.view === viewName);
+      const isActive = b.dataset.view === viewName;
+      b.classList.toggle('active', isActive);
+      b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
     store.set({ view: viewName });
     loadEvents();
