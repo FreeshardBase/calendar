@@ -4,6 +4,12 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Upgraded openid-client Major Dependency Range (Issue #179):**
+  - Updated `openid-client` dependency requirement in `package.json` from unmaintained v5 line (`^5.7.1`) to maintained major 6 range (`^6.0.0`).
+  - Created TDD unit test suite `server/test/issue179_openid_client_version_range.test.js` verifying range alignment and module loading (100% green).
+- **Upgraded ical.js Major Dependency Range (Issue #178):**
+  - Updated `ical.js` dependency requirement in `package.json` from unmaintained January 2022 major 1 line (`^1.5.0`) to maintained major 2 range (`^2.1.0`).
+  - Created TDD unit test suite `server/test/issue178_icaljs_version_range.test.js` verifying range alignment and module loading (100% green).
 - **Node 22 Production Image & CI Alignment (Issue #177):**
   - Upgraded production container `Dockerfile` base image from EOL `node:20-alpine` (end of life 2026-04-30) to active LTS `node:22-alpine`.
   - Updated `package.json` engines requirement to `"node": ">=22.0.0"`.
