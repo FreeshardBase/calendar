@@ -383,7 +383,7 @@ function renderCalendarList() {
       : '';
 
     return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}">
+      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(c.name)}">
         <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
         <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
           <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
@@ -405,13 +405,22 @@ function renderCalendarList() {
       </div>`;
   }).join('');
 
-  // Toggle visibility on main area click
+  // Toggle visibility on main area click or keypress
   list.querySelectorAll('[data-cal-id]').forEach(el => {
-    el.addEventListener('click', e => {
+    const handleToggle = e => {
       if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]') || e.target.closest('[data-export-cal]')) return;
       toggleCalendar(el.dataset.calId);
       renderCalendarList();
       renderCalendarView();
+    };
+
+    el.addEventListener('click', handleToggle);
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]') || e.target.closest('[data-export-cal]')) return;
+        e.preventDefault();
+        handleToggle(e);
+      }
     });
   });
 
@@ -448,7 +457,8 @@ function initIcsImport() {
   const zone = $('ics-dropzone');
   if (!zone) return;
 
-  const sidebar = document.querySelector('.sidebar');
+  const sidebar = typeof document !== 'undefined' && typeof document.querySelector === 'function' ? document.querySelector('.sidebar') : null;
+  if (!sidebar) return;
 
   sidebar.addEventListener('dragover', e => {
     if ([...(e.dataTransfer?.items || [])].some(i => i.kind === 'file')) {
@@ -467,8 +477,8 @@ function initIcsImport() {
     openImportDialog(file.name, await file.text());
   });
 
-  // Click on the zone opens a file picker as a fallback to drag & drop
-  zone.addEventListener('click', () => {
+  // Click or keydown on the zone opens a file picker as a fallback to drag & drop
+  const triggerFilePicker = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.ics,text/calendar';
@@ -477,6 +487,14 @@ function initIcsImport() {
       if (file) openImportDialog(file.name, await file.text());
     });
     input.click();
+  };
+
+  zone.addEventListener('click', triggerFilePicker);
+  zone.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      triggerFilePicker();
+    }
   });
 }
 

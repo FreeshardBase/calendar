@@ -4,6 +4,12 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Calendar Visibility & ICS Import Keyboard Reachability (Issue #182):**
+  - Added `tabindex="0"`, `role="button"`, and `aria-label="ICS-Datei importieren"` to `#ics-dropzone` in `public/index.html`.
+  - Added `keydown` event listener (`Enter` and `Space`) to `#ics-dropzone` in `initIcsImport` (`public/js/app.js`) to trigger file picker when activated by keyboard.
+  - Added `tabindex="0"`, `role="checkbox"`, `aria-checked`, and `aria-label` attributes to `.calendar-item` elements in `renderCalendarList` (`public/js/app.js`).
+  - Added `keydown` event listener (`Enter` and `Space`) on `.calendar-item` elements to toggle calendar visibility on keyboard activation.
+  - Created TDD unit test suite `server/test/issue182_calendar_visibility_ics_import_keyboard.test.js` (5 tests, 100% green).
 - **Calendar Grid Keyboard Reachability & Activation (Issue #181):**
   - Added `tabindex="0"`, `role="button"`, and `aria-label` attributes to event elements across Month (`chipHtml`), Week/Day (`createEventBlock`), and Agenda (`agendaEventHtml`) views.
   - Added `keydown` event handling (`Enter` and `Space`) on event elements and view containers to enable keyboard invocation of `onEventClick`.
