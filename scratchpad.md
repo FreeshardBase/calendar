@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Form Controls Programmatic Labels & Password Reveal Accessible Name (Issue #185):**
+  - Added `aria-label` attributes to 8 unlabelled form controls in `public/index.html` (`#ev-title`, `#search-input`, `#recur-monthly-week-idx`, `#recur-monthly-weekday`, `#recur-end-date`, `#recur-end-count`, `#ev-attendee-name`, `#ev-attendee-email`).
+  - Added `aria-label="Passwort anzeigen"` to password-reveal toggle button for `#acc-password` in account dialog modal.
+  - Updated `public/js/eventModal.js` password toggle listener to dynamically toggle `aria-label` between `"Passwort anzeigen"` and `"Passwort verbergen"`.
+  - Created TDD unit test suite `server/test/issue185_form_controls_accessible_labels.test.js` (4 tests, 100% green).
 - **Active View & Calendar On/Off ARIA State Accessibility (Issue #184):**
   - Added `aria-selected="true"` / `aria-pressed="true"` to `#view-month` and `aria-selected="false"` / `aria-pressed="false"` to remaining view tabs in `public/index.html`.
   - Updated `renderCalendarView` (kanban & standard branches) and `switchView` in `public/js/app.js` to set `aria-selected` and `aria-pressed` dynamically alongside `classList.toggle('active', isActive)`.

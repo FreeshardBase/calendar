@@ -763,6 +763,7 @@ export function initEventModal() {
     btn.addEventListener('click', () => {
       const input = document.getElementById(btn.dataset.target);
       input.type = input.type === 'password' ? 'text' : 'password';
+      btn.setAttribute('aria-label', input.type === 'password' ? 'Passwort anzeigen' : 'Passwort verbergen');
     });
   });
 

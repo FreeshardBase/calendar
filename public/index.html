@@ -456,7 +456,7 @@
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
-        <input type="text" id="search-input" class="search-input" placeholder="Suchen…" />
+        <input type="text" id="search-input" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" />
       </div>
     </header>
 
@@ -502,7 +502,7 @@
 
         <div class="form-group">
           <input class="form-input form-input-title" id="ev-title" type="text"
-                 placeholder="Titel des Termins" required />
+                 placeholder="Titel des Termins" aria-label="Titel des Termins" required />
         </div>
 
         <div class="form-row">
@@ -599,7 +599,7 @@
                 <input type="radio" name="recur-monthly-type" value="BYDAY">
                 Am:
               </label>
-              <select class="form-select inline-select" id="recur-monthly-week-idx">
+              <select class="form-select inline-select" id="recur-monthly-week-idx" aria-label="Woche des Monats">
                 <option value="1">ersten</option>
                 <option value="2">zweiten</option>
                 <option value="3">dritten</option>
@@ -607,7 +607,7 @@
                 <option value="5">fünften</option>
                 <option value="-1">letzten</option>
               </select>
-              <select class="form-select inline-select" id="recur-monthly-weekday">
+              <select class="form-select inline-select" id="recur-monthly-weekday" aria-label="Wochentag">
                 <option value="MO">Montag</option>
                 <option value="TU">Dienstag</option>
                 <option value="WE">Mittwoch</option>
@@ -633,14 +633,14 @@
                 <input type="radio" name="recur-end-type" value="UNTIL">
                 Am:
               </label>
-              <input class="form-input inline-input" type="date" id="recur-end-date">
+              <input class="form-input inline-input" type="date" id="recur-end-date" aria-label="Enddatum der Wiederholung">
             </div>
             <div class="radio-option-row">
               <label class="radio-option">
                 <input type="radio" name="recur-end-type" value="COUNT">
                 Nach:
               </label>
-              <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;">
+              <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;" aria-label="Anzahl Wiederholungen">
               <span>Wiederholungen</span>
             </div>
           </div>
@@ -677,8 +677,8 @@
         <div class="form-group">
           <label class="form-label">Teilnehmende</label>
           <div class="attendee-input-row">
-            <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" />
-            <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" />
+            <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" aria-label="Name des Teilnehmers" />
+            <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" aria-label="E-Mail des Teilnehmers" />
             <button type="button" class="btn btn-ghost" id="add-attendee-btn">Hinzufügen</button>
           </div>
           <ul class="attendee-list" id="ev-attendee-list"></ul>
@@ -764,7 +764,7 @@
           <div class="input-with-action">
             <input class="form-input" id="acc-password" type="password" name="password"
                    autocomplete="current-password" required />
-            <button type="button" class="toggle-password" data-target="acc-password">
+            <button type="button" class="toggle-password" data-target="acc-password" aria-label="Passwort anzeigen">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
               </svg>
