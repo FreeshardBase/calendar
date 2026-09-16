@@ -48,7 +48,10 @@ describe('Issue #6 — Automatic Retry Queue for Synchronization Failures Suite'
   before(async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     await Db.upsertUser(userId, 'userretry1');
-    port = appServer && appServer.address() ? appServer.address().port : (process.env.PORT || 3092);
+    port = process.env.PORT || 3092;
+    if (!appServer.listening) {
+      await new Promise((resolve) => appServer.listen(port, resolve));
+    }
     server = appServer;
   });
 

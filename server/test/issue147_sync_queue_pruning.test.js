@@ -18,6 +18,9 @@ describe('Issue #147 — Sync Queue Pruning Production Fix', () => {
     const oldTime = now - maxAgeMs - 3600000; // 25 hours ago
     const recentTime = now - 3600000; // 1 hour ago
 
+    await Db.upsertUser('user-1', 'user-1@example.com');
+    await Db.upsertUser('user-2', 'user-2@example.com');
+
     // Insert test jobs manually
     await new Promise((resolve, reject) => {
       Db.db.serialize(() => {
@@ -70,6 +73,8 @@ describe('Issue #147 — Sync Queue Pruning Production Fix', () => {
     const now = Date.now();
     const oldTime = now - (48 * 60 * 60 * 1000); // 48 hours ago
 
+    await Db.upsertUser('user-export', 'user-export@example.com');
+
     await new Promise((resolve, reject) => {
       Db.db.run(
         `INSERT INTO sync_queue (id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at)
@@ -88,6 +93,9 @@ describe('Issue #147 — Sync Queue Pruning Production Fix', () => {
 
   test('addSyncJob automatically triggers pruning of old completed/errored jobs', async () => {
     const oldTime = Date.now() - (48 * 60 * 60 * 1000); // 48 hours ago
+
+    await Db.upsertUser('user-autoprune', 'user-autoprune@example.com');
+    await Db.upsertUser('user-new', 'user-new@example.com');
 
     await new Promise((resolve, reject) => {
       Db.db.run(

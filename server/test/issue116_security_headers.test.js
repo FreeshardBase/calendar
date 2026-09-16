@@ -17,6 +17,10 @@ const { server } = require('../index');
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
 test('Issue #116 — Security Headers & Content Security Policy (CSP)', async (t) => {
+  if (server && !server.listening) {
+    await new Promise((resolve) => server.listen(process.env.PORT || 3196, resolve));
+  }
+
   t.after(async () => {
     if (server) {
       if (typeof server.closeAllConnections === 'function') {

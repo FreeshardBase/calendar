@@ -37,6 +37,12 @@ test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation
     return record;
   };
 
+  t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
+
   t.after(() => {
     CalDAVClient.prototype.get = originalGet;
     CalDAVClient.prototype.put = originalPut;

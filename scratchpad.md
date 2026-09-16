@@ -4,6 +4,243 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **ICS Writer Fall-Back Repeated Hour Instants UTC Representation (Issue #294):**
+  - Resolved defect where two event start/end instants occurring an hour apart within a fall-back Daylight Saving Time (DST) repeated hour (e.g., 00:30 UTC vs 01:30 UTC in `Europe/Berlin` on 2026-10-25) formatted to identical local wall-clock representations (`02:30:00`), producing identical `DTSTART`/`DTEND` bytes in stored ICS payloads.
+  - Implemented `isTzidLossy(iso, tzid)` helper in `server/utils/ical.js` detecting when a local `TZID` wall-clock time is ambiguous or lossy during fall-back DST transitions.
+  - Updated `eventToICS` in `server/utils/ical.js` to format `DTSTART` and `DTEND` as UTC timestamps (`DTSTART:YYYYMMDDTHHMMSSZ`) whenever `isTzidLossy` returns true, guaranteeing distinct `VEVENT` bytes and lossless round-trip parsing (`parseICSToEvent`).
+  - Certified behavior with dedicated TDD test suite `server/test/issue294_ics_fall_back_repeated_hour.test.js` (100% green).
+
+- **DURATION to DTEND Silent Conversion & Length Error Prevention (Issue #293):**
+  - Resolved critical defect where events using RFC 5545 `DURATION` properties (e.g. `DURATION:PT1H`) without explicit `DTEND` had `DURATION` silently converted to `DTEND` on every save, creating conflicting RFC 5545 property pairs (`DURATION` and `DTEND` coexisting on VEVENT) and assigning `endTimeZone = null`. When formatted, `DTEND` output as un-qualified UTC (`DTEND:20260601T170000Z`) alongside `DTSTART;TZID=America/Denver:20260601T100000`, causing length errors and negative event duration on re-parse.
+  - Updated `parseVEventToEvent` in `server/utils/ical.js` to extract `duration` property when present and inherit `endTimeZone = startTimeZone` when `dtend` is derived from `duration`.
+  - Enforced mutual exclusion of `DURATION` and `DTEND` in `eventToICS` and `setEventDateProp`: setting `duration` removes `DTEND` and serializes `DURATION:${event.duration}`; setting `end` removes `DURATION` and writes `DTEND;TZID=...` using inherited `endTimeZone`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue293_duration_to_dtend_preservation.test.js` (5 tests across 5 consecutive save cycles, 100% green).
+
+- **Event Spanning DST Changeover Duration & Date Preservation Across Saves (Issue #292):**
+  - Resolved defect where saving an event spanning a Daylight Saving Time (DST) transition (e.g. Spring forward or Fall back changeovers in `Europe/Berlin`) caused event duration to stretch, compress, or collapse to 0 minutes across zero-edit save cycles.
+  - Root cause: `setEventDateProp` in `server/utils/ical.js` used `timeVal = ICAL.Time.fromJSDate(dt, true).convertToZone(zone)`, relying on `ical.js`'s internal timezone conversion engine which calculated incorrect local wall-clock components across DST changeover dates (e.g., converting `2026-03-29T01:30:00.000Z` to non-existent wall-clock time `20260329T023000` instead of `20260329T033000`), corrupting `DTEND` on save.
+  - Updated `setEventDateProp` in `server/utils/ical.js` to format non-lossy `TZID` date-times via `fmtDateTimeTzid(isoVal, tzid)` (utilizing Node's `Intl.DateTimeFormat`) and construct `ICAL.Time.fromDateTimeString(...)`, ensuring exact wall-clock formatting and preventing duration alteration across DST transitions.
+  - Certified behavior with dedicated TDD test suite `server/test/issue292_dst_changeover_event_duration.test.js` (4 tests across 5 consecutive save cycles, 100% green).
+
+- **BYMONTHDAY Preservation Across Zero-Edit Saves West of UTC (Issue #291):**
+  - Resolved critical defect where `updateRecurrenceOptions` in `public/js/eventModal.js` evaluated `dateVal` (`"YYYY-MM-DD"`) using local date getters (`date.getDate()`, `date.getDay()`). In browsers located west of UTC (e.g. `America/New_York`), `new Date("YYYY-MM-DD")` (parsed as UTC midnight) evaluated in local time to the previous evening, shifting `day` by -1 day (e.g., 15th to 14th) and setting incorrect monthly week index and weekday values.
+  - Updated `updateRecurrenceOptions` in `public/js/eventModal.js` to parse `dateVal` as a UTC date (`new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]))`) and use UTC getters (`date.getUTCDate()`, `date.getUTCDay()`), preserving exact monthly day (`BYMONTHDAY`) and weekday (`BYDAY`) recurrence rules across zero-edit saves in all timezones.
+  - Certified behavior with dedicated TDD test suite `server/test/issue291_by_month_day_west_of_utc.test.js` (4 tests, 100% green).
+
+- **Recurring Series Zero-Edit Save & Occurrence Preservation (Issue #290):**
+  - Resolved critical defect where zero-edit saving an occurrence of a recurring series failed `isNoOpEventSave` (because `parseICSToEvent` returned `null` when no detached override existed for `targetRecurrenceId`, and start time comparison checked master start vs occurrence start). This forced an unnecessary `updateWholeSeries` call which overwrote master `DTSTART` with the occurrence start date, deleting prior occurrences (e.g., June 1st occurrence) and shifting the series start.
+  - Updated `parseICSToEvent` in `server/utils/ical.js` to fall back to master VEVENT when `targetRecurrenceId` does not match any detached override subcomponent.
+  - Updated `isNoOpEventSave` in `server/utils/ical.js` to resolve expected occurrence start/end UTC instants using `parseAndExpandEvent` when `targetRecurrenceId` is present on a recurring series.
+  - Updated `updateWholeSeries` in `server/utils/ical.js` to adjust master `DTSTART` / `DTEND` by time delta when `eventData` is constructed from an occurrence payload (`targetRid`), preserving original master `DTSTART` and all occurrences.
+  - Certified behavior with dedicated TDD test suite `server/test/issue290_recurring_series_zero_edit_save.test.js` (3 tests, 100% green).
+
+- **All-Day Event Date Preservation Across Saves West of UTC (Issue #288):**
+  - Resolved bug where saving an all-day event in any browser or process context west of UTC (e.g. `America/New_York`, `America/Los_Angeles`, `Pacific/Honolulu`) shifted the event date 1 day earlier on every save cycle (e.g., Sep 10 -> Sep 9 -> Sep 8).
+  - Root cause: `toInputDate(d, tzid, isUtcDate)` in `public/js/eventModal.js` evaluated `dateObj.getHours() === 0` using local timezone hours instead of checking UTC midnight (`dateObj.getUTCHours() === 0`). For an all-day Date object anchored at UTC midnight (`00:00:00.000Z`), local `getHours()` in `America/New_York` (UTC-4) returned `20`, causing `toInputDate` to fall through to `d.toLocaleDateString('sv-SE')`. In `America/New_York`, `toLocaleDateString` converted `2026-09-10T00:00:00.000Z` to local wall-clock date `2026-09-09`, shifting the form input value by -1 day and causing `isNoOpEventSave` comparison failures.
+  - Updated `toInputDate` in `public/js/eventModal.js` to inspect `dateObj.getUTCHours() === 0 && dateObj.getUTCMinutes() === 0 && dateObj.getUTCSeconds() === 0 && dateObj.getUTCMilliseconds() === 0` first, returning `${y}-${m}-${day}` constructed from UTC getters (`getUTCFullYear()`, `getUTCMonth() + 1`, `getUTCDate()`).
+  - Certified behavior across 5 consecutive saves and multiple timezones west of UTC with dedicated TDD test suite `server/test/issue288_all_day_event_drift_west_of_utc.test.js` (4 tests, 100% green).
+
+- **TZID Zero-Edit Save Timezone Drift Prevention (Issue #287):**
+  - Resolved defect where saving an event with a `TZID` parameter (e.g. `DTSTART;TZID=America/Denver:20260601T100000`) caused the wall-clock time to shift by the timezone's full UTC offset on every save cycle (e.g. -6.00 hours per save in MDT).
+  - Root cause: `parseVEventToEvent` in `server/utils/ical.js` instantiated `const ev = new ICAL.Event(vevent)` and read `ev.startDate` BEFORE `_registerVTimezoneBlock(tzid, ...)` was called. Because `tzid` was not yet registered in `ICAL.TimezoneService`, `ical.js` fell back to `ICAL.Timezone.localTimezone` (server process zone). When `eventToICS` subsequently formatted the UTC instant back into the target `tzid`, the wall-clock time was shifted by the UTC offset, introducing unbounded cumulative drift.
+  - Pre-registered all `TZID` parameters present in `vevent` (`dtstart`, `dtend`, `due`, `recurrence-id`, `exdate`, `rdate`) in `parseVEventToEvent` before instantiating `ICAL.Event(vevent)` or reading `ev.startDate`.
+  - Updated `_registerEmbeddedTimezones(comp)` in `server/utils/ical.js` to scan subcomponent date properties and pre-register any missing IANA `TZID`s in `ICAL.TimezoneService`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue287_tzid_zero_edit_save_drift.test.js` (3 tests, 100% green).
+
+- **Session Cookie SameSite=Strict Default Guard (Issue #286):**
+  - Resolved session cookie SameSite security vulnerability where session cookies defaulted to `SameSite=Lax`, allowing cross-site POST requests to ride the session cookie inside Chromium's 2-minute Lax grace window when using OIDC authentication (`AUTH_METHOD=oidc`).
+  - Updated `getSessionConfig` in `server/utils/sessionConfig.js` to set `cookie.sameSite` default to `'strict'` (`env.COOKIE_SAME_SITE || 'strict'`).
+  - Updated `docker-compose.yml` to set `COOKIE_SAME_SITE: "strict"` under `webcalendar` environment parameters.
+  - Updated `.env.example` to document `COOKIE_SAME_SITE=strict` as default.
+  - Certified behavior with dedicated TDD test suite `server/test/issue286_session_cookie_samesite_strict.test.js` (5 tests, 100% green).
+
+- **VTODO-Only Collection Parsing & Drop Prevention (Issue #283):**
+  - Resolved defect in `parseCalendarList` (`server/caldav/parser.js`) where VTODO-only calendar collections (`<cal:supported-calendar-component-set>`) were dropped if `<comp>` child elements were absent, used text content instead of `name` attributes, or used non-`comp` tag names (e.g. `<component name="VTODO"/>`), because `compSets[0].textContent` evaluated to `""` for self-closing XML tags without child text nodes.
+  - Updated `parseCalendarList` in `server/caldav/parser.js` to inspect all child element nodes (`childNodes.filter(el => el.nodeType === 1)`) when `getByLocalName(compSets[0], 'comp')` returns 0 elements.
+  - Enhanced component name extraction to check both `getAttribute('name')` and `textContent`.
+  - Added fallback string representation checking both `textContent` and `toString()` serialized XML string representation when neither `VEVENT` nor `VTODO` is matched by element inspection.
+  - Certified behavior with dedicated TDD unit test suite `server/test/issue283_vtodo_only_collection_parser.test.js` (100% green).
+
+- **All-Day Task (DUE;VALUE=DATE) Date-Ness Preservation & Timezone Stability (Issue #281):**
+  - Resolved defect where all-day tasks (`DUE;VALUE=DATE`) lost their date-ness (`VALUE=DATE`) on the first save across all timezones, turning into timed deadlines (`DUE:YYYYMMDDTHHMMSSZ`), and continuously shifted visible due dates by -1 day per save cycle in non-UTC browser timezones.
+  - Root cause: `openTaskModal` in `public/js/tasks.js` used local date getters (`getFullYear()`, `getDate()`, `getHours()`) to populate `<input type="datetime-local" id="task-due">` for all-day tasks, introducing local wall-clock hours (e.g., 02:00 in UTC+2). Saving converted this value via `new Date(dueVal).toISOString()`, producing local-offset shifted UTC timestamps (e.g. `2026-09-09T22:00:00.000Z`) that caused `setDateProp` in `server/caldav/parser.js` to extract previous-day UTC dates (`20260909`).
+  - Updated `openTaskModal` in `public/js/tasks.js` to format all-day task due dates (`task.dueIsDate || task.allDay`) using UTC date getters (`getUTCFullYear()`, `getUTCMonth()`, `getUTCDate()`).
+  - Updated `handleTaskSave` in `public/js/tasks.js` to preserve pure date strings (`${datePart}T00:00:00.000Z`) and set `dueIsDate = true` when saving all-day tasks.
+  - Hardened `setDateProp` and `taskToICS` in `server/caldav/parser.js` to explicitly respect `task.dueIsDate` and `task.dtstartIsDate` flags when updating or generating task ICS subcomponents.
+  - Updated Kanban card and sidebar task due date badge rendering to use `toLocaleDateString('de-DE', { timeZone: 'UTC' })` for all-day tasks.
+  - Certified behavior with dedicated TDD test suite `server/test/issue281_all_day_task_due_date.test.js` (4 tests across 5 timezones, 100% green).
+- **Task Due Date Compound Drift Prevention in Non-UTC Browser Context (Issue #280):**
+  - Resolved bug where task due-date input formatting in `public/js/tasks.js` (`openTaskModal`) used `new Date(task.due).toISOString().slice(0, 16)`, populating `<input type="datetime-local">` with UTC time components instead of local wall-clock components. In non-UTC browser timezones (e.g. UTC+2), saving the form converted the input value back as local time via `new Date(dueVal).toISOString()`, causing `task.due` to drift by `-2.00` hours per save cycle and failing `isNoOpTaskSave` checks.
+  - Updated `openTaskModal` in `public/js/tasks.js` to format `task.due` into local wall-clock string using local Date getters (`getFullYear()`, `getMonth()`, `getDate()`, `getHours()`, `getMinutes()`), guaranteeing exact ISO UTC round-tripping on save.
+  - Hardened `PUT /api/tasks/:uid` in `server/routes/tasks.js` to preserve `due`, `dueIsDate`, and `dtstartIsDate` from existing task resources when omitted or partially provided in update payloads.
+  - Certified behavior with dedicated TDD test suite `server/test/issue280_task_due_date_drift_non_utc.test.js` (5 tests, 100% green).
+
+- **Radicale Log Level & Debug Mode Alignment (Issue #276):**
+  - Resolved logging flaw where Radicale was configured to run with `level = debug` in `radicale/config` and passed `--debug` in `radicale/Dockerfile` `CMD`. This caused 6 KB of unrotated container logs per calendar view and wasted system disk I/O.
+  - Removed `--debug` flag from `CMD` in `radicale/Dockerfile` (`CMD ["radicale", "--config", "/etc/radicale/config"]`).
+  - Updated `radicale/config` to set `level = info` under `[logging]` and removed `backtrace_on_debug = True`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue276_radicale_log_level.test.js` (2 tests, 100% green).
+
+- **Mini-Calendar Navigation Buttons Accessible Names & Screen Reader Support (Issue #275):**
+  - Resolved accessibility defect where mini-calendar month-navigation buttons (`data-mini-prev` and `data-mini-next`) lacked accessible names (`aria-label`) and tooltip titles (`title`), causing screen readers to pronounce raw punctuation glyphs (`‹` and `›`).
+  - Updated `renderMiniCalendar` in `public/js/calendar.js` to set `aria-label="Vorheriger Monat"` and `title="Vorheriger Monat"` on `data-mini-prev`, and `aria-label="Nächster Monat"` and `title="Nächster Monat"` on `data-mini-next`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue275_mini_calendar_navigation_buttons_accessibility.test.js` (2 tests, 100% green).
+
+- **Event Chip Accessible Labels & Screen Reader Double Title Prevention (Issue #274):**
+  - Resolved accessibility defect where interactive event chips (`.event-chip`), timed event blocks (`.event-block`), and agenda event rows (`.agenda-event`) announced event titles twice to screen readers.
+  - Root cause: `chipHtml` set `aria-label="${ev.title}"` AND `title="${ev.title}"` on `<div class="event-chip">` elements while enclosing `<span class="event-chip-title">${ev.title}</span>` child nodes, causing screen reader accessible name/description algorithms to speak the title twice while omitting event start time from `aria-label`.
+  - Updated `chipHtml` in `public/js/calendar.js` to compute `labelText = ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}``, setting `aria-label="${escHtml(labelText)}"` and removing the redundant `title="${escHtml(ev.title)}"` attribute.
+  - Updated `createEventBlock` in `public/js/calendar.js` to construct `labelText` combining start/end time and title (`${timeText} ${ev.title}`), setting `aria-label` accordingly.
+  - Updated `agendaEventHtml` in `public/js/calendar.js` to format `labelText = `${timeStr} ${ev.title}`` in `aria-label`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue274_event_chip_double_title_announcement.test.js` (5 tests, 100% green).
+
+- **Task Edit Modal Preservation of DTSTART, PERCENT-COMPLETE, and COMPLETED (Issue #273):**
+  - Resolved defect where editing an existing task in the task edit modal dropped `DTSTART`, `PERCENT-COMPLETE`, `COMPLETED`, `completedHistory`, `dtstartIsDate`, `dueIsDate`, and `categories` from the update payload sent to `TasksAPI.update`, stripping them from CalDAV task storage and API responses.
+  - Implemented `_currentTask` state tracking in `public/js/tasks.js` (`openTaskModal` and `closeTaskModal`) capturing the task object being edited.
+  - Updated `handleTaskSave` in `public/js/tasks.js` to preserve `dtstart`, `dtstartIsDate`, `dueIsDate`, `percentComplete` (`percent-complete`), `completed`, `completedHistory`, and `categories` from `_currentTask` when constructing `taskData`.
+  - Updated `PUT /api/tasks/:uid` in `server/routes/tasks.js` to merge existing task properties (`dtstart`, `dtstartIsDate`, `percentComplete`, `completed`, `completedHistory`) from `existingIcs` when omitted from incoming request payloads.
+  - Certified behavior with dedicated TDD test suite `server/test/issue273_task_edit_modal_drops_dtstart_percent_completed.test.js` (3 tests, 100% green).
+
+- **Sync Worker Python Unbuffered Logging Configuration (Issue #272 & Issue #278):**
+  - Resolved issue where Python sync worker container stdout was block-buffered in Docker/piped log environments because `PYTHONUNBUFFERED` was missing from `docker-compose.yml` and Python streams were not explicitly reconfigured for line buffering on startup.
+  - Added `PYTHONUNBUFFERED: "1"` under `sync-worker` service `environment` in `docker-compose.yml`.
+  - Added `sys.stdout.reconfigure(line_buffering=True)` and `sys.stderr.reconfigure(line_buffering=True)` at the top of `sync-worker/sync_worker.py` and `sync-worker/msgraph_worker.py`, and set `os.environ["PYTHONUNBUFFERED"] = "1"`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue272_sync_worker_logging_unbuffered.test.js` (4 tests, 100% green).
+
+- **agents.md Local Recipe Shared Database Path Alignment (Issue #271):**
+  - Resolved configuration defect in `agents.md` local development recipe where the Express Node server command used `DATABASE_PATH=/tmp/cal-app.db` while Radicale ran with `-e DATABASE_PATH=/data/webcalendar.db` mounted to `/tmp/cal-data`. This split database state across two separate SQLite database files, causing every local development test run to bypass shared database authentication and permission enforcement.
+  - Aligned `agents.md` local recipe to set `DATABASE_PATH=/tmp/cal-data/webcalendar.db` for the Express Node server, matching Radicale's host database mount `/tmp/cal-data/webcalendar.db`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue271_agents_md_shared_db_recipe.test.js` (3 tests, 100% green).
+
+- **Healthcheck Endpoint Verification & Deployment Consumption (Issue #270):**
+  - Resolved deployment vulnerability where the webcalendar container healthcheck targeted root static asset GET `/` (which returned 200 OK even if the SQLite database failed or corrupted) and webcalendar service lacked healthcheck definitions in `docker-compose.yml` and store template `app-repository/apps/webcalendar/docker-compose.yml.template`.
+  - Added `Db.checkHealth()` method in `server/db.js` executing `SELECT 1` query against SQLite.
+  - Implemented `/health` and `/api/health` endpoints in `server/index.js` returning HTTP 200 `{ status: 'ok', database: 'connected' }` on success and HTTP 500 `{ status: 'error', error: ... }` when database query fails.
+  - Updated `Dockerfile`, `docker-compose.yml`, and `app-repository/apps/webcalendar/docker-compose.yml.template` to configure `healthcheck` targeting `/api/health`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue270_healthcheck_endpoint_and_consumption.test.js` (6 tests, 100% green).
+- **CalDAV Server Sharing Dialect Fallback & Unsupported Sharing Guard (Issue #269):**
+  - Resolved bug where `_detectSharingType` in `server/caldav/client.js` defaulted to returning `'standard'` (CalendarServer sharing dialect) whenever a plain RFC 4791 CalDAV server returned 404 Not Found for invite properties or an HTTP error status (405, 501, 500). This caused every plain CalDAV server to receive outbound `<cs:share>` POST requests on sharing attempts, resulting in an unhandled 500 error.
+  - Updated `_detectSharingType` and `getCalendarShares` in `server/caldav/client.js` to require valid invite property tags (`oc:invite`, `o:invite` for `'owncloud'`, `cs:invite` for `'standard'`) without `404 Not Found` in the PROPFIND Multi-Status response.
+  - Added fallback `'none'` outcome to `_detectSharingType` and `getCalendarShares` when neither sharing dialect is supported by the server.
+  - Updated `updateCalendarShares` in `server/caldav/client.js` to throw an error with `err.status = 501` (`Sharing is not supported by this CalDAV server`) when `type === 'none'`, allowing route handlers to cleanly return HTTP 501 Not Implemented instead of HTTP 500.
+  - Certified behavior with dedicated TDD test suite `server/test/issue269_detect_sharing_type_neither_dialect.test.js` (7 tests, 100% green).
+- **Docker Compose Secrets Alignment & Configuration Interoperability (Issue #268):**
+  - Resolved configuration drift in `docker-compose.yml` where `SYSTEM_SYNC_SECRET` and `ENCRYPTION_KEY` secrets were read inconsistently across container services (`webcalendar`, `caldav-server`, `sync-worker`), causing stack split when setting environment variables.
+  - Aligned `docker-compose.yml` to explicitly pass `SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}` across `webcalendar`, `caldav-server`, and `sync-worker`.
+  - Aligned `docker-compose.yml` to explicitly pass `ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}` across `webcalendar` and `sync-worker`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue268_compose_secrets_alignment.test.js` (2 tests, 100% green).
+- **Month Grid Day Cell Click Target & Accessibility Isolation (Issue #267):**
+  - Resolved accessibility gap where all 42 day cells in `renderMonth` were treated as active click targets (`cell.addEventListener('click', ...)`), causing non-current month day cells (`other-month`) to be clickable and announce interactive behavior to screen reader users.
+  - Updated `renderMonth` in `public/js/calendar.js` to guard `onDayClick` listener attachment with `if (isCurrentMonth)`, preventing event creation triggers on adjacent month cells (matching `renderMiniCalendar` behavior).
+  - Set `aria-disabled="true"` on `.month-day.other-month` cell elements to explicitly inform assistive technologies that adjacent month cells are non-interactive grid cells.
+  - Certified behavior with dedicated TDD test suite `server/test/issue267_month_grid_day_cell_accessibility.test.js` (4 tests, 100% green).
+- **Event Popover Accessibility & Live Announcement (Issue #266):**
+  - Resolved accessibility gap where `#event-popover` declared `role="tooltip"`, preventing screen readers from recognizing the popup container as an interactive dialog containing edit and delete controls.
+  - Updated `#event-popover` in `public/index.html` to declare `role="dialog"` and `aria-labelledby="popover-title"`.
+  - Updated `showEventPopover` in `public/js/app.js` to set `id="popover-title"` on `.popover-title` and trigger live status announcements via `announce(`Termindetails: ${ev.title}`)` when the popover opens.
+  - Certified behavior with dedicated TDD test suite `server/test/issue266_event_popover_accessibility.test.js` (5 tests, 100% green).
+
+- **VTODO / Tasks API Routes Non-Vacuous Integration Suite (Issue #265):**
+  - Resolved gap where `vtodo_routes.test.js` ran under `DISABLE_INTERNAL_CALDAV=1` with an unconfigured `CALDAVURL`, causing test requests to hit zero CalDAV endpoints and pass even if task creation, reading, updating, or deleting logic was removed.
+  - Enhanced `mock-dav` in `server/index.js` to store and manage `VTODO` resources dynamically in `mockResources` across `PUT`, `GET`, `DELETE`, and `REPORT` HTTP methods.
+  - Updated `vtodo_routes.test.js` with `CALDAVURL`, `CALDAV_USERNAME`, `CALDAV_PASSWORD`, server lifecycle listeners, authentication checks (401), invalid parameter checks (400), unauthorized calendar checks (403/404), and full task CRUD lifecycle assertions (`POST` -> `GET` -> `PUT` -> `DELETE` -> `GET`), ensuring task routes strictly certify CalDAV synchronization.
+  - Certified behavior with dedicated TDD test suite `server/test/vtodo_routes.test.js` (7 tests, 100% green).
+
+- **Recurring Task Completion & Server Coherence (Issue #264):**
+  - Resolved unreachable server coherence rule by importing `parseICSToTask` and `advanceRecurringTask` into `server/routes/tasks.js` from `../caldav/parser`.
+  - Updated `advanceRecurringTask` in `server/caldav/parser.js` and `advanceRecurringTaskJS` in `public/js/tasks.js` to preserve explicitly passed completion timestamps (`task.completed || new Date().toISOString()`) when appending to `completedHistory`.
+  - Ensured `taskToICS` serializes `completedHistory` into `X-COMPLETED-DATES` and clears `COMPLETED` when advancing recurring tasks to their next occurrence (`STATUS:NEEDS-ACTION`).
+  - Certified behavior with dedicated TDD test suite `server/test/issue264_recurring_task_completion.test.js` (3 tests, 100% green).
+- **agents.md Test Instructions Accuracy & Newcomer Information (Issue #256):**
+  - Resolved documentation inaccuracies in `agents.md` that falsely instructed developers to manually start the server first on port 3000 (`NODE_ENV=test node server/index.js`) and implied integration tests fetched `http://localhost:3000`.
+  - Updated `agents.md` to document that `npm test` is self-contained and spins up isolated Express instances on ephemeral ports, and isolates test database state using `webcalendar.test.db` when `DATABASE_PATH` is unset.
+  - Documented Python test suite execution (`python3 -m unittest discover -s server/test/python`) and full verification commands (`npm run lint` and `npm run test:all`).
+  - Created dedicated TDD test suite `server/test/issue256_agents_md_test_instructions.test.js` (6 tests, 100% green).
+
+- **Server Import Side-Effects & Unique Port Allocation (Issue #255):**
+  - Eliminated automatic TCP socket binding upon importing `server/index.js` by wrapping `server.listen` calls in `if (require.main === module)` conditional checks.
+  - Eliminated PORT collision across all test files in `server/test` by reassigning distinct PORT numbers to test suites (`msgraph_account_auth_tokens`, `caldav_fetch_error_channel`, `calendar_ownership_session`, `issue198_sync_worker_status_exposure`, `strict_acl_enforcement`, `webcal_subscriptions`, `issue136_undecryptable_account_row`, `msgraph_ui_reachability`, `resource_booking`, `noop_detached_override_scope`, `series_destruction_noop`, `working_hours`, `working_hours_grid`).
+  - Added dedicated test suite `server/test/issue255_server_import_side_effects.test.js` certifying server import behavior and zero duplicate port collisions (100% green).
+
+- **Non-Vacuous E2E Suite Assertions & DST Changeover Date Pinning (Issue #254):**
+  - Resolved gap where process/browser timezone pinning (`timezoneId: 'Europe/Berlin'`, Issue #239) was insufficient by itself without explicit pinned date/clock context in E2E tests, allowing dynamic clock execution to produce ambiguous wall-clock times or 25-hour day shifts on fall-back DST changeover days (e.g., 2026-10-25).
+  - Fixed bug in `eventToICS` (`server/utils/ical.js`) where `endFmt <= startFmt` string comparison was executed across different timezones (`startTimeZone !== endTimeZone`), falsely triggering UTC fallback for cross-timezone events (e.g. Europe/Berlin vs America/New_York). Added `event.startTimeZone === event.endTimeZone` guard.
+  - Added non-vacuous DST changeover day E2E test in `e2e/calendar.spec.js` asserting date pinning via `page.clock.setFixedTime(new Date('2026-10-25T10:00:00Z'))` and `/?date=2026-10-25`.
+  - Created dedicated TDD test suite `server/test/issue254_e2e_changeover_non_vacuous.test.js` (5 tests, 100% green).
+
+- **Prevention of DTEND Collapse onto DTSTART on Fall-Back DST Changeover Days (Issue #253):**
+  - Resolved defect where events occurring during a fall-back DST transition (e.g. Europe/Berlin on 2026-10-25) had their `DTEND` local wall-clock string collapse onto `DTSTART` (both formatting to `"20261025T023000"`), turning non-zero events into zero-length (0 ms) events upon re-parsing.
+  - Added `isTzidLossy(iso, tzid)` helper in `server/utils/ical.js` to detect when a TZID-qualified wall-clock representation cannot unambiguously roundtrip back to the original UTC instant due to the fall-back repeated hour.
+  - Updated `eventToICS` in `server/utils/ical.js` to check `isTzidLossy` and fallback to UTC formatting (`DTSTART:YYYYMMDDTHHMMSSZ` / `DTEND:YYYYMMDDTHHMMSSZ`) when local TZID formatting is ambiguous or when local `endFmt <= startFmt` for an event with `end > start`.
+  - Exported `isTzidLossy` from `server/utils/ical.js`.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue253_changeover_dtend_collapse.test.js` (4 tests, 100% green).
+
+- **Non-Decorative Session-Cookie Handshake & Auth Enforcement (Issue #252):**
+  - Resolved testing flaw where test suites included decorative `x-test-user-id` headers alongside `cookie: sessionCookie`, allowing requests to bypass real session cookie verification and pass even if `Set-Cookie` headers or cookie parsing were disabled or broken.
+  - Removed superfluous `x-test-user-id` headers from session-authenticated requests in `server/test/availability_booking.test.js`, `server/test/resource_booking.test.js`, and `server/test/msgraph.test.js` to ensure endpoints strictly authenticate via `cookie: sessionCookie`.
+  - Created dedicated TDD test suite `server/test/issue252_session_cookie_handshake.test.js` asserting:
+    1. Session cookie initialization and `connect.sid` cookie receipt via `/api/accounts` with `x-test-user-id`.
+    2. HTTP 401 Unauthorized for unauthenticated requests missing session cookies and auth headers (`/api/availability-slots`, `/api/resources`, `/api/msgraph/accounts`).
+    3. HTTP 200 OK for valid session cookie authentication without `x-test-user-id` header.
+    4. HTTP 401 Unauthorized for invalid or forged session cookies without `x-test-user-id` header.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue252_session_cookie_handshake.test.js` (5 tests, 100% green).
+
+- **Anonymization Audit Resilience & Binary/WAL Skipping (Issue #251):**
+  - Resolved defect where the anonymization audit test (`server/test/anonymization.test.js`) failed when executed outside a git repository or checkout due to unhandled `git ls-files` execution errors, and attempted to read binary files (such as 4 MB SQLite `.db-wal` write-ahead log files or database files) as UTF-8 strings.
+  - Implemented `walkDir(currentDir, rootDir)` filesystem traversal function in `server/test/anonymization.test.js` recursively gathering repository files while excluding `.git`, `node_modules`, `sessions`, `test-results`, `playwright-report`, `coverage`, `dist`, `build`, `.cache`, and `__pycache__` directories.
+  - Wrapped `git ls-files` command in a `try...catch` block falling back to `walkDir(rootDir, rootDir)` when `git` is unavailable or when executed outside a git checkout.
+  - Implemented `isBinaryFile(fullPath)` function in `server/test/anonymization.test.js` checking file extensions against `BINARY_EXTENSIONS` (`.db`, `.db-wal`, `.db-shm`, `.sqlite`, `.sqlite3`, `.pyc`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.ico`, `.pdf`, `.zip`, `.tar`, `.gz`, `.tgz`, `.7z`, `.exe`, `.so`, `.dll`, `.dylib`, `.woff`, `.woff2`, `.ttf`, `.eot`) and inspecting the first 4096 bytes for null (`0x00`) bytes.
+  - Updated anonymization audit loop to skip binary files (`if (isBinaryFile(fullPath)) continue;`).
+  - Exported `isBinaryFile` and `walkDir` from `server/test/anonymization.test.js`.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue251_anonymization_audit_resilience.test.js` (4 tests, 100% green).
+
+- **npm test Database Isolation & Developer Data Protection (Issue #250):**
+  - Resolved defect where running `npm test` in a checkout without an explicit `DATABASE_PATH` environment variable opened the main developer database (`webcalendar.db`), causing test cleanup queries (`DELETE FROM users`, `DELETE FROM linked_accounts`, etc.) to delete developer accounts, app passwords, share links, and sync queue.
+  - Updated `server/db.js` database path resolution to default to `webcalendar.test.db` when `NODE_ENV === 'test'` and `DATABASE_PATH` is unset.
+  - Exported `Db.getDbPath()` and `Db.dbPath` on `server/db.js` for programmatic database path verification across test suites.
+  - Updated test files (`issue146_hot_query_indexes.test.js`, `msgraph_background_sync.test.js`, `issue134_user_deletion_cleanup.test.js`) to dynamically resolve `dbPath` via `Db.getDbPath()` or `process.env.DATABASE_PATH` rather than hardcoding `webcalendar.db`.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue250_npm_test_db_isolation.test.js` (100% green).
+
+- **Unasserted Code Paths & Mutation Test Suite (Issue #249):**
+  - Resolved gap where twelve critical code paths in `server/utils/ical.js` had no test assertion pointed at them, leaving single-point mutations unkilled.
+  - Fixed bug in `updateWholeSeries` (`server/utils/ical.js`) where master VEVENT lookup (`newMasterComp.getFirstSubcomponent('vevent')`) picked the first VEVENT subcomponent blindly, failing when `vevents[0]` was a detached override (`RECURRENCE-ID`). Updated to `newMasterComp.getAllSubcomponents('vevent').find(v => !v.getFirstProperty('recurrence-id')) || newMasterComp.getFirstSubcomponent('vevent')`.
+  - Added targeted TDD test suite `server/test/issue249_unasserted_code_paths.test.js` asserting:
+    1. Re-attaching `EXDATE` properties from original master to `newMaster` in `updateWholeSeries`.
+    2. Locating master VEVENT when `vevents[0]` is a detached override.
+    3. Appending new `VTIMEZONE` subcomponents to `comp` in `updateWholeSeries`.
+    4. Safe fallback to `eventToICS` when `existingIcs` is empty, whitespace, unparseable, or contains 0 VEVENTs.
+    5. Trimming and whitespace normalization across fields in `isNoOpEventSave`.
+    6. Returning `false` for empty/null/unparseable `existingIcs` in `isNoOpEventSave`.
+    7. `RRULE:` prefix normalization in `isNoOpEventSave`.
+    8. DST-observing (`BEGIN:DAYLIGHT`) vs non-DST `buildVTimezoneBlock`.
+    9. ISO 8601 duration parsing for positive, negative, and weekly triggers in `parseTriggerOffsetMs`.
+    10. Escaping special iCalendar characters in `escIcal` and `escParamVal`.
+    11. Line folding at 75-octet boundaries in `foldLines`.
+    12. IANA timezone validation in `isValidTimezone`.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue249_unasserted_code_paths.test.js` (12 tests, 100% green).
+
+- **POST /api/accounts Duplicate Account Prevention & DB Uniqueness (Issue #248):**
+  - Resolved bug where `POST /api/accounts` checked for duplicate accounts against `req.session.accounts` (populated at request start). Concurrent requests or requests with empty session caches bypassed the guard, creating duplicate account records and returning 201 instead of 409 Conflict.
+  - Replaced the session cache check in `server/routes/accounts.js` with an authoritative database lookup (`Db.findAccountByUrlAndUsername(userId, discoveredUrl, username)`).
+  - Added `Db.findAccountByUrlAndUsername` in `server/db.js` to query SQLite directly for existing `(user_id, url, username)` pairs.
+  - Added Migration 005 (`005_linked_accounts_unique_url_username`) in `server/utils/migrations.js` creating a UNIQUE index `idx_linked_accounts_unique_url_user` on `linked_accounts(user_id, url, username)` as a database-level backstop.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue248_post_accounts_duplicate_409.test.js` (4 tests, 100% green).
+
+- **Radicale & External CalDAV Shares HTTP 405/501 Status Propagation (Issue #247):**
+  - Resolved issue where `POST`, `PUT`, and `DELETE /api/calendars/:id/shares` returned 500 Internal Server Error when invoked against a Radicale CalDAV server or external CalDAV provider without sharing support.
+  - Updated `_detectSharingType` in `server/caldav/client.js` to verify presence of valid `<cs:invite>` XML properties, and updated `updateCalendarShares` to set `err.status` on failed CalDAV HTTP responses (e.g. 405 Method Not Allowed, 501 Not Implemented).
+  - Updated `PUT /api/calendars/:id/shares/:shareeId` in `server/routes/calendars.js` to distinguish `account?.id === 'internal-caldav'` (updating SQLite DB) vs external CalDAV accounts (invoking `client.updateCalendarShares`).
+  - Updated catch blocks across `POST`, `PUT`, and `DELETE /api/calendars/:id/shares` in `server/routes/calendars.js` to return `res.status(err.status || 501)` (or status extracted from response message) instead of unhandled 500 Internal Server Error.
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue247_shares_radicale_500_prevention.test.js` (5 tests, 100% green).
+
+- **requireAuth 401 Branch Reachability & AUTH_METHOD=env Scoping (Issue #246):**
+  - Resolved architectural vulnerability where session middleware unconditionally auto-assigned `newUserId = process.env.CALDAV_USERNAME || 'test'` to EVERY request when `AUTH_METHOD=env` (default mode), bypassing `requireAuth` and making its 401 Unauthorized branch 100% unreachable for unauthenticated API requests.
+  - Restricted `AUTH_METHOD=env` automatic single-user session initialization in `server/index.js` to page root requests (`req.path === '/'`, `req.path === '/index.html'`) and explicit session status check (`/api/auth/session`).
+  - Added `GET /api/auth/session` endpoint in `server/routes/auth.js` returning session status and single-user identity.
+  - Mounted `express.static` after session account loading middleware in `server/index.js` so page root requests execute session initialization before static file delivery.
+  - Ensured all unauthenticated requests to protected API endpoints (`/api/calendars`, `/api/events`, `/api/tasks`, etc.) without a session cookie or auth header strictly return 401 Unauthorized (`{ error: 'Authentication required' }`).
+  - Certified test suite stability with dedicated TDD test suite `server/test/issue246_require_auth_401_reachable.test.js` (4 tests, 100% green).
+
 - **Node Test Suite Enforcement of Multi-Identity Mechanism & #50 ACL Guard (Issue #245):**
   - Verified and ensured that the Node test suite's multi-identity mechanism (`x-test-user-id` header in `server/index.js`) dynamically switches user identity (`req.session.userId`) and loads user accounts (`req.session.accounts`) per HTTP request.
   - Verified that strict ACL authorization (`checkCalendarAccess` enforcing #50) functions correctly across multi-user HTTP requests, returning 401 Unauthorized for `x-test-user-id: unauthenticated` / `none`, 403 Forbidden for unauthorized strangers, read-only vs write permissions for sharees, and 200/201 for calendar owners.
@@ -1088,6 +1325,13 @@
   - Removed fixed 6-year window date calculation in `fetchCalendarICS` in `server/routes/calendars.js`, calling `client.getEvents(calendarUrl)` without date limits to retrieve all calendar events regardless of date.
   - Exported `fetchCalendarICS` from `server/routes/calendars.js`.
   - Created TDD unit test suite `server/test/issue236_whole_calendar_export_untruncated.test.js` (4 tests, 100% green).
+
+- **Issue #282 — vdirsyncer SSL Verification Parameter Compatibility (`sync-worker/sync_worker.py`, `server/test/python/test_sync_worker.py`, `server/test/issue282_vdirsyncer_verify_ssl_compatibility.test.js`):**
+  - Resolved SSL verification configuration defect where `sync-worker/sync_worker.py` used `verify_fingerprint = "..."` for local CalDAV storage. `verify_fingerprint` is only supported in vdirsyncer >= 0.19.0 and raises an unhandled configuration parse error on vdirsyncer < 0.19.0.
+  - Updated `sync_basic_caldav_accounts` and `sync_user` in `sync-worker/sync_worker.py` to use `verify = "/etc/ssl/certs/local/cert.pem"` when local SSL cert exists, and `verify = false` when absent. This parameter is supported across all vdirsyncer releases (< 0.19 and >= 0.19).
+  - Added unit test `test_vdirsyncer_verify_config_compatibility` in `server/test/python/test_sync_worker.py` and dedicated Node test suite `server/test/issue282_vdirsyncer_verify_ssl_compatibility.test.js` (100% green).
+
+
 
 
 

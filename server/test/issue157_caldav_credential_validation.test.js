@@ -105,7 +105,7 @@ describe('Issue #157 — CalDAV credential validation on account add', () => {
     appServer = index.server;
     if (!appServer.listening) {
       await new Promise((resolve, reject) => {
-        appServer.once('listening', resolve);
+        appServer.listen(appPort, '127.0.0.1', resolve);
         appServer.once('error', reject);
       });
     }

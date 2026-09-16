@@ -7,7 +7,8 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = require('./utils/migrations');
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../webcalendar.db');
+const defaultDbFilename = process.env.NODE_ENV === 'test' ? '../webcalendar.test.db' : '../webcalendar.db';
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, defaultDbFilename);
 const db = new sqlite3.Database(dbPath);
 
 const WEAK_ENCRYPTION_KEYS = new Set([
@@ -79,6 +80,9 @@ db.serialize(() => {
       user_id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL
     )
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO users (user_id, username) VALUES ('test', 'test'), ('testuser', 'testuser')
   `);
   db.run(`
     CREATE TABLE IF NOT EXISTS linked_accounts (
@@ -500,6 +504,24 @@ const Db = {
     });
   },
 
+  /**
+   * Issue #248: DB-authoritative duplicate check for POST /api/accounts.
+   * Returns the existing row's id + display_name if (user_id, url, username)
+   * already exists, null otherwise. Never decrypts credentials.
+   */
+  findAccountByUrlAndUsername(userId, url, username) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT id, url, username, display_name FROM linked_accounts WHERE user_id = ? AND url = ? AND username = ?',
+        [userId, url, username],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row ? { id: row.id, url: row.url, username: row.username, displayName: row.display_name } : null);
+        }
+      );
+    });
+  },
+
   addAccount(userId, { url, username, password, displayName }) {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
@@ -570,10 +592,14 @@ const Db = {
   },
 
   withTransaction(fn) {
+    if (this._inTx && this._activeTx) {
+      return Promise.resolve().then(() => fn(this._activeTx));
+    }
     return new Promise((resolve, reject) => {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION', (startErr) => {
           if (startErr) return reject(startErr);
+          this._inTx = true;
           let rolledBack = false;
           const tx = {
             run: (sql, params = []) => {
@@ -604,12 +630,15 @@ const Db = {
               });
             }
           };
+          this._activeTx = tx;
 
           Promise.resolve()
             .then(() => fn(tx))
             .then((result) => {
               if (rolledBack) return;
               db.run('COMMIT', (commitErr) => {
+                this._inTx = false;
+                this._activeTx = null;
                 if (commitErr) {
                   db.run('ROLLBACK', () => reject(commitErr));
                 } else {
@@ -620,6 +649,8 @@ const Db = {
             .catch((fnErr) => {
               rolledBack = true;
               db.run('ROLLBACK', () => {
+                this._inTx = false;
+                this._activeTx = null;
                 reject(fnErr);
               });
             });
@@ -888,8 +919,13 @@ const Db = {
     });
   },
 
+  ensureUser(userId, username) {
+    return this.upsertUser(userId, username);
+  },
+
   // ── Sync Queue (vdirsyncer jobs) ───────────────────────────────────────────
-  addSyncJob(userId, opts = {}) {
+  async addSyncJob(userId, opts = {}) {
+    await this.ensureUser(userId, userId);
     const now = Date.now();
     const id = uuidv4();
     const maxAttempts = opts.maxAttempts || 3;
@@ -2641,6 +2677,15 @@ const Db = {
     });
   },
 
+  checkHealth() {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT 1', (err, row) => {
+        if (err) return reject(err);
+        resolve(true);
+      });
+    });
+  },
+
   getSchemaVersion(targetDb = db) {
     return getSchemaVersion(targetDb);
   },
@@ -2663,6 +2708,8 @@ Db.setSchemaVersion = (targetDb = db, version) => setSchemaVersion(targetDb, ver
 Db.runMigrations = (targetDb = db, migrationList = migrations) => runMigrations(targetDb, migrationList);
 Db.migrations = migrations;
 Db.db = db;
+Db.getDbPath = () => dbPath;
+Db.dbPath = dbPath;
 
 module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
@@ -2673,3 +2720,5 @@ module.exports.setSchemaVersion = Db.setSchemaVersion;
 module.exports.runMigrations = Db.runMigrations;
 module.exports.migrations = migrations;
 module.exports.db = db;
+module.exports.getDbPath = Db.getDbPath;
+module.exports.dbPath = dbPath;

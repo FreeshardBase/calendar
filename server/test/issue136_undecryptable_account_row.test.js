@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3196';
+process.env.PORT = '3285';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -87,7 +87,10 @@ describe('Issue #136 — un-decryptable linked_accounts row', () => {
     const index = require('../index');
     app = index.app;
     server = index.server;
-    port = Number(process.env.PORT) || 3196;
+    port = Number(process.env.PORT) || 3285;
+    if (server && !server.listening) {
+      await new Promise(resolve => server.listen(port, resolve));
+    }
 
     // Seed the user so session middleware can upsertUser without error.
     await Db.upsertUser(TEST_USER, TEST_USER).catch(() => {});

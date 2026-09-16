@@ -44,7 +44,10 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
   before(async () => {
     await Db.upsertUser(ownerUserId, 'owner323');
     await Db.upsertUser(strangerUserId, 'stranger323');
-    port = appServer && appServer.address() ? appServer.address().port : (process.env.PORT || 3091);
+    port = process.env.PORT || 3091;
+    if (!appServer.listening) {
+      await new Promise(r => appServer.listen(port, r));
+    }
     server = appServer;
   });
 

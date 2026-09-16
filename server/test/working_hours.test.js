@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3094';
+process.env.PORT = '3294';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -17,6 +17,9 @@ test('Working Hours Policy Suite', async (t) => {
   let sessionCookie = '';
 
   t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
     // Obtain session cookie
     const res = await fetch(`${baseUrl}/api/accounts`, {
       headers: { 'x-test-user-id': 'test' }

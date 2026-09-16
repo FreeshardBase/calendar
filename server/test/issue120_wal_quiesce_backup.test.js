@@ -5,7 +5,7 @@ process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
 
-const { describe, it, after } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -19,6 +19,12 @@ describe('Issue #120 — SQLite WAL Quiesce, Backup & Restorability Verification
   if (!fs.existsSync(backupDir)) {
     fs.mkdirSync(backupDir, { recursive: true });
   }
+
+  before(async () => {
+    if (server && !server.listening) {
+      await new Promise(resolve => server.listen(process.env.PORT, resolve));
+    }
+  });
 
   after(async () => {
     if (server) {

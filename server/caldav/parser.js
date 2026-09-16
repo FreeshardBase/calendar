@@ -131,17 +131,19 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
       // Check supported-calendar-component-set
       const compSets = getByLocalName(prop, 'supported-calendar-component-set');
       if (compSets.length > 0) {
-        // Components are listed as <comp name="VEVENT"/> child elements (attribute-based)
-        const compEls = getByLocalName(compSets[0], 'comp');
+        // Components are listed as <comp name="VEVENT"/> child elements or text/custom elements
+        let compEls = getByLocalName(compSets[0], 'comp');
+        if (compEls.length === 0 && compSets[0].childNodes) {
+          compEls = Array.from(compSets[0].childNodes).filter(el => el.nodeType === 1);
+        }
         if (compEls.length > 0) {
-          const compNames = [...compEls].map(
-            el => (el.getAttribute('name') || '').toUpperCase()
+          const compNames = compEls.map(
+            el => (el.getAttribute('name') || el.textContent || '').toUpperCase()
           );
           supportsVEVENT = compNames.includes('VEVENT');
           supportsVTODO = compNames.includes('VTODO');
         } else {
-          // If compEls is empty, fall back to textContent (some servers list as text)
-          const text = compSets[0].textContent || '';
+          const text = (compSets[0].textContent || '') + ' ' + (compSets[0].toString ? compSets[0].toString() : '');
           supportsVEVENT = text.includes('VEVENT');
           supportsVTODO = text.includes('VTODO');
         }
@@ -640,7 +642,7 @@ function taskToICS(rawTask, existingIcs = null) {
           }
         };
 
-        const setDateProp = (name, isoVal, forceIsDate = false) => {
+        const setDateProp = (name, isoVal, forceIsDate = undefined) => {
           if (!isoVal) {
             vtodo.removeAllProperties(name);
           } else {
@@ -648,7 +650,9 @@ function taskToICS(rawTask, existingIcs = null) {
             try {
               const existingProp = vtodo.getFirstProperty(name);
               const existingIsDate = existingProp && existingProp.getFirstValue() ? existingProp.getFirstValue().isDate : false;
-              const isDate = forceIsDate || existingIsDate || (typeof isoVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoVal));
+              const isDate = forceIsDate === false
+                ? false
+                : (Boolean(forceIsDate) || existingIsDate || (typeof isoVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoVal)));
 
               const dt = new Date(isoVal);
               if (!isNaN(dt.getTime())) {
@@ -669,6 +673,7 @@ function taskToICS(rawTask, existingIcs = null) {
               const prop = vtodo.getFirstProperty(name);
               if (prop) {
                 prop.setValue(timeVal);
+                if (!timeVal.isDate) prop.removeParameter('value');
               } else {
                 vtodo.addPropertyWithValue(name, timeVal);
               }
@@ -682,8 +687,8 @@ function taskToICS(rawTask, existingIcs = null) {
         if ('description' in task) setProp('description', task.description);
         if ('status' in task) setProp('status', task.status);
 
-        if ('due' in task) setDateProp('due', task.due, !!(task.dueIsDate || task.allDay));
-        if ('dtstart' in task) setDateProp('dtstart', task.dtstart, !!(task.dtstartIsDate || task.allDay));
+        if ('due' in task) setDateProp('due', task.due, task.dueIsDate !== undefined ? task.dueIsDate : (task.allDay !== undefined ? task.allDay : undefined));
+        if ('dtstart' in task) setDateProp('dtstart', task.dtstart, task.dtstartIsDate !== undefined ? task.dtstartIsDate : (task.allDay !== undefined ? task.allDay : undefined));
         if ('completed' in task) setDateProp('completed', task.completed);
 
         if ('priority' in task) {
@@ -774,7 +779,7 @@ function taskToICS(rawTask, existingIcs = null) {
   if (task.status)      lines.push(`STATUS:${task.status}`);
 
   if (task.due) {
-    if (task.dueIsDate || task.allDay || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
+    if (task.dueIsDate || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
       lines.push(`DUE;VALUE=DATE:${fmtDate(task.due)}`);
     } else {
       lines.push(`DUE:${fmtDateTime(task.due)}`);
@@ -837,7 +842,7 @@ function advanceRecurringTask(task) {
   if (isNaN(baseDue.getTime())) return null;
 
   const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
-  const completionTime = new Date().toISOString();
+  const completionTime = task.completed || new Date().toISOString();
   const completedHistory = [...currentHistory, completionTime];
 
   if (recur) {

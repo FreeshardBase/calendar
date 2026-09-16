@@ -16,6 +16,9 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
 
   t.afterEach(async () => {
     if (activeServer) {
+      if (typeof activeServer.closeAllConnections === 'function') {
+        activeServer.closeAllConnections();
+      }
       await new Promise(resolve => activeServer.close(resolve));
       activeServer = null;
     }
@@ -96,6 +99,7 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
     activeServer = server;
 
     if (!server.listening) {
+      server.listen(0);
       await new Promise(resolve => server.once('listening', resolve));
     }
     const port = server.address().port;
@@ -133,6 +137,7 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
     activeServer = server;
 
     if (!server.listening) {
+      server.listen(0);
       await new Promise(resolve => server.once('listening', resolve));
     }
     const port = server.address().port;

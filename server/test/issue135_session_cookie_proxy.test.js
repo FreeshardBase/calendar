@@ -56,7 +56,7 @@ test.describe('Issue #135 & Issue #205 — TLS Proxy Session Cookie & Internal A
       assert.ok(setCookie.includes('connect.sid='), 'Set-Cookie must contain connect.sid');
       assert.ok(setCookie.includes('HttpOnly'), 'Set-Cookie must include HttpOnly flag');
       assert.ok(setCookie.includes('Secure'), 'Set-Cookie must include Secure flag when X-Forwarded-Proto is https');
-      assert.ok(setCookie.includes('SameSite=Lax') || setCookie.includes('SameSite=lax'), 'Set-Cookie must set SameSite attribute');
+      assert.ok(setCookie.includes('SameSite=Strict') || setCookie.includes('SameSite=strict') || setCookie.includes('SameSite=Lax') || setCookie.includes('SameSite=lax'), 'Set-Cookie must set SameSite attribute');
     } finally {
       server.close();
     }

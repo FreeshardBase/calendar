@@ -7,6 +7,18 @@ const Db = require('../db');
 const { getOidcClient } = require('../utils/oidcClient');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
 
+// GET /api/auth/session — returns current session status
+router.get('/session', (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ authenticated: false, error: 'Authentication required' });
+  }
+  res.json({
+    authenticated: true,
+    userId: req.session.userId,
+    username: req.session.username || req.session.userId
+  });
+});
+
 // GET /api/auth/login — Redirect user to OIDC identity provider login page
 router.get('/login', async (req, res) => {
   try {

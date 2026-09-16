@@ -39,7 +39,7 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
     // Development default
     const devConfig = getSessionConfig({ NODE_ENV: 'development' });
     assert.strictEqual(devConfig.cookie.httpOnly, true);
-    assert.strictEqual(devConfig.cookie.sameSite, 'lax');
+    assert.strictEqual(devConfig.cookie.sameSite, 'strict');
     assert.strictEqual(devConfig.cookie.secure, false);
     assert.strictEqual(devConfig.secret, 'freeshard-change-this-in-production');
 

@@ -38,6 +38,11 @@ const { app, server } = require('../index');
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
 test('Issue #218 — Critical Auth & Timezone Test Assertions Suite', async (t) => {
+  t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
 
   t.after(() => {
     if (server && server.close) {

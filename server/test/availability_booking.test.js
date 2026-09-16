@@ -13,6 +13,12 @@ const { calculateFreeSlots } = require('../utils/availabilityBooking');
 const { app, server } = require('../index');
 
 test('Availability Slots Booking Engine Suite', async (t) => {
+  t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
+
   t.after(() => {
     if (server && server.close) {
       server.close();
@@ -103,8 +109,7 @@ test('Availability Slots Booking Engine Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        cookie: sessionCookie
       },
       body: JSON.stringify({
         slug: 'testuser-quick-chat',
@@ -123,8 +128,7 @@ test('Availability Slots Booking Engine Suite', async (t) => {
 
     const getRes = await fetch(`${baseUrl}/api/availability-slots`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        cookie: sessionCookie
       }
     });
 
@@ -180,8 +184,7 @@ test('Availability Slots Booking Engine Suite', async (t) => {
     const deleteRes = await fetch(`${baseUrl}/api/availability-slots/${createdPageId}`, {
       method: 'DELETE',
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        cookie: sessionCookie
       }
     });
 

@@ -549,6 +549,10 @@ router.post('/', async (req, res) => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
     const calendarUrl = account.url.replace(/\/+$/, '') + '/' + slug + '/';
+    const createdCalendarId = `${accountId}::${new URL(calendarUrl).pathname}`;
+
+    // Purge any pre-existing/stale share grants for this calendar ID to ensure clean isolation
+    await Db.deleteCalendarData(createdCalendarId);
 
     await client.mkcalendar(calendarUrl, name, color || '#7c3aed');
 
@@ -1075,7 +1079,8 @@ router.post('/:id/shares', async (req, res) => {
     res.json({ message: 'Share invite sent.' });
   } catch (err) {
     console.error('[shares POST]', err.message);
-    res.status(500).json({ error: err.message });
+    const status = err.status || (err.message.includes('405') ? 405 : err.message.includes('501') || err.message.includes('not supported') ? 501 : 500);
+    res.status(status).json({ error: err.message });
   }
 });
 
@@ -1098,11 +1103,22 @@ router.put('/:id/shares/:shareeId', async (req, res) => {
     }
 
     const { role, readWrite, canViewPrivate, canManageShares } = req.body;
-    await Db.updateUserSharePermissions(calendarId, shareeUserId, { role, readWrite, canViewPrivate, canManageShares });
+    const { account } = await resolveCalendar(req, calendarId);
+
+    if (account?.id === 'internal-caldav') {
+      await Db.updateUserSharePermissions(calendarId, shareeUserId, { role, readWrite, canViewPrivate, canManageShares });
+      return res.json({ message: 'Share permissions updated.', sharee: shareeUserId });
+    }
+
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+    if (!client) return res.status(404).json({ error: 'Account not found' });
+
+    await client.updateCalendarShares(calendarUrl, { href: shareeUserId, readWrite: role === 'WRITE' || !!readWrite });
     res.json({ message: 'Share permissions updated.', sharee: shareeUserId });
   } catch (err) {
     console.error('[shares PUT]', err.message);
-    res.status(500).json({ error: err.message });
+    const status = err.status || (err.message.includes('405') ? 405 : err.message.includes('501') || err.message.includes('not supported') ? 501 : 500);
+    res.status(status).json({ error: err.message });
   }
 });
 
@@ -1145,7 +1161,8 @@ router.delete('/:id/shares', async (req, res) => {
     res.json({ message: 'Share removed.' });
   } catch (err) {
     console.error('[shares DELETE]', err.message);
-    res.status(500).json({ error: err.message });
+    const status = err.status || (err.message.includes('405') ? 405 : err.message.includes('501') || err.message.includes('not supported') ? 501 : 500);
+    res.status(status).json({ error: err.message });
   }
 });
 

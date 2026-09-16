@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3093';
+process.env.PORT = '3293';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -144,8 +144,7 @@ test('Resource & Room Booking System Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       },
       body: JSON.stringify({
         name: 'Projektraum Gamma',
@@ -161,7 +160,7 @@ test('Resource & Room Booking System Suite', async (t) => {
 
     // 2. GET /api/resources list
     const resList = await fetch(`${baseUrl}/api/resources`, {
-      headers: { 'Cookie': sessionCookie, 'x-test-user-id': 'testuser-id' }
+      headers: { 'Cookie': sessionCookie }
     });
     assert.equal(resList.status, 200);
     const listData = await resList.json();
@@ -172,8 +171,7 @@ test('Resource & Room Booking System Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       },
       body: JSON.stringify({
         resourceId: resId,
@@ -190,8 +188,7 @@ test('Resource & Room Booking System Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       },
       body: JSON.stringify({
         resourceId: resId,
@@ -210,8 +207,7 @@ test('Resource & Room Booking System Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       },
       body: JSON.stringify({
         resourceId: resId,
@@ -225,14 +221,14 @@ test('Resource & Room Booking System Suite', async (t) => {
     // 6. DELETE /api/resources/bookings/:id
     const resDelBooking = await fetch(`${baseUrl}/api/resources/bookings/${bookingId}`, {
       method: 'DELETE',
-      headers: { 'Cookie': sessionCookie, 'x-test-user-id': 'testuser-id' }
+      headers: { 'Cookie': sessionCookie }
     });
     assert.equal(resDelBooking.status, 200);
 
     // 7. DELETE /api/resources/:id
     const resDelResource = await fetch(`${baseUrl}/api/resources/${resId}`, {
       method: 'DELETE',
-      headers: { 'Cookie': sessionCookie, 'x-test-user-id': 'testuser-id' }
+      headers: { 'Cookie': sessionCookie }
     });
     assert.equal(resDelResource.status, 200);
   });

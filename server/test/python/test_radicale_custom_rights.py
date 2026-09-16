@@ -35,7 +35,15 @@ class TestRadicaleCustomRights(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.temp_dir, "webcalendar.db")
+        self.collections_dir = os.path.join(self.temp_dir, "collections")
         os.environ["DATABASE_PATH"] = self.db_path
+        os.environ["RADICALE_COLLECTIONS_FOLDER"] = self.collections_dir
+
+        os.makedirs(os.path.join(self.collections_dir, "user1", "my-cal"), exist_ok=True)
+        os.makedirs(os.path.join(self.collections_dir, "user2", "shared-read"), exist_ok=True)
+        os.makedirs(os.path.join(self.collections_dir, "user2", "shared-write"), exist_ok=True)
+        os.makedirs(os.path.join(self.collections_dir, "user2", "shared-pending"), exist_ok=True)
+        os.makedirs(os.path.join(self.collections_dir, "user2", "shared-admin"), exist_ok=True)
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -80,6 +88,7 @@ class TestRadicaleCustomRights(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.temp_dir)
         os.environ.pop("DATABASE_PATH", None)
+        os.environ.pop("RADICALE_COLLECTIONS_FOLDER", None)
 
     def test_unauthenticated_user(self):
         perm = self.rights.authorization(None, "user1/cal1")
@@ -135,6 +144,19 @@ class TestRadicaleCustomRights(unittest.TestCase):
         os.environ["DATABASE_PATH"] = "/nonexistent/db.sqlite"
         perm = self.rights.authorization("user1", "user2/shared-read")
         self.assertEqual(perm, "")
+
+    def test_sharee_case_insensitive_access(self):
+        # Case-insensitive sharee username matching
+        perm_upper_sharee = self.rights.authorization("USER1", "user2/shared-read")
+        self.assertEqual(perm_upper_sharee, "r")
+        perm_mixed_sharee = self.rights.authorization("User1", "user2/shared-write/item.ics")
+        self.assertEqual(perm_mixed_sharee, "rwd")
+
+        # Case-insensitive calendar owner matching in path
+        perm_upper_owner = self.rights.authorization("user1", "USER2/shared-read")
+        self.assertEqual(perm_upper_owner, "r")
+        perm_mixed_both = self.rights.authorization("USER1", "User2/shared-write")
+        self.assertEqual(perm_mixed_both, "rw")
 
 if __name__ == "__main__":
     unittest.main()

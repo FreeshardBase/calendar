@@ -17,13 +17,14 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '../../webcalendar.db');
+const Db = require('../db');
+const dbPath = Db.getDbPath ? Db.getDbPath() : (process.env.DATABASE_PATH || path.join(__dirname, '../../webcalendar.db'));
 
 test.describe('Issue #72 — Credential-at-Rest Gaps Security Suite', () => {
-  const Db = require('../db');
 
   test('MS Graph access and refresh tokens are encrypted at rest in msgraph_accounts', async () => {
     const testUserId = 'testuser-issue72-msgraph';
+    await Db.upsertUser(testUserId, 'testuser@example.com');
     const plainAccessToken = 'secret-ms-access-token-12345';
     const plainRefreshToken = 'secret-ms-refresh-token-67890';
 
@@ -87,6 +88,7 @@ test.describe('Issue #72 — Credential-at-Rest Gaps Security Suite', () => {
 
   test('App passwords are saved using salted PBKDF2 (salt:hash) and verified securely', async () => {
     const testUserId = 'testuser-issue72-asp';
+    await Db.upsertUser(testUserId, 'testuser-asp@example.com');
     const result = await Db.addAppPassword(testUserId, 'Test Device');
 
     assert.ok(result.id, 'App password ID must be returned');

@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3195';
+process.env.PORT = '3286';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -11,6 +11,9 @@ const Db = require('../db');
 
 test('Issue #81 — MS Graph Account Authorization & Token Security Suite', async (t) => {
   const { app, server } = require('../index');
+  if (server && !server.listening) {
+    await new Promise((resolve) => server.listen(process.env.PORT || 3286, resolve));
+  }
   await new Promise(r => setTimeout(r, 100));
 
   t.after(() => {

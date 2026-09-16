@@ -16,6 +16,10 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
   let server = globalServer;
   let port = process.env.PORT || 3095;
 
+  if (server && !server.listening) {
+    await new Promise((resolve) => server.listen(port, resolve));
+  }
+
   t.after(async () => {
     if (server && server.close) {
       await new Promise((resolve) => server.close(resolve));

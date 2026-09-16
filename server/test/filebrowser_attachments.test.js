@@ -14,6 +14,10 @@ const { parseICSToEvent, eventToICS } = require('../utils/ical');
 test('Issue #12 — Support event attachments using FileBrowser integration and central OIDC/OAuth2 authentication Suite', async (t) => {
   const { app, server } = require('../index');
 
+  if (server && !server.listening) {
+    await new Promise((resolve) => server.listen(process.env.PORT || 3108, resolve));
+  }
+
   t.after(() => {
     if (server && server.close) {
       server.close();

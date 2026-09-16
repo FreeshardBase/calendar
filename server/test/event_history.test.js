@@ -21,6 +21,12 @@ helper.getClientForAccount = async () => ({
 const { app, server } = require('../index');
 
 test('Issue #25 — Event Modification History and Audit Logs (Changelog)', async (t) => {
+  t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
+
   t.after(() => {
     if (server && server.close) {
       server.close();

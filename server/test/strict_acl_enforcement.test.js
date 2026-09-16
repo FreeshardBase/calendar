@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3099';
+process.env.PORT = process.env.PORT || '3290';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';

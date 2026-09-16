@@ -11,6 +11,10 @@ const assert = require('node:assert/strict');
 test('Issue #88 — Invitations Inbox Deduplication and PARTSTAT Filtering', async (t) => {
   const { app, server } = require('../index');
 
+  if (server && !server.listening) {
+    await new Promise((resolve) => server.listen(process.env.PORT || 3115, resolve));
+  }
+
   t.after(() => {
     if (server && server.close) {
       server.close();

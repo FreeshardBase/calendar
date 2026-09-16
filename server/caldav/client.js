@@ -494,6 +494,10 @@ class CalDAVClient {
     });
 
     if (!res.ok && res.status !== 207) {
+      if (!this._sharingTypes) {
+        this._sharingTypes = {};
+      }
+      this._sharingTypes[calendarUrl] = 'none';
       return [];
     }
 
@@ -503,10 +507,12 @@ class CalDAVClient {
     if (!this._sharingTypes) {
       this._sharingTypes = {};
     }
-    if (text.includes('xmlns:oc="http://owncloud.org/ns"') || text.includes('xmlns:o="http://owncloud.org/ns"') || text.includes('oc:invite') || text.includes('o:invite')) {
+    if ((text.includes('oc:invite') || text.includes('o:invite')) && !text.includes('404 Not Found')) {
       this._sharingTypes[calendarUrl] = 'owncloud';
-    } else {
+    } else if (text.includes('cs:invite') && !text.includes('404 Not Found')) {
       this._sharingTypes[calendarUrl] = 'standard';
+    } else {
+      this._sharingTypes[calendarUrl] = 'none';
     }
 
     const userBlocks = text.match(/<([^:>]*:)?user[^>]*>([\s\S]*?)<\/([^:>]*:)?user>/gi) || [];
@@ -559,17 +565,20 @@ class CalDAVClient {
       });
       if (res.ok || res.status === 207) {
         const text = await res.text();
-        if (text.includes('xmlns:oc="http://owncloud.org/ns"') || text.includes('xmlns:o="http://owncloud.org/ns"') || text.includes('oc:invite') || text.includes('o:invite')) {
+        if ((text.includes('oc:invite') || text.includes('o:invite')) && !text.includes('404 Not Found')) {
           this._sharingTypes[calendarUrl] = 'owncloud';
           return 'owncloud';
+        } else if (text.includes('cs:invite') && !text.includes('404 Not Found')) {
+          this._sharingTypes[calendarUrl] = 'standard';
+          return 'standard';
         }
       }
     } catch (e) {
       console.error('[detectSharingType] Failed to detect sharing type:', e);
     }
     
-    this._sharingTypes[calendarUrl] = 'standard';
-    return 'standard';
+    this._sharingTypes[calendarUrl] = 'none';
+    return 'none';
   }
 
   async resolveNextcloudPrincipal(href) {
@@ -600,6 +609,12 @@ class CalDAVClient {
   async updateCalendarShares(calendarUrl, { href, readWrite, remove = false }) {
     const type = await this._detectSharingType(calendarUrl);
     
+    if (type === 'none') {
+      const err = new Error('Sharing is not supported by this CalDAV server');
+      err.status = 501;
+      throw err;
+    }
+
     if (type === 'owncloud') {
       const resolvedHref = await this.resolveNextcloudPrincipal(href);
       let xml = `<?xml version="1.0" encoding="utf-8"?>
@@ -626,7 +641,9 @@ class CalDAVClient {
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to update shares: ${res.status} ${res.statusText}`);
+        const err = new Error(`Failed to update shares: ${res.status} ${res.statusText}`);
+        err.status = res.status;
+        throw err;
       }
       return true;
     } else {
@@ -660,7 +677,9 @@ class CalDAVClient {
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to update shares: ${res.status} ${res.statusText}`);
+        const err = new Error(`Failed to update shares: ${res.status} ${res.statusText}`);
+        err.status = res.status;
+        throw err;
       }
       return true;
     }

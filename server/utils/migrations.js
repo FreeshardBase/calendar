@@ -82,6 +82,17 @@ const MIGRATIONS = [
       await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_delegate_permissions_delegate ON delegate_permissions(delegate_user_id)');
       await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_cross_user_deletions_owner ON cross_user_deletions(owner_user_id)');
     }
+  },
+  {
+    version: 5,
+    name: '005_linked_accounts_unique_url_username',
+    up: async (db) => {
+      // Issue #248 backstop: enforce uniqueness at the DB level so that even a
+      // race condition between two concurrent POSTs cannot insert duplicate rows.
+      // SQLite does not support adding a UNIQUE constraint via ALTER TABLE, but
+      // a UNIQUE index is equivalent and safe to apply to an existing table.
+      await runSql(db, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_linked_accounts_unique_url_user ON linked_accounts(user_id, url, username)');
+    }
   }
 ];
 

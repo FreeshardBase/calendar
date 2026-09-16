@@ -48,6 +48,7 @@ test('Issue #9 — Background replication and synchronization for external CalDA
   let createdAccountId = '';
 
   await t.test('Db.addAccount inserts basic auth account into linked_accounts', async () => {
+    await Db.upsertUser(testUser, `${testUser}@example.com`);
     const account = await Db.addAccount(testUser, {
       url: 'https://caldav.example.com/dav/user/',
       username: 'test_caldav_user',
@@ -110,7 +111,7 @@ test('Issue #9 — Background replication and synchronization for external CalDA
 
     try {
       const account = await Db.addAccount(testUser, {
-        url: 'https://caldav.example.com/dav/user/',
+        url: 'https://caldav.example.com/dav/user2/',
         username: 'test_caldav_user',
         password: 'secret_password_123',
         displayName: 'External Work Calendar'

@@ -1506,7 +1506,7 @@ function showEventPopover(ev, mouseEvent) {
 
   popover.innerHTML = `
     <div class="popover-color-bar" style="background:${escHtml(sanitizeColor(color))}"></div>
-    <div class="popover-title">${escHtml(ev.title)}</div>
+    <div class="popover-title" id="popover-title">${escHtml(ev.title)}</div>
     <div class="popover-meta">
       <div class="popover-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
@@ -1530,6 +1530,7 @@ function showEventPopover(ev, mouseEvent) {
   // Position near mouse or target element if keyboard activated
   popover.classList.remove('hidden');
   _popoverUid = ev.uid;
+  announce(`Termindetails: ${ev.title}`);
 
   let mouseX = mouseEvent && typeof mouseEvent.clientX === 'number' && mouseEvent.clientX > 0 ? mouseEvent.clientX : null;
   let mouseY = mouseEvent && typeof mouseEvent.clientY === 'number' && mouseEvent.clientY > 0 ? mouseEvent.clientY : null;

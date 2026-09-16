@@ -32,6 +32,13 @@ class Rights(BaseRights):
         calendar_slug = segments[1]
         calendar_id = f"internal-caldav::/{owner_id}/{calendar_slug}/"
 
+        collections_folder = os.environ.get("RADICALE_COLLECTIONS_FOLDER", "/data/collections")
+        if os.path.exists(collections_folder):
+            col_dir = os.path.join(collections_folder, owner_id, calendar_slug)
+            col_dir_lower = os.path.join(collections_folder, owner_id.lower(), calendar_slug)
+            if not os.path.exists(col_dir) and not os.path.exists(col_dir_lower):
+                return ""
+
         db_path = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
         if not os.path.exists(db_path):
             return ""
@@ -41,7 +48,7 @@ class Rights(BaseRights):
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT read_write, role, status FROM user_calendar_shares WHERE calendar_id = ? AND sharee_user_id = ?",
+                "SELECT read_write, role, status FROM user_calendar_shares WHERE LOWER(calendar_id) = LOWER(?) AND LOWER(sharee_user_id) = LOWER(?)",
                 (calendar_id, user)
             )
             row = cursor.fetchone()

@@ -99,6 +99,18 @@ function icalTimeToISO(icalTime) {
 }
 
 function parseVEventToEvent(vevent, meta = {}) {
+  if (vevent && typeof vevent.getAllProperties === 'function') {
+    const datePropNames = ['dtstart', 'dtend', 'due', 'recurrence-id', 'exdate', 'rdate'];
+    for (const name of datePropNames) {
+      for (const prop of vevent.getAllProperties(name)) {
+        const tzid = prop.getParameter('tzid');
+        if (tzid && isValidTimezone(tzid) && !ICAL.TimezoneService.has(tzid)) {
+          _registerVTimezoneBlock(tzid, buildVTimezoneBlock(tzid));
+        }
+      }
+    }
+  }
+
   const ev = new ICAL.Event(vevent);
 
   const dtstart  = ev.startDate;
@@ -165,6 +177,15 @@ function parseVEventToEvent(vevent, meta = {}) {
         console.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTEND`);
       }
     }
+  } else if (startTimeZone) {
+    endTimeZone = startTimeZone;
+  }
+
+  let duration = null;
+  const durProp = vevent.getFirstProperty('duration');
+  if (durProp) {
+    const val = durProp.getFirstValue();
+    duration = val ? val.toString() : null;
   }
 
   // Alarms (VALARM)
@@ -207,6 +228,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     title:       ev.summary   || '(No title)',
     start:       dtstart      ? icalTimeToISO(dtstart) : null,
     end:         dtend        ? icalTimeToISO(dtend)   : null,
+    duration:    duration     || null,
     allDay:      isAllDay,
     location:    ev.location  || null,
     description: ev.description || null,
@@ -238,12 +260,20 @@ function parseICSToEvent(icsString, meta = {}) {
   const targetRid = (meta.recurrenceId || meta.recurrence_id || '').toString();
   if (targetRid) {
     const normTarget = targetRid.replace(/[-:]/g, '').toUpperCase();
+    const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
+    const targetTime = master ? occurrenceTime(master, targetRid) : null;
+    const targetUtcMs = targetTime ? targetTime.toJSDate().getTime() : null;
+
     vevent = vevents.find(v => {
       const rid = v.getFirstPropertyValue('recurrence-id');
       if (!rid) return false;
       const str = rid.toICALString ? rid.toICALString() : rid.toString();
       const normStr = str.replace(/[-:]/g, '').toUpperCase();
-      return normStr === normTarget;
+      if (normStr === normTarget) return true;
+      if (targetUtcMs !== null && typeof rid.toJSDate === 'function') {
+        if (rid.toJSDate().getTime() === targetUtcMs) return true;
+      }
+      return false;
     });
   } else {
     vevent = vevents.find(v => !v.getFirstProperty('recurrence-id'));
@@ -417,17 +447,22 @@ function eventToICS(event, existingIcs = null) {
             timeVal = ICAL.Time.fromDateString(`${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`);
             timeVal.isDate = true;
           } else {
-            timeVal = ICAL.Time.fromJSDate(dt, true);
-            if (tzid && isValidTimezone(tzid)) {
+            if (tzid && isValidTimezone(tzid) && !isTzidLossy(isoVal, tzid)) {
               _registerVTimezoneBlock(tzid, buildVTimezoneBlock(tzid));
-              const zone = ICAL.TimezoneService.get(tzid);
-              if (zone) {
-                timeVal = timeVal.convertToZone(zone);
-              }
+              const formatted = fmtDateTimeTzid(isoVal, tzid);
+              const y  = formatted.slice(0, 4);
+              const m  = formatted.slice(4, 6);
+              const d  = formatted.slice(6, 8);
+              const hh = formatted.slice(9, 11);
+              const mm = formatted.slice(11, 13);
+              const ss = formatted.slice(13, 15);
+              timeVal = ICAL.Time.fromDateTimeString(`${y}-${m}-${d}T${hh}:${mm}:${ss}`);
+            } else {
+              timeVal = ICAL.Time.fromJSDate(dt, true);
             }
           }
           const prop = new ICAL.Property(propName, master);
-          if (tzid && !isAllDay && isValidTimezone(tzid)) {
+          if (tzid && !isAllDay && isValidTimezone(tzid) && !isTzidLossy(isoVal, tzid)) {
             prop.setParameter('tzid', tzid);
           }
           prop.setValue(timeVal);
@@ -437,8 +472,16 @@ function eventToICS(event, existingIcs = null) {
         if (event.start !== undefined) {
           setEventDateProp('dtstart', event.start, event.allDay, event.startTimeZone);
         }
-        if (event.end !== undefined) {
-          setEventDateProp('dtend', event.end, event.allDay, event.endTimeZone);
+        if (event.duration) {
+          master.removeAllProperties('dtend');
+          master.removeAllProperties('duration');
+          const durProp = new ICAL.Property('duration', master);
+          durProp.setValue(String(event.duration));
+          master.addProperty(durProp);
+        } else if (event.end !== undefined) {
+          master.removeAllProperties('duration');
+          const endTimeZone = event.endTimeZone || (event.startTimeZone && isValidTimezone(event.startTimeZone) ? event.startTimeZone : null);
+          setEventDateProp('dtend', event.end, event.allDay, endTimeZone);
         }
 
         // Recurrence (RRULE)
@@ -652,15 +695,35 @@ function eventToICS(event, existingIcs = null) {
     }
     lines.push(`DTSTART;VALUE=DATE:${startStr}`);
     lines.push(`DTEND;VALUE=DATE:${endStr}`);
-  } else {
-    if (event.startTimeZone && isValidTimezone(event.startTimeZone)) {
-      lines.push(`DTSTART;TZID=${escParamVal(event.startTimeZone)}:${fmtDateTimeTzid(event.start, event.startTimeZone)}`);
+  } else if (event.duration) {
+    let startFmt = null;
+    if (event.startTimeZone && isValidTimezone(event.startTimeZone) && !isTzidLossy(event.start, event.startTimeZone)) {
+      startFmt = fmtDateTimeTzid(event.start, event.startTimeZone);
+      lines.push(`DTSTART;TZID=${escParamVal(event.startTimeZone)}:${startFmt}`);
     } else {
-      lines.push(`DTSTART:${fmtDateTime(event.start)}`);
+      startFmt = fmtDateTime(event.start);
+      lines.push(`DTSTART:${startFmt}`);
+    }
+    lines.push(`DURATION:${String(event.duration).replace(/[\r\n]/g, '')}`);
+  } else {
+    let startFmt = null;
+    if (event.startTimeZone && isValidTimezone(event.startTimeZone) && !isTzidLossy(event.start, event.startTimeZone)) {
+      startFmt = fmtDateTimeTzid(event.start, event.startTimeZone);
+      lines.push(`DTSTART;TZID=${escParamVal(event.startTimeZone)}:${startFmt}`);
+    } else {
+      startFmt = fmtDateTime(event.start);
+      lines.push(`DTSTART:${startFmt}`);
     }
 
-    if (event.endTimeZone && isValidTimezone(event.endTimeZone)) {
-      lines.push(`DTEND;TZID=${escParamVal(event.endTimeZone)}:${fmtDateTimeTzid(event.end, event.endTimeZone)}`);
+    const endTimeZone = event.endTimeZone || (event.startTimeZone && isValidTimezone(event.startTimeZone) ? event.startTimeZone : null);
+
+    if (endTimeZone && isValidTimezone(endTimeZone) && !isTzidLossy(event.end, endTimeZone)) {
+      const endFmt = fmtDateTimeTzid(event.end, endTimeZone);
+      if (event.startTimeZone === endTimeZone && new Date(event.end) > new Date(event.start) && endFmt <= startFmt) {
+        lines.push(`DTEND:${fmtDateTime(event.end)}`);
+      } else {
+        lines.push(`DTEND;TZID=${escParamVal(endTimeZone)}:${endFmt}`);
+      }
     } else {
       lines.push(`DTEND:${fmtDateTime(event.end)}`);
     }
@@ -730,17 +793,73 @@ function getMasterVEvent(comp) {
 }
 
 function occurrenceTime(master, recurrenceId) {
-  const time = ICAL.Time.fromString(recurrenceId);
-  const dtstart = master.getFirstPropertyValue('dtstart');
-  if (dtstart && !time.isDate) time.zone = dtstart.zone;
+  const dtstartProp = master ? master.getFirstProperty('dtstart') : null;
+  const dtstart = master ? master.getFirstPropertyValue('dtstart') : null;
+  const isDate = dtstart ? dtstart.isDate : false;
+  const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
+  const recStr = String(recurrenceId || '').trim();
+
+  if (isDate) {
+    const cleanStr = recStr.replace(/[-:]/g, '');
+    const y = cleanStr.slice(0, 4);
+    const m = cleanStr.slice(4, 6);
+    const d = cleanStr.slice(6, 8);
+    const time = ICAL.Time.fromDateTimeString(`${y}-${m}-${d}`);
+    time.isDate = true;
+    return time;
+  }
+
+  const isUtcStr = recStr.endsWith('Z') || recStr.includes('+') || (recStr.includes('T') && recStr.includes('-'));
+  const jsDate = new Date(recStr.endsWith('Z') || recStr.includes('T') ? recStr : (recStr.length === 15 ? `${recStr.slice(0,4)}-${recStr.slice(4,6)}-${recStr.slice(6,8)}T${recStr.slice(9,11)}:${recStr.slice(11,13)}:${recStr.slice(13,15)}Z` : recStr));
+  const targetZone = dtstart ? dtstart.zone : (tzid ? ICAL.TimezoneService.get(tzid) : null);
+
+  if (isUtcStr && !isNaN(jsDate.getTime())) {
+    const tUtc = ICAL.Time.fromJSDate(jsDate, true);
+    if (targetZone) {
+      return tUtc.convertToZone(targetZone);
+    }
+    return tUtc;
+  }
+
+  let time;
+  if (recStr.includes('-') && recStr.includes(':')) {
+    time = ICAL.Time.fromString(recStr);
+  } else {
+    const clean = recStr.replace(/[-:]/g, '');
+    const y = clean.slice(0, 4);
+    const m = clean.slice(4, 6);
+    const d = clean.slice(6, 8);
+    const hh = clean.slice(9, 11) || '00';
+    const mm = clean.slice(11, 13) || '00';
+    const ss = clean.slice(13, 15) || '00';
+    time = ICAL.Time.fromDateTimeString(`${y}-${m}-${d}T${hh}:${mm}:${ss}`);
+  }
+
+  if (targetZone && !time.isDate) {
+    time.zone = targetZone;
+  }
   return time;
 }
 
 function removeOverride(comp, recurrenceId) {
+  const normTarget = String(recurrenceId || '').replace(/[-:]/g, '').toUpperCase();
+  const master = comp.getAllSubcomponents('vevent').find(v => !v.getFirstProperty('recurrence-id'));
+  const targetTime = master && recurrenceId ? occurrenceTime(master, recurrenceId) : null;
+  const targetUtcMs = targetTime ? targetTime.toJSDate().getTime() : null;
+
   for (const v of comp.getAllSubcomponents('vevent')) {
     const rid = v.getFirstPropertyValue('recurrence-id');
-    if (rid && rid.toString() === recurrenceId) {
+    if (!rid) continue;
+    const str = rid.toICALString ? rid.toICALString() : rid.toString();
+    const normStr = str.replace(/[-:]/g, '').toUpperCase();
+    if (normStr === normTarget) {
       comp.removeSubcomponent(v);
+      continue;
+    }
+    if (targetUtcMs !== null && typeof rid.toJSDate === 'function') {
+      if (rid.toJSDate().getTime() === targetUtcMs) {
+        comp.removeSubcomponent(v);
+      }
     }
   }
 }
@@ -885,6 +1004,35 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   return new Date(targetMs + secondDiff);
 }
 
+function isTzidLossy(iso, tzid) {
+  if (!iso || !tzid || !isValidTimezone(tzid)) return false;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+
+  const tzidFmt = fmtDateTimeTzid(iso, tzid);
+  if (!tzidFmt || tzidFmt.length < 15) return false;
+  const y = tzidFmt.slice(0, 4);
+  const m = tzidFmt.slice(4, 6);
+  const day = tzidFmt.slice(6, 8);
+  const hh = tzidFmt.slice(9, 11);
+  const mm = tzidFmt.slice(11, 13);
+  const dateStr = `${y}-${m}-${day}`;
+  const timeStr = `${hh}:${mm}`;
+
+  const resolvedUtc = getUtcDate(dateStr, timeStr, tzid);
+  if (resolvedUtc.getTime() !== d.getTime()) return true;
+
+  const deltasMs = [3600000, -3600000, 1800000, -1800000, 7200000, -7200000, 2700000, -2700000];
+  for (const delta of deltasMs) {
+    const neighborIso = new Date(d.getTime() + delta).toISOString();
+    if (fmtDateTimeTzid(neighborIso, tzid) === tzidFmt) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function fmtDate(iso) {
   return new Date(iso).toISOString().slice(0, 10).replace(/-/g, '');
 }
@@ -940,6 +1088,19 @@ function _registerEmbeddedTimezones(comp) {
       }
     } catch (e) {
       console.warn('[timezone] Failed to register embedded VTIMEZONE:', e.message);
+    }
+  }
+
+  const subcomps = [...comp.getAllSubcomponents('vevent'), ...comp.getAllSubcomponents('vtodo')];
+  const datePropNames = ['dtstart', 'dtend', 'due', 'recurrence-id', 'exdate', 'rdate'];
+  for (const sub of subcomps) {
+    for (const name of datePropNames) {
+      for (const prop of sub.getAllProperties(name)) {
+        const tzid = prop.getParameter('tzid');
+        if (tzid && isValidTimezone(tzid) && !ICAL.TimezoneService.has(tzid)) {
+          _registerVTimezoneBlock(tzid, buildVTimezoneBlock(tzid));
+        }
+      }
     }
   }
 }
@@ -1093,17 +1254,38 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
     return false;
   }
 
+  const incoming = incomingEventData || {};
+  const targetRid = recurrenceId || incoming.recurrenceId || (incoming.uid && incoming.uid.includes('::') ? incoming.uid.split('::')[1] : null);
+
   let stored;
   try {
-    const targetRecurrenceId = recurrenceId || incomingEventData?.recurrenceId;
-    stored = parseICSToEvent(existingIcs, { recurrenceId: targetRecurrenceId });
+    stored = parseICSToEvent(existingIcs, { recurrenceId: targetRid });
   } catch (_) {
     return false;
   }
 
-  if (!stored) return false;
+  const toUtcMs = (v) => {
+    if (!v) return null;
+    const ms = new Date(v).getTime();
+    return isNaN(ms) ? null : ms;
+  };
 
-  const incoming = incomingEventData || {};
+  if (!stored && targetRid) {
+    try {
+      const incStartMs = toUtcMs(incoming.start);
+      if (incStartMs) {
+        const searchStart = new Date(incStartMs - 48 * 3600 * 1000).toISOString();
+        const searchEnd   = new Date(incStartMs + 48 * 3600 * 1000).toISOString();
+        const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
+        const match = expanded.find(e => e.recurrenceId === targetRid || toUtcMs(e.start) === incStartMs);
+        if (match) {
+          stored = match;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!stored) return false;
 
   // ── Title ────────────────────────────────────────────────────────────────
   const storedTitle    = (stored.title    || '').trim();
@@ -1111,14 +1293,27 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   if (storedTitle !== incomingTitle) return false;
 
   // ── Start / End (compare UTC instants; null == null is ok) ───────────────
-  const toUtcMs = (v) => {
-    if (!v) return null;
-    const ms = new Date(v).getTime();
-    return isNaN(ms) ? null : ms;
-  };
+  let expectedStartUtcMs = toUtcMs(stored.start);
+  let expectedEndUtcMs   = toUtcMs(stored.end);
 
-  if (toUtcMs(stored.start) !== toUtcMs(incoming.start)) return false;
-  if (toUtcMs(stored.end)   !== toUtcMs(incoming.end))   return false;
+  if (targetRid && stored.recurrence) {
+    try {
+      const incStartMs = toUtcMs(incoming.start);
+      if (incStartMs) {
+        const searchStart = new Date(incStartMs - 48 * 3600 * 1000).toISOString();
+        const searchEnd   = new Date(incStartMs + 48 * 3600 * 1000).toISOString();
+        const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
+        const match = expanded.find(e => e.recurrenceId === targetRid || toUtcMs(e.start) === incStartMs);
+        if (match) {
+          expectedStartUtcMs = toUtcMs(match.start);
+          expectedEndUtcMs   = toUtcMs(match.end);
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (expectedStartUtcMs !== toUtcMs(incoming.start)) return false;
+  if (expectedEndUtcMs   !== toUtcMs(incoming.end))   return false;
 
   // ── AllDay ───────────────────────────────────────────────────────────────
   if (!!stored.allDay !== !!incoming.allDay) return false;
@@ -1179,6 +1374,7 @@ function updateWholeSeries(existingIcs, eventData) {
   try {
     const jcal = ICAL.parse(existingIcs);
     comp = new ICAL.Component(jcal);
+    _registerEmbeddedTimezones(comp);
   } catch (e) {
     return eventToICS(eventData);
   }
@@ -1189,9 +1385,59 @@ function updateWholeSeries(existingIcs, eventData) {
   }
 
   const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
+  const origMasterEv = parseVEventToEvent(master);
   const exdateProps = master.getAllProperties('exdate');
 
-  const newMasterIcs = eventToICS(eventData, existingIcs);
+  let masterEventData = {
+    startTimeZone: origMasterEv?.startTimeZone,
+    endTimeZone: origMasterEv?.endTimeZone,
+    ...eventData
+  };
+  const targetRid = eventData?.recurrenceId || (eventData?.uid && eventData.uid.includes('::') ? eventData.uid.split('::')[1] : null);
+  if (targetRid && master.getFirstProperty('rrule')) {
+    try {
+      if (origMasterEv && origMasterEv.start) {
+        const incStartMs = new Date(eventData.start).getTime();
+        if (!isNaN(incStartMs)) {
+          const searchStart = new Date(incStartMs - 48 * 3600 * 1000).toISOString();
+          const searchEnd   = new Date(incStartMs + 48 * 3600 * 1000).toISOString();
+          const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
+          const origOcc = expanded.find(e => e.recurrenceId === targetRid || new Date(e.start).getTime() === incStartMs);
+          if (origOcc && origOcc.start) {
+            const origOccStartMs = new Date(origOcc.start).getTime();
+            const timeDeltaMs = incStartMs - origOccStartMs;
+            if (Math.abs(timeDeltaMs) <= 1000) {
+              masterEventData = {
+                ...masterEventData,
+                uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
+                start: origMasterEv.start,
+                end: origMasterEv.end
+              };
+            } else {
+              const newMasterStartMs = new Date(origMasterEv.start).getTime() + timeDeltaMs;
+              const newMasterStartIso = new Date(newMasterStartMs).toISOString();
+
+              let newMasterEndIso = null;
+              if (eventData.end && eventData.start) {
+                const durationMs = new Date(eventData.end).getTime() - incStartMs;
+                newMasterEndIso = new Date(newMasterStartMs + durationMs).toISOString();
+              }
+
+              masterEventData = {
+                ...masterEventData,
+                uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
+                start: newMasterStartIso,
+                end: newMasterEndIso || eventData.end
+              };
+            }
+            delete masterEventData.recurrenceId;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  const newMasterIcs = eventToICS(masterEventData, existingIcs);
   let newMasterComp;
   try {
     newMasterComp = new ICAL.Component(ICAL.parse(newMasterIcs));
@@ -1199,7 +1445,7 @@ function updateWholeSeries(existingIcs, eventData) {
     return eventToICS(eventData);
   }
 
-  const newMaster = newMasterComp.getFirstSubcomponent('vevent');
+  const newMaster = newMasterComp.getAllSubcomponents('vevent').find(v => !v.getFirstProperty('recurrence-id')) || newMasterComp.getFirstSubcomponent('vevent');
   if (!newMaster) {
     return eventToICS(eventData);
   }
@@ -1239,6 +1485,7 @@ module.exports = {
   buildVTimezoneBlock,
   isValidTimezone,
   getUtcDate,
+  isTzidLossy,
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,

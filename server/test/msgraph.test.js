@@ -202,8 +202,7 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       },
       body: JSON.stringify({
         accountEmail: 'testuser@example.com',
@@ -218,8 +217,7 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
 
     const resGet = await fetch(`${baseUrl}/api/msgraph/accounts`, {
       headers: {
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       }
     });
     assert.equal(resGet.status, 200);
@@ -229,8 +227,7 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
     const resDel = await fetch(`${baseUrl}/api/msgraph/accounts/${createdAccountId}`, {
       method: 'DELETE',
       headers: {
-        'Cookie': sessionCookie,
-        'x-test-user-id': 'testuser-id'
+        'Cookie': sessionCookie
       }
     });
     assert.equal(resDel.status, 200);

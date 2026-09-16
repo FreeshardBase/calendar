@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
 const { formatIfMatch } = require('../caldav/client');
-const { parseCalendarList, parseTaskList, taskToICS, reconcileTaskStatus, isNoOpTaskSave, resolveUrl } = require('../caldav/parser');
+const { parseCalendarList, parseTaskList, taskToICS, reconcileTaskStatus, isNoOpTaskSave, resolveUrl, parseICSToTask, advanceRecurringTask } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
@@ -190,6 +190,33 @@ router.put('/:uid', async (req, res) => {
     }
 
     const existingIcs = current ? current.ics : null;
+
+    if (existingIcs) {
+      const existingTask = parseICSToTask(existingIcs);
+      if (existingTask) {
+        if (!('dtstart' in taskData) && existingTask.dtstart !== undefined) {
+          task.dtstart = existingTask.dtstart;
+          if (existingTask.dtstartIsDate !== undefined) task.dtstartIsDate = existingTask.dtstartIsDate;
+        } else if (!('dtstartIsDate' in taskData) && existingTask.dtstartIsDate !== undefined) {
+          task.dtstartIsDate = existingTask.dtstartIsDate;
+        }
+        if (!('due' in taskData) && existingTask.due !== undefined) {
+          task.due = existingTask.due;
+          if (existingTask.dueIsDate !== undefined) task.dueIsDate = existingTask.dueIsDate;
+        } else if (!('dueIsDate' in taskData) && existingTask.dueIsDate !== undefined) {
+          task.dueIsDate = existingTask.dueIsDate;
+        }
+        if (!('percentComplete' in taskData) && !('percent-complete' in taskData) && existingTask.percentComplete !== undefined) {
+          task.percentComplete = existingTask.percentComplete;
+        }
+        if (!('completed' in taskData) && existingTask.completed !== undefined) {
+          task.completed = existingTask.completed;
+        }
+        if (!('completedHistory' in taskData) && existingTask.completedHistory !== undefined) {
+          task.completedHistory = existingTask.completedHistory;
+        }
+      }
+    }
 
     if (task.status === 'COMPLETED' && (task.recurrence || (existingIcs && existingIcs.includes('RRULE:')))) {
       const fullTask = parseICSToTask(existingIcs || '', { uid: req.params.uid, ...taskData });

@@ -113,8 +113,8 @@ export function openCreateModal(defaultDate, callbacks) {
 
   const activeCurrentDate = store.get('currentDate');
   const d = defaultDate ? new Date(defaultDate) : (activeCurrentDate ? new Date(activeCurrentDate) : new Date());
-  $('ev-start-date').value = toInputDate(d);
-  $('ev-end-date').value   = toInputDate(d);
+  $('ev-start-date').value = toInputDate(d, null, true);
+  $('ev-end-date').value   = toInputDate(d, null, true);
 
   if (defaultDate && d.getHours() !== 0) {
     $('ev-start-time').value = toInputTime(d);
@@ -137,8 +137,9 @@ export function openCreateModal(defaultDate, callbacks) {
   document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
   const startDateVal = $('ev-start-date').value;
   if (startDateVal) {
-    const d = new Date(startDateVal);
-    const dayCode = ['SU','MO','TU','WE','TH','FR','SA'][d.getDay()];
+    const parts = startDateVal.split('-').map(Number);
+    const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    const dayCode = ['SU','MO','TU','WE','TH','FR','SA'][d.getUTCDay()];
     const cb = document.querySelector(`.recur-byday[value="${dayCode}"]`);
     if (cb) cb.checked = true;
   }
@@ -364,17 +365,19 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
   const dateVal = $('ev-start-date').value;
   if (!dateVal) return;
 
-  const date = new Date(dateVal);
+  const parts = dateVal.split('-').map(Number);
+  if (parts.length < 3 || parts.some(isNaN)) return;
+  const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
   if (isNaN(date.getTime())) return;
 
-  const day = date.getDate();
-  const dayName = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][date.getDay()];
+  const day = date.getUTCDate();
+  const dayName = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][date.getUTCDay()];
   const weekNum = Math.ceil(day / 7);
 
   $('recur-monthly-day-lbl').textContent = `Jeden Monat am ${day}. Tag`;
 
   if (!skipDefaultSelects) {
-    const wd = ['SU','MO','TU','WE','TH','FR','SA'][date.getDay()];
+    const wd = ['SU','MO','TU','WE','TH','FR','SA'][date.getUTCDay()];
     $('recur-monthly-week-idx').value = String(weekNum);
     $('recur-monthly-weekday').value = wd;
 
@@ -430,8 +433,8 @@ function resetForm() {
 
   const activeCurrentDate = store.get('currentDate');
   const d = activeCurrentDate ? new Date(activeCurrentDate) : new Date();
-  $('ev-start-date').value = toInputDate(d);
-  $('ev-end-date').value   = toInputDate(d);
+  $('ev-start-date').value = toInputDate(d, null, true);
+  $('ev-end-date').value   = toInputDate(d, null, true);
   updateAlldayUI(false);
   setButtonLoading('event-save-btn', false);
 
@@ -603,15 +606,16 @@ function getUtcDate(dateStr, timeStr, timeZone) {
       const byday = [...document.querySelectorAll('.recur-byday:checked')].map(cb => cb.value).join(',');
       recurrence = byday ? `FREQ=WEEKLY;BYDAY=${byday}` : 'FREQ=WEEKLY';
     } else if (recurrenceVal === 'MONTHLY') {
-      const startD = new Date(startDateVal);
+      const parts = startDateVal.split('-').map(Number);
+      const startD = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
       if (!isNaN(startD.getTime())) {
         const typeEl = document.querySelector('input[name="recur-monthly-type"]:checked');
         const type = typeEl ? typeEl.value : 'BYMONTHDAY';
         if (type === 'BYMONTHDAY') {
-          recurrence = `FREQ=MONTHLY;BYMONTHDAY=${startD.getDate()}`;
+          recurrence = `FREQ=MONTHLY;BYMONTHDAY=${startD.getUTCDate()}`;
         } else if (type === 'BYDAY') {
-          const wd = ['SU','MO','TU','WE','TH','FR','SA'][startD.getDay()];
-          const weekNum = Math.ceil(startD.getDate() / 7);
+          const wd = ['SU','MO','TU','WE','TH','FR','SA'][startD.getUTCDay()];
+          const weekNum = Math.ceil(startD.getUTCDate() / 7);
           recurrence = `FREQ=MONTHLY;BYDAY=${weekNum}${wd}`;
         }
       } else {
@@ -851,9 +855,10 @@ export function initEventModal() {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toInputDate(d, tzid, isUtcDate = false) {
-  if (isUtcDate) {
+  if (isUtcDate || (!tzid && typeof d === 'string' && (/^\d{4}-\d{2}-\d{2}/.test(d) || d.endsWith('Z')))) {
     if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
     const dateObj = new Date(d);
+    if (isNaN(dateObj.getTime())) return '';
     const y = dateObj.getUTCFullYear();
     const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
     const day = String(dateObj.getUTCDate()).padStart(2, '0');
@@ -870,6 +875,22 @@ function toInputDate(d, tzid, isUtcDate = false) {
     const partMap = {};
     for (const p of parts) partMap[p.type] = p.value;
     return `${partMap.year}-${partMap.month}-${partMap.day}`;
+  }
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+  const dateObj = new Date(d);
+  if (!isNaN(dateObj.getTime())) {
+    if (dateObj.getUTCHours() === 0 && dateObj.getUTCMinutes() === 0 && dateObj.getUTCSeconds() === 0 && dateObj.getUTCMilliseconds() === 0) {
+      const y = dateObj.getUTCFullYear();
+      const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    if (dateObj.getHours() === 0 && dateObj.getMinutes() === 0 && dateObj.getSeconds() === 0 && dateObj.getMilliseconds() === 0) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
   }
   return d.toLocaleDateString('sv-SE'); // YYYY-MM-DD
 }

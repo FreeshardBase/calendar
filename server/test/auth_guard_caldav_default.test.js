@@ -13,6 +13,10 @@ const { app, server } = require('../index');
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
 test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t) => {
+  if (server && !server.listening) {
+    await new Promise((resolve) => server.listen(process.env.PORT || 3195, resolve));
+  }
+
   t.after(async () => {
     if (server) {
       if (typeof server.closeAllConnections === 'function') {

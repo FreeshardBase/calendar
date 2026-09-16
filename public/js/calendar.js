@@ -134,8 +134,8 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
     <div class="mini-cal-header">
       <span class="mini-cal-title">${MONTHS[month].slice(0,3)} ${year}</span>
       <div class="mini-cal-nav">
-        <button data-mini-prev>‹</button>
-        <button data-mini-next>›</button>
+        <button data-mini-prev aria-label="Vorheriger Monat" title="Vorheriger Monat">‹</button>
+        <button data-mini-next aria-label="Nächster Monat" title="Nächster Monat">›</button>
       </div>
     </div>
     <div class="mini-cal-grid">
@@ -246,11 +246,17 @@ function renderMonth(container, events, currentDate, cb) {
     cell.innerHTML = `<div class="month-day-num">${date.getDate()}</div>${chipsHtml}`;
 
 
+    if (!isCurrentMonth) {
+      cell.setAttribute('aria-disabled', 'true');
+    }
+
     // Click on day → create event
-    cell.addEventListener('click', e => {
-      if (e.target.closest('.event-chip') || e.target.closest('.month-more')) return;
-      cb.onDayClick(date);
-    });
+    if (isCurrentMonth) {
+      cell.addEventListener('click', e => {
+        if (e.target.closest('.event-chip') || e.target.closest('.month-more')) return;
+        cb.onDayClick(date);
+      });
+    }
 
     // Click on chip → show event
     cell.querySelectorAll && cell.innerHTML && true; // placeholder
@@ -287,16 +293,16 @@ export function chipHtml(ev) {
   const bg    = hexToRgba(color, 0.22);
   const textColor = ensureContrastFloor(color, 0.22);
   const timeStr = ev.allDay ? '' : `<span class="event-chip-time">${fmtTime(ev.start)}</span>`;
+  const labelText = ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`;
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
   return `<div class="event-chip${ev.allDay ? ' all-day' : ''}"
               tabindex="0"
               role="button"
-              aria-label="${escHtml(ev.title)}"
+              aria-label="${escHtml(labelText)}"
               style="background:${escHtml(bg)};color:${escHtml(textColor)};"
-              data-event-uid="${escHtml(ev.uid)}"
-              title="${escHtml(ev.title)}">
+              data-event-uid="${escHtml(ev.uid)}">
             ${timeStr}
             <span class="event-chip-title">${escHtml(ev.title)}</span>
             ${recurIcon}
@@ -634,7 +640,9 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   block.dataset.eventUid = ev.uid;
   block.setAttribute('tabindex', '0');
   block.setAttribute('role', 'button');
-  block.setAttribute('aria-label', ev.title || '');
+  const timeText = fmtTime(ev.start) + (ev.end && !isShort ? ' – ' + fmtTime(ev.end) : '');
+  const labelText = timeText ? `${timeText} ${ev.title || ''}` : (ev.title || '');
+  block.setAttribute('aria-label', labelText.trim());
 
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
@@ -694,7 +702,12 @@ function renderAgenda(container, events, currentDate, cb) {
   const byDay = new Map();
   for (const ev of events) {
     if (!ev.start) continue;
-    const key = new Date(ev.start).toDateString();
+    let key;
+    if (ev.allDay) {
+      key = typeof ev.start === 'string' ? ev.start.slice(0, 10) : new Date(ev.start).toISOString().slice(0, 10);
+    } else {
+      key = new Date(ev.start).toDateString();
+    }
     if (!byDay.has(key)) byDay.set(key, []);
     byDay.get(key).push(ev);
   }
@@ -709,7 +722,22 @@ function renderAgenda(container, events, currentDate, cb) {
   const sortedDays = [...byDay.keys()].sort((a, b) => new Date(a) - new Date(b));
 
   for (const dayKey of sortedDays) {
-    const d    = new Date(dayKey);
+    const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(dayKey);
+    let d, dateNum, monthNum, yearNum, dayName;
+    if (isIsoDate) {
+      const parts = dayKey.split('-').map(Number);
+      d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      dateNum  = d.getUTCDate();
+      monthNum = d.getUTCMonth();
+      yearNum  = d.getUTCFullYear();
+      dayName  = DAYS[d.getUTCDay()];
+    } else {
+      d = new Date(dayKey);
+      dateNum  = d.getDate();
+      monthNum = d.getMonth();
+      yearNum  = d.getFullYear();
+      dayName  = DAYS[d.getDay()];
+    }
     const isT  = sameDay(d, today);
     const dayEvs = sortEvents(byDay.get(dayKey));
 
@@ -718,8 +746,8 @@ function renderAgenda(container, events, currentDate, cb) {
 
     row.innerHTML = `
       <div class="agenda-day-header">
-        <span class="agenda-day-date">${d.getDate()}. ${MONTHS[d.getMonth()]} ${d.getFullYear()}</span>
-        <span class="agenda-day-name">${DAYS[d.getDay()]}</span>
+        <span class="agenda-day-date">${dateNum}. ${MONTHS[monthNum]} ${yearNum}</span>
+        <span class="agenda-day-name">${dayName}</span>
       </div>
       <div class="agenda-events">
         ${dayEvs.map(ev => agendaEventHtml(ev)).join('')}
@@ -754,8 +782,10 @@ export function agendaEventHtml(ev) {
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
 
+  const labelText = `${timeStr} ${ev.title}`;
+
   return `
-    <div class="agenda-event" tabindex="0" role="button" aria-label="${escHtml(ev.title)}" data-event-uid="${escHtml(ev.uid)}" style="cursor:pointer">
+    <div class="agenda-event" tabindex="0" role="button" aria-label="${escHtml(labelText)}" data-event-uid="${escHtml(ev.uid)}" style="cursor:pointer">
       <div class="agenda-event-color" style="background:${escHtml(color)}"></div>
       <div class="agenda-event-body">
         <div class="agenda-event-title">${escHtml(ev.title)} ${recurIcon}</div>

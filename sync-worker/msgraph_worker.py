@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 import sys
 import os
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
+os.environ["PYTHONUNBUFFERED"] = "1"
 import sqlite3
 import time
 import json

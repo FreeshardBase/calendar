@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 import sys
 import os
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
+os.environ["PYTHONUNBUFFERED"] = "1"
 import sqlite3
 import hashlib
 import time
@@ -398,20 +404,7 @@ def sync_basic_caldav_accounts(user_id, conn):
 
     # Determine SSL verification for local CalDAV
     cert_path = "/etc/ssl/certs/local/cert.pem"
-    fingerprint = None
-    if os.path.exists(cert_path):
-        try:
-            from cryptography import x509
-            from cryptography.hazmat.backends import default_backend
-            from cryptography.hazmat.primitives import hashes
-            with open(cert_path, "rb") as cf:
-                cert_data = cf.read()
-            cert = x509.load_pem_x509_certificate(cert_data, default_backend())
-            fingerprint = cert.fingerprint(hashes.SHA256()).hex()
-        except Exception as fe:
-            print(f"[Sync-Worker] Error reading certificate fingerprint: {fe}")
-
-    verify_line = f'verify_fingerprint = "{fingerprint}"' if fingerprint else 'verify = false'
+    verify_line = f'verify = "{cert_path}"' if os.path.exists(cert_path) else 'verify = false'
     local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 
     for idx, acc in enumerate(basic_accounts):
@@ -646,20 +639,7 @@ status_path = "{status_dir}"
 
             # Determine SSL verification for local CalDAV server
             cert_path = "/etc/ssl/certs/local/cert.pem"
-            fingerprint = None
-            if os.path.exists(cert_path):
-                try:
-                    from cryptography import x509
-                    from cryptography.hazmat.backends import default_backend
-                    from cryptography.hazmat.primitives import hashes
-                    with open(cert_path, "rb") as cf:
-                        cert_data = cf.read()
-                    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
-                    fingerprint = cert.fingerprint(hashes.SHA256()).hex()
-                except Exception as fe:
-                    print(f"[Sync-Worker] Error reading certificate fingerprint: {fe}")
-
-            verify_line = f'verify_fingerprint = "{fingerprint}"' if fingerprint else 'verify = false'
+            verify_line = f'verify = "{cert_path}"' if os.path.exists(cert_path) else 'verify = false'
 
             local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 

@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3099';
+process.env.PORT = process.env.PORT || '3297';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -42,7 +42,14 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
   before(async () => {
     await Db.upsertUser(userId, 'user198owner');
     await Db.upsertUser(strangerId, 'user198stranger');
-    port = appServer && appServer.address() ? appServer.address().port : (process.env.PORT || 3099);
+    const targetPort = Number(process.env.PORT || 3297);
+    if (!appServer.listening) {
+      await new Promise((resolve, reject) => {
+        appServer.listen(targetPort, '127.0.0.1', resolve);
+        appServer.once('error', reject);
+      });
+    }
+    port = appServer.address().port;
     server = appServer;
   });
 

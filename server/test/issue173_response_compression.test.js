@@ -1,18 +1,24 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3173';
+process.env.PORT = process.env.PORT || '3174';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
 require('dotenv').config();
 
-const { test, describe, after } = require('node:test');
+const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const zlib = require('node:zlib');
 const { app, server } = require('../index');
 
 describe('Issue #173 — Response Compression for JS, CSS, HTML and API responses', () => {
+  before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
+
   after(() => {
     if (server && server.close) {
       server.close();

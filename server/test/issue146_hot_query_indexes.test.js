@@ -13,11 +13,10 @@ const path = require('node:path');
 const sqlite3 = require('sqlite3').verbose();
 
 const ROOT = path.join(__dirname, '../..');
-// Require server/db to initialize database schema, indexes and run migrations
-require('../db');
+const Db = require('../db');
 
 test('Issue #146 — Hot queries use indexes instead of SCAN TABLE', async () => {
-  const dbPath = path.join(ROOT, 'webcalendar.db');
+  const dbPath = process.env.DATABASE_PATH || (Db.getDbPath && Db.getDbPath()) || path.join(ROOT, 'webcalendar.db');
   const db = new sqlite3.Database(dbPath);
 
   // Helper to run EXPLAIN QUERY PLAN

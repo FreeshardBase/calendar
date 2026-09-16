@@ -65,17 +65,22 @@ router.post('/', async (req, res) => {
     return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
   }
 
-  const accounts = req.session.accounts || [];
-  const exists = accounts.some(
+  // Issue #248: check both session accounts (env-default) and the DB directly (authoritative DB check
+  // in case req.session.accounts was cold or stale).
+  const userId = req.session.userId || username;
+  req.session.userId = userId;
+
+  const sessionAccounts = req.session.accounts || [];
+  const existsInSession = sessionAccounts.some(
     a => a.url === discoveredUrl && a.username === username
   );
-  if (exists) {
+  const existsInDb = await Db.findAccountByUrlAndUsername(userId, discoveredUrl, username);
+
+  if (existsInSession || existsInDb) {
     return res.status(409).json({ error: 'Dieses Konto ist bereits eingerichtet.' });
   }
 
   try {
-    const userId = req.session.userId || username;
-    req.session.userId = userId;
     const { id, displayName: finalDisplayName } = await Db.addAccount(userId, {
       url: discoveredUrl,
       username,

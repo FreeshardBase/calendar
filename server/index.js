@@ -47,11 +47,9 @@ app.set('trust proxy', getTrustProxySetting());
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(compression());
 app.use(securityHeaders);
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(session(getSessionConfig()));
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-app.use(session(getSessionConfig()));
 
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
@@ -69,7 +67,7 @@ app.use(async (req, res, next) => {
     if (headerUser) {
       newUserId = String(headerUser).trim();
     }
-  } else if (!newUserId && authMethod === 'env' && (process.env.NODE_ENV !== 'test' || process.env.E2E_TEST === 'true')) {
+  } else if (!newUserId && authMethod === 'env' && (req.path === '/' || req.path === '/index.html' || req.path === '/api/auth/session' || process.env.E2E_TEST === 'true')) {
     newUserId = process.env.CALDAV_USERNAME || 'test';
   }
 
@@ -141,6 +139,8 @@ app.use(async (req, res, next) => {
   next();
 });
 
+app.use(express.static(path.join(__dirname, '../public')));
+
 // ── Internal Hook Security Middleware ─────────────────────────────────────────
 function requireInternal(req, res, next) {
   if (process.env.NODE_ENV === 'test') return next();
@@ -163,6 +163,7 @@ function requireInternal(req, res, next) {
 if (process.env.NODE_ENV === 'test' || process.env.ENABLE_MOCK_DAV === 'true') {
   const mockShares = [];
   const mockProperties = {};
+  const mockResources = new Map();
   app.all(['/mock-dav*', '/.well-known/caldav', '/'], (req, res, next) => {
     if (req.path === '/' && req.method !== 'PROPFIND') {
       return next();
@@ -172,8 +173,24 @@ if (process.env.NODE_ENV === 'test' || process.env.ENABLE_MOCK_DAV === 'true') {
     const processMockDav = (xmlBody) => {
       const path = req.path;
 
-      if (req.method === 'GET' && (req.query.export !== undefined || req.path.endsWith('.ics') || req.path.includes('/personal'))) {
-        return res.status(200).set('Content-Type', 'text/calendar; charset=utf-8').send(`BEGIN:VCALENDAR
+      if (req.method === 'PUT') {
+        const etag = '"etag-' + Math.random().toString(36).substring(2, 9) + '"';
+        mockResources.set(path, { ics: xmlBody, etag });
+        return res.status(201).set('ETag', etag).send('');
+      }
+
+      if (req.method === 'DELETE') {
+        mockResources.delete(path);
+        return res.status(204).send('');
+      }
+
+      if (req.method === 'GET') {
+        if (mockResources.has(path)) {
+          const item = mockResources.get(path);
+          return res.status(200).set('Content-Type', 'text/calendar; charset=utf-8').set('ETag', item.etag).send(item.ics);
+        }
+        if (req.query.export !== undefined || req.path.endsWith('.ics') || req.path.includes('/personal')) {
+          return res.status(200).set('Content-Type', 'text/calendar; charset=utf-8').send(`BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Example Corp.//EN
 BEGIN:VEVENT
@@ -183,6 +200,7 @@ DTSTART:20260710T100000Z
 DTEND:20260710T110000Z
 END:VEVENT
 END:VCALENDAR`);
+        }
       }
 
       if (req.method === 'PROPPATCH') {
@@ -274,6 +292,29 @@ END:VCALENDAR`);
       }
 
       if (req.method === 'REPORT') {
+        if (xmlBody.includes('VTODO')) {
+          const todoResponses = [];
+          for (const [resPath, item] of mockResources.entries()) {
+            if (item.ics.includes('BEGIN:VTODO')) {
+              todoResponses.push(`
+  <d:response>
+    <d:href>${resPath}</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>${item.etag}</d:getetag>
+        <c:calendar-data>${item.ics}</c:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`);
+            }
+          }
+          return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  ${todoResponses.join('')}
+</d:multistatus>`);
+        }
+
         return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:response>
@@ -395,6 +436,18 @@ app.post('/internal/db/quiesce', requireInternal, async (req, res) => {
   }
 });
 
+// ── Healthcheck Endpoints ──────────────────────────────────────────────────
+const healthHandler = async (req, res) => {
+  try {
+    await Db.checkHealth();
+    res.json({ status: 'ok', database: 'connected' });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err?.message || 'Database query failed' });
+  }
+};
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
+
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -443,6 +496,8 @@ let server;
 const keyPath = process.env.SSL_KEY_PATH === '' ? '' : (process.env.SSL_KEY_PATH || path.join(__dirname, '../ssl/key.pem'));
 const certPath = process.env.SSL_CERT_PATH === '' ? '' : (process.env.SSL_CERT_PATH || path.join(__dirname, '../ssl/cert.pem'));
 
+const shouldListen = require.main === module || (process.env.NODE_ENV === 'test' && !process.env.PREVENT_AUTO_LISTEN);
+
 if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
   try {
     const options = {
@@ -450,27 +505,33 @@ if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
       cert: fs.readFileSync(certPath)
     };
     server = https.createServer(options, app);
+    if (shouldListen) {
+      server.listen(PORT, () => {
+        console.log(`🗓  FreeShard WebCalendar running securely on https://localhost:${PORT}`);
+        if (process.env.CALDAVURL) {
+          console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
+        }
+      });
+    }
+  } catch (sslErr) {
+    console.error('[SSL Startup Error]', sslErr.message);
+    server = http.createServer(app);
+    if (shouldListen) {
+      server.listen(PORT, () => {
+        console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT} (fallback)`);
+      });
+    }
+  }
+} else {
+  server = http.createServer(app);
+  if (shouldListen) {
     server.listen(PORT, () => {
-      console.log(`🗓  FreeShard WebCalendar running securely on https://localhost:${PORT}`);
+      console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT}`);
       if (process.env.CALDAVURL) {
         console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
       }
     });
-  } catch (sslErr) {
-    console.error('[SSL Startup Error]', sslErr.message);
-    server = http.createServer(app);
-    server.listen(PORT, () => {
-      console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT} (fallback)`);
-    });
   }
-} else {
-  server = http.createServer(app);
-  server.listen(PORT, () => {
-    console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT}`);
-    if (process.env.CALDAVURL) {
-      console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
-    }
-  });
 }
 
 module.exports = { app, server };

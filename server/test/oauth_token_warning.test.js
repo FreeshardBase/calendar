@@ -48,7 +48,8 @@ function encryptToken(plaintext) {
   return { enc, ivHex: iv.toString('hex') };
 }
 
-async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Test OAuth' } = {}) {
+async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Test OAuth', username = 'testuser@example.com', url = 'https://apidata.googleusercontent.com/caldav/v2/testuser%40example.com/' } = {}) {
+  await Db.ensureUser(userId, userId);
   const id = uuidv4();
   const { enc, ivHex } = encryptToken('test-refresh-token');
   return new Promise((resolve, reject) => {
@@ -58,8 +59,8 @@ async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Tes
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id, userId,
-        'https://apidata.googleusercontent.com/caldav/v2/testuser%40example.com/',
-        'testuser@example.com', enc, ivHex, displayName, 'oauth2', 'tok',
+        url,
+        username, enc, ivHex, displayName, 'oauth2', 'tok',
         expiresAt ?? null
       ],
       (err) => { if (err) return reject(err); resolve(id); }
@@ -176,8 +177,8 @@ describe('Issue #7 — OAuth Token Expiry Warning', () => {
   test('mixed expired and valid accounts reported correctly', async () => {
     const expiredAt = Date.now() - 3600 * 1000;
     const validAt = Date.now() + 3600 * 1000;
-    await insertOAuthAccount(TEST_USER, { expiresAt: expiredAt, displayName: 'Old Token' });
-    await insertOAuthAccount(TEST_USER, { expiresAt: validAt, displayName: 'Fresh Token' });
+    await insertOAuthAccount(TEST_USER, { expiresAt: expiredAt, displayName: 'Old Token', username: 'olduser@example.com' });
+    await insertOAuthAccount(TEST_USER, { expiresAt: validAt, displayName: 'Fresh Token', username: 'freshuser@example.com' });
 
     const { status, body } = await get('/api/accounts/oauth-token-status', TEST_USER);
     assert.strictEqual(status, 200);

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch, MagicMock
 import os
 import sqlite3
 import tempfile
@@ -41,8 +42,11 @@ class TestSyncWorker(unittest.TestCase):
                 user_id TEXT NOT NULL,
                 account_type TEXT NOT NULL,
                 server_url TEXT,
+                url TEXT,
                 username TEXT,
                 password TEXT,
+                password_encrypted TEXT,
+                iv TEXT,
                 access_token TEXT,
                 refresh_token TEXT,
                 auth_type TEXT
@@ -140,5 +144,47 @@ class TestSyncWorker(unittest.TestCase):
         )
         self.assertTrue(len(secret) > 0)
 
+    def test_vdirsyncer_verify_config_compatibility(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        enc, iv = sync_worker.encrypt("pass123", sync_worker.KEY_BYTES)
+        cursor.execute(
+            "INSERT INTO linked_accounts (id, user_id, account_type, url, username, password_encrypted, iv, auth_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("acc-basic-1", "user-verify-test", "caldav", "http://example.com/caldav", "testuser", enc, iv, "basic")
+        )
+        conn.commit()
+        conn.close()
+
+        captured_content = []
+
+        def mock_run(cmd, *args, **kwargs):
+            config_file = cmd[2]
+            with open(config_file, "r") as f:
+                captured_content.append(f.read())
+            mock_res = MagicMock()
+            mock_res.returncode = 0
+            return mock_res
+
+        os.environ["STATUS_ROOT"] = self.temp_dir
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+
+        with patch("subprocess.run", side_effect=mock_run):
+            sync_worker.sync_basic_caldav_accounts("user-verify-test", conn)
+
+        conn.close()
+
+        self.assertEqual(len(captured_content), 2)
+        content = captured_content[0]
+
+        self.assertNotIn("verify_fingerprint", content)
+        if os.path.exists("/etc/ssl/certs/local/cert.pem"):
+            self.assertIn('verify = "/etc/ssl/certs/local/cert.pem"', content)
+        else:
+            self.assertIn('verify = false', content)
+
+        sync_worker.purge_tmp_credential_files("user-verify-test")
+
 if __name__ == "__main__":
     unittest.main()
+

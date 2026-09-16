@@ -9,8 +9,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `npm start` — serve on :3000 (HTTPS if `ssl/key.pem`+`ssl/cert.pem` exist or `SSL_*_PATH` set, else HTTP).
 - `npm run dev` — same with `--watch`.
 - `NODE_ENV=test npm test` — node:test integration suite (`server/test/*.test.js`).
-  Tests fetch `http://localhost:3000`, so **start the server first** (`NODE_ENV=test node server/index.js`).
-  CalDAV-dependent subtests skip unless `CALDAVURL`/`CALDAV_USERNAME`/`CALDAV_PASSWORD` are set.
+  Tests are self-contained and spin up isolated Express instances on ephemeral ports. No pre-started server is required.
+  Tests isolate database state using `webcalendar.test.db` when `DATABASE_PATH` is unset to protect developer databases.
+- `python3 -m unittest discover -s server/test/python` — Python test suite (`radicale_custom_auth`, `radicale_custom_rights`, `sync_worker`, `msgraph_worker`).
+- `npm run lint` — syntax check JS files (`node --check`) and compile Python modules (`py_compile`).
+- `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
 - `npx playwright test` — e2e (`e2e/calendar.spec.js`), starts its own server via `playwright.config.js`
   (`reuseExistingServer: true`). Needs a reachable internal CalDAV server; local recipe:
   ```
@@ -18,7 +21,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   docker run -d --name cal-radicale -p 5232:5232 -e DATABASE_PATH=/data/webcalendar.db \
     -v /tmp/cal-data:/data -v $PWD/ssl:/etc/radicale/ssl:ro freeshard/radicale:local
   NODE_TLS_REJECT_UNAUTHORIZED=0 INTERNAL_CALDAV_URL=https://localhost:5232 \
-    DATABASE_PATH=/tmp/cal-app.db SSL_KEY_PATH= SSL_CERT_PATH= node server/index.js
+    DATABASE_PATH=/tmp/cal-data/webcalendar.db SSL_KEY_PATH= SSL_CERT_PATH= node server/index.js
   ```
   (self-signed certs: `openssl req -x509 -newkey rsa:2048 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes -subj "/CN=localhost"`)
 - Full stack: `docker compose up --build` (webcalendar + caldav-server + sync-worker, shared SQLite volume).

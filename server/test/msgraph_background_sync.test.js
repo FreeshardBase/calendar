@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3139';
+process.env.PORT = process.env.PORT || '3397';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -92,7 +92,7 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
     });
 
     const scriptDir = path.join(__dirname, '../../sync-worker');
-    const dbPath = path.resolve(__dirname, '../../webcalendar.db');
+    const dbPath = process.env.DATABASE_PATH || (Db.getDbPath && Db.getDbPath()) || path.resolve(__dirname, '../../webcalendar.db');
     const pyCmd = `python3 -c "import sys, os, sqlite3; sys.path.insert(0, '${scriptDir}'); from sync_worker import sync_user; conn = sqlite3.connect('${dbPath}'); conn.row_factory = sqlite3.Row; res, err = sync_user('py-msgraph-user'); print(f'SUCCESS:{res},ERR:{err}')"`;
 
     const out = execSync(pyCmd, {

@@ -26,6 +26,7 @@ export function formatRecurrenceLabel(recurrence) {
 }
 
 let taskCallbacks = {};
+let _currentTask = null;
 
 export function initTaskUI(callbacks = {}) {
   taskCallbacks = callbacks;
@@ -57,6 +58,7 @@ function setupTaskModal() {
 }
 
 export function openTaskModal(task = null) {
+  _currentTask = task;
   const backdrop = document.getElementById('task-modal-backdrop');
   if (!backdrop) return;
 
@@ -94,7 +96,17 @@ export function openTaskModal(task = null) {
     if (selectStatus) selectStatus.value = task.status || 'NEEDS-ACTION';
     if (selectCal && task.calendarId) selectCal.value = task.calendarId;
     if (inputDue && task.due) {
-      inputDue.value = new Date(task.due).toISOString().slice(0, 16);
+      const d = new Date(task.due);
+      if (!isNaN(d.getTime())) {
+        const pad = (n) => String(n).padStart(2, '0');
+        if (task.dueIsDate || task.allDay) {
+          inputDue.value = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T00:00`;
+        } else {
+          inputDue.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+      } else {
+        inputDue.value = '';
+      }
     } else if (inputDue) {
       inputDue.value = '';
     }
@@ -117,6 +129,7 @@ export function openTaskModal(task = null) {
 }
 
 export function closeTaskModal() {
+  _currentTask = null;
   const backdrop = document.getElementById('task-modal-backdrop');
   if (backdrop) closeDialog(backdrop);
 }
@@ -135,7 +148,19 @@ async function handleTaskSave() {
 
   if (!title || !calendarId) return;
 
-  const due = dueVal ? new Date(dueVal).toISOString() : null;
+  let due = null;
+  let dueIsDate = false;
+
+  if (dueVal) {
+    if (_currentTask && (_currentTask.dueIsDate || _currentTask.allDay)) {
+      dueIsDate = true;
+      const datePart = dueVal.split('T')[0];
+      due = `${datePart}T00:00:00.000Z`;
+    } else {
+      due = new Date(dueVal).toISOString();
+    }
+  }
+
   const priority = priorityVal !== '' ? parseInt(priorityVal, 10) : null;
   const recurrence = recurrenceVal || null;
 
@@ -148,6 +173,19 @@ async function handleTaskSave() {
     priority,
     recurrence
   };
+
+  if (_currentTask) {
+    if (_currentTask.dtstart !== undefined) taskData.dtstart = _currentTask.dtstart;
+    if (_currentTask.dtstartIsDate !== undefined) taskData.dtstartIsDate = _currentTask.dtstartIsDate;
+    if (_currentTask.dueIsDate !== undefined) taskData.dueIsDate = dueIsDate;
+    const pct = _currentTask.percentComplete !== undefined ? _currentTask.percentComplete : _currentTask['percent-complete'];
+    if (pct !== undefined) taskData.percentComplete = pct;
+    if (_currentTask.completed !== undefined) taskData.completed = _currentTask.completed;
+    if (_currentTask.completedHistory !== undefined) taskData.completedHistory = _currentTask.completedHistory;
+    if (_currentTask.categories !== undefined) taskData.categories = _currentTask.categories;
+  } else if (dueIsDate) {
+    taskData.dueIsDate = true;
+  }
 
   try {
     if (uid && href) {
@@ -268,7 +306,10 @@ function createKanbanCard(task, callbacks) {
   let dueBadge = '';
   if (task.due) {
     const d = new Date(task.due);
-    dueBadge = `<span class="kanban-due-date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${d.toLocaleDateString('de-DE')}</span>`;
+    const dateStr = (task.dueIsDate || task.allDay)
+      ? d.toLocaleDateString('de-DE', { timeZone: 'UTC' })
+      : d.toLocaleDateString('de-DE');
+    dueBadge = `<span class="kanban-due-date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${dateStr}</span>`;
   }
 
   let prioBadge = '';
@@ -358,7 +399,7 @@ export function advanceRecurringTaskJS(task) {
   if (!task || !task.recurrence) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
 
   const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
-  const completionTime = new Date().toISOString();
+  const completionTime = task.completed || new Date().toISOString();
   const completedHistory = [...currentHistory, completionTime];
 
   if (typeof window !== 'undefined' && window.ICAL && window.ICAL.Recur) {
@@ -491,7 +532,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
       <div class="sidebar-task-info" style="cursor:pointer; flex:1;">
         <div class="sidebar-task-title ${prioClass}">${escapeHtml(task.title)}</div>
         <div class="sidebar-task-meta" style="font-size:0.75rem; color:var(--ink-muted);">
-          ${task.due ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${new Date(task.due).toLocaleDateString('de-DE')}` : ''}
+          ${task.due ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${(task.dueIsDate || task.allDay) ? new Date(task.due).toLocaleDateString('de-DE', { timeZone: 'UTC' }) : new Date(task.due).toLocaleDateString('de-DE')}` : ''}
           ${task.recurrence ? ` <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>` : ''}
         </div>
       </div>

@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = '3108';
+process.env.PORT = '3288';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -19,6 +19,12 @@ const {
 
 test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
   const { app, server } = require('../index');
+
+  t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
 
   t.after(() => {
     if (server && server.close) {

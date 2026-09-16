@@ -149,7 +149,7 @@ test('Issue #134 — Comprehensive User Deletion Cleanup & Radicale ASP Revocati
     ['token-134', `/internal-caldav/${userId}/personal/`, 'Share', Date.now()]
   );
 
-  const dbPath = path.join(__dirname, '../../webcalendar.db');
+  const dbPath = Db.dbPath || (Db.getDbPath && Db.getDbPath()) || process.env.DATABASE_PATH || path.join(__dirname, '../../webcalendar.db');
 
   // Helper to run Radicale auth logic via Python
   const checkRadicaleAuth = (login, pw) => {

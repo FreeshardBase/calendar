@@ -44,5 +44,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
 USER radicale
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["radicale", "--config", "/etc/radicale/config", "--debug"]
+CMD ["radicale", "--config", "/etc/radicale/config"]
 

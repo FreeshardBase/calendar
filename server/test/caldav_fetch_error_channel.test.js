@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3099';
+process.env.PORT = process.env.PORT || '3299';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -16,6 +16,12 @@ const { app, server } = require('../index');
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
 test('Issue #65 — CalDAV Fetch Error Channel & Status Enforcement', async (t) => {
+  t.before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(process.env.PORT, resolve));
+    }
+  });
+
   t.after(() => {
     if (server && server.close) {
       server.close();

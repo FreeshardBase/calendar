@@ -9,12 +9,14 @@ const path = require('path');
 
 describe('Issue #62 — Sync Worker Exception Guard & Expiration Mismatch Suite', () => {
   const scriptDir = path.join(__dirname, '../../sync-worker');
-  const dbPath = (Db.getDbPath && Db.getDbPath()) || process.env.DATABASE_PATH || path.resolve(__dirname, '../../webcalendar.db');
+  const dbPath = (Db.getDbPath && Db.getDbPath()) || Db.dbPath || process.env.DATABASE_PATH || path.resolve(__dirname, '../webcalendar.test.db');
 
   test('sync_worker process_next_job recovers from unguarded exceptions and does not strand job in RUNNING', async () => {
-    await new Promise(resolve => Db.db.run('DELETE FROM sync_queue', resolve));
+    const targetDbPath = Db.getDbPath ? Db.getDbPath() : Db.dbPath;
     const userId = 'testuser-unguarded-exc';
-    await Db.clearSyncJobsForUser(userId);
+    await Db.withTransaction(async (tx) => {
+      await tx.run('DELETE FROM sync_queue');
+    });
 
     const job = await Db.addSyncJob(userId, { maxAttempts: 3, nextRetryAt: Date.now() - 1000 });
     assert.equal(job.status, 'PENDING');
@@ -28,12 +30,12 @@ def failing_sync_user(user_id):
     raise RuntimeError("Simulated crash in sync_user")
 
 sync_worker.sync_user = failing_sync_user
-res = sync_worker.process_next_job(${JSON.stringify(dbPath)})
+res = sync_worker.process_next_job(${JSON.stringify(targetDbPath)})
 print(f"PY_RES:{res}, NOW:{int(time.time()*1000)}")
 `;
 
     execFileSync('python3', ['-c', pyCode], {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, DATABASE_PATH: targetDbPath },
       encoding: 'utf8'
     });
 

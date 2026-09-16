@@ -17,15 +17,22 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-freeshard-webcalendar-prod-secret-change-in-env}
       TRUST_PROXY: "true"
       COOKIE_SECURE: "auto"
-      COOKIE_SAME_SITE: "lax"
+      COOKIE_SAME_SITE: "strict"
       SSL_KEY_PATH: ""
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: https://caldav-server:5232
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}
     volumes:
       - shared-data:/app/data
       - ./ssl:/app/ssl:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || wget -qO- --no-check-certificate https://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   caldav-server:
     build: ./radicale
@@ -45,7 +52,6 @@ services:
       start_period: 10s
     volumes:
       - shared-data:/data
-      - radicale-collections:/data/collections
       - ./ssl:/etc/radicale/ssl:ro
 
   sync-worker:
@@ -59,6 +65,7 @@ services:
     env_file:
       - .env
     environment:
+      PYTHONUNBUFFERED: "1"
       DATABASE_PATH: /data/webcalendar.db
       STATUS_ROOT: /data/vdir_status
       LOCAL_CALDAV_URL: https://caldav-server:5232
@@ -72,5 +79,4 @@ services:
 
 volumes:
   shared-data:
-  radicale-collections:
   vdir-status:

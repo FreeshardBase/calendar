@@ -87,7 +87,7 @@ function getSessionConfig(env = process.env, options = {}) {
     cookie: {
       secure: cookieSecure,
       httpOnly: true,
-      sameSite: env.COOKIE_SAME_SITE || 'lax',
+      sameSite: env.COOKIE_SAME_SITE || 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     }
   };

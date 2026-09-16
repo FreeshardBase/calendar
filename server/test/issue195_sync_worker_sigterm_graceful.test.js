@@ -9,7 +9,7 @@ const path = require('path');
 
 describe('Issue #195 — Sync Worker SIGTERM Signal & Graceful Exit Suite', () => {
   const scriptDir = path.join(__dirname, '../../sync-worker');
-  const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../../webcalendar.db');
+  const dbPath = Db.getDbPath();
 
   test('sync_worker process registers SIGTERM handler and exits cleanly on SIGTERM', async () => {
     const pyCode = `
@@ -81,6 +81,7 @@ print(f"RECOVERED:{count}")
     assert.ok(out.includes('RECOVERED:'), 'Should output RECOVERED count');
 
     jobs = await Db.getSyncJobs(userId);
+    assert.ok(jobs && jobs.length > 0, 'Jobs must exist in sync_queue for user');
     assert.equal(jobs[0].status, 'PENDING', 'Stranded job must be reset to PENDING on startup');
 
     await Db.clearSyncJobsForUser(userId);
@@ -135,6 +136,7 @@ time.sleep(5)
     const updatedJob = await new Promise((resolve, reject) => {
       Db.db.get("SELECT * FROM sync_queue WHERE id = ?", [job.id], (err, row) => err ? reject(err) : resolve(row));
     });
+    assert.ok(updatedJob, 'Active job must exist in sync_queue');
     assert.equal(updatedJob.status, 'PENDING', 'Active job must be reset to PENDING when SIGTERM is caught');
 
     await Db.clearSyncJobsForUser(userId);
