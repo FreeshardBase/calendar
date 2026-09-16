@@ -517,6 +517,33 @@ function parseVTodoToTask(vtodo, meta = {}) {
   const pctVal = vtodo.getFirstPropertyValue('percent-complete');
   const percentComplete = (pctVal !== null && pctVal !== undefined) ? parseInt(pctVal, 10) : null;
 
+  const durationProp = vtodo.getFirstProperty('duration');
+  let duration = null;
+  if (durationProp) {
+    const val = durationProp.getFirstValue();
+    if (val) duration = val.toString();
+  }
+
+  if (!due && dtstart && durationProp) {
+    try {
+      const startVal = dtstartProp ? dtstartProp.getFirstValue() : null;
+      const durVal = durationProp.getFirstValue();
+      if (startVal && durVal) {
+        const calculated = startVal.clone();
+        calculated.addDuration(durVal);
+        dueIsDate = !!calculated.isDate;
+        if (calculated.isDate) {
+          const y = String(calculated.year).padStart(4, '0');
+          const m = String(calculated.month).padStart(2, '0');
+          const d = String(calculated.day).padStart(2, '0');
+          due = `${y}-${m}-${d}T00:00:00.000Z`;
+        } else {
+          due = calculated.toJSDate().toISOString();
+        }
+      }
+    } catch (_) {}
+  }
+
   let recurrence = null;
   const rrule = vtodo.getFirstProperty('rrule');
   if (rrule) recurrence = rrule.getFirstValue().toString();
@@ -555,6 +582,7 @@ function parseVTodoToTask(vtodo, meta = {}) {
     dueIsDate,
     dtstart,
     dtstartIsDate,
+    duration,
     completed,
     priority,
     percentComplete,
@@ -687,7 +715,20 @@ function taskToICS(rawTask, existingIcs = null) {
         if ('description' in task) setProp('description', task.description);
         if ('status' in task) setProp('status', task.status);
 
-        if ('due' in task) setDateProp('due', task.due, task.dueIsDate !== undefined ? task.dueIsDate : (task.allDay !== undefined ? task.allDay : undefined));
+        if (task.duration) {
+          setProp('duration', task.duration);
+          vtodo.removeAllProperties('due');
+        } else {
+          if ('duration' in task && !task.duration) {
+            vtodo.removeAllProperties('duration');
+          }
+          if ('due' in task) {
+            if (vtodo.getFirstProperty('duration')) {
+              vtodo.removeAllProperties('duration');
+            }
+            setDateProp('due', task.due, task.dueIsDate !== undefined ? task.dueIsDate : (task.allDay !== undefined ? task.allDay : undefined));
+          }
+        }
         if ('dtstart' in task) setDateProp('dtstart', task.dtstart, task.dtstartIsDate !== undefined ? task.dtstartIsDate : (task.allDay !== undefined ? task.allDay : undefined));
         if ('completed' in task) setDateProp('completed', task.completed);
 
@@ -778,7 +819,9 @@ function taskToICS(rawTask, existingIcs = null) {
   if (task.description) lines.push(`DESCRIPTION:${escIcal(task.description)}`);
   if (task.status)      lines.push(`STATUS:${task.status}`);
 
-  if (task.due) {
+  if (task.duration) {
+    lines.push(`DURATION:${task.duration}`);
+  } else if (task.due) {
     if (task.dueIsDate || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
       lines.push(`DUE;VALUE=DATE:${fmtDate(task.due)}`);
     } else {
@@ -1119,6 +1162,7 @@ function isNoOpTaskSave(existingIcs, incomingTaskData) {
       const ip = (i.percentComplete !== null && i.percentComplete !== undefined) ? parseInt(i.percentComplete, 10) : null;
       return ep === ip;
     }],
+    ['duration', (e, i) => (e.duration || null) === (i.duration || null)],
     ['recurrence', (e, i) => normRrule(e.recurrence) === normRrule(i.recurrence)]
   ];
 

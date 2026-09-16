@@ -4,6 +4,14 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Issue #302 — DTSTART + DURATION Task Preservation & Mutual Exclusion (`server/caldav/parser.js`, `server/routes/tasks.js`, `server/test/issue302_dtstart_duration_task_preservation.test.js`):**
+  - Resolved critical defect where tasks (VTODO) expressed as `DTSTART` plus `DURATION` (without explicit `DUE`) had `DURATION` ignored during parsing, resulting in `due = null` and `duration = null`, losing the deadline entirely upon serialization in zero-edit saves.
+  - Updated `parseVTodoToTask` in `server/caldav/parser.js` to extract `duration` property (`DURATION:PT2H`) and compute `due` (and `dueIsDate`) from `dtstart` + `duration` via ICAL.js (`startVal.clone().addDuration(durVal)`).
+  - Enforced RFC 5545 3.6.2 mutual exclusion between `DUE` and `DURATION` in `taskToICS` (`server/caldav/parser.js`): setting `task.duration` writes `DURATION:${task.duration}` and removes `DUE`; setting `task.due` without `task.duration` writes `DUE` and removes `DURATION`, preventing RFC 5545 property collision and HTTP 500 server errors.
+  - Updated `isNoOpTaskSave` in `server/caldav/parser.js` to include `duration` in field equality checks, preventing redundant CalDAV PUT operations for tasks with duration properties.
+  - Updated `PUT /api/tasks/:uid` in `server/routes/tasks.js` to preserve `task.duration` from `existingTask` when updating tasks.
+  - Certified behavior with dedicated TDD test suite `server/test/issue302_dtstart_duration_task_preservation.test.js` (5 tests across 5 consecutive save cycles, 100% green).
+
 - **Issue #299 — Timed UNTIL Preservation Across Event Saves (`public/js/eventModal.js`, `server/test/issue299_timed_until_preservation.test.js`):**
   - Resolved defect where saving an event with a timed UNTIL parameter (e.g., `UNTIL=20261015T120000Z`) formatted date-only UNTIL with default `T235959Z` on every save, extending the recurrence window until end-of-day and adding unwanted occurrences excluded by the rule's author.
   - Updated `handleSubmit` in `public/js/eventModal.js` to check if `_currentEvent.recurrence` contains an existing `UNTIL` parameter. If the date part matches the selected UNTIL date in `recur-end-date` (`origUntil.startsWith(datePart)`), `eventModal.js` preserves the exact original `UNTIL` timestamp string instead of forcing `${datePart}T235959Z`.

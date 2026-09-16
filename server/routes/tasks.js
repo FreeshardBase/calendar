@@ -206,6 +206,9 @@ router.put('/:uid', async (req, res) => {
         } else if (!('dueIsDate' in taskData) && existingTask.dueIsDate !== undefined) {
           task.dueIsDate = existingTask.dueIsDate;
         }
+        if (!('duration' in taskData) && existingTask.duration !== undefined) {
+          task.duration = existingTask.duration;
+        }
         if (!('percentComplete' in taskData) && !('percent-complete' in taskData) && existingTask.percentComplete !== undefined) {
           task.percentComplete = existingTask.percentComplete;
         }
