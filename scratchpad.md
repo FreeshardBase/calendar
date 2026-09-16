@@ -4,6 +4,11 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Issue #299 — Timed UNTIL Preservation Across Event Saves (`public/js/eventModal.js`, `server/test/issue299_timed_until_preservation.test.js`):**
+  - Resolved defect where saving an event with a timed UNTIL parameter (e.g., `UNTIL=20261015T120000Z`) formatted date-only UNTIL with default `T235959Z` on every save, extending the recurrence window until end-of-day and adding unwanted occurrences excluded by the rule's author.
+  - Updated `handleSubmit` in `public/js/eventModal.js` to check if `_currentEvent.recurrence` contains an existing `UNTIL` parameter. If the date part matches the selected UNTIL date in `recur-end-date` (`origUntil.startsWith(datePart)`), `eventModal.js` preserves the exact original `UNTIL` timestamp string instead of forcing `${datePart}T235959Z`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue299_timed_until_preservation.test.js` (3 tests, 100% green).
+
 - **ICS Writer Fall-Back Repeated Hour Instants UTC Representation (Issue #294):**
   - Resolved defect where two event start/end instants occurring an hour apart within a fall-back Daylight Saving Time (DST) repeated hour (e.g., 00:30 UTC vs 01:30 UTC in `Europe/Berlin` on 2026-10-25) formatted to identical local wall-clock representations (`02:30:00`), producing identical `DTSTART`/`DTEND` bytes in stored ICS payloads.
   - Implemented `isTzidLossy(iso, tzid)` helper in `server/utils/ical.js` detecting when a local `TZID` wall-clock time is ambiguous or lossy during fall-back DST transitions.

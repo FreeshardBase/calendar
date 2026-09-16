@@ -630,7 +630,17 @@ function getUtcDate(dateStr, timeStr, timeZone) {
         const untilDateVal = $('recur-end-date').value;
         if (untilDateVal) {
           const datePart = untilDateVal.replace(/-/g, '');
-          recurrence += `;UNTIL=${datePart}T235959Z`;
+          let untilVal = `${datePart}T235959Z`;
+          if (_currentEvent && typeof _currentEvent.recurrence === 'string') {
+            const origUntilMatch = _currentEvent.recurrence.match(/UNTIL=([^;]+)/);
+            if (origUntilMatch) {
+              const origUntil = origUntilMatch[1];
+              if (origUntil.startsWith(datePart)) {
+                untilVal = origUntil;
+              }
+            }
+          }
+          recurrence += `;UNTIL=${untilVal}`;
         }
       } else if (endType === 'COUNT') {
         const countVal = $('recur-end-count').value;
