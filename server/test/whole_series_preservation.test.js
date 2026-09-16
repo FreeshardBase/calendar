@@ -183,7 +183,86 @@ test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation
     });
     assert.ok(fallbackIcs.includes('SUMMARY:Fallback Event'));
     assert.ok(fallbackIcs.includes('UID:fallback-uid'));
+
+    const nullFallback = updateWholeSeries(null, {
+      uid: 'null-uid',
+      title: 'Null Fallback Event',
+      start: '2026-09-01T09:00:00.000Z',
+      end: '2026-09-01T10:00:00.000Z'
+    });
+    assert.ok(nullFallback.includes('SUMMARY:Null Fallback Event'));
   });
+
+  await t.test('updateWholeSeries kills mutant when only detached VEVENT is present in existingIcs', () => {
+    const detachedOnlyIcs = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:detached-only-series',
+      'RECURRENCE-ID:20260915T090000Z',
+      'SUMMARY:Detached Instance Only',
+      'DTSTART:20260915T110000Z',
+      'DTEND:20260915T120000Z',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const updatedIcs = updateWholeSeries(detachedOnlyIcs, {
+      uid: 'detached-only-series',
+      title: 'Updated Master Title',
+      start: '2026-09-01T09:00:00.000Z',
+      end: '2026-09-01T10:00:00.000Z',
+      allDay: false
+    });
+
+    assert.ok(updatedIcs.includes('RECURRENCE-ID:20260915T090000Z'), 'Detached RECURRENCE-ID must be preserved when no master VEVENT is present');
+  });
+
+  await t.test('updateWholeSeries preserves all VEVENT subcomponents and kills vevent subcomponent query mutant', () => {
+    const multiVeventIcs = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:multi-vevent-series',
+      'SUMMARY:Master Event',
+      'DTSTART:20260901T090000Z',
+      'DTEND:20260901T100000Z',
+      'RRULE:FREQ=WEEKLY',
+      'EXDATE:20260908T090000Z',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:multi-vevent-series',
+      'RECURRENCE-ID:20260915T090000Z',
+      'SUMMARY:Override Instance 1',
+      'DTSTART:20260915T110000Z',
+      'DTEND:20260915T120000Z',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:multi-vevent-series',
+      'RECURRENCE-ID:20260922T090000Z',
+      'SUMMARY:Override Instance 2',
+      'DTSTART:20260922T110000Z',
+      'DTEND:20260922T120000Z',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const updatedIcs = updateWholeSeries(multiVeventIcs, {
+      uid: 'multi-vevent-series',
+      title: 'Updated Master Series Title',
+      start: '2026-09-01T09:00:00.000Z',
+      end: '2026-09-01T10:00:00.000Z',
+      allDay: false,
+      recurrence: 'FREQ=WEEKLY'
+    });
+
+    const veventMatches = updatedIcs.match(/BEGIN:VEVENT/g);
+    assert.equal(veventMatches ? veventMatches.length : 0, 3, 'Must preserve all 3 VEVENT subcomponents (master + 2 detached overrides)');
+    assert.ok(updatedIcs.includes('SUMMARY:Override Instance 1'), 'First detached override must be preserved');
+    assert.ok(updatedIcs.includes('SUMMARY:Override Instance 2'), 'Second detached override must be preserved');
+    assert.ok(updatedIcs.includes('EXDATE:20260908T090000Z'), 'EXDATE must be preserved');
+  });
+
 
   await t.test('PUT /api/events/:uid preserves EXDATE and detached overrides when editing whole series via HTTP', async () => {
     const baseUrl = `http://localhost:${process.env.PORT}`;
