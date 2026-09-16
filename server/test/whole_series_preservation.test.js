@@ -98,6 +98,93 @@ test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation
     assert.equal(instances.length, 4, 'Must expand to 4 instances (one EXDATE excluded)');
   });
 
+  await t.test('updateWholeSeries correctly identifies master VEVENT when detached override appears first in ICS', () => {
+    const reversedIcs = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:series-reversed-order',
+      'RECURRENCE-ID:20260915T090000Z',
+      'SUMMARY:Detached Override First',
+      'DTSTART:20260915T110000Z',
+      'DTEND:20260915T120000Z',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:series-reversed-order',
+      'SUMMARY:Master Event Second',
+      'DTSTART:20260901T090000Z',
+      'DTEND:20260901T100000Z',
+      'RRULE:FREQ=WEEKLY',
+      'EXDATE:20260908T090000Z',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const updatedIcs = updateWholeSeries(reversedIcs, {
+      uid: 'series-reversed-order',
+      title: 'Renamed Master Series',
+      start: '2026-09-01T09:00:00.000Z',
+      end: '2026-09-01T10:00:00.000Z',
+      allDay: false,
+      recurrence: 'FREQ=WEEKLY'
+    });
+
+    assert.ok(updatedIcs.includes('SUMMARY:Renamed Master Series'), 'Master event summary must be updated');
+    assert.ok(updatedIcs.includes('SUMMARY:Detached Override First'), 'Detached override summary must be untouched');
+    assert.ok(updatedIcs.includes('RECURRENCE-ID:20260915T090000Z'), 'Detached RECURRENCE-ID must be preserved');
+  });
+
+  await t.test('updateWholeSeries preserves multiple EXDATE properties and VTIMEZONE blocks', () => {
+    const multiExdateIcs = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VTIMEZONE',
+      'TZID:Europe/Berlin',
+      'BEGIN:STANDARD',
+      'DTSTART:19701025T030000',
+      'TZOFFSETFROM:+0200',
+      'TZOFFSETTO:+0100',
+      'END:STANDARD',
+      'END:VTIMEZONE',
+      'BEGIN:VEVENT',
+      'UID:series-multi-exdate',
+      'SUMMARY:Multi Exdate Master',
+      'DTSTART;TZID=Europe/Berlin:20260901T090000',
+      'DTEND;TZID=Europe/Berlin:20260901T100000',
+      'RRULE:FREQ=WEEKLY',
+      'EXDATE;TZID=Europe/Berlin:20260908T090000',
+      'EXDATE;TZID=Europe/Berlin:20260922T090000',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const updatedIcs = updateWholeSeries(multiExdateIcs, {
+      uid: 'series-multi-exdate',
+      title: 'Updated Multi Exdate Master',
+      start: '2026-09-01T09:00:00.000Z',
+      end: '2026-09-01T10:00:00.000Z',
+      allDay: false,
+      recurrence: 'FREQ=WEEKLY'
+    });
+
+    assert.ok(updatedIcs.includes('SUMMARY:Updated Multi Exdate Master'), 'Title must update');
+    assert.ok(updatedIcs.includes('EXDATE;TZID=Europe/Berlin:20260908T090000'), 'First EXDATE must be preserved');
+    assert.ok(updatedIcs.includes('EXDATE;TZID=Europe/Berlin:20260922T090000'), 'Second EXDATE must be preserved');
+    assert.ok(updatedIcs.includes('BEGIN:VTIMEZONE'), 'VTIMEZONE component must be preserved');
+    assert.ok(updatedIcs.includes('TZID:Europe/Berlin'), 'VTIMEZONE tzid must be preserved');
+  });
+
+  await t.test('updateWholeSeries handles empty or whitespace existingIcs safely', () => {
+    const fallbackIcs = updateWholeSeries('   ', {
+      uid: 'fallback-uid',
+      title: 'Fallback Event',
+      start: '2026-09-01T09:00:00.000Z',
+      end: '2026-09-01T10:00:00.000Z'
+    });
+    assert.ok(fallbackIcs.includes('SUMMARY:Fallback Event'));
+    assert.ok(fallbackIcs.includes('UID:fallback-uid'));
+  });
+
   await t.test('PUT /api/events/:uid preserves EXDATE and detached overrides when editing whole series via HTTP', async () => {
     const baseUrl = `http://localhost:${process.env.PORT}`;
     const testUserId = 'test-series-user-241';

@@ -4,6 +4,13 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation Test Enhancements (`server/test/whole_series_preservation.test.js`):**
+  - Expanded `server/test/whole_series_preservation.test.js` with targeted test cases verifying `updateWholeSeries`:
+    - Master `VEVENT` identification when a detached override appears first in the incoming iCalendar payload.
+    - Preservation of multiple `EXDATE` lines and `VTIMEZONE` component blocks during series updates.
+    - Graceful handling of empty or whitespace-only `existingIcs` input.
+  - Verified 100% green against Node.js test suite (`npm test`) and Playwright E2E test suite (`npx playwright test`).
+
 - **Issue #325 — updateWholeSeries Malformed TZID...Z Prevention (`server/utils/ical.js`, `server/test/issue325_updateWholeSeries_malformed_tzid_z.test.js`):**
   - Resolved defect in `updateWholeSeries`, `addOccurrenceException`, `upsertOccurrenceOverride`, and `eventToICS` where serialization could generate invalid RFC 5545 date-time lines containing both a `TZID` parameter AND a trailing UTC `Z` suffix (e.g. `DTSTART;TZID=Europe/Berlin:20260610T100000Z`).
   - Implemented `cleanMalformedTzidZ(str)` helper in `server/utils/ical.js` stripping trailing `Z` from `TZID`-qualified date-time parameters (`(;TZID=[^:]+:\d{8}T\d{6})Z`), preserving clean local wall-clock representation without timezone ambiguity or cumulative drift across consecutive edit cycles.
