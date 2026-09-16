@@ -449,6 +449,15 @@ function parseICSToTask(icsString, meta = {}) {
   try {
     const jcal = ICAL.parse(icsString);
     const comp = new ICAL.Component(jcal);
+    const vtimezones = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtimezone') : [];
+    for (const vtz of vtimezones) {
+      try {
+        const tzid = vtz.getFirstPropertyValue('tzid');
+        if (tzid && !ICAL.TimezoneService.has(tzid)) {
+          ICAL.TimezoneService.register(vtz);
+        }
+      } catch (_) {}
+    }
     const vtodo = comp.getFirstSubcomponent('vtodo');
     if (!vtodo) return null;
     return parseVTodoToTask(vtodo, { rawIcs: icsString, ...meta });

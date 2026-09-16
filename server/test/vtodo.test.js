@@ -156,4 +156,97 @@ END:VCALENDAR</c:calendar-data>
     assert.ok(advancedWeekly.due.startsWith('2026-08-17'));
   });
 
+  test('should parse VTODO anchored with TZID parameter (Issue #304 task timezone family)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VTIMEZONE',
+      'TZID:Europe/Berlin',
+      'BEGIN:DAYLIGHT',
+      'TZOFFSETFROM:+0100',
+      'TZOFFSETTO:+0200',
+      'TZNAME:CEST',
+      'DTSTART:19700329T020000',
+      'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU',
+      'END:DAYLIGHT',
+      'END:VTIMEZONE',
+      'BEGIN:VTODO',
+      'UID:task-tzid-berlin',
+      'SUMMARY:Meeting mit Berlin Team',
+      'STATUS:NEEDS-ACTION',
+      'DUE;TZID=Europe/Berlin:20260815T140000',
+      'END:VTODO',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const task = parseICSToTask(ics);
+    assert.notEqual(task, null);
+    assert.equal(task.uid, 'task-tzid-berlin');
+    assert.equal(task.due, '2026-08-15T12:00:00.000Z');
+  });
+
+  test('should parse VTODO with DATE-only DUE property (VALUE=DATE)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VTODO',
+      'UID:task-date-only',
+      'SUMMARY:Steuererklärung abgeben',
+      'DUE;VALUE=DATE:20260815',
+      'END:VTODO',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const task = parseICSToTask(ics);
+    assert.notEqual(task, null);
+    assert.equal(task.due, '2026-08-15T00:00:00.000Z');
+    assert.equal(task.dueIsDate, true);
+  });
+
+  test('should parse VTODO with local floating time DUE property (no Z or TZID)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VTODO',
+      'UID:task-floating-time',
+      'SUMMARY:Medikamente einnehmen',
+      'DUE:20260815T120000',
+      'END:VTODO',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const task = parseICSToTask(ics);
+    assert.notEqual(task, null);
+    assert.ok(task.due.includes('2026-08-15'));
+  });
+
+  test('should parse VTODO anchored with DTSTART;TZID and DURATION', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VTIMEZONE',
+      'TZID:Europe/Berlin',
+      'BEGIN:DAYLIGHT',
+      'TZOFFSETFROM:+0100',
+      'TZOFFSETTO:+0200',
+      'TZNAME:CEST',
+      'DTSTART:19700329T020000',
+      'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU',
+      'END:DAYLIGHT',
+      'END:VTIMEZONE',
+      'BEGIN:VTODO',
+      'UID:task-dtstart-duration-tzid',
+      'SUMMARY:Wartungsarbeiten Server',
+      'DTSTART;TZID=Europe/Berlin:20260815T100000',
+      'DURATION:PT2H',
+      'END:VTODO',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const task = parseICSToTask(ics);
+    assert.notEqual(task, null);
+    assert.equal(task.due, '2026-08-15T10:00:00.000Z');
+    assert.equal(task.duration, 'PT2H');
+  });
+
 });
