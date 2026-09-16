@@ -1,0 +1,50 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "npm",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": [
+      "server/test/critical_auth_timezone_assertions.test.js",
+      "server/test/ical_property_escaping.test.js",
+      "server/test/issue127_builditipreply_cn_escaping.test.js",
+      "server/test/issue128_custom_valarm_presets.test.js",
+      "server/test/issue13_vtodo_caldav_sync.test.js",
+      "server/test/issue93_vtodo_date_only_due.test.js",
+      "server/test/issue95_vtodo_rrule_completion_history.test.js",
+      "server/test/itip_rsvp.test.js",
+      "server/test/parser.test.js",
+      "server/test/radicale_tls_optional.test.js",
+      "server/test/recurring_task_advance.test.js",
+      "server/test/series_destruction_noop.test.js",
+      "server/test/timezone_grid.test.js",
+      "server/test/valarm.test.js",
+      "server/test/vtimezone.test.js",
+      "server/test/vtodo.test.js",
+      "server/test/vtodo_foreign_properties.test.js",
+      "server/test/vtodo_only_collection.test.js",
+      "server/test/vtodo_routes.test.js",
+      "server/test/vtodo_rrule_preservation.test.js",
+      "server/test/whole_series_preservation.test.js"
+    ],
+    "forceBail": false
+  },
+  "mutate": [
+    "server/utils/ical.js",
+    "server/caldav/parser.js"
+  ],
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress"
+  ],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "concurrency": 2,
+  "timeoutMS": 30000,
+  "thresholds": {
+    "high": 70,
+    "low": 50,
+    "break": 30
+  }
+}

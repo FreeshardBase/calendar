@@ -1,0 +1,35 @@
+name: Mutation testing
+
+# Deliberately NOT on push or pull_request: this repo is private, so Actions
+# minutes are billed, and a full Stryker pass over the iCalendar layer takes
+# tens of minutes. Run it on demand, plus a weekly baseline.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'   # Mondays 03:17 UTC
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'      # Stryker 10 requires Node >= 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run mutation tests
+        run: npm run test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
