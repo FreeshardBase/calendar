@@ -285,7 +285,7 @@ function fmtDateTime(iso) {
     return iso.endsWith('Z') ? iso : iso + 'Z';
   }
   const date = new Date(iso);
-  if (isNaN(date.getTime())) return String(iso);
+  if (isNaN(date.getTime())) return null;
   return date.toISOString()
     .replace(/[-:]/g, '')
     .replace(/\.\d{3}/, '');
@@ -293,6 +293,7 @@ function fmtDateTime(iso) {
 
 function fmtDateTimeTzid(iso, tzid) {
   const date = new Date(iso);
+  if (isNaN(date.getTime())) return null;
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: tzid,
     year: 'numeric',
@@ -313,11 +314,16 @@ function fmtDateTimeTzid(iso, tzid) {
 }
 
 function fmtDate(iso) {
-  if (!iso) return '';
-  if (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}/.test(iso)) {
-    return iso.slice(0, 10).replace(/-/g, '');
+  if (!iso) return null;
+  if (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso.slice(0, 10))) {
+    const parts = iso.slice(0, 10).split('-');
+    const dt = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+    if (!isNaN(dt.getTime())) {
+      return iso.slice(0, 10).replace(/-/g, '');
+    }
   }
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
@@ -396,7 +402,11 @@ function reconcileTaskStatus(task) {
 
   const res = { ...task };
 
-  let status = res.status ? String(res.status).toUpperCase() : null;
+  let status = res.status ? String(res.status).replace(/[\r\n\x00-\x1f]/g, '').trim().toUpperCase() : null;
+  const validStatuses = new Set(['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED']);
+  if (status && !validStatuses.has(status) && !/^[A-Z0-9-]+$/.test(status)) {
+    status = null;
+  }
   let completed = res.completed || null;
   let percentComplete = (res.percentComplete !== null && res.percentComplete !== undefined)
     ? parseInt(res.percentComplete, 10)
@@ -680,7 +690,7 @@ function taskToICS(rawTask, existingIcs = null) {
         };
 
         const setDateProp = (name, isoVal, forceIsDate = undefined) => {
-          if (!isoVal) {
+          if (!isoVal || (typeof isoVal === 'string' && isNaN(new Date(isoVal).getTime()))) {
             vtodo.removeAllProperties(name);
           } else {
             let timeVal;
@@ -714,45 +724,76 @@ function taskToICS(rawTask, existingIcs = null) {
               } else {
                 vtodo.addPropertyWithValue(name, timeVal);
               }
+            } else {
+              vtodo.removeAllProperties(name);
             }
           }
         };
 
         setProp('uid', uid);
         setProp('summary', task.title || 'Untitled');
+        if ('description' in task) {
+          setProp('description', task.description);
+        }
 
-        if ('description' in task) setProp('description', task.description);
-        if ('status' in task) setProp('status', task.status);
-
-        if (task.duration) {
-          setProp('duration', task.duration);
-          vtodo.removeAllProperties('due');
-        } else {
-          if ('duration' in task && !task.duration) {
-            vtodo.removeAllProperties('duration');
+        if ('status' in task) {
+          if (task.status) {
+            const cleanStatus = String(task.status).replace(/[\r\n\x00-\x1f]/g, '').trim().toUpperCase();
+            const validStatus = ['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED'].includes(cleanStatus)
+              ? cleanStatus
+              : (/^[A-Z0-9-]+$/.test(cleanStatus) ? cleanStatus : 'NEEDS-ACTION');
+            setProp('status', validStatus);
+          } else {
+            vtodo.removeAllProperties('status');
           }
-          if ('due' in task) {
-            if (vtodo.getFirstProperty('duration')) {
+        }
+
+        const isValidDateVal = (val) => Boolean(val) && !isNaN(new Date(val).getTime());
+        const isValidDurationVal = (val) => Boolean(val) && /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.test(String(val).trim());
+
+        const hasDtstart = Boolean((task.dtstart && isValidDateVal(task.dtstart)) || (vtodo.getFirstProperty('dtstart') && vtodo.getFirstProperty('dtstart').getFirstValue()));
+
+        if (!hasDtstart) {
+          // RFC 5545 3.6.2: A VTODO without DTSTART MUST NOT have DURATION.
+          vtodo.removeAllProperties('duration');
+          if (task.due || 'due' in task) {
+            setDateProp('due', task.due, task.dueIsDate !== undefined ? task.dueIsDate : (task.allDay !== undefined ? task.allDay : undefined));
+          } else {
+            vtodo.removeAllProperties('due');
+          }
+        } else {
+          if (task.duration) {
+            if (isValidDurationVal(task.duration)) {
+              setProp('duration', String(task.duration).replace(/[\r\n]/g, '').trim());
+              vtodo.removeAllProperties('due');
+            } else {
               vtodo.removeAllProperties('duration');
             }
+          } else if (task.due) {
+            vtodo.removeAllProperties('duration');
             setDateProp('due', task.due, task.dueIsDate !== undefined ? task.dueIsDate : (task.allDay !== undefined ? task.allDay : undefined));
+          } else {
+            if ('duration' in task && !task.duration) vtodo.removeAllProperties('duration');
+            if ('due' in task && !task.due) vtodo.removeAllProperties('due');
           }
         }
         if ('dtstart' in task) setDateProp('dtstart', task.dtstart, task.dtstartIsDate !== undefined ? task.dtstartIsDate : (task.allDay !== undefined ? task.allDay : undefined));
         if ('completed' in task) setDateProp('completed', task.completed);
 
         if ('priority' in task) {
-          if (task.priority !== null && task.priority !== undefined) {
-            setProp('priority', parseInt(task.priority, 10));
+          const p = parseInt(task.priority, 10);
+          if (task.priority !== null && task.priority !== undefined && !isNaN(p) && p >= 0 && p <= 9) {
+            setProp('priority', p);
           } else {
             vtodo.removeAllProperties('priority');
           }
         }
 
         if ('percentComplete' in task || 'percent-complete' in task) {
-          const pct = task.percentComplete !== undefined ? task.percentComplete : task['percent-complete'];
-          if (pct !== null && pct !== undefined) {
-            setProp('percent-complete', parseInt(pct, 10));
+          const pctRaw = task.percentComplete !== undefined ? task.percentComplete : task['percent-complete'];
+          const pct = parseInt(pctRaw, 10);
+          if (pctRaw !== null && pctRaw !== undefined && !isNaN(pct) && pct >= 0 && pct <= 100) {
+            setProp('percent-complete', pct);
           } else {
             vtodo.removeAllProperties('percent-complete');
           }
@@ -762,17 +803,21 @@ function taskToICS(rawTask, existingIcs = null) {
           // Only act when recurrence is explicitly set to a value or null.
           // undefined means "caller did not include the field" → leave existing RRULE intact.
           if (task.recurrence) {
-            const rruleClean = String(task.recurrence).replace(/^RRULE:/i, '').trim();
+            const rruleSanitized = String(task.recurrence).split(/[\r\n]/)[0].replace(/^RRULE:/i, '').trim();
             try {
-              const recur = ICAL.Recur.fromString(rruleClean);
-              const prop = vtodo.getFirstProperty('rrule');
-              if (prop) {
-                prop.setValue(recur);
+              const recur = ICAL.Recur.fromString(rruleSanitized);
+              if (recur && recur.freq) {
+                const prop = vtodo.getFirstProperty('rrule');
+                if (prop) {
+                  prop.setValue(recur);
+                } else {
+                  vtodo.addPropertyWithValue('rrule', recur);
+                }
               } else {
-                vtodo.addPropertyWithValue('rrule', recur);
+                vtodo.removeAllProperties('rrule');
               }
             } catch (_) {
-              setProp('rrule', task.recurrence);
+              vtodo.removeAllProperties('rrule');
             }
           } else {
             // null / '' → explicit removal requested
@@ -826,32 +871,67 @@ function taskToICS(rawTask, existingIcs = null) {
   ];
 
   if (task.description) lines.push(`DESCRIPTION:${escIcal(task.description)}`);
-  if (task.status)      lines.push(`STATUS:${task.status}`);
+  if (task.status) {
+    const cleanStatus = String(task.status).replace(/[\r\n\x00-\x1f]/g, '').trim().toUpperCase();
+    const validStatus = ['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED'].includes(cleanStatus)
+      ? cleanStatus
+      : (/^[A-Z0-9-]+$/.test(cleanStatus) ? cleanStatus : 'NEEDS-ACTION');
+    lines.push(`STATUS:${validStatus}`);
+  }
 
-  if (task.duration) {
-    lines.push(`DURATION:${task.duration}`);
-  } else if (task.due) {
-    if (task.dueIsDate || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
-      lines.push(`DUE;VALUE=DATE:${fmtDate(task.due)}`);
-    } else {
-      lines.push(`DUE:${fmtDateTime(task.due)}`);
+  const isValidDateVal = (val) => Boolean(val) && !isNaN(new Date(val).getTime());
+  const isValidDurationVal = (val) => Boolean(val) && /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.test(String(val).trim());
+
+  const hasDtstart = Boolean(task.dtstart && isValidDateVal(task.dtstart));
+
+  if (!hasDtstart) {
+    // RFC 5545 3.6.2: A VTODO without DTSTART MUST NOT have DURATION.
+    if (task.due && isValidDateVal(task.due)) {
+      if (task.dueIsDate || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
+        const formatted = fmtDate(task.due);
+        if (formatted) lines.push(`DUE;VALUE=DATE:${formatted}`);
+      } else {
+        const formatted = fmtDateTime(task.due);
+        if (formatted) lines.push(`DUE:${formatted}`);
+      }
+    }
+  } else {
+    if (task.duration && isValidDurationVal(task.duration)) {
+      lines.push(`DURATION:${String(task.duration).replace(/[\r\n]/g, '').trim()}`);
+    } else if (task.due && isValidDateVal(task.due)) {
+      if (task.dueIsDate || (typeof task.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due))) {
+        const formatted = fmtDate(task.due);
+        if (formatted) lines.push(`DUE;VALUE=DATE:${formatted}`);
+      } else {
+        const formatted = fmtDateTime(task.due);
+        if (formatted) lines.push(`DUE:${formatted}`);
+      }
     }
   }
-  if (task.dtstart) {
+  if (task.dtstart && isValidDateVal(task.dtstart)) {
     if (task.dtstartIsDate || (typeof task.dtstart === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.dtstart))) {
-      lines.push(`DTSTART;VALUE=DATE:${fmtDate(task.dtstart)}`);
+      const formatted = fmtDate(task.dtstart);
+      if (formatted) lines.push(`DTSTART;VALUE=DATE:${formatted}`);
     } else {
-      lines.push(`DTSTART:${fmtDateTime(task.dtstart)}`);
+      const formatted = fmtDateTime(task.dtstart);
+      if (formatted) lines.push(`DTSTART:${formatted}`);
     }
   }
-  if (task.completed) {
-    lines.push(`COMPLETED:${fmtDateTime(task.completed)}`);
+  if (task.completed && isValidDateVal(task.completed)) {
+    const formatted = fmtDateTime(task.completed);
+    if (formatted) lines.push(`COMPLETED:${formatted}`);
   }
   if (task.priority !== null && task.priority !== undefined) {
-    lines.push(`PRIORITY:${task.priority}`);
+    const p = parseInt(task.priority, 10);
+    if (!isNaN(p) && p >= 0 && p <= 9) {
+      lines.push(`PRIORITY:${p}`);
+    }
   }
   if (task.percentComplete !== null && task.percentComplete !== undefined) {
-    lines.push(`PERCENT-COMPLETE:${task.percentComplete}`);
+    const pct = parseInt(task.percentComplete, 10);
+    if (!isNaN(pct) && pct >= 0 && pct <= 100) {
+      lines.push(`PERCENT-COMPLETE:${pct}`);
+    }
   }
   if (Array.isArray(task.completedHistory) && task.completedHistory.length > 0) {
     lines.push(`X-COMPLETED-DATES:${task.completedHistory.join(',')}`);
@@ -866,7 +946,17 @@ function taskToICS(rawTask, existingIcs = null) {
     }
   }
   if (task.recurrence) {
-    lines.push(`RRULE:${task.recurrence}`);
+    const rruleClean = String(task.recurrence).split(/[\r\n]/)[0].replace(/^RRULE:/i, '').trim();
+    if (rruleClean) {
+      try {
+        const recur = ICAL.Recur.fromString(rruleClean);
+        if (recur && recur.freq) {
+          lines.push(`RRULE:${rruleClean}`);
+        }
+      } catch (_) {
+        // Omit invalid RRULE to prevent property injection
+      }
+    }
   }
 
   lines.push('END:VTODO', 'END:VCALENDAR');

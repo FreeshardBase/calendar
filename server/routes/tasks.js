@@ -109,6 +109,73 @@ router.get('/', async (req, res) => {
   }
 });
 
+const ICAL = require('ical.js');
+
+function validateTaskInput(taskData) {
+  if (!taskData || typeof taskData !== 'object') {
+    return { error: 'Task data must be an object' };
+  }
+
+  if ('dtstart' in taskData && taskData.dtstart !== null && taskData.dtstart !== undefined && taskData.dtstart !== '') {
+    const dt = new Date(taskData.dtstart);
+    if (isNaN(dt.getTime())) {
+      return { error: 'Invalid dtstart date format' };
+    }
+  }
+
+  if ('due' in taskData && taskData.due !== null && taskData.due !== undefined && taskData.due !== '') {
+    const dt = new Date(taskData.due);
+    if (isNaN(dt.getTime())) {
+      return { error: 'Invalid due date format' };
+    }
+  }
+
+  if ('completed' in taskData && taskData.completed !== null && taskData.completed !== undefined && taskData.completed !== '') {
+    const dt = new Date(taskData.completed);
+    if (isNaN(dt.getTime())) {
+      return { error: 'Invalid completed date format' };
+    }
+  }
+
+  if ('duration' in taskData && taskData.duration !== null && taskData.duration !== undefined && taskData.duration !== '') {
+    const durationStr = String(taskData.duration).trim();
+    if (!/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.test(durationStr)) {
+      return { error: 'Invalid duration format (must be ISO 8601 duration, e.g. PT2H, P1D)' };
+    }
+  }
+
+  if ('recurrence' in taskData && taskData.recurrence !== null && taskData.recurrence !== undefined && taskData.recurrence !== '') {
+    const rruleSanitized = String(taskData.recurrence).split(/[\r\n]/)[0].replace(/^RRULE:/i, '').trim();
+    try {
+      const recur = ICAL.Recur.fromString(rruleSanitized);
+      if (!recur || !recur.freq) {
+        return { error: 'Invalid recurrence rule syntax' };
+      }
+    } catch (_) {
+      return { error: 'Invalid recurrence rule syntax' };
+    }
+  }
+
+  if ('priority' in taskData && taskData.priority !== null && taskData.priority !== undefined && taskData.priority !== '') {
+    const p = parseInt(taskData.priority, 10);
+    if (isNaN(p) || p < 0 || p > 9) {
+      return { error: 'Invalid priority (must be integer between 0 and 9)' };
+    }
+  }
+
+  if ('percentComplete' in taskData || 'percent-complete' in taskData) {
+    const pctRaw = taskData.percentComplete !== undefined ? taskData.percentComplete : taskData['percent-complete'];
+    if (pctRaw !== null && pctRaw !== undefined && pctRaw !== '') {
+      const pct = parseInt(pctRaw, 10);
+      if (isNaN(pct) || pct < 0 || pct > 100) {
+        return { error: 'Invalid percentComplete (must be integer between 0 and 100)' };
+      }
+    }
+  }
+
+  return null;
+}
+
 // ── POST /api/tasks — create a task ──────────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
@@ -116,6 +183,11 @@ router.post('/', async (req, res) => {
 
     if (!calendarId) {
       return res.status(400).json({ error: 'calendarId is required' });
+    }
+
+    const validationErr = validateTaskInput(taskData);
+    if (validationErr) {
+      return res.status(400).json(validationErr);
     }
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
@@ -162,6 +234,11 @@ router.put('/:uid', async (req, res) => {
     if (!href) return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
+    const validationErr = validateTaskInput(taskData);
+    if (validationErr) {
+      return res.status(400).json(validationErr);
+    }
+
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
       return res.status(access.status || 403).json({ error: access.reason });
@@ -200,14 +277,34 @@ router.put('/:uid', async (req, res) => {
         } else if (!('dtstartIsDate' in taskData) && existingTask.dtstartIsDate !== undefined) {
           task.dtstartIsDate = existingTask.dtstartIsDate;
         }
-        if (!('due' in taskData) && existingTask.due !== undefined) {
-          task.due = existingTask.due;
-          if (existingTask.dueIsDate !== undefined) task.dueIsDate = existingTask.dueIsDate;
-        } else if (!('dueIsDate' in taskData) && existingTask.dueIsDate !== undefined) {
-          task.dueIsDate = existingTask.dueIsDate;
-        }
-        if (!('duration' in taskData) && existingTask.duration !== undefined) {
-          task.duration = existingTask.duration;
+        const hasDueInPayload = 'due' in taskData && taskData.due !== null && taskData.due !== undefined && taskData.due !== '';
+        const hasDurationInPayload = 'duration' in taskData && taskData.duration !== null && taskData.duration !== undefined && taskData.duration !== '';
+
+        if (hasDueInPayload && !hasDurationInPayload) {
+          task.due = taskData.due;
+          if (taskData.dueIsDate !== undefined) task.dueIsDate = taskData.dueIsDate;
+          task.duration = null;
+        } else if (hasDurationInPayload && !hasDueInPayload) {
+          task.duration = taskData.duration;
+          task.due = null;
+        } else if (hasDueInPayload && hasDurationInPayload) {
+          if (existingTask.due && new Date(taskData.due).getTime() !== new Date(existingTask.due).getTime()) {
+            task.due = taskData.due;
+            if (taskData.dueIsDate !== undefined) task.dueIsDate = taskData.dueIsDate;
+            task.duration = null;
+          } else {
+            task.duration = taskData.duration;
+            task.due = null;
+          }
+        } else {
+          if (existingTask.duration) {
+            task.duration = existingTask.duration;
+            task.due = null;
+          } else if (existingTask.due) {
+            task.due = existingTask.due;
+            if (existingTask.dueIsDate !== undefined) task.dueIsDate = existingTask.dueIsDate;
+            task.duration = null;
+          }
         }
         if (!('percentComplete' in taskData) && !('percent-complete' in taskData) && existingTask.percentComplete !== undefined) {
           task.percentComplete = existingTask.percentComplete;
@@ -320,5 +417,7 @@ async function resolveAccount(req, calendarId) {
 function buildAbsoluteUrl(baseUrl, href) {
   return resolveUrl(baseUrl, href);
 }
+
+router.validateTaskInput = validateTaskInput;
 
 module.exports = router;

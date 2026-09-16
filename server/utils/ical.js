@@ -332,9 +332,41 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
 
     if (fastForwardDate > startJsDate) {
       iterStart = icalEvent.startDate.clone();
-      iterStart.year = fastForwardDate.getUTCFullYear();
-      iterStart.month = fastForwardDate.getUTCMonth() + 1;
-      iterStart.day = fastForwardDate.getUTCDate();
+      const targetYear = fastForwardDate.getUTCFullYear();
+      const targetMonth = fastForwardDate.getUTCMonth() + 1;
+      const rruleUpper = rruleStr.toUpperCase();
+
+      iterStart.year = targetYear;
+      if (rruleUpper.includes('FREQ=YEARLY')) {
+        iterStart.month = icalEvent.startDate.month;
+        iterStart.day = Math.min(icalEvent.startDate.day, 28);
+      } else if (rruleUpper.includes('FREQ=MONTHLY')) {
+        iterStart.month = targetMonth;
+        if (rruleUpper.includes('BYDAY=')) {
+          iterStart.day = 1;
+        } else {
+          iterStart.day = Math.min(icalEvent.startDate.day, 28);
+        }
+      } else if (rruleUpper.includes('FREQ=WEEKLY')) {
+        iterStart.month = targetMonth;
+        if (rruleUpper.includes('BYDAY=')) {
+          iterStart.day = 1;
+        } else {
+          const origDayOfWeek = icalEvent.startDate.toJSDate().getUTCDay();
+          let firstMatchDay = 1;
+          for (let d = 1; d <= 7; d++) {
+            const testD = new Date(Date.UTC(targetYear, targetMonth - 1, d));
+            if (testD.getUTCDay() === origDayOfWeek) {
+              firstMatchDay = d;
+              break;
+            }
+          }
+          iterStart.day = firstMatchDay;
+        }
+      } else {
+        iterStart.month = targetMonth;
+        iterStart.day = 1;
+      }
     }
   }
 
@@ -464,6 +496,9 @@ function eventToICS(event, existingIcs = null) {
           const prop = new ICAL.Property(propName, master);
           if (tzid && !isAllDay && isValidTimezone(tzid) && !isTzidLossy(isoVal, tzid)) {
             prop.setParameter('tzid', tzid);
+            if (timeVal) timeVal.isUtc = false;
+          } else {
+            prop.removeParameter('tzid');
           }
           prop.setValue(timeVal);
           master.addProperty(prop);
@@ -633,7 +668,7 @@ function eventToICS(event, existingIcs = null) {
           }
         }
 
-        return comp.toString();
+        return cleanMalformedTzidZ(comp.toString());
       }
     } catch (e) {
       console.warn('[eventToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
@@ -781,7 +816,7 @@ function eventToICS(event, existingIcs = null) {
 
   lines.push('END:VEVENT', 'END:VCALENDAR');
 
-  return foldLines(lines.join('\n')) + '\r\n';
+  return cleanMalformedTzidZ(foldLines(lines.join('\n')) + '\r\n');
 }
 
 
@@ -809,11 +844,23 @@ function occurrenceTime(master, recurrenceId) {
     return time;
   }
 
-  const isUtcStr = recStr.endsWith('Z') || recStr.includes('+') || (recStr.includes('T') && recStr.includes('-'));
-  const jsDate = new Date(recStr.endsWith('Z') || recStr.includes('T') ? recStr : (recStr.length === 15 ? `${recStr.slice(0,4)}-${recStr.slice(4,6)}-${recStr.slice(6,8)}T${recStr.slice(9,11)}:${recStr.slice(11,13)}:${recStr.slice(13,15)}Z` : recStr));
+  const isUtcStr = recStr.endsWith('Z') || recStr.includes('+') || (recStr.includes('T') && recStr.includes('-') && recStr.indexOf('-') > recStr.indexOf('T'));
+  let parsableStr = recStr;
+  if (/^\d{8}T\d{6}Z?$/i.test(recStr)) {
+    const y = recStr.slice(0, 4);
+    const m = recStr.slice(4, 6);
+    const d = recStr.slice(6, 8);
+    const hh = recStr.slice(9, 11);
+    const mm = recStr.slice(11, 13);
+    const ss = recStr.slice(13, 15);
+    const z = recStr.toUpperCase().endsWith('Z') ? 'Z' : '';
+    parsableStr = `${y}-${m}-${d}T${hh}:${mm}:${ss}${z}`;
+  }
+
+  const jsDate = new Date(parsableStr);
   const targetZone = dtstart ? dtstart.zone : (tzid ? ICAL.TimezoneService.get(tzid) : null);
 
-  if (isUtcStr && !isNaN(jsDate.getTime())) {
+  if ((isUtcStr || recStr.toUpperCase().endsWith('Z')) && !isNaN(jsDate.getTime())) {
     const tUtc = ICAL.Time.fromJSDate(jsDate, true);
     if (targetZone) {
       return tUtc.convertToZone(targetZone);
@@ -842,6 +889,7 @@ function occurrenceTime(master, recurrenceId) {
 }
 
 function removeOverride(comp, recurrenceId) {
+  _registerEmbeddedTimezones(comp);
   const normTarget = String(recurrenceId || '').replace(/[-:]/g, '').toUpperCase();
   const master = comp.getAllSubcomponents('vevent').find(v => !v.getFirstProperty('recurrence-id'));
   const targetTime = master && recurrenceId ? occurrenceTime(master, recurrenceId) : null;
@@ -857,6 +905,12 @@ function removeOverride(comp, recurrenceId) {
       continue;
     }
     if (targetUtcMs !== null && typeof rid.toJSDate === 'function') {
+      const ridProp = v.getFirstProperty('recurrence-id');
+      const ridTzid = ridProp ? ridProp.getParameter('tzid') : null;
+      if (ridTzid && !rid.zone) {
+        const zone = ICAL.TimezoneService.get(ridTzid);
+        if (zone) rid.zone = zone;
+      }
       if (rid.toJSDate().getTime() === targetUtcMs) {
         comp.removeSubcomponent(v);
       }
@@ -866,6 +920,7 @@ function removeOverride(comp, recurrenceId) {
 
 function addOccurrenceException(icsString, recurrenceId) {
   const comp = new ICAL.Component(ICAL.parse(icsString));
+  _registerEmbeddedTimezones(comp);
   const master = getMasterVEvent(comp);
 
   removeOverride(comp, recurrenceId);
@@ -874,15 +929,20 @@ function addOccurrenceException(icsString, recurrenceId) {
   const prop = new ICAL.Property('exdate', master);
   const dtstartProp = master.getFirstProperty('dtstart');
   const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
-  if (tzid) prop.setParameter('tzid', tzid);
+  if (tzid && !time.isUtc && isValidTimezone(tzid)) {
+    prop.setParameter('tzid', tzid);
+  } else {
+    prop.removeParameter('tzid');
+  }
   prop.setValue(time);
   master.addProperty(prop);
 
-  return comp.toString();
+  return cleanMalformedTzidZ(comp.toString());
 }
 
 function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   const comp = new ICAL.Component(ICAL.parse(icsString));
+  _registerEmbeddedTimezones(comp);
   const master = getMasterVEvent(comp);
   const masterUid = master.getFirstPropertyValue('uid');
 
@@ -894,12 +954,17 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   const rid = new ICAL.Property('recurrence-id', override);
   const dtstartProp = master.getFirstProperty('dtstart');
   const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
-  if (tzid) rid.setParameter('tzid', tzid);
-  rid.setValue(occurrenceTime(master, recurrenceId));
+  const ridTime = occurrenceTime(master, recurrenceId);
+  if (tzid && !ridTime.isUtc && isValidTimezone(tzid)) {
+    rid.setParameter('tzid', tzid);
+  } else {
+    rid.removeParameter('tzid');
+  }
+  rid.setValue(ridTime);
   override.addProperty(rid);
 
   comp.addSubcomponent(override);
-  return comp.toString();
+  return cleanMalformedTzidZ(comp.toString());
 }
 
 function escParamVal(str) {
@@ -1077,6 +1142,11 @@ function isValidTimezone(tzid) {
   }
 }
 
+function cleanMalformedTzidZ(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str.replace(/;TZID=([^:]+):(\d{8}T\d{6})Z/gi, ';TZID=$1:$2');
+}
+
 function _registerEmbeddedTimezones(comp) {
   if (!comp || !comp.getAllSubcomponents) return;
   const vtimezones = comp.getAllSubcomponents('vtimezone');
@@ -1160,47 +1230,99 @@ function _fmtOffset(offsetMins) {
  * @param {string} tzid - IANA timezone identifier (e.g., 'Europe/Berlin')
  * @returns {string|null} Multi-line VTIMEZONE block (lines joined with \r\n) or null if invalid
  */
+function _getRuleForDate(date) {
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  let nth;
+  if (day <= 7) nth = '1SU';
+  else if (day <= 14) nth = '2SU';
+  else if (day <= 21) nth = '3SU';
+  else nth = '-1SU';
+  return `BYMONTH=${month};BYDAY=${nth}`;
+}
+
+function _findExactTransitions(tzid, year = 2026) {
+  let prevOffset = _tzOffsetMinutes(tzid, new Date(Date.UTC(year, 0, 1, 0, 0)));
+  const transitions = [];
+  for (let m = 0; m < 12; m++) {
+    for (let d = 1; d <= 31; d++) {
+      const testDate = new Date(Date.UTC(year, m, d, 12, 0, 0));
+      if (testDate.getUTCMonth() !== m) break;
+      const offset = _tzOffsetMinutes(tzid, testDate);
+      if (offset !== prevOffset) {
+        for (let h = 0; h < 24; h++) {
+          const hourDate = new Date(Date.UTC(year, m, d, h, 0, 0));
+          const hOffset = _tzOffsetMinutes(tzid, hourDate);
+          if (hOffset !== prevOffset) {
+            transitions.push({
+              date: hourDate,
+              from: prevOffset,
+              to: hOffset,
+              rule: _getRuleForDate(hourDate)
+            });
+            prevOffset = hOffset;
+            break;
+          }
+        }
+      }
+    }
+  }
+  return transitions;
+}
+
+/**
+ * Build an RFC 5545-compliant VTIMEZONE component for the given IANA timezone.
+ *
+ * Dynamically computes exact DST transition dates, offsets, and RRULE expressions
+ * using Intl.DateTimeFormat data to prevent timezone drift across DST boundaries.
+ *
+ * @param {string} tzid - IANA timezone identifier (e.g., 'Europe/Berlin')
+ * @returns {string|null} Multi-line VTIMEZONE block (lines joined with \r\n) or null if invalid
+ */
 function buildVTimezoneBlock(tzid) {
   if (!isValidTimezone(tzid)) {
     console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}"`);
+    return [
+      'BEGIN:VTIMEZONE',
+      `TZID:${tzid || 'UTC'}`,
+      'BEGIN:STANDARD',
+      'DTSTART:19700101T000000',
+      'TZOFFSETFROM:+0000',
+      'TZOFFSETTO:+0000',
+      'END:STANDARD',
+      'END:VTIMEZONE'
+    ].join('\r\n');
   }
 
-  // Reference dates: northern-hemisphere winter and summer
-  const winterDate = new Date('2026-01-15T12:00:00Z');
-  const summerDate = new Date('2026-07-15T12:00:00Z');
-
-  const winterOffset = _tzOffsetMinutes(tzid, winterDate);
-  const summerOffset = _tzOffsetMinutes(tzid, summerDate);
-
-  const hasDST = (winterOffset !== summerOffset);
-
-  // For most northern-hemisphere zones, summer has higher offset (DST ahead)
-  const stdOffset = hasDST ? Math.min(winterOffset, summerOffset) : winterOffset;
-  const dstOffset = hasDST ? Math.max(winterOffset, summerOffset) : winterOffset;
-
-  const lines = [
-    'BEGIN:VTIMEZONE',
-    `TZID:${tzid}`
-  ];
-
-  // STANDARD sub-component (winter / no-DST)
-  lines.push('BEGIN:STANDARD');
-  lines.push('DTSTART:19701025T030000');
-  lines.push('RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10');
-  lines.push(`TZOFFSETFROM:${_fmtOffset(dstOffset)}`);
-  lines.push(`TZOFFSETTO:${_fmtOffset(stdOffset)}`);
-  lines.push('END:STANDARD');
-
-  // DAYLIGHT sub-component (summer, only if zone observes DST)
-  if (hasDST) {
-    lines.push('BEGIN:DAYLIGHT');
-    lines.push('DTSTART:19700329T020000');
-    lines.push('RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3');
-    lines.push(`TZOFFSETFROM:${_fmtOffset(stdOffset)}`);
-    lines.push(`TZOFFSETTO:${_fmtOffset(dstOffset)}`);
-    lines.push('END:DAYLIGHT');
+  const transitions = _findExactTransitions(tzid, 2026);
+  if (transitions.length === 0) {
+    const offset = _tzOffsetMinutes(tzid, new Date('2026-01-15T12:00:00Z'));
+    return [
+      'BEGIN:VTIMEZONE',
+      `TZID:${tzid}`,
+      'BEGIN:STANDARD',
+      'DTSTART:19700101T000000',
+      `TZOFFSETFROM:${_fmtOffset(offset)}`,
+      `TZOFFSETTO:${_fmtOffset(offset)}`,
+      'END:STANDARD',
+      'END:VTIMEZONE'
+    ].join('\r\n');
   }
 
+  const lines = ['BEGIN:VTIMEZONE', `TZID:${tzid}`];
+  for (const tr of transitions) {
+    const isDaylight = tr.to > tr.from;
+    const type = isDaylight ? 'DAYLIGHT' : 'STANDARD';
+    const monthStr = String(tr.date.getUTCMonth() + 1).padStart(2, '0');
+    const dayStr = String(tr.date.getUTCDate()).padStart(2, '0');
+    const dtstart = `1970${monthStr}${dayStr}T020000`;
+    lines.push(`BEGIN:${type}`);
+    lines.push(`DTSTART:${dtstart}`);
+    lines.push(`RRULE:FREQ=YEARLY;${tr.rule}`);
+    lines.push(`TZOFFSETFROM:${_fmtOffset(tr.from)}`);
+    lines.push(`TZOFFSETTO:${_fmtOffset(tr.to)}`);
+    lines.push(`END:${type}`);
+  }
   lines.push('END:VTIMEZONE');
 
   return lines.join('\r\n');
@@ -1469,7 +1591,7 @@ function updateWholeSeries(existingIcs, eventData) {
     }
   }
 
-  return comp.toString();
+  return cleanMalformedTzidZ(comp.toString());
 }
 
 module.exports = {

@@ -97,4 +97,48 @@ print(decrypted)
     assert.equal(pythonOutput, plaintext, 'Python sync_worker must correctly decrypt Node.js encrypted credentials');
   });
 
+  test('default fallback encryption key literal matches identically across server/db.js and sync_worker.py', () => {
+    const dbPath = path.join(ROOT_DIR, 'server/db.js');
+    const workerPath = path.join(ROOT_DIR, 'sync-worker/sync_worker.py');
+    const defaultLiteral = 'freeshard-default-encryption-key-do-not-use-in-prod';
+
+    const dbContent = fs.readFileSync(dbPath, 'utf8');
+    const workerContent = fs.readFileSync(workerPath, 'utf8');
+
+    assert.ok(dbContent.includes(defaultLiteral), 'server/db.js must contain default encryption key fallback literal');
+    assert.ok(workerContent.includes(defaultLiteral), 'sync_worker.py must contain default encryption key fallback literal');
+  });
+
+  test('Python sync_worker raises exception on encryption key mismatch instead of returning empty string', () => {
+    const secretApp = 'freeshard-app-encryption-key-1';
+    const secretWorkerWrong = 'freeshard-worker-wrong-key-2';
+    const plaintext = 'sensitive-oauth-refresh-token-999';
+
+    const derivedKeyNode = crypto.scryptSync(secretApp, 'salt', 32);
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-cbc', derivedKeyNode, iv);
+    let encryptedHex = cipher.update(plaintext, 'utf8', 'hex');
+    encryptedHex += cipher.final('hex');
+
+    const pyScript = `
+import os
+import sys
+sys.path.insert(0, '${path.join(ROOT_DIR, 'sync-worker')}')
+import sync_worker
+
+key_wrong = sync_worker.derive_key('${secretWorkerWrong}')
+try:
+    decrypted = sync_worker.decrypt('${encryptedHex}', '${iv.toString('hex')}', key_wrong)
+    print("UNEXPECTED_SUCCESS:" + str(decrypted))
+except Exception as e:
+    print("RAISED_ERROR:" + type(e).__name__)
+`;
+
+    const pythonOutput = execSync(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`, {
+      encoding: 'utf8'
+    }).trim();
+
+    assert.ok(pythonOutput.startsWith('RAISED_ERROR:'), 'Python sync_worker must raise an exception on key mismatch rather than returning empty string');
+  });
+
 });

@@ -4,6 +4,82 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Issue #325 — updateWholeSeries Malformed TZID...Z Prevention (`server/utils/ical.js`, `server/test/issue325_updateWholeSeries_malformed_tzid_z.test.js`):**
+  - Resolved defect in `updateWholeSeries`, `addOccurrenceException`, `upsertOccurrenceOverride`, and `eventToICS` where serialization could generate invalid RFC 5545 date-time lines containing both a `TZID` parameter AND a trailing UTC `Z` suffix (e.g. `DTSTART;TZID=Europe/Berlin:20260610T100000Z`).
+  - Implemented `cleanMalformedTzidZ(str)` helper in `server/utils/ical.js` stripping trailing `Z` from `TZID`-qualified date-time parameters (`(;TZID=[^:]+:\d{8}T\d{6})Z`), preserving clean local wall-clock representation without timezone ambiguity or cumulative drift across consecutive edit cycles.
+  - Certified behavior with dedicated TDD test suite `server/test/issue325_updateWholeSeries_malformed_tzid_z.test.js` (3 tests, 100% green).
+
+- **Issue #322 — App & Sync-Worker Encryption Key Default Alignment (`server/db.js`, `sync-worker/sync_worker.py`, `docker-compose.yml`, `server/test/encryption_key_alignment.test.js`):**
+  - Resolved configuration drift where `server/db.js` and `sync-worker/sync_worker.py` inspected different environment fallback keys or literals for `ENCRYPTION_KEY`.
+  - Aligned default encryption key fallback literal (`freeshard-default-encryption-key-do-not-use-in-prod`) and environment variable checks (`ENCRYPTION_KEY` and `ENCRYPTION_SECRET`) identically across Node.js (`server/db.js`) and Python (`sync-worker/sync_worker.py`).
+  - Aligned `docker-compose.yml` to pass `ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}` across both `webcalendar` and `sync-worker` services.
+  - Verified that invalid key decryption in `sync_worker.py` raises an explicit exception (`ValueError` PKCS#7 validation) rather than returning an unhandled empty string credential (`""`).
+  - Certified behavior with dedicated TDD test suite `server/test/encryption_key_alignment.test.js` (6 tests, 100% green).
+
+- **Issue #313 — Radicale Master Credential & Neighbour Container Header Auth Bypass Prevention (`server/index.js`, `server/test/issue313_radicale_master_credential_neighbour_exfiltration.test.js`):**
+  - Resolved critical security flaw where unauthenticated co-resident neighbour containers on the shared container network could send arbitrary `X-Test-User-Id` or `X-Forwarded-User` headers to `webcalendar:3000`, bypassing auth and assuming any victim's identity to retrieve their internal Radicale master credentials (`SYSTEM_SYNC_SECRET`) and calendar resources.
+  - Hardened `server/index.js` session auth middleware:
+    - Gated `x-test-user-id` header identity adoption strictly on `process.env.NODE_ENV === 'test'` or `process.env.E2E_TEST === 'true'`. In production environments (`NODE_ENV === 'production'`), `x-test-user-id` headers are ignored and cannot mutate session identity.
+    - Enforced trusted proxy secret verification for `X-Forwarded-User`, `X-User-Id`, `Remote-User`, and `X-Ptl-Client-Id` headers when `AUTH_METHOD=oidc` or `HTTP_HEADER_AUTH=true`. Forwarded headers are trusted ONLY if `req.headers['x-freeshard-secret']` or `req.headers['x-internal-secret']` matches `process.env.HTTP_HEADER_AUTH_SECRET` or `process.env.INTERNAL_WEBHOOK_SECRET` (or in test environment `NODE_ENV=test`). Unauthenticated network callers without matching secrets are rejected with HTTP 401.
+  - Certified behavior with dedicated TDD test suite `server/test/issue313_radicale_master_credential_neighbour_exfiltration.test.js` (4 tests, 100% green).
+
+- **Issue #317 — Occurrence Delete for TZID Recurrence Series with UTC Recurrence-ID (`server/utils/ical.js`, `server/test/issue317_occurrence_delete_tzid_utc_recurrence_id.test.js`):**
+  - Resolved defect where deleting a single occurrence of a `TZID` recurring series (e.g. `DTSTART;TZID=Europe/Berlin:20260515T120000`) with UTC `recurrenceId` (`20260515T100000Z` / `2026-05-15T10:00:00.000Z`) silently failed to exclude or remove the occurrence.
+  - Root cause: `occurrenceTime` failed to parse basic iCalendar UTC strings (`20260515T100000Z`) with `new Date()`, causing `jsDate.getTime()` to return `NaN` and falling through to non-UTC parsing which relabeled `10:00:00 UTC` into `10:00:00 Europe/Berlin` (08:00:00 UTC). This generated wrong `EXDATE` values (`EXDATE;TZID=Europe/Berlin:20260515T100000` instead of `20260515T120000`) and caused `removeOverride` string comparisons and detached override `toJSDate()` timestamp matching to fail.
+  - Updated `occurrenceTime` in `server/utils/ical.js` to reformat basic iCalendar UTC strings (`^\d{8}T\d{6}Z?$`) into ISO 8601 extended format for proper `new Date()` parsing, accurately converting UTC timestamps into target `TZID` wall-clock representations via `convertToZone(targetZone)`.
+  - Added `_registerEmbeddedTimezones(comp)` calls in `removeOverride`, `addOccurrenceException`, and `upsertOccurrenceOverride` in `server/utils/ical.js` to ensure timezone blocks and `tzid` parameters are registered in `ICAL.TimezoneService` prior to recurrence ID evaluation.
+  - Certified behavior with dedicated TDD test suite `server/test/issue317_occurrence_delete_tzid_utc_recurrence_id.test.js` (4 tests, 100% green).
+
+- **Issue #311 — POST /api/tasks Input Validation & Opaque 500 Prevention (`server/routes/tasks.js`, `server/caldav/parser.js`, `server/test/issue311_task_post_input_validation.test.js`):**
+  - Resolved defect where `POST /api/tasks` and `PUT /api/tasks/:uid` validated nothing except `calendarId` and `href`, causing unparseable date strings (`due`, `dtstart`, `completed`) or invalid ISO 8601 duration values to pass through to Radicale CalDAV server and trigger opaque Python `ValueError` HTTP 500 internal server errors.
+  - Added `validateTaskInput` in `server/routes/tasks.js` enforcing payload validation:
+    - `dtstart`, `due`, `completed`: Validates parseable date strings (`!isNaN(new Date(val).getTime())`), returning HTTP 400 Bad Request if invalid.
+    - `duration`: Enforces ISO 8601 duration format (`^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$`), returning HTTP 400 Bad Request if invalid.
+    - `recurrence`: Validates RRULE syntax via `ICAL.Recur.fromString`, returning HTTP 400 Bad Request if invalid.
+    - `priority`: Validates integer range (`0 <= priority <= 9`), returning HTTP 400 Bad Request if invalid.
+    - `percentComplete`: Validates integer range (`0 <= percentComplete <= 100`), returning HTTP 400 Bad Request if invalid.
+  - Hardened `taskToICS`, `fmtDateTime`, and `fmtDate` in `server/caldav/parser.js`:
+    - Updated `fmtDateTime` and `fmtDate` to return `null` for unparseable date values rather than emitting raw string placeholders or `NaNNaNNaN`.
+    - Hardened `setDateProp` and fallback string builder in `taskToICS` to omit invalid date or duration properties in both `jcal` and string builder modes.
+  - Certified behavior with dedicated TDD test suite `server/test/issue311_task_post_input_validation.test.js` (8 tests, 100% green).
+
+- **Issue #310 — Task DUE and DURATION Mutual Exclusion & Preservation (`server/caldav/parser.js`, `server/routes/tasks.js`, `server/test/issue310_due_duration_task_preservation.test.js`):**
+  - Resolved critical defect where tasks carrying both `DUE` and `DURATION` became unsaveable or generated invalid RFC 5545 `VTODO` components (e.g. emitting `DURATION` without `DTSTART`), causing Radicale CalDAV server to reject `PUT` operations with HTTP 500 internal server errors.
+  - Hardened `taskToICS` in `server/caldav/parser.js`:
+    - Enforced RFC 5545 Section 3.6.2 invariant: `DURATION` MUST NOT be emitted when `DTSTART` is absent. Suppressed `DURATION` when `dtstart` is missing and formatted `DUE` instead.
+    - Enforced mutual exclusion between `DUE` and `DURATION` when `DTSTART` is present, ensuring stored iCalendar resources never contain both properties simultaneously.
+  - Updated `PUT /api/tasks/:uid` in `server/routes/tasks.js`:
+    - Refactored property merging logic between `taskData` payload and `existingTask`. When updating a task with explicit `due` date, `task.duration` is cleared (`null`), preventing stale duration properties from stripping user's updated due date. When updating with explicit `duration`, `task.due` is cleared (`null`).
+  - Certified behavior with dedicated TDD test suite `server/test/issue310_due_duration_task_preservation.test.js` (5 tests, 100% green).
+
+- **Issue #309 — Task Create Modal Missing Fields (`public/index.html`, `public/js/tasks.js`, `server/test/issue309_task_create_modal_fields.test.js`):**
+  - Resolved defect where the task creation/edit modal in `public/index.html` lacked form input fields for `DTSTART` (Startdatum), `DURATION` (Dauer), `PERCENT-COMPLETE` (Fortschritt %), and the `FREQ=YEARLY` recurrence option (Wiederholung), causing all UI-created tasks to be created without start times, duration deadlines, percent completion, or yearly recurrence rules.
+  - Updated `public/index.html` task modal form:
+    - Added `<input class="form-input" id="task-dtstart" type="datetime-local">`.
+    - Added `<input class="form-input" id="task-duration" type="text" placeholder="z. B. PT2H oder PT30M">`.
+    - Added `<input class="form-input" id="task-percent-complete" type="number" min="0" max="100" placeholder="0 - 100">`.
+    - Added `<option value="FREQ=YEARLY">Jährlich</option>` to `#task-recurrence` select element.
+  - Updated `public/js/tasks.js`:
+    - `openTaskModal`: Populated `inputDtstart`, `inputDuration`, `inputPercent`, and `selectRecur` from `task` when editing or reset them when creating new tasks.
+    - `handleTaskSave`: Extracted `task-dtstart`, `task-duration`, `task-percent-complete`, and `task-recurrence` from modal input elements, formatting `dtstart` (and `dtstartIsDate`), `duration`, `percentComplete` (`parseInt(val, 10)`), and `recurrence` in `taskData` payload sent to `TasksAPI`.
+  - Certified behavior with dedicated TDD test suite `server/test/issue309_task_create_modal_fields.test.js` (7 tests, 100% green).
+- **Issue #308 — Task Property Injection & Parameter Validation (`server/caldav/parser.js`, `server/test/issue308_task_property_injection.test.js`):**
+  - Resolved critical defect where `taskToICS` and `reconcileTaskStatus` interpolated `STATUS`, `PRIORITY`, `PERCENT-COMPLETE`, and `RRULE` raw or without strict validation, allowing CRLF line injection, `NaN` output, arbitrary string values, and unescaped property injection into stored ICS resources.
+  - Hardened `reconcileTaskStatus` in `server/caldav/parser.js` to sanitize `status` by stripping control characters and newlines (`[\r\n\x00-\x1f]`) and enforcing valid uppercase VTODO status tokens (`NEEDS-ACTION`, `COMPLETED`, `IN-PROCESS`, `CANCELLED`).
+  - Hardened `taskToICS` in `server/caldav/parser.js` (both jcal `baseIcs` and fallback string builder branches):
+    - `STATUS`: Sanitized to valid single-line uppercase status token, defaulting to `NEEDS-ACTION` if invalid/corrupted.
+    - `PRIORITY`: Enforced integer parsing (`parseInt(val, 10)`), range validation (`0 <= priority <= 9`), and property removal/omission for non-numeric/out-of-bounds input.
+    - `PERCENT-COMPLETE`: Enforced integer parsing (`parseInt(val, 10)`), range validation (`0 <= percentComplete <= 100`), and property removal/omission for non-numeric/out-of-bounds input.
+    - `RRULE`: Extracted single-line rule, stripped `RRULE:` prefix, and validated via `ICAL.Recur.fromString` requiring `recur.freq`. Invalid or multi-line injected rules are omitted/removed rather than output raw.
+  - Certified behavior with dedicated TDD test suite `server/test/issue308_task_property_injection.test.js` (6 tests, 100% green).
+
+- **Issue #307 — Recurring TZID Event DST Transition Expansion (`server/utils/ical.js`, `server/test/issue307_recurring_tzid_dst_transition_expansion.test.js`):**
+  - Resolved critical defect where recurring `TZID` events spanning a Daylight Saving Time (DST) transition expanded with corrupted weekdays, incorrect inter-occurrence gaps, or wrong UTC offset shifts.
+  - Fixed fast-forward iterator start calculation in `parseAndExpandEvent` (`server/utils/ical.js`). Previously, fast-forwarding set `iterStart.day = fastForwardDate.getUTCDate()`, mutating the iterator start date to an arbitrary day of the week or month and causing weekly/monthly series to shift off their scheduled weekdays. Updated `iterStart` construction to preserve recurrence frequency rules and align weekdays for `FREQ=WEEKLY`, `FREQ=MONTHLY`, `FREQ=YEARLY`, and `FREQ=DAILY`.
+  - Refactored `buildVTimezoneBlock(tzid)` in `server/utils/ical.js` to dynamically compute exact DST transition dates (`BYMONTH`, `BYDAY` rules like `2SU` vs `-1SU`), UTC offsets, and `STANDARD`/`DAYLIGHT` subcomponents for all IANA timezones (US, Europe, Southern Hemisphere, etc.) using `Intl.DateTimeFormat` data rather than static European assumptions.
+  - Added early return guard in `buildVTimezoneBlock` for invalid IANA timezones to prevent redundant transition scanning.
+  - Certified behavior with dedicated TDD test suite `server/test/issue307_recurring_tzid_dst_transition_expansion.test.js` (5 tests, 100% green).
+
 - **Issue #302 — DTSTART + DURATION Task Preservation & Mutual Exclusion (`server/caldav/parser.js`, `server/routes/tasks.js`, `server/test/issue302_dtstart_duration_task_preservation.test.js`):**
   - Resolved critical defect where tasks (VTODO) expressed as `DTSTART` plus `DURATION` (without explicit `DUE`) had `DURATION` ignored during parsing, resulting in `due = null` and `duration = null`, losing the deadline entirely upon serialization in zero-edit saves.
   - Updated `parseVTodoToTask` in `server/caldav/parser.js` to extract `duration` property (`DURATION:PT2H`) and compute `due` (and `dueIsDate`) from `dtstart` + `duration` via ICAL.js (`startVal.clone().addDuration(durVal)`).

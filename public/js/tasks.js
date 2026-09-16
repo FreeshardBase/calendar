@@ -70,7 +70,10 @@ export function openTaskModal(task = null) {
   const inputDesc = document.getElementById('task-description');
   const selectStatus = document.getElementById('task-status');
   const selectCal = document.getElementById('task-calendar-id');
+  const inputDtstart = document.getElementById('task-dtstart');
   const inputDue = document.getElementById('task-due');
+  const inputDuration = document.getElementById('task-duration');
+  const inputPercent = document.getElementById('task-percent-complete');
   const selectPrio = document.getElementById('task-priority');
   const selectRecur = document.getElementById('task-recurrence');
 
@@ -95,6 +98,21 @@ export function openTaskModal(task = null) {
     if (inputDesc) inputDesc.value = task.description || '';
     if (selectStatus) selectStatus.value = task.status || 'NEEDS-ACTION';
     if (selectCal && task.calendarId) selectCal.value = task.calendarId;
+    if (inputDtstart && task.dtstart) {
+      const d = new Date(task.dtstart);
+      if (!isNaN(d.getTime())) {
+        const pad = (n) => String(n).padStart(2, '0');
+        if (task.dtstartIsDate) {
+          inputDtstart.value = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T00:00`;
+        } else {
+          inputDtstart.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+      } else {
+        inputDtstart.value = '';
+      }
+    } else if (inputDtstart) {
+      inputDtstart.value = '';
+    }
     if (inputDue && task.due) {
       const d = new Date(task.due);
       if (!isNaN(d.getTime())) {
@@ -110,6 +128,9 @@ export function openTaskModal(task = null) {
     } else if (inputDue) {
       inputDue.value = '';
     }
+    if (inputDuration) inputDuration.value = task.duration || '';
+    const pct = task.percentComplete !== undefined ? task.percentComplete : task['percent-complete'];
+    if (inputPercent) inputPercent.value = (pct !== null && pct !== undefined) ? String(pct) : '';
     if (selectPrio) selectPrio.value = task.priority !== null && task.priority !== undefined ? String(task.priority) : '';
     if (selectRecur) selectRecur.value = task.recurrence || '';
   } else {
@@ -120,7 +141,10 @@ export function openTaskModal(task = null) {
     if (inputTitle) inputTitle.value = '';
     if (inputDesc) inputDesc.value = '';
     if (selectStatus) selectStatus.value = 'NEEDS-ACTION';
+    if (inputDtstart) inputDtstart.value = '';
     if (inputDue) inputDue.value = '';
+    if (inputDuration) inputDuration.value = '';
+    if (inputPercent) inputPercent.value = '';
     if (selectPrio) selectPrio.value = '';
     if (selectRecur) selectRecur.value = '';
   }
@@ -142,11 +166,31 @@ async function handleTaskSave() {
   const description = document.getElementById('task-description')?.value.trim();
   const status = document.getElementById('task-status')?.value || 'NEEDS-ACTION';
   const calendarId = document.getElementById('task-calendar-id')?.value;
+  const dtstartVal = document.getElementById('task-dtstart')?.value;
   const dueVal = document.getElementById('task-due')?.value;
+  const durationVal = document.getElementById('task-duration')?.value?.trim();
+  const percentCompleteVal = document.getElementById('task-percent-complete')?.value;
   const priorityVal = document.getElementById('task-priority')?.value;
   const recurrenceVal = document.getElementById('task-recurrence')?.value;
 
   if (!title || !calendarId) return;
+
+  let dtstart;
+  let dtstartIsDate = false;
+  if (dtstartVal) {
+    if (_currentTask && _currentTask.dtstartIsDate) {
+      dtstartIsDate = true;
+      const datePart = dtstartVal.split('T')[0];
+      dtstart = `${datePart}T00:00:00.000Z`;
+    } else {
+      dtstart = new Date(dtstartVal).toISOString();
+    }
+  } else if (dtstartVal === '') {
+    dtstart = null;
+  } else if (_currentTask && _currentTask.dtstart !== undefined) {
+    dtstart = _currentTask.dtstart;
+    dtstartIsDate = !!_currentTask.dtstartIsDate;
+  }
 
   let due = null;
   let dueIsDate = false;
@@ -159,6 +203,25 @@ async function handleTaskSave() {
     } else {
       due = new Date(dueVal).toISOString();
     }
+  }
+
+  let duration;
+  if (durationVal) {
+    duration = durationVal;
+  } else if (durationVal === '') {
+    duration = null;
+  } else if (_currentTask && _currentTask.duration !== undefined) {
+    duration = _currentTask.duration;
+  }
+
+  let percentComplete;
+  if (percentCompleteVal !== undefined && percentCompleteVal !== '') {
+    percentComplete = parseInt(percentCompleteVal, 10);
+  } else if (percentCompleteVal === '') {
+    percentComplete = null;
+  } else if (_currentTask) {
+    const pct = _currentTask.percentComplete !== undefined ? _currentTask.percentComplete : _currentTask['percent-complete'];
+    if (pct !== undefined) percentComplete = pct;
   }
 
   const priority = priorityVal !== '' ? parseInt(priorityVal, 10) : null;
@@ -174,17 +237,19 @@ async function handleTaskSave() {
     recurrence
   };
 
+  if (dtstart !== undefined) taskData.dtstart = dtstart;
+  if (duration !== undefined) taskData.duration = duration;
+  if (percentComplete !== undefined) taskData.percentComplete = percentComplete;
+
   if (_currentTask) {
-    if (_currentTask.dtstart !== undefined) taskData.dtstart = _currentTask.dtstart;
-    if (_currentTask.dtstartIsDate !== undefined) taskData.dtstartIsDate = _currentTask.dtstartIsDate;
+    if (dtstartIsDate || _currentTask.dtstartIsDate) taskData.dtstartIsDate = dtstartIsDate || _currentTask.dtstartIsDate;
     if (_currentTask.dueIsDate !== undefined) taskData.dueIsDate = dueIsDate;
-    const pct = _currentTask.percentComplete !== undefined ? _currentTask.percentComplete : _currentTask['percent-complete'];
-    if (pct !== undefined) taskData.percentComplete = pct;
     if (_currentTask.completed !== undefined) taskData.completed = _currentTask.completed;
     if (_currentTask.completedHistory !== undefined) taskData.completedHistory = _currentTask.completedHistory;
     if (_currentTask.categories !== undefined) taskData.categories = _currentTask.categories;
-  } else if (dueIsDate) {
-    taskData.dueIsDate = true;
+  } else {
+    if (dtstartIsDate) taskData.dtstartIsDate = true;
+    if (dueIsDate) taskData.dueIsDate = true;
   }
 
   try {

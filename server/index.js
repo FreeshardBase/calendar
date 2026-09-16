@@ -61,11 +61,19 @@ app.use(async (req, res, next) => {
     }
     newUserId = null;
   } else if (req.headers['x-test-user-id']) {
-    newUserId = req.headers['x-test-user-id'];
+    if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
+      newUserId = req.headers['x-test-user-id'];
+    }
   } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
-    const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
-    if (headerUser) {
-      newUserId = String(headerUser).trim();
+    const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET || process.env.INTERNAL_WEBHOOK_SECRET;
+    const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true';
+
+    if (isTestEnv || (expectedSecret && providedSecret === expectedSecret)) {
+      const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
+      if (headerUser) {
+        newUserId = String(headerUser).trim();
+      }
     }
   } else if (!newUserId && authMethod === 'env' && (req.path === '/' || req.path === '/index.html' || req.path === '/api/auth/session' || process.env.E2E_TEST === 'true')) {
     newUserId = process.env.CALDAV_USERNAME || 'test';

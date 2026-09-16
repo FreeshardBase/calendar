@@ -913,9 +913,25 @@
         </div>
         <div class="form-row">
           <div class="form-group flex-1">
+            <label class="form-label" for="task-dtstart">Startdatum</label>
+            <input class="form-input" id="task-dtstart" type="datetime-local" />
+          </div>
+          <div class="form-group flex-1">
             <label class="form-label" for="task-due">Fälligkeitsdatum</label>
             <input class="form-input" id="task-due" type="datetime-local" />
           </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="task-duration">Dauer (z. B. PT2H)</label>
+            <input class="form-input" id="task-duration" type="text" placeholder="z. B. PT2H oder PT30M" />
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="task-percent-complete">Fortschritt (%)</label>
+            <input class="form-input" id="task-percent-complete" type="number" min="0" max="100" placeholder="0 - 100" />
+          </div>
+        </div>
+        <div class="form-row">
           <div class="form-group flex-1">
             <label class="form-label" for="task-priority">Priorität</label>
             <select class="form-select" id="task-priority">
@@ -925,15 +941,16 @@
               <option value="3">Niedrig (3)</option>
             </select>
           </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="task-recurrence">Wiederholung (RRULE)</label>
-          <select class="form-select" id="task-recurrence">
-            <option value="">Keine Wiederholung</option>
-            <option value="FREQ=DAILY">Täglich</option>
-            <option value="FREQ=WEEKLY">Wöchentlich</option>
-            <option value="FREQ=MONTHLY">Monatlich</option>
-          </select>
+          <div class="form-group flex-1">
+            <label class="form-label" for="task-recurrence">Wiederholung (RRULE)</label>
+            <select class="form-select" id="task-recurrence">
+              <option value="">Keine Wiederholung</option>
+              <option value="FREQ=DAILY">Täglich</option>
+              <option value="FREQ=WEEKLY">Wöchentlich</option>
+              <option value="FREQ=MONTHLY">Monatlich</option>
+              <option value="FREQ=YEARLY">Jährlich</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
