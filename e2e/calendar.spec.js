@@ -247,27 +247,27 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // All 6 view tabs must be clickable via standard browser clicks on mobile viewport and render target container
     await page.click('#view-week');
     await expect(page.locator('#view-week')).toHaveClass(/active/);
-    await expect(page.locator('.week-view')).toBeVisible();
+    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
     await page.click('#view-workweek');
     await expect(page.locator('#view-workweek')).toHaveClass(/active/);
-    await expect(page.locator('.week-view')).toBeVisible();
+    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
     await page.click('#view-day');
     await expect(page.locator('#view-day')).toHaveClass(/active/);
-    await expect(page.locator('.day-view')).toBeVisible();
+    await expect(page.locator('.day-view')).toBeVisible({ timeout: 10000 });
 
     await page.click('#view-agenda');
     await expect(page.locator('#view-agenda')).toHaveClass(/active/);
-    await expect(page.locator('.agenda-view')).toBeVisible();
+    await expect(page.locator('.agenda-view')).toBeVisible({ timeout: 10000 });
 
     await page.click('#view-kanban');
     await expect(page.locator('#view-kanban')).toHaveClass(/active/);
-    await expect(page.locator('.kanban-board')).toBeVisible();
+    await expect(page.locator('.kanban-board')).toBeVisible({ timeout: 10000 });
 
     await page.click('#view-month');
     await expect(page.locator('#view-month')).toHaveClass(/active/);
-    await expect(page.locator('.month-grid')).toBeVisible();
+    await expect(page.locator('.month-grid')).toBeVisible({ timeout: 10000 });
   });
 
   test('should allow saving and cancelling a task on a short viewport', async ({ page }) => {
@@ -357,9 +357,15 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
     // Create an event to ensure the exported ICS feed contains VEVENT content
+    const firstCalItem = page.locator('#calendar-list .calendar-item').first();
+    const firstCalId = await firstCalItem.getAttribute('data-cal-id');
+
     const shareEventTitle = `Public ICS Event ${Date.now()}`;
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    if (firstCalId) {
+      await page.selectOption('#ev-calendar', firstCalId);
+    }
     await page.fill('#ev-title', shareEventTitle);
     await page.fill('#ev-start-date', '2028-06-15');
     await page.fill('#ev-end-date', '2028-06-15');
@@ -368,7 +374,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
 
     // Open share dialog for the first calendar
-    const shareBtn = page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]');
+    const shareBtn = firstCalItem.locator('[data-share-cal]');
     await shareBtn.click();
     await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
 

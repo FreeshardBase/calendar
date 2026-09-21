@@ -9,6 +9,12 @@
       "server/test/issue127_builditipreply_cn_escaping.test.js",
       "server/test/issue128_custom_valarm_presets.test.js",
       "server/test/issue13_vtodo_caldav_sync.test.js",
+      "server/test/issue287_tzid_zero_edit_save_drift.test.js",
+      "server/test/issue290_recurring_series_zero_edit_save.test.js",
+      "server/test/issue292_dst_changeover_event_duration.test.js",
+      "server/test/issue293_duration_to_dtend_preservation.test.js",
+      "server/test/issue294_ics_fall_back_repeated_hour.test.js",
+      "server/test/issue325_updateWholeSeries_malformed_tzid_z.test.js",
       "server/test/issue93_vtodo_date_only_due.test.js",
       "server/test/issue95_vtodo_rrule_completion_history.test.js",
       "server/test/itip_rsvp.test.js",
@@ -45,6 +51,6 @@
   "thresholds": {
     "high": 70,
     "low": 50,
-    "break": 30
+    "break": 36
   }
 }

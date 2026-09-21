@@ -541,8 +541,15 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   const temp = new Date(iso);
   if (isNaN(temp.getTime())) return temp;
 
+  let targetTz = timeZone || 'UTC';
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: targetTz });
+  } catch (e) {
+    targetTz = 'UTC';
+  }
+
   const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone,
+    timeZone: targetTz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
