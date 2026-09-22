@@ -49,6 +49,8 @@ test('Issue #50: Impersonation via X-Test-User-Id / X-Forwarded-User is strictly
   const endpoints = [
     { method: 'GET', path: '/api/calendars' },
     { method: 'POST', path: '/api/calendars', body: JSON.stringify({ name: 'Hacked' }) },
+    { method: 'GET', path: '/api/accounts' },
+    { method: 'POST', path: '/api/accounts', body: JSON.stringify({ url: 'http://127.0.0.1:9999', username: 'victim-0001', password: 'password' }) },
     { method: 'GET', path: '/api/msgraph/accounts' },
     { method: 'GET', path: '/api/notifications/push-subscriptions' },
     { method: 'GET', path: '/api/resources/bookings' },

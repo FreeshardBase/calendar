@@ -148,22 +148,7 @@ app.use(async (req, res, next) => {
 app.use(express.static(path.join(__dirname, '../public')));
 
 // ── Internal Hook Security Middleware ─────────────────────────────────────────
-function requireInternal(req, res, next) {
-  if (process.env.NODE_ENV === 'test') return next();
-  const ip = req.ip || req.connection.remoteAddress;
-  const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-  const secret = req.headers['x-freeshard-secret'];
-  const expectedSecret = process.env.INTERNAL_WEBHOOK_SECRET;
-
-  if (expectedSecret) {
-    if (secret === expectedSecret) return next();
-    return res.status(403).json({ error: 'Access denied: Invalid webhook secret' });
-  }
-
-  if (isLocal) return next();
-
-  return res.status(403).json({ error: 'Access denied: Internal only' });
-}
+const requireInternal = createRequireInternalMiddleware(process.env);
 
 // ── Mock CalDAV endpoint for testing ──────────────────────────────────────────
 if (process.env.NODE_ENV === 'test' || process.env.ENABLE_MOCK_DAV === 'true') {
