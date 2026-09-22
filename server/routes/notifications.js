@@ -12,8 +12,10 @@ function getUserIdFromReq(req) {
   if (req.session && req.session.userId) {
     return req.session.userId;
   }
-  if (req.headers['x-test-user-id'] && req.headers['x-test-user-id'] !== 'unauthenticated' && req.headers['x-test-user-id'] !== 'none') {
-    return req.headers['x-test-user-id'];
+  if ((process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') && req.headers && req.headers['x-test-user-id']) {
+    if (req.headers['x-test-user-id'] !== 'unauthenticated' && req.headers['x-test-user-id'] !== 'none') {
+      return req.headers['x-test-user-id'];
+    }
   }
   return null;
 }

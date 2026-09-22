@@ -7,7 +7,13 @@ const { MSGraphSyncEngine } = require('../utils/msgraph');
 
 // Get active user ID from request session/header
 function getUserId(req) {
-  return req.headers['x-test-user-id'] || (req.session && req.session.userId) || null;
+  if (req.session && req.session.userId) {
+    return req.session.userId;
+  }
+  if ((process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') && req.headers && req.headers['x-test-user-id']) {
+    return req.headers['x-test-user-id'];
+  }
+  return null;
 }
 
 /**

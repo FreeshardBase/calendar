@@ -110,11 +110,24 @@ router.post('/suggest', async (req, res) => {
   }
 });
 
+function getUserId(req) {
+  if (req.session && req.session.userId) {
+    return req.session.userId;
+  }
+  if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
+    return (req.headers && req.headers['x-test-user-id']) || 'testuser-id';
+  }
+  return null;
+}
+
 // GET /api/resources/bookings — get bookings
 router.get('/bookings', async (req, res) => {
   try {
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { resourceId, startTime, endTime } = req.query;
-    const userId = req.session ? req.session.userId : (req.headers['x-test-user-id'] || 'testuser-id');
     const bookings = await Db.getResourceBookings({ resourceId, userId, startTime, endTime });
     res.json({ bookings });
   } catch (err) {
@@ -126,8 +139,11 @@ router.get('/bookings', async (req, res) => {
 // POST /api/resources/bookings — book resource
 router.post('/bookings', async (req, res) => {
   try {
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { resourceId, eventUid, startTime, endTime } = req.body;
-    const userId = req.session ? req.session.userId : (req.headers['x-test-user-id'] || 'testuser-id');
 
     if (!resourceId || !startTime || !endTime) {
       return res.status(400).json({ error: 'resourceId, startTime, and endTime are required' });
@@ -147,7 +163,10 @@ router.post('/bookings', async (req, res) => {
 // DELETE /api/resources/bookings/:id — cancel booking
 router.delete('/bookings/:id', async (req, res) => {
   try {
-    const userId = req.session ? req.session.userId : (req.headers['x-test-user-id'] || 'testuser-id');
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     await cancelResourceBooking(req.params.id, userId);
     res.json({ success: true });
   } catch (err) {

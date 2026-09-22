@@ -9,11 +9,16 @@ const {
 } = require('../utils/webcalSubscription');
 
 function getUserId(req) {
-  const headerUser = req.headers ? req.headers['x-test-user-id'] : null;
-  if (headerUser === 'unauthenticated' || headerUser === 'none') {
-    return null;
+  if (req.session && req.session.userId) {
+    return req.session.userId;
   }
-  return req.session?.userId || headerUser || null;
+  if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
+    const headerUser = req.headers ? req.headers['x-test-user-id'] : null;
+    if (headerUser && headerUser !== 'unauthenticated' && headerUser !== 'none') {
+      return headerUser;
+    }
+  }
+  return null;
 }
 
 /**

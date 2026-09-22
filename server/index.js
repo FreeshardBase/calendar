@@ -54,22 +54,20 @@ app.use(express.urlencoded({ extended: true }));
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
   const authMethod = process.env.AUTH_METHOD || 'env';
+  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true';
   let newUserId = req.session.userId;
-  if (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none') {
+  if (isTestEnv && (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none')) {
     if (req.session.userId !== undefined) {
       delete req.session.userId;
     }
     newUserId = null;
-  } else if (req.headers['x-test-user-id']) {
-    if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
-      newUserId = req.headers['x-test-user-id'];
-    }
+  } else if (isTestEnv && req.headers['x-test-user-id']) {
+    newUserId = req.headers['x-test-user-id'];
   } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
     const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET || process.env.INTERNAL_WEBHOOK_SECRET;
     const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
-    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true';
 
-    if (isTestEnv || (expectedSecret && providedSecret === expectedSecret)) {
+    if (expectedSecret && providedSecret === expectedSecret) {
       const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
       if (headerUser) {
         newUserId = String(headerUser).trim();
