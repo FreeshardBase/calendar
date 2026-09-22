@@ -101,13 +101,17 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Create a weekly recurring event
     await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calVal = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    if (calVal) await page.selectOption('#ev-calendar', calVal);
     const title = `Recurring E2E ${Date.now()}`;
     await page.fill('#ev-title', title);
     await page.fill('#ev-start-date', '2026-12-01');
     await page.fill('#ev-end-date', '2026-12-01');
     await page.selectOption('#ev-recurrence', 'WEEKLY');
     await page.click('#event-save-btn');
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
     const chips = page.locator(`.event-chip:has-text("${title}")`);
     await expect(chips.first()).toBeVisible({ timeout: 10000 });
@@ -201,7 +205,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // 1. Switch to Week View
     await page.click('#view-week');
-    await expect(page.locator('.week-view')).toBeVisible();
+    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
     // 2. Switch to Workweek View
     await page.click('#view-workweek');
@@ -363,6 +367,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const shareEventTitle = `Public ICS Event ${Date.now()}`;
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
     if (firstCalId) {
       await page.selectOption('#ev-calendar', firstCalId);
     }
@@ -371,7 +376,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-end-date', '2028-06-15');
     await page.check('#ev-allday');
     await page.click('#event-save-btn');
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
     // Open share dialog for the first calendar
     const shareBtn = firstCalItem.locator('[data-share-cal]');
@@ -452,6 +457,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Open create modal
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calVal = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    if (calVal) await page.selectOption('#ev-calendar', calVal);
     const title = `VALARM Reminder Event ${Date.now()}`;
     await page.fill('#ev-title', title);
     await page.fill('#ev-start-date', '2027-12-15');
@@ -461,7 +469,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Select 15 minutes before alarm
     await page.selectOption('#ev-alarm', '-PT15M');
     await page.click('#event-save-btn');
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
     // Verify event chip appears
     const chip = page.locator(`.event-chip:has-text("${title}"), .event-block:has-text("${title}")`).first();
@@ -525,8 +533,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-end-time', endTime);
 
     await page.click('#event-save-btn');
-    console.log('EVENT FORM ERROR TEXT:', await page.locator('#event-form-error').textContent());
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
     // Verify chip rendered
     const eventChip = page.locator('.event-chip, [data-event-uid]').filter({ hasText: title }).first();
@@ -596,6 +603,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Create event via real UI form with VALARM
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calVal = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    if (calVal) await page.selectOption('#ev-calendar', calVal);
     await page.fill('#ev-title', title);
     await page.fill('#ev-location', location);
     await page.fill('#ev-start-date', today);
@@ -604,7 +614,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.selectOption('#ev-alarm', 'PT0S');
 
     await page.click('#event-save-btn');
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
     // Trigger alarm check in application
     await page.evaluate(() => {
@@ -634,6 +644,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Open task create modal
     await page.click('#new-task-btn');
     await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#task-calendar-id option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calVal = await page.locator('#task-calendar-id option:not([value=""])').first().getAttribute('value');
+    if (calVal) await page.selectOption('#task-calendar-id', calVal);
 
     const taskTitle = `E2E VTODO Task ${Date.now()}`;
     await page.fill('#task-title', taskTitle);
@@ -643,7 +656,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Save task
     await page.click('#task-save-btn');
-    await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
+    await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
     // Verify task is listed in sidebar tasks section
     const sidebarList = page.locator('#sidebar-task-list');
@@ -727,13 +740,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Switch to Week view
     await page.click('#view-week');
+    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
     // Verify dual timezone gutter header and dual hour labels exist
     const gutter = page.locator('.week-time-gutter.dual-tz-gutter');
-    await expect(gutter).toBeVisible({ timeout: 5000 });
+    await expect(gutter).toBeVisible({ timeout: 10000 });
 
     const dualLabels = page.locator('.week-hour-label.dual-tz');
-    await expect(dualLabels.first()).toBeVisible({ timeout: 5000 });
+    await expect(dualLabels.first()).toBeVisible({ timeout: 10000 });
   });
 
   test('should update secondary timezone directly via header toolbar dropdown', async ({ page }) => {
@@ -743,6 +757,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Switch to Week view
     await page.click('#view-week');
+    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
     // Select UTC in header secondary timezone dropdown
     const headerTzSelect = page.locator('#header-secondary-tz-select');
@@ -751,13 +766,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Dual timezone gutter should be visible with UTC badge
     const gutter = page.locator('.week-time-gutter.dual-tz-gutter');
-    await expect(gutter).toBeVisible({ timeout: 5000 });
+    await expect(gutter).toBeVisible({ timeout: 10000 });
     await expect(gutter).toContainText('UTC');
 
     // Switch to Day view
     await page.click('#view-day');
+    await expect(page.locator('.day-view')).toBeVisible({ timeout: 10000 });
     const dayGutter = page.locator('.day-time-gutter.dual-tz-gutter');
-    await expect(dayGutter).toBeVisible({ timeout: 5000 });
+    await expect(dayGutter).toBeVisible({ timeout: 10000 });
     await expect(dayGutter).toContainText('UTC');
 
     // Open settings drawer to verify synced dropdown state

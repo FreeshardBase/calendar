@@ -35,13 +35,14 @@ class CalDAVClient {
 
     const reqHeaders = {
       Authorization: authHeader,
+      'Accept-Encoding': 'identity',
       ...headers
     };
     if (body && !reqHeaders['Content-Type'] && !reqHeaders['content-type']) {
       reqHeaders['Content-Type'] = 'application/xml; charset=utf-8';
     }
 
-    const timeoutMs = timeout || Number(process.env.CALDAV_TIMEOUT_MS) || 4000;
+    const timeoutMs = timeout || Number(process.env.CALDAV_TIMEOUT_MS) || 15000;
     const NON_RETRIABLE_CODES = new Set([
       'ECONNREFUSED',
       'ENOTFOUND',

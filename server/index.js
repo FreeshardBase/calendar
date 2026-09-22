@@ -490,7 +490,7 @@ app.get('*', (req, res) => {
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('[ERROR]', err.message);
+  console.error('[ERROR]', req.method, req.originalUrl, err.message, err.stack);
   if (res.headersSent) {
     return next(err);
   }
