@@ -490,6 +490,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('should create timed event asserting clock times, stored DESCRIPTION and LOCATION fields, and special character escIcal preservation', async ({ page }) => {
+    page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
+    page.on('pageerror', err => console.log('PAGE ERROR:', err.message));
     await page.goto('/?date=2038-11-20');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
@@ -504,6 +506,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calVal = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    if (calVal) {
+      await page.selectOption('#ev-calendar', calVal);
+    }
 
     await page.fill('#ev-title', title);
     await page.fill('#ev-location', location);
@@ -512,11 +519,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-end-date', '2038-11-20');
     if (await page.isChecked('#ev-allday')) {
       await page.uncheck('#ev-allday');
+      await page.dispatchEvent('#ev-allday', 'change');
     }
     await page.fill('#ev-start-time', startTime);
     await page.fill('#ev-end-time', endTime);
 
     await page.click('#event-save-btn');
+    console.log('EVENT FORM ERROR TEXT:', await page.locator('#event-form-error').textContent());
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
 
     // Verify chip rendered
