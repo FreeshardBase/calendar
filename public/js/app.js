@@ -4,7 +4,7 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI } from './api.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
@@ -71,6 +71,7 @@ async function boot() {
   initAvailabilityManager();
   initMSGraphModal();
   initDialogFocusManager();
+  initWebcalUI();
 
   if (typeof window !== 'undefined' && window.OfflineCache) {
     window.OfflineCache.registerServiceWorker();
@@ -91,6 +92,7 @@ async function boot() {
       hideLoading();
       showApp();
       await loadCalendars();
+      await loadWebcalSubscriptions();
       await loadEvents();
       await loadTasks();
       await checkOAuthTokenStatus();
@@ -176,8 +178,9 @@ async function loadEvents() {
   const cacheKey = `${view}_${start.toISOString()}_${end.toISOString()}`;
 
   const cached = getCachedEvents(cacheKey);
+  const activeSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
   if (cached && Array.isArray(cached)) {
-    store.set({ events: cached });
+    store.set({ events: [...cached, ...activeSubs] });
     renderCalendarView();
   } else {
     store.set({ loadingEvents: true });
@@ -188,7 +191,8 @@ async function loadEvents() {
     const events = await EventsAPI.list(start.toISOString(), end.toISOString());
     if (seq !== loadEventsSeq) return;
     cacheEvents(cacheKey, events);
-    store.set({ events });
+    const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
+    store.set({ events: [...events, ...activeCurrentSubs] });
     renderCalendarView();
     checkAndTriggerAlarms();
   } catch (err) {
@@ -226,6 +230,224 @@ async function loadTasks() {
     }
   } finally {
     store.set({ loadingTasks: false });
+  }
+}
+
+// ── Webcal Subscriptions State & Logic ────────────────────────────────────────
+let webcalSubscriptions = [];
+let webcalEvents = [];
+const hiddenWebcal = new Set();
+
+async function loadWebcalSubscriptions() {
+  try {
+    const res = await WebcalAPI.list();
+    webcalSubscriptions = res.subscriptions || [];
+    renderWebcalSidebar();
+
+    const allEvents = [];
+    await Promise.allSettled(
+      webcalSubscriptions.map(async (sub) => {
+        try {
+          const evRes = await WebcalAPI.getEvents(sub.id);
+          const evs = (evRes.events || []).map(e => ({
+            ...e,
+            isSubscription: true,
+            subscriptionId: sub.id,
+            subscriptionName: sub.name,
+            calendarId: `webcal::${sub.id}`,
+            color: sub.color || e.color || '#3b82f6',
+            readOnly: true
+          }));
+          allEvents.push(...evs);
+        } catch (e) {
+          console.warn('[webcal] Failed to load events for subscription:', sub.id, e.message);
+        }
+      })
+    );
+    webcalEvents = allEvents;
+    mergeAndRenderEvents();
+  } catch (err) {
+    console.warn('[webcal] Failed to load subscriptions:', err.message);
+  }
+}
+
+function mergeAndRenderEvents() {
+  const currentEvents = store.get('events') || [];
+  const normalEvents = currentEvents.filter(e => !e.isSubscription);
+  const activeWebcal = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
+  store.set({ events: [...normalEvents, ...activeWebcal] });
+  renderCalendarView();
+}
+
+function renderWebcalSidebar() {
+  const list = $('webcal-list');
+  if (!list) return;
+
+  if (!webcalSubscriptions.length) {
+    list.innerHTML = '<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">Keine Abonnements vorhanden.</div>';
+    return;
+  }
+
+  list.innerHTML = webcalSubscriptions.map(sub => {
+    const checked = !hiddenWebcal.has(sub.id);
+    return `
+      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.name)}">
+        <div class="calendar-dot" style="background:${escHtml(sanitizeColor(sub.color))}"></div>
+        <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
+          <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.name)}">${escHtml(sub.name)}</span>
+          <span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Webcal-Feed</span>
+        </div>
+        <div class="cal-item-actions">
+          <button class="cal-action-btn" data-sync-webcal="${escHtml(sub.id)}" title="Jetzt synchronisieren">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+          <button class="cal-action-btn" data-delete-webcal="${escHtml(sub.id)}" title="Abonnement löschen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+        <div class="calendar-check" style="${checked ? 'background:' + escHtml(sanitizeColor(sub.color)) : ''}">
+          <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
+            <path d="M2 6l3 3 5-5"/>
+          </svg>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-webcal-id]').forEach(el => {
+    const handleToggle = e => {
+      if (e.target.closest('[data-sync-webcal]') || e.target.closest('[data-delete-webcal]')) return;
+      const id = el.dataset.webcalId;
+      if (hiddenWebcal.has(id)) {
+        hiddenWebcal.delete(id);
+      } else {
+        hiddenWebcal.add(id);
+      }
+      renderWebcalSidebar();
+      mergeAndRenderEvents();
+    };
+
+    el.addEventListener('click', handleToggle);
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target.closest('[data-sync-webcal]') || e.target.closest('[data-delete-webcal]')) return;
+        e.preventDefault();
+        handleToggle(e);
+      }
+    });
+  });
+
+  list.querySelectorAll('[data-sync-webcal]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const id = btn.dataset.syncWebcal;
+      try {
+        btn.classList.add('rotating');
+        const res = await WebcalAPI.sync(id);
+        showToast(`Abonnement synchronisiert (${res.eventCount || 0} Termine).`, 'success');
+        await loadWebcalSubscriptions();
+      } catch (err) {
+        showToast('Sync fehlgeschlagen: ' + err.message, 'error');
+      } finally {
+        btn.classList.remove('rotating');
+      }
+    });
+  });
+
+  list.querySelectorAll('[data-delete-webcal]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const id = btn.dataset.deleteWebcal;
+      const sub = webcalSubscriptions.find(s => s.id === id);
+      if (!sub) return;
+      if (!(await confirmDialog(`Abonnement „${sub.name}“ wirklich löschen?`))) return;
+      try {
+        await WebcalAPI.remove(id);
+        showToast(`Abonnement „${sub.name}“ gelöscht.`, 'info');
+        webcalSubscriptions = webcalSubscriptions.filter(s => s.id !== id);
+        webcalEvents = webcalEvents.filter(ev => ev.subscriptionId !== id);
+        renderWebcalSidebar();
+        mergeAndRenderEvents();
+      } catch (err) {
+        showToast('Fehler beim Löschen: ' + err.message, 'error');
+      }
+    });
+  });
+}
+
+function openAddWebcalDialog() {
+  const backdrop = $('webcal-modal-backdrop');
+  if (!backdrop) return;
+  const formEl = $('webcal-form');
+  if (formEl) formEl.reset();
+  const errEl = $('webcal-form-error');
+  if (errEl) {
+    errEl.textContent = '';
+    errEl.classList.add('hidden');
+  }
+  openDialog(backdrop);
+}
+
+function initWebcalUI() {
+  const addBtn = $('add-webcal-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openAddWebcalDialog());
+  }
+
+  const backdrop = $('webcal-modal-backdrop');
+  const closeBtn = $('webcal-modal-close');
+  const cancelBtn = $('webcal-cancel-btn');
+  if (closeBtn) closeBtn.addEventListener('click', () => closeDialog(backdrop));
+  if (cancelBtn) cancelBtn.addEventListener('click', () => closeDialog(backdrop));
+
+  const formEl = $('webcal-form');
+  if (formEl) {
+    formEl.addEventListener('submit', async e => {
+      e.preventDefault();
+      const url = $('webcal-url').value.trim();
+      const name = $('webcal-name').value.trim();
+      const color = $('webcal-color').value;
+      const refreshInterval = parseInt($('webcal-refresh').value, 10) || 3600;
+      const errEl = $('webcal-form-error');
+
+      if (!url || !name) {
+        if (errEl) {
+          errEl.textContent = 'Bitte URL und Bezeichnung angeben.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      const saveBtn = $('webcal-save-btn');
+      const label = saveBtn?.querySelector('.btn-label');
+      const spinner = saveBtn?.querySelector('.btn-spinner');
+      if (label) label.classList.add('hidden');
+      if (spinner) spinner.classList.remove('hidden');
+      if (saveBtn) saveBtn.disabled = true;
+
+      try {
+        await WebcalAPI.create({ name, url, color, refreshInterval });
+        closeDialog(backdrop);
+        showToast(`Abonnement „${name}“ erfolgreich hinzugefügt.`, 'success');
+        await loadWebcalSubscriptions();
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err.message || 'Fehler beim Abonnieren des Feeds';
+          errEl.classList.remove('hidden');
+        } else {
+          showToast(err.message, 'error');
+        }
+      } finally {
+        if (label) label.classList.remove('hidden');
+        if (spinner) spinner.classList.add('hidden');
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    });
   }
 }
 
@@ -346,6 +568,7 @@ function getFilteredTasks() {
 
 function renderSidebar() {
   renderCalendarList();
+  renderWebcalSidebar();
   renderTaskSidebar();
   renderSettings();
 }
@@ -1474,7 +1697,7 @@ const calendarsById = () => {
 function showEventPopover(ev, mouseEvent) {
   const popover = $('event-popover');
   const cal     = calendarsById()[ev.calendarId] || {};
-  const color   = cal.color || '#6366f1';
+  const color   = ev.color || cal.color || '#6366f1';
 
   const timeStr = ev.allDay
     ? 'Ganztägig'
@@ -1498,9 +1721,10 @@ function showEventPopover(ev, mouseEvent) {
        </div>`
     : '';
 
-  const actionsHtml = cal.readOnly
+  const isReadOnly = ev.readOnly || ev.isSubscription || cal.readOnly;
+  const actionsHtml = isReadOnly
     ? `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Details</button>
-       <span style="font-size:11px;color:var(--danger);margin-left:auto;padding-right:8px;font-weight:600;">Schreibgeschützt</span>`
+       <span style="font-size:11px;color:var(--danger);margin-left:auto;padding-right:8px;font-weight:600;">${ev.isSubscription ? 'Abonnement (schreibgeschützt)' : 'Schreibgeschützt'}</span>`
     : `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Bearbeiten</button>
        <button class="btn btn-ghost btn-sm btn-danger" id="popover-delete-btn">Löschen</button>`;
 

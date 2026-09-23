@@ -939,7 +939,81 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
   });
 
+  test('should subscribe to a webcal feed, display overlay events, toggle visibility, and show read-only details (Issue #24)', async ({ page }) => {
+    const http = require('http');
+    const timestamp = Date.now();
+    const eventTitle = `E2E Webcal Event ${timestamp}`;
+    const feedName = `E2E Webcal Feed ${timestamp}`;
+    const mockIcs = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Test User Feed//EN',
+      'BEGIN:VEVENT',
+      `UID:e2e-webcal-event-${timestamp}@example.com`,
+      `SUMMARY:${eventTitle}`,
+      'DTSTART:20281228T100000Z',
+      'DTEND:20281228T110000Z',
+      'LOCATION:Virtual Conference Room',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const feedServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8' });
+      res.end(mockIcs);
+    });
+
+    await new Promise(resolve => feedServer.listen(0, resolve));
+    const port = feedServer.address().port;
+    const feedUrl = `http://127.0.0.1:${port}/test-feed.ics`;
+
+    try {
+      await page.goto('/?date=2028-12-28');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+      // Click "Webcal-Abonnement hinzufügen" button
+      await page.click('#add-webcal-btn');
+      await expect(page.locator('#webcal-modal-backdrop')).not.toHaveClass(/hidden/);
+
+      // Fill subscription form
+      await page.fill('#webcal-url', feedUrl);
+      await page.fill('#webcal-name', feedName);
+      await page.click('#webcal-save-btn');
+
+      // Modal closes and subscription appears in sidebar
+      await expect(page.locator('#webcal-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
+      await expect(page.locator('#webcal-list')).toContainText(feedName, { timeout: 5000 });
+
+      // The subscription event should be rendered on the calendar grid
+      const eventItem = page.locator('.event-chip, .event-block, [data-event-uid]').filter({ hasText: eventTitle }).first();
+      await expect(eventItem).toBeVisible({ timeout: 5000 });
+
+      // Clicking event shows read-only popover
+      await eventItem.click();
+      await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#event-popover')).toContainText('Abonnement (schreibgeschützt)');
+
+      // Close popover
+      await page.keyboard.press('Escape');
+
+      // Toggle subscription off in sidebar
+      const subItem = page.locator('#webcal-list .calendar-item', { hasText: feedName }).first();
+      await subItem.click();
+
+      // Event should now be hidden from the calendar grid
+      await expect(page.locator('.event-chip, .event-block, [data-event-uid]').filter({ hasText: eventTitle })).toHaveCount(0);
+
+      // Toggle subscription back on
+      await subItem.click();
+      await expect(page.locator('.event-chip, .event-block, [data-event-uid]').filter({ hasText: eventTitle }).first()).toBeVisible({ timeout: 5000 });
+    } finally {
+      await new Promise(resolve => feedServer.close(resolve));
+    }
+  });
+
 });
+
 
 
 

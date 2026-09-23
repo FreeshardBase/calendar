@@ -159,7 +159,7 @@ export function openEditModal(event, callbacks) {
   populateCalendarSelect(event.calendarId);
 
   const cal = (store.get('calendars') || []).find(c => c.id === event.calendarId);
-  const isReadOnly = cal ? !!cal.readOnly : false;
+  const isReadOnly = event.readOnly || event.isSubscription || (cal ? !!cal.readOnly : false);
 
   $('event-save-btn').style.display = isReadOnly ? 'none' : '';
   $('delete-event-btn').style.display = isReadOnly ? 'none' : 'block';
@@ -174,7 +174,9 @@ export function openEditModal(event, callbacks) {
   }
 
   if (isReadOnly) {
-    warningEl.textContent = 'Dieser Termin ist schreibgeschützt (Kalender wurde schreibgeschützt geteilt).';
+    warningEl.textContent = event.isSubscription
+      ? 'Dieser Termin stammt aus einem schreibgeschützten Webcal-Abonnement.'
+      : 'Dieser Termin ist schreibgeschützt (Kalender wurde schreibgeschützt geteilt).';
     warningEl.classList.remove('hidden');
     setFormDisabled(true);
   } else {

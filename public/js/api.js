@@ -156,6 +156,18 @@ export const AvailabilityAPI = {
   bookPublicSlot: (slug, bookingData) => request('POST', `/api/public/availability/${encodeURIComponent(slug)}/book`, bookingData),
 };
 
+// ── Webcal / ICS Subscriptions ────────────────────────────────────────────────
+export const WebcalAPI = {
+  list: () => request('GET', '/api/webcal/subscriptions'),
+  get: (id) => request('GET', `/api/webcal/subscriptions/${encodeURIComponent(id)}`),
+  create: (data) => request('POST', '/api/webcal/subscriptions', data),
+  update: (id, data) => request('PATCH', `/api/webcal/subscriptions/${encodeURIComponent(id)}`, data),
+  remove: (id) => request('DELETE', `/api/webcal/subscriptions/${encodeURIComponent(id)}`),
+  getEvents: (id, force = false) => request('GET', `/api/webcal/subscriptions/${encodeURIComponent(id)}/events${force ? '?force=true' : ''}`),
+  sync: (id) => request('POST', `/api/webcal/subscriptions/${encodeURIComponent(id)}/sync`),
+};
+
+
 
 
 

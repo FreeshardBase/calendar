@@ -345,10 +345,12 @@ db.serialize(() => {
       color TEXT NOT NULL DEFAULT '#3b82f6',
       refresh_interval INTEGER NOT NULL DEFAULT 3600,
       last_synced_at INTEGER,
+      cached_events TEXT,
       created_at INTEGER NOT NULL
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_webcal_subscriptions_user ON webcal_subscriptions(user_id)`);
+  db.run(`ALTER TABLE webcal_subscriptions ADD COLUMN cached_events TEXT`, () => {});
   db.run(`
     CREATE TABLE IF NOT EXISTS event_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2417,7 +2419,7 @@ const Db = {
   getWebcalSubscriptions(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, created_at
+        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, cached_events, created_at
          FROM webcal_subscriptions WHERE user_id = ? ORDER BY created_at DESC`,
         [userId],
         (err, rows) => {
@@ -2431,7 +2433,7 @@ const Db = {
   getWebcalSubscription(id, userId) {
     return new Promise((resolve, reject) => {
       db.get(
-        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, created_at
+        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, cached_events, created_at
          FROM webcal_subscriptions WHERE id = ? AND user_id = ?`,
         [id, userId],
         (err, row) => {
@@ -2466,14 +2468,48 @@ const Db = {
     });
   },
 
-  updateWebcalSubscriptionSyncTime(id, lastSyncedAt) {
+  updateWebcalSubscriptionSyncTime(id, lastSyncedAt, cachedEvents = null) {
     return new Promise((resolve, reject) => {
-      db.run(
-        `UPDATE webcal_subscriptions SET last_synced_at = ? WHERE id = ?`,
-        [lastSyncedAt, id],
-        function(err) {
+      const sql = cachedEvents !== null
+        ? `UPDATE webcal_subscriptions SET last_synced_at = ?, cached_events = ? WHERE id = ?`
+        : `UPDATE webcal_subscriptions SET last_synced_at = ? WHERE id = ?`;
+      const params = cachedEvents !== null ? [lastSyncedAt, cachedEvents, id] : [lastSyncedAt, id];
+      db.run(sql, params, function(err) {
+        if (err) return reject(err);
+        resolve({ changes: this.changes });
+      });
+    });
+  },
+
+  getCachedWebcalEvents(subscriptionId, userId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        `SELECT cached_events FROM webcal_subscriptions WHERE id = ? AND user_id = ?`,
+        [subscriptionId, userId],
+        (err, row) => {
           if (err) return reject(err);
-          resolve({ changes: this.changes });
+          if (!row || !row.cached_events) return resolve([]);
+          try {
+            const parsed = JSON.parse(row.cached_events);
+            resolve(Array.isArray(parsed) ? parsed : []);
+          } catch (e) {
+            resolve([]);
+          }
+        }
+      );
+    });
+  },
+
+  getWebcalSubscriptionsDueForSync(now = Math.floor(Date.now() / 1000)) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT id, user_id, name, url, color, refresh_interval, last_synced_at, created_at
+         FROM webcal_subscriptions
+         WHERE last_synced_at IS NULL OR (last_synced_at + refresh_interval) <= ?`,
+        [now],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
         }
       );
     });

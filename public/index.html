@@ -190,6 +190,19 @@
         </div>
       </div>
 
+      <!-- Webcal Subscriptions Section -->
+      <div class="sidebar-section" id="webcal-sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="sidebar-section-title">Abonnements</span>
+          <button class="icon-btn" id="add-webcal-btn" title="Webcal-Abonnement hinzufügen" aria-label="Webcal-Abonnement hinzufügen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+        </div>
+        <div id="webcal-list" class="calendar-list"></div>
+      </div>
+
       <!-- Tasks Sidebar Section -->
       <div class="sidebar-section" id="task-sidebar-section">
         <div class="sidebar-section-header">
@@ -782,6 +795,57 @@
             <button type="button" class="btn btn-ghost" id="account-cancel-btn">Abbrechen</button>
             <button type="submit" class="btn btn-primary" id="account-save-btn">
               <span class="btn-label">Verbinden</span>
+              <span class="btn-spinner hidden"></span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Webcal Subscription Modal ────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="webcal-modal-backdrop">
+  <div class="modal modal-sm" id="webcal-modal" role="dialog" aria-modal="true" aria-labelledby="webcal-modal-title">
+    <div class="modal-header">
+      <h3 class="modal-title" id="webcal-modal-title">Webcal-Abonnement hinzufügen</h3>
+      <button class="icon-btn modal-close" id="webcal-modal-close" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="webcal-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="webcal-url">Abonnement-URL (webcal:// oder https://)</label>
+          <input type="url" class="form-input" id="webcal-url" name="url" placeholder="webcal://example.com/calendar.ics" required autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="webcal-name">Bezeichnung</label>
+          <input type="text" class="form-input" id="webcal-name" name="name" placeholder="z. B. Feiertage oder Teamkalender" required autocomplete="off">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="webcal-color">Farbe</label>
+            <input type="color" class="form-input form-input-color" id="webcal-color" name="color" value="#3b82f6">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="webcal-refresh">Aktualisierung</label>
+            <select class="form-input" id="webcal-refresh" name="refreshInterval">
+              <option value="1800">Alle 30 Minuten</option>
+              <option value="3600" selected>Jede Stunde</option>
+              <option value="21600">Alle 6 Stunden</option>
+              <option value="86400">Täglich</option>
+            </select>
+          </div>
+        </div>
+        <div id="webcal-form-error" class="form-error hidden"></div>
+        <div class="modal-actions" style="margin-top: 16px;">
+          <div class="modal-actions-right">
+            <button type="button" class="btn btn-ghost" id="webcal-cancel-btn">Abbrechen</button>
+            <button type="submit" class="btn btn-primary" id="webcal-save-btn">
+              <span class="btn-label">Abonnieren</span>
               <span class="btn-spinner hidden"></span>
             </button>
           </div>

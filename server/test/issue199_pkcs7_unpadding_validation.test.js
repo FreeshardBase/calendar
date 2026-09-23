@@ -24,6 +24,7 @@ print("ROUNDTRIP_SUCCESS")
 `;
     const output = execSync(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`, {
       cwd: repoRoot,
+      env: { ...process.env, ENCRYPTION_KEY: 'test-key-32-bytes-long-1234567890' },
       encoding: 'utf-8'
     });
     assert.ok(output.includes('ROUNDTRIP_SUCCESS'));
@@ -57,6 +58,7 @@ except Exception as e:
 `;
     const output = execSync(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`, {
       cwd: repoRoot,
+      env: { ...process.env, ENCRYPTION_KEY: 'test-key-32-bytes-long-1234567890' },
       encoding: 'utf-8'
     });
     assert.ok(output.includes('PASS_VALUE_ERROR'), `Expected ValueError, got output:\n${output}`);
@@ -88,6 +90,7 @@ except ValueError as ve:
 `;
     const output = execSync(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`, {
       cwd: repoRoot,
+      env: { ...process.env, ENCRYPTION_KEY: 'test-key-32-bytes-long-1234567890' },
       encoding: 'utf-8'
     });
     assert.ok(output.includes('PASS_VALUE_ERROR'), `Expected ValueError, got output:\n${output}`);
@@ -119,6 +122,7 @@ except ValueError as ve:
 `;
     const output = execSync(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`, {
       cwd: repoRoot,
+      env: { ...process.env, ENCRYPTION_KEY: 'test-key-32-bytes-long-1234567890' },
       encoding: 'utf-8'
     });
     assert.ok(output.includes('PASS_VALUE_ERROR'), `Expected ValueError, got output:\n${output}`);

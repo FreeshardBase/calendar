@@ -62,7 +62,14 @@ router.post('/subscriptions', async (req, res, next) => {
       refreshInterval: refreshInterval || 3600
     });
 
-    res.status(201).json(subscription);
+    try {
+      await fetchAndParseWebcalFeed(subscription);
+    } catch (fetchErr) {
+      console.warn(`[Webcal] Initial feed fetch for subscription ${subscription.id}:`, fetchErr.message);
+    }
+
+    const created = await Db.getWebcalSubscription(subscription.id, userId);
+    res.status(201).json(created || subscription);
   } catch (err) {
     if (err.message.includes('Unsupported subscription URL protocol') || err.message.includes('Invalid URL format')) {
       return res.status(400).json({ error: err.message });
@@ -132,6 +139,13 @@ router.get('/subscriptions/:id/events', async (req, res, next) => {
 
     if (!subscription) {
       return res.status(404).json({ error: 'Webcal subscription not found' });
+    }
+
+    const force = req.query.force === 'true' || req.query.force === '1';
+    const cached = await Db.getCachedWebcalEvents(req.params.id, userId);
+
+    if (!force && cached && cached.length > 0) {
+      return res.json({ events: cached });
     }
 
     const events = await fetchAndParseWebcalFeed(subscription);

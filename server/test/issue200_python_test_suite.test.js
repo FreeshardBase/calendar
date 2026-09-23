@@ -12,7 +12,8 @@ test('Issue #200 — Python Test Suite Execution', async (t) => {
       const stdout = execSync(cmd, {
         cwd: path.join(__dirname, '../..'),
         encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ENCRYPTION_KEY: 'test-key-32-bytes-long-1234567890' }
       });
       assert.ok(true, 'Python unit test discovery executed successfully');
     } catch (error) {

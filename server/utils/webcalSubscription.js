@@ -113,14 +113,66 @@ async function fetchAndParseWebcalFeed(subscription) {
   const now = Math.floor(Date.now() / 1000);
 
   if (subscription.id) {
-    await Db.updateWebcalSubscriptionSyncTime(subscription.id, now);
+    await Db.updateWebcalSubscriptionSyncTime(subscription.id, now, JSON.stringify(events));
   }
 
   return events;
 }
 
+/**
+ * Syncs all subscriptions that are due based on last_synced_at and refresh_interval.
+ */
+async function syncDueWebcalSubscriptions(referenceTime = Math.floor(Date.now() / 1000)) {
+  const due = await Db.getWebcalSubscriptionsDueForSync(referenceTime);
+  let syncedCount = 0;
+  const errors = [];
+
+  for (const sub of due) {
+    try {
+      await fetchAndParseWebcalFeed(sub);
+      syncedCount++;
+    } catch (err) {
+      errors.push({ id: sub.id, error: err.message });
+      console.error(`[WebcalSyncWorker] Failed to sync subscription ${sub.id}:`, err.message);
+    }
+  }
+
+  return { totalDue: due.length, syncedCount, errors };
+}
+
+/**
+ * Starts periodic background sync worker.
+ */
+function startWebcalSyncWorker(intervalMs = 60000) {
+  let isRunning = false;
+
+  const runSync = async () => {
+    if (isRunning) return;
+    isRunning = true;
+    try {
+      await syncDueWebcalSubscriptions();
+    } catch (err) {
+      console.error('[WebcalSyncWorker] Periodic sync error:', err.message);
+    } finally {
+      isRunning = false;
+    }
+  };
+
+  const timer = setInterval(runSync, intervalMs);
+  if (timer.unref) {
+    timer.unref();
+  }
+
+  return {
+    timer,
+    stop: () => clearInterval(timer)
+  };
+}
+
 module.exports = {
   normalizeWebcalUrl,
   parseWebcalFeed,
-  fetchAndParseWebcalFeed
+  fetchAndParseWebcalFeed,
+  syncDueWebcalSubscriptions,
+  startWebcalSyncWorker
 };
