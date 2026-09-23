@@ -37,15 +37,15 @@ test.describe('Issue #268 — Docker Compose Secrets Alignment', () => {
 
     assert.ok(
       webcalendarSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
-      'webcalendar service in docker-compose.yml must declare SYSTEM_SYNC_SECRET with default fallback'
+      'webcalendar service in docker-compose.yml must declare SYSTEM_SYNC_SECRET without default fallback'
     );
     assert.ok(
       caldavSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
-      'caldav-server service in docker-compose.yml must declare SYSTEM_SYNC_SECRET with default fallback'
+      'caldav-server service in docker-compose.yml must declare SYSTEM_SYNC_SECRET without default fallback'
     );
     assert.ok(
-      syncWorkerSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}'),
-      'sync-worker service in docker-compose.yml must declare SYSTEM_SYNC_SECRET with default fallback'
+      syncWorkerSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
+      'sync-worker service in docker-compose.yml must declare SYSTEM_SYNC_SECRET without default fallback'
     );
   });
 
