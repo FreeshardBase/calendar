@@ -18,11 +18,6 @@ router.get('/presets', (req, res) => {
 
 // GET /api/accounts — list accounts (passwords redacted)
 router.get('/', (req, res) => {
-  const authMethod = process.env.AUTH_METHOD || 'env';
-  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true';
-  if (!req.session?.userId && !isTestEnv && authMethod !== 'env') {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
   if (req.accountLoadError) {
     return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${req.accountLoadError}` });
   }
@@ -37,19 +32,7 @@ router.get('/', (req, res) => {
 
 // POST /api/accounts — add a new CalDAV account
 router.post('/', async (req, res) => {
-  const authMethod = process.env.AUTH_METHOD || 'env';
-  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true';
-
-  let userId = req.session?.userId;
-  if (!userId) {
-    if (isTestEnv) {
-      userId = req.headers['x-test-user-id'] || 'testuser-id';
-    } else if (authMethod === 'env') {
-      userId = process.env.CALDAV_USERNAME || 'test';
-    } else {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-  }
+  let userId = req.session.userId;
 
   let { url, username, password, displayName } = req.body;
 

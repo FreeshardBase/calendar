@@ -39,7 +39,6 @@ import tempfile
 
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
-    sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 
 db_fd, db_path = tempfile.mkstemp(suffix='.db')

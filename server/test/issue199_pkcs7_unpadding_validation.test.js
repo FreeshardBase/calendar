@@ -12,6 +12,7 @@ test('Issue #199 — Validated PKCS#7 unpadding in sync worker decrypt', async (
   await t.test('encrypt and decrypt roundtrip works for valid strings', () => {
     const pyScript = `
 import sys, os
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 
@@ -36,6 +37,7 @@ import sys, os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 
@@ -70,6 +72,7 @@ import sys, os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 
@@ -102,6 +105,7 @@ import sys, os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 

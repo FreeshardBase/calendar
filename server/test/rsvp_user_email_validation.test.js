@@ -33,6 +33,19 @@ test('Issue #77 — RSVP User Email Validation & Hardcoded Placeholder Removal',
     next();
   });
 
+  app.get(['/mock-dav/*', '/user-alice-77/*'], (req, res) => {
+    res.status(200).set('Content-Type', 'text/calendar; charset=utf-8').send(`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example Corp.//EN
+BEGIN:VEVENT
+UID:test-event-1
+SUMMARY:Test Event
+DTSTART:20260710T100000Z
+DTEND:20260710T110000Z
+END:VEVENT
+END:VCALENDAR`);
+  });
+
   app.use('/api/events', eventsRouter);
 
   let server;
@@ -66,7 +79,7 @@ test('Issue #77 — RSVP User Email Validation & Hardcoded Placeholder Removal',
         'x-test-username': 'alice@example.com'
       },
       body: JSON.stringify({
-        calendarId: 'internal-caldav::personal',
+        calendarId: 'internal-caldav::/user-alice-77/personal/',
         href: '/user-alice-77/personal/event-77-test.ics',
         email: 'attacker@example.com',
         status: 'ACCEPTED'
@@ -76,6 +89,7 @@ test('Issue #77 — RSVP User Email Validation & Hardcoded Placeholder Removal',
     assert.equal(res.status, 403, 'Should reject RSVP for email not belonging to authenticated session');
     const data = await res.json();
     assert.ok(data.error, 'Should contain error description');
+    assert.ok(data.error.includes('Unauthorized email address for RSVP'), 'Should be an email validation failure, not a calendar access failure');
   });
 
   await t.test('GET /api/events/invitations annotates userEmail based on user session identity', async () => {

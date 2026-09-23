@@ -10,6 +10,7 @@ test('Issue #193 — Synced Google calendar named "Privat" is NOT merged into lo
     const pyScript = `
 import sys
 import os
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 

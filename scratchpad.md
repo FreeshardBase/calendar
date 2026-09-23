@@ -1439,3 +1439,10 @@
 
 
 
+
+- **Issue #50 & #51 — Session Injection & Impersonation Prevention (`server/index.js`, `server/routes/accounts.js`):**
+  - Resolved a critical vulnerability (Issue #51) where the unauthenticated `POST /api/accounts` endpoint allowed an attacker to overwrite their session `userId` with an arbitrary string via internal env-fallback logic, subsequently gaining authenticated access to other protected routes (completing the remainder of Issue #50's impersonation vectors).
+  - Added a `requireSessionIdentity` middleware inside `server/index.js` explicitly checking `req.session.userId` to guard the `accountsRouter`.
+  - Removed redundant inline fallback and assignment logic (`req.session.userId = userId;`) from `server/routes/accounts.js` `POST /`.
+  - Created unit test suite `server/test/issue51_unauthenticated_post_accounts.test.js` to ensure unauthenticated requests yield `401 Unauthorized` without corrupting sessions.
+  - Verified Node unit tests (including `issue50_production_auth_bypass_prevention.test.js` which relies on `accountsRouter` returning 401 in production).

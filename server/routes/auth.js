@@ -53,12 +53,14 @@ router.get('/callback', async (req, res) => {
     const claims = tokenSet.claims();
     const userId = claims.sub; // Generic OIDC unique user subject
     let username = claims.preferred_username || claims.username || claims.email || claims.name || userId;
+    let userEmail = claims.email;
 
     // Fetch userinfo if preferred_username is missing from the ID Token claims (typical for generic OIDC default policy)
-    if (username === userId && tokenSet.access_token) {
+    if ((username === userId || !userEmail) && tokenSet.access_token) {
       try {
         const userinfo = await client.userinfo(tokenSet.access_token);
         username = userinfo.preferred_username || userinfo.username || userinfo.email || userinfo.name || userinfo.sub || username;
+        userEmail = userEmail || userinfo.email;
       } catch (uiErr) {
         console.warn('[OIDC callback] Failed to fetch UserInfo claims:', uiErr.message);
       }
@@ -67,6 +69,7 @@ router.get('/callback', async (req, res) => {
     // Persist login to Express session
     req.session.userId = userId;
     req.session.username = username;
+    if (userEmail) req.session.userEmail = userEmail;
 
     // Register mapping in database
     await Db.upsertUser(userId, username);

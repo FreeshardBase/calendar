@@ -28,24 +28,10 @@ async function getUserEmailsForSession(req) {
   if (req.session?.username) emails.add(req.session.username.toLowerCase().trim());
   if (req.session?.userId) emails.add(req.session.userId.toLowerCase().trim());
 
-  if (Array.isArray(req.session?.accounts)) {
-    for (const acc of req.session.accounts) {
-      if (acc.username) emails.add(acc.username.toLowerCase().trim());
-    }
-  }
-
   if (req.session?.userId) {
     try {
       const dbUsername = await Db.getUsernameByUserId(req.session.userId);
       if (dbUsername) emails.add(dbUsername.toLowerCase().trim());
-    } catch (_) {}
-    try {
-      const userAccounts = await Db.getAccounts(req.session.userId);
-      if (Array.isArray(userAccounts)) {
-        for (const acc of userAccounts) {
-          if (acc.username) emails.add(acc.username.toLowerCase().trim());
-        }
-      }
     } catch (_) {}
   }
 

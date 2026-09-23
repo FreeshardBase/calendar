@@ -76,7 +76,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
     });
 
     assert.equal(res.status, 401);
-    assert.equal(res.body.error, 'Nicht authentifiziert.');
+    assert.equal(res.body.error, 'Authentication required');
   });
 
   test('GET /api/accounts/sync-status exposes status and error_message for sync jobs', async () => {

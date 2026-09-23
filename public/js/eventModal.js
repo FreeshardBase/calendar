@@ -717,6 +717,9 @@ function getUtcDate(dateStr, timeStr, timeZone) {
       payload.scope        = 'occurrence';
       payload.recurrenceId = _currentEvent.recurrenceId;
       payload.recurrence   = null; // a detached exception carries no RRULE
+    } else if (scope === 'series') {
+      payload.scope        = 'series';
+      payload.recurrenceId = _currentEvent.recurrenceId;
     }
     setButtonLoading('event-save-btn', true);
   }

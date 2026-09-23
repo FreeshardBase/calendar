@@ -13,6 +13,7 @@ test('Issue #194 — Failed collection discovery is not swallowed and returns jo
     const pyScript = `
 import sys
 import os
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 
@@ -41,6 +42,7 @@ import os
 import sqlite3
 import tempfile
 
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 

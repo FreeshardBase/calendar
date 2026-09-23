@@ -386,6 +386,12 @@ function requireAuth(req, res, next) {
   }
   next();
 }
+function requireSessionIdentity(req, res, next) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  next();
+}
 
 // ── OIDC Authentication Enforcer for Page Root ────────────────────────────────
 app.get('/', (req, res, next) => {
@@ -447,7 +453,7 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api/auth',              authRouter);
 app.use('/api/public/calendars', publicRouter);
-app.use('/api/accounts',          accountsRouter);
+app.use('/api/accounts',          requireSessionIdentity, accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);
 app.use('/api/events',            requireAuth, eventsRouter);
 app.use('/api/tasks',             requireAuth, tasksRouter);

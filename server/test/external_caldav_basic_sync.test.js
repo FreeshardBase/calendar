@@ -144,7 +144,8 @@ test('Issue #9 — Background replication and synchronization for external CalDA
     // Verify sync_worker.py imports and basic auth sync functionality
     const { execSync } = require('child_process');
     const pyCode = `
-import sys
+import sys, os
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 sys.path.append('sync-worker')
 import sync_worker
 
