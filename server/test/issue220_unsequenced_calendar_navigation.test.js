@@ -88,6 +88,8 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       'announce',
       'showToast',
       'setStatus',
+      'webcalEvents',
+      'hiddenWebcal',
       `
       ${loadEventsFnMatch[0]}
       return loadEvents;
@@ -112,7 +114,9 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       () => {},
       () => {},
       () => {},
-      () => {}
+      () => {},
+      [],
+      new Set()
     );
 
     // 1. Navigation 1 (March 2026): req1 triggered

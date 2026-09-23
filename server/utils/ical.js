@@ -325,50 +325,6 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   let iterStart;
   const startJsDate = icalEvent.startDate ? icalEvent.startDate.toJSDate() : null;
 
-  if (!hasCount && startJsDate && limitStart > startJsDate) {
-    const durationMs = icalEvent.duration ? (icalEvent.duration.toSeconds() * 1000) : (24 * 60 * 60 * 1000);
-    const lookbackMs = Math.max(durationMs, 24 * 60 * 60 * 1000 * 2);
-    const fastForwardDate = new Date(limitStart.getTime() - lookbackMs);
-
-    if (fastForwardDate > startJsDate) {
-      iterStart = icalEvent.startDate.clone();
-      const targetYear = fastForwardDate.getUTCFullYear();
-      const targetMonth = fastForwardDate.getUTCMonth() + 1;
-      const rruleUpper = rruleStr.toUpperCase();
-
-      iterStart.year = targetYear;
-      if (rruleUpper.includes('FREQ=YEARLY')) {
-        iterStart.month = icalEvent.startDate.month;
-        iterStart.day = Math.min(icalEvent.startDate.day, 28);
-      } else if (rruleUpper.includes('FREQ=MONTHLY')) {
-        iterStart.month = targetMonth;
-        if (rruleUpper.includes('BYDAY=')) {
-          iterStart.day = 1;
-        } else {
-          iterStart.day = Math.min(icalEvent.startDate.day, 28);
-        }
-      } else if (rruleUpper.includes('FREQ=WEEKLY')) {
-        iterStart.month = targetMonth;
-        if (rruleUpper.includes('BYDAY=')) {
-          iterStart.day = 1;
-        } else {
-          const origDayOfWeek = icalEvent.startDate.toJSDate().getUTCDay();
-          let firstMatchDay = 1;
-          for (let d = 1; d <= 7; d++) {
-            const testD = new Date(Date.UTC(targetYear, targetMonth - 1, d));
-            if (testD.getUTCDay() === origDayOfWeek) {
-              firstMatchDay = d;
-              break;
-            }
-          }
-          iterStart.day = firstMatchDay;
-        }
-      } else {
-        iterStart.month = targetMonth;
-        iterStart.day = 1;
-      }
-    }
-  }
 
   const iterator = icalEvent.iterator(iterStart);
   const instances = [];

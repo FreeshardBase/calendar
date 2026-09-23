@@ -36,11 +36,11 @@ test.describe('Issue #268 — Docker Compose Secrets Alignment', () => {
     const syncWorkerSection = content.substring(syncWorkerIdx, volumesIdx > -1 ? volumesIdx : content.length);
 
     assert.ok(
-      webcalendarSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}'),
+      webcalendarSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
       'webcalendar service in docker-compose.yml must declare SYSTEM_SYNC_SECRET with default fallback'
     );
     assert.ok(
-      caldavSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}'),
+      caldavSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
       'caldav-server service in docker-compose.yml must declare SYSTEM_SYNC_SECRET with default fallback'
     );
     assert.ok(
@@ -61,7 +61,7 @@ test.describe('Issue #268 — Docker Compose Secrets Alignment', () => {
     const webcalendarSection = content.substring(webcalendarIdx, caldavIdx);
     const syncWorkerSection = content.substring(syncWorkerIdx, volumesIdx > -1 ? volumesIdx : content.length);
 
-    const expectedExpr = 'ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}';
+    const expectedExpr = 'ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}';
 
     assert.ok(
       webcalendarSection.includes(expectedExpr),

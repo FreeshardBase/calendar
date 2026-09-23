@@ -22,8 +22,8 @@ services:
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: https://caldav-server:5232
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
-      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}
     volumes:
       - shared-data:/app/data
       - ./ssl:/app/ssl:ro
@@ -43,7 +43,7 @@ services:
       - .env
     environment:
       DATABASE_PATH: /data/webcalendar.db
-      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
     healthcheck:
       test: ["CMD-SHELL", "curl -f -k https://localhost:5232/ || curl -f http://localhost:5232/ || exit 1"]
       interval: 10s
@@ -69,8 +69,8 @@ services:
       DATABASE_PATH: /data/webcalendar.db
       STATUS_ROOT: /data/vdir_status
       LOCAL_CALDAV_URL: https://caldav-server:5232
-      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:-super-secret-bypass}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}
     volumes:
       - shared-data:/data
       - vdir-status:/data/vdir_status

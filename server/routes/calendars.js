@@ -260,7 +260,7 @@ async function resolveShareAccount(accountId, calendarHref) {
       id: accountId,
       url: process.env.INTERNAL_CALDAV_URL || 'http://localhost:5232',
       username: ownerId,
-      password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+      password: process.env.SYSTEM_SYNC_SECRET,
       authType: 'basic'
     };
   }
@@ -582,7 +582,7 @@ async function resolveCalendar(req, calendarId) {
       id: 'internal-caldav',
       url: `${process.env.INTERNAL_CALDAV_URL || 'http://localhost:5232'}/${userId}/`,
       username: userId,
-      password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+      password: process.env.SYSTEM_SYNC_SECRET,
       displayName: 'Interner Kalender'
     };
   }

@@ -16,7 +16,7 @@ import urllib.parse
 
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
-SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET", "super-secret-bypass")
+SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 
 def get_db_path():
     return os.environ.get("DATABASE_PATH", DB_PATH)

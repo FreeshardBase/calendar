@@ -141,7 +141,7 @@ def resolve_encryption_secret(env=None, target_db_path=None):
         except Exception:
             pass
 
-    secret = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET") or os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET") or "freeshard-default-encryption-key-do-not-use-in-prod"
+    secret = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET") or os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET")
     node_env = env.get("NODE_ENV", "").lower()
     if (node_env in ["production", "staging"] and 
         env.get("ALLOW_INSECURE_ENCRYPTION_KEY") != "true" and 
@@ -162,7 +162,7 @@ ENCRYPTION_SECRET = resolve_encryption_secret()
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
-SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET", "super-secret-bypass")
+SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -221,7 +221,7 @@ def encrypt_token(token, key_bytes):
     return f"{iv_hex}:{encrypted_hex}"
 
 # Derive key once on startup
-KEY_BYTES = derive_key(ENCRYPTION_SECRET)
+KEY_BYTES = derive_key(ENCRYPTION_SECRET) if ENCRYPTION_SECRET else None
 
 def refresh_google_token(refresh_token):
     url = "https://oauth2.googleapis.com/token"

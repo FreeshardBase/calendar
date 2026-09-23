@@ -38,6 +38,7 @@ const quickAddRouter = require('./routes/quickAdd');
 const freebusyRouter = require('./routes/freebusy');
 const notificationsRouter = require('./routes/notifications');
 const webcalRouter = require('./routes/webcal');
+const { startWebcalSyncWorker } = require('./utils/webcalSubscription');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -119,7 +120,7 @@ app.use(async (req, res, next) => {
             id: 'internal-caldav',
             url: `${localCalDAVCUrl}/${canonicalUsername}/`,
             username: canonicalUsername,
-            password: process.env.SYSTEM_SYNC_SECRET || 'super-secret-bypass',
+            password: process.env.SYSTEM_SYNC_SECRET,
             displayName: 'Interner Kalender'
           });
         } else {
@@ -525,5 +526,11 @@ if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
   }
 }
 
-module.exports = { app, server };
+let webcalWorker = null;
+if (shouldListen) {
+  webcalWorker = startWebcalSyncWorker();
+}
+
+module.exports = { app, server, webcalWorker };
+
 
