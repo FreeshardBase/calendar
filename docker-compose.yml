@@ -21,7 +21,6 @@ services:
       SSL_KEY_PATH: ""
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: https://caldav-server:5232
-      NODE_TLS_REJECT_UNAUTHORIZED: "0"
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}
     volumes:

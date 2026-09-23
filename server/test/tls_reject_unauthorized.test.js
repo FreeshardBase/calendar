@@ -115,3 +115,16 @@ test('CalDAVClient source references tlsDispatcher for per-request dispatcher in
     'CalDAVClient._request must pass dispatcher option to fetch()'
   );
 });
+
+// ── Test 7: docker-compose.yml must NOT set NODE_TLS_REJECT_UNAUTHORIZED=0 ──
+
+test('docker-compose.yml must not set NODE_TLS_REJECT_UNAUTHORIZED: "0"', () => {
+  const composePath = path.join(ROOT, 'docker-compose.yml');
+  if (fs.existsSync(composePath)) {
+    const composeSrc = fs.readFileSync(composePath, 'utf8');
+    assert.ok(
+      !composeSrc.includes('NODE_TLS_REJECT_UNAUTHORIZED'),
+      'docker-compose.yml must not disable TLS verification globally'
+    );
+  }
+});

@@ -37,7 +37,9 @@ import os
 import sqlite3
 import tempfile
 
-sys.path.append(os.path.abspath('sync-worker'))
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
+os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
+    sys.path.append(os.path.abspath('sync-worker'))
 import sync_worker
 
 db_fd, db_path = tempfile.mkstemp(suffix='.db')
@@ -59,6 +61,8 @@ try:
     os.environ["DATABASE_PATH"] = db_path
     status_tmp = tempfile.mkdtemp()
     os.environ["STATUS_ROOT"] = status_tmp
+    
+    
 
     success, err = sync_worker.sync_basic_caldav_accounts("testuser197", conn)
     conn.close()
