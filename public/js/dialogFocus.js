@@ -36,6 +36,7 @@ export function openDialog(containerEl, focusTarget = null) {
   const previousFocus = (typeof document !== 'undefined' && document.activeElement) ? document.activeElement : null;
 
   containerEl.classList.remove('hidden');
+  containerEl.classList.add('open');
 
   // Push onto modal stack
   activeModalStack = activeModalStack.filter(item => item.element !== containerEl);
@@ -60,6 +61,7 @@ export function closeDialog(containerEl) {
   if (!containerEl) return;
 
   containerEl.classList.add('hidden');
+  containerEl.classList.remove('open');
 
   const idx = activeModalStack.findIndex(item => item.element === containerEl);
   if (idx !== -1) {
@@ -88,7 +90,7 @@ export function getTopDialog() {
     }
   }
   if (typeof document !== 'undefined' && document.querySelectorAll) {
-    const openModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden), .sidebar-settings-drawer:not(.hidden), #settings-drawer:not(.hidden)'));
+    const openModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden), .sidebar-settings-drawer.open, #settings-drawer.open, .sidebar.open'));
     if (openModals.length > 0) {
       const el = openModals[openModals.length - 1];
       return { element: el, previousFocus: null };

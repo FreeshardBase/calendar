@@ -68,6 +68,12 @@ router.get('/invitations', async (req, res) => {
               const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
               for (const ev of events) {
                 if (!ev.uid || seenUids.has(ev.uid)) continue;
+
+                if (ev.organizer && ev.organizer.email) {
+                  const orgEmail = ev.organizer.email.toLowerCase().replace(/^mailto:/i, '').trim();
+                  if (validEmails.includes(orgEmail)) continue;
+                }
+
                 if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
                   const matchedAtt = ev.attendees.find(a =>
                     validEmails.includes((a.email || '').toLowerCase().replace(/^mailto:/i, '').trim())
@@ -75,7 +81,7 @@ router.get('/invitations', async (req, res) => {
                   if (!matchedAtt) continue;
 
                   const status = (matchedAtt.status || matchedAtt.partstat || 'NEEDS-ACTION').toUpperCase();
-                  if (status === 'ACCEPTED' || status === 'DECLINED' || status === 'DELEGATED') continue;
+                  if (status === 'ACCEPTED' || status === 'DECLINED' || status === 'DELEGATED' || status === 'TENTATIVE') continue;
 
                   ev.userEmail = matchedAtt.email;
                   seenUids.add(ev.uid);

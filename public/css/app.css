@@ -1114,9 +1114,10 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0;
     z-index: 50; transform: translateX(-100%);
-    transition: transform var(--t-slow);
+    visibility: hidden;
+    transition: transform var(--t-slow), visibility 0s linear var(--t-slow);
   }
-  .sidebar.open { transform: translateX(0); }
+  .sidebar.open { transform: translateX(0); visibility: visible; transition: transform var(--t-slow); }
   .app { flex-direction: column; }
   .month-grid-header-day { font-size: 9px; }
 
@@ -1511,7 +1512,8 @@ textarea.form-input, .form-textarea {
   right: 0;
   height: 100%;
   transform: translateY(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  visibility: hidden;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 0.3s;
   background: var(--surface);
   z-index: 10;
   display: flex;
@@ -1519,6 +1521,8 @@ textarea.form-input, .form-textarea {
 }
 .sidebar-settings-drawer.open {
   transform: translateY(0);
+  visibility: visible;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .settings-drawer-header {
   display: flex;

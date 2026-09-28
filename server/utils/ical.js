@@ -325,6 +325,49 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   let iterStart;
   const startJsDate = icalEvent.startDate ? icalEvent.startDate.toJSDate() : null;
 
+  if (!hasCount && startJsDate && limitStart > startJsDate) {
+    const durationMs = icalEvent.duration ? (icalEvent.duration.toSeconds() * 1000) : (24 * 60 * 60 * 1000);
+    const lookbackMs = Math.max(durationMs, 24 * 60 * 60 * 1000 * 2);
+    const fastForwardDate = new Date(limitStart.getTime() - lookbackMs);
+
+    if (fastForwardDate > startJsDate) {
+      iterStart = icalEvent.startDate.clone();
+      const rruleUpper = rruleStr.toUpperCase();
+      
+      const match = rruleUpper.match(/INTERVAL=(\d+)/);
+      const interval = match ? parseInt(match[1], 10) : 1;
+
+      if (rruleUpper.includes('FREQ=YEARLY')) {
+        const deltaYears = fastForwardDate.getUTCFullYear() - startJsDate.getUTCFullYear();
+        const intervalsPassed = Math.floor(deltaYears / interval);
+        iterStart.year += intervalsPassed * interval;
+      } else if (rruleUpper.includes('FREQ=MONTHLY')) {
+        const deltaMonths = (fastForwardDate.getUTCFullYear() - startJsDate.getUTCFullYear()) * 12 
+                          + (fastForwardDate.getUTCMonth() - startJsDate.getUTCMonth());
+        const intervalsPassed = Math.floor(deltaMonths / interval);
+        iterStart.month += intervalsPassed * interval;
+        if (iterStart.month > 12) {
+           iterStart.year += Math.floor((iterStart.month - 1) / 12);
+           iterStart.month = ((iterStart.month - 1) % 12) + 1;
+        }
+      } else if (rruleUpper.includes('FREQ=WEEKLY')) {
+        const deltaMs = fastForwardDate.getTime() - startJsDate.getTime();
+        const deltaWeeks = deltaMs / (7 * 24 * 60 * 60 * 1000);
+        const intervalsPassed = Math.floor(deltaWeeks / interval);
+        iterStart.adjust(intervalsPassed * interval * 7, 0, 0, 0);
+      } else if (rruleUpper.includes('FREQ=DAILY')) {
+        const deltaMs = fastForwardDate.getTime() - startJsDate.getTime();
+        const deltaDays = deltaMs / (24 * 60 * 60 * 1000);
+        const intervalsPassed = Math.floor(deltaDays / interval);
+        iterStart.adjust(intervalsPassed * interval, 0, 0, 0);
+      } else if (rruleUpper.includes('FREQ=HOURLY')) {
+        const deltaMs = fastForwardDate.getTime() - startJsDate.getTime();
+        const deltaHours = deltaMs / (60 * 60 * 1000);
+        const intervalsPassed = Math.floor(deltaHours / interval);
+        iterStart.adjust(0, intervalsPassed * interval, 0, 0);
+      }
+    }
+  }
 
   const iterator = icalEvent.iterator(iterStart);
   const instances = [];

@@ -225,7 +225,7 @@
     </div>
 
     <!-- Settings Drawer -->
-    <div class="sidebar-settings-drawer" id="settings-drawer">
+    <div class="sidebar-settings-drawer hidden" id="settings-drawer">
       <div class="settings-drawer-header">
         <h2>Einstellungen</h2>
         <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen">
@@ -1034,9 +1034,9 @@
 
 <!-- ── Invitations Modal ────────────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="invitations-modal-backdrop">
-  <div class="modal" id="invitations-modal" style="max-width: 600px;">
+  <div class="modal" id="invitations-modal" style="max-width: 600px;" role="dialog" aria-modal="true" aria-labelledby="invitations-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title">Einladungen & RSVP</h3>
+      <h3 class="modal-title" id="invitations-modal-title">Einladungen & RSVP</h3>
       <button class="icon-btn modal-close" id="invitations-modal-close" aria-label="Schließen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -1087,9 +1087,9 @@
 
 <!-- ── Availability Booking Modal ────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="availability-modal-backdrop">
-  <div class="modal" id="availability-modal" style="max-width: 650px;">
+  <div class="modal" id="availability-modal" style="max-width: 650px;" role="dialog" aria-modal="true" aria-labelledby="availability-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title">Öffentliche Termin-Buchungsseiten</h3>
+      <h3 class="modal-title" id="availability-modal-title">Öffentliche Termin-Buchungsseiten</h3>
       <button class="icon-btn modal-close" id="availability-modal-close" aria-label="Schließen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -1145,9 +1145,9 @@
 
 <!-- ── Keyboard Shortcuts Modal ────────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="shortcuts-modal-backdrop">
-  <div class="modal" id="shortcuts-modal" style="max-width: 520px;">
+  <div class="modal" id="shortcuts-modal" style="max-width: 520px;" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title">Tastaturkürzel für Power-User</h3>
+      <h3 class="modal-title" id="shortcuts-modal-title">Tastaturkürzel für Power-User</h3>
       <button class="icon-btn modal-close" id="shortcuts-modal-close" aria-label="Schließen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>

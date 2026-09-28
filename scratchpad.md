@@ -4,6 +4,12 @@
 - Path: `/home/agent-user/Coding/Freeshard/webcalendar`
 
 ## Architectural Decisions & Insights
+- **Issue #50 — CRITICAL: X-Test-User-Id Production Authentication Bypass & Session Impersonation Prevention (`server/index.js`, `server/routes/accounts.js`, `server/test/issue50_production_auth_bypass_prevention.test.js`):**
+  - Confirmed all header vectors (`x-test-user-id`, `x-forwarded-user`, `x-user-id`, `remote-user`, `x-ptl-client-id`) are strictly blocked in production unless authenticated via valid `INTERNAL_WEBHOOK_SECRET` / `HTTP_HEADER_AUTH_SECRET`. `x-test-user-id` is gated strictly behind `NODE_ENV=test` and `E2E_TEST=true`.
+  - Closed the remaining unauthenticated impersonation path via `POST /api/accounts`: `requireSessionIdentity` middleware protects `/api/accounts`, rejecting unauthenticated requests with HTTP 401 and preventing session identity injection (`req.session.userId`).
+  - Strengthened `server/test/issue50_production_auth_bypass_prevention.test.js` covering control endpoints, unauthenticated `POST /api/accounts` session poisoning prevention, and shard configuration with `INTERNAL_WEBHOOK_SECRET`. Verified teeth via intentional sabotage (failing 5/7 subtests when ungated).
+  - 100% verified against both `npm test` (1398 passing) and `npx playwright test` (24 passing).
+
 - **Task 5 — Mutation Score Ratchet (`stryker.config.json`):**
   - Added 6 pure `ical.js`-targeting test files to `stryker.config.json` `tap.testFiles`: `issue287`, `issue290`, `issue292`, `issue293`, `issue294`, `issue325`. These kill `eventToICS`/`fmtDateTimeTzid`/`cleanMalformedTzidZ`/`isTzidLossy` survivors.
   - Raised `thresholds.break` from `30` → `36` to ratchet mutation floor above the 36.62% baseline.
@@ -1446,3 +1452,23 @@
   - Removed redundant inline fallback and assignment logic (`req.session.userId = userId;`) from `server/routes/accounts.js` `POST /`.
   - Created unit test suite `server/test/issue51_unauthenticated_post_accounts.test.js` to ensure unauthenticated requests yield `401 Unauthorized` without corrupting sessions.
   - Verified Node unit tests (including `issue50_production_auth_bypass_prevention.test.js` which relies on `accountsRouter` returning 401 in production).
+- **Bug Pattern:** The frontend failed to transmit `recurrenceId` for scope `series` edits on recurring events, causing backend \`updateWholeSeries\` to treat it as a master `DTSTART` modification and implicitly dropping earlier occurrences.
+- **Decision:** Explicitly set `payload.recurrenceId` and `payload.scope` in `eventModal.js` when editing `series` to ensure accurate DTSTART adjustments on the backend API layer.
+
+- **Issue #82 — Block 103-character rendered `portal.id` as ENCRYPTION_KEY/SESSION_SECRET (`server/db.js`, `server/utils/sessionConfig.js`, `server/test/issue82_portal_id_rejection.test.js`):**
+  - Updated `isWeak` check in `server/db.js` and `isWeakSecret` check in `server/utils/sessionConfig.js` to reject 103-character string keys matching the rendered `portal.id` structure.
+  - Wrote TDD test `server/test/issue82_portal_id_rejection.test.js` verifying `production` environment throws when explicitly configured with a 103-character key.
+
+- **Issue #71 — CalDAV Test Suite & E2E Assertion (`e2e/calendar.spec.js`):**
+  - Added E2E test to verify that unauthenticated API requests return 401 Unauthorized, completing the requireAuth middleware validation.
+
+- **Issue #87 — Dialog Focus Management & Accessibility Fixes (`public/index.html`, `public/css/app.css`, `public/js/dialogFocus.js`):**
+  - Added `role="dialog"`, `aria-modal="true"`, and `aria-labelledby` attributes to `#invitations-modal`, `#availability-modal`, and `#shortcuts-modal` in `public/index.html`.
+  - Added `visibility: hidden` to `.sidebar-settings-drawer` and `.sidebar` in `public/css/app.css` when they are closed to properly remove invisible controls from the document tab order, and added `visibility: visible` to their `.open` states.
+  - Updated `getTopDialog` in `public/js/dialogFocus.js` to correctly select `.sidebar-settings-drawer.open` and `#settings-drawer.open` instead of erroneously relying on `:not(.hidden)`.
+  - Updated `openDialog` and `closeDialog` in `public/js/dialogFocus.js` to add/remove the `.open` class and avoid adding `.hidden` to drawer elements, ensuring CSS slide transitions continue to function while fixing focus behavior.
+
+- **Issue #88 — Invitations Inbox Filters (`server/routes/events.js`, `server/test/issue88_invitations_inbox.test.js`):**
+  - Updated `GET /api/events/invitations` to properly exclude `TENTATIVE` RSVPs from the pending inbox.
+  - Added filter to drop invitations where the current user is the `ORGANIZER`, preventing self-RSVPs on externally imported events.
+  - Wrote TDD test `server/test/issue88_invitations_inbox.test.js` using a mock CalDAV HTTP server to ensure the filter correctly processes real event data, rather than relying on a mocked empty array.

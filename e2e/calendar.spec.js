@@ -25,6 +25,15 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     } catch (e) {}
   });
 
+  test('unauthenticated API request returns 401 Unauthorized', async ({ request }) => {
+    const response = await request.get('/api/calendars', {
+      headers: {
+        'x-test-user-id': 'unauthenticated'
+      }
+    });
+    expect(response.status()).toBe(401);
+  });
+
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {
     // Go to homepage
     await page.goto('/');

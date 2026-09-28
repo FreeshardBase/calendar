@@ -60,9 +60,11 @@ test('Issue #50: Impersonation via X-Test-User-Id / X-Forwarded-User is strictly
     { method: 'GET', path: '/api/webcal/subscriptions' }
   ];
 
-  await t.test('Control: Unauthenticated requests return 401 Unauthorized', async () => {
-    const res = await sendReq('/api/calendars');
-    assert.strictEqual(res.status, 401, 'Expected 401 without auth credentials');
+  await t.test('Control: Unauthenticated requests return 401 Unauthorized across all protected routes', async () => {
+    for (const ep of endpoints) {
+      const res = await sendReq(ep.path, {}, ep.method, ep.body);
+      assert.strictEqual(res.status, 401, `Expected 401 without auth credentials on ${ep.method} ${ep.path}, got ${res.status}`);
+    }
   });
 
   await t.test('Attack vector 1: X-Test-User-Id header rejected with 401 across all protected routes', async () => {
@@ -84,5 +86,59 @@ test('Issue #50: Impersonation via X-Test-User-Id / X-Forwarded-User is strictly
     assert.strictEqual(resRemote.status, 401);
     const resUserId = await sendReq('/api/calendars', { 'x-user-id': 'victim-user-0001' });
     assert.strictEqual(resUserId.status, 401);
+  });
+
+  await t.test('Attack vector 4: Unauthenticated POST /api/accounts cannot set session identity or bypass auth to impersonate victim', async () => {
+    // Attack: caller sends unauthenticated POST /api/accounts with victim's username
+    const attackRes = await sendReq('/api/accounts', {}, 'POST', JSON.stringify({
+      url: 'http://127.0.0.1:9999',
+      username: 'victim-user-0001',
+      password: 'password'
+    }));
+    assert.strictEqual(attackRes.status, 401, `Expected 401 on unauthenticated POST /api/accounts, got ${attackRes.status}`);
+
+    // If any session cookie was issued, ensure subsequent requests with that cookie cannot authenticate as victim
+    const setCookie = attackRes.headers['set-cookie'];
+    if (setCookie) {
+      const cookieHeader = Array.isArray(setCookie) ? setCookie.map(c => c.split(';')[0]).join('; ') : setCookie.split(';')[0];
+      const sessionRes = await sendReq('/api/auth/session', { cookie: cookieHeader });
+      const sessionBody = JSON.parse(sessionRes.body || '{}');
+      assert.notStrictEqual(sessionBody.userId, 'victim-user-0001', 'Attacker must not be able to set session userId');
+      assert.strictEqual(sessionBody.authenticated, false, 'Attacker session must not be authenticated');
+
+      const calRes = await sendReq('/api/calendars', { cookie: cookieHeader });
+      assert.strictEqual(calRes.status, 401, 'Attacker session must not be able to access calendars');
+
+      const accRes = await sendReq('/api/accounts', { cookie: cookieHeader });
+      assert.strictEqual(accRes.status, 401, 'Attacker session must not be able to access accounts');
+    }
+  });
+
+  await t.test('Attack vector 5: Shard configuration with INTERNAL_WEBHOOK_SECRET rejects wrong secret and X-Test-User-Id', async () => {
+    process.env.INTERNAL_WEBHOOK_SECRET = 'shard-webhook-secret-xyz';
+
+    try {
+      // 1. Wrong secret with proxy header -> 401
+      const resWrongSecret = await sendReq('/api/calendars', {
+        'x-freeshard-secret': 'wrong-secret',
+        'x-forwarded-user': 'victim-user-0001'
+      });
+      assert.strictEqual(resWrongSecret.status, 401, 'Expected 401 with wrong secret');
+
+      // 2. Missing secret with proxy header -> 401
+      const resNoSecret = await sendReq('/api/calendars', {
+        'x-forwarded-user': 'victim-user-0001'
+      });
+      assert.strictEqual(resNoSecret.status, 401, 'Expected 401 without secret');
+
+      // 3. X-Test-User-Id rejected even if correct secret is provided (test headers never work in prod)
+      const resTestUserWithSecret = await sendReq('/api/calendars', {
+        'x-freeshard-secret': 'shard-webhook-secret-xyz',
+        'x-test-user-id': 'victim-user-0001'
+      });
+      assert.strictEqual(resTestUserWithSecret.status, 401, 'Expected 401 for X-Test-User-Id even with secret in prod');
+    } finally {
+      delete process.env.INTERNAL_WEBHOOK_SECRET;
+    }
   });
 });

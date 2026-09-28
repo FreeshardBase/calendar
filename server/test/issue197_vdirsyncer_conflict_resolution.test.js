@@ -34,10 +34,10 @@ test('Issue #197 — vdirsyncer pair configurations include conflict_resolution 
     const pyScript = `
 import sys
 import os
+sys.path.insert(0, os.path.join(os.getcwd(), 'sync-worker'))
 import sqlite3
 import tempfile
 
-os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 os.environ["ENCRYPTION_KEY"] = "test-encryption-key"
 import sync_worker
 
