@@ -8,14 +8,22 @@ const { getOidcClient } = require('../utils/oidcClient');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
 
 // GET /api/auth/session — returns current session status
-router.get('/session', (req, res) => {
+router.get('/session', async (req, res) => {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ authenticated: false, error: 'Authentication required' });
+  }
+  let email = req.session.userEmail || null;
+  if (!email && req.session.userId) {
+    try {
+      email = await Db.getUserEmailByUserId(req.session.userId);
+      if (email) req.session.userEmail = email;
+    } catch (_) {}
   }
   res.json({
     authenticated: true,
     userId: req.session.userId,
-    username: req.session.username || req.session.userId
+    username: req.session.username || req.session.userId,
+    email: email || null
   });
 });
 
@@ -72,7 +80,7 @@ router.get('/callback', async (req, res) => {
     if (userEmail) req.session.userEmail = userEmail;
 
     // Register mapping in database
-    await Db.upsertUser(userId, username);
+    await Db.upsertUser(userId, username, userEmail);
 
     console.log(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
     res.redirect('/');
@@ -206,6 +214,11 @@ router.get('/google/callback', async (req, res) => {
       console.log(`[Google OAuth callback] Enqueued sync job for user ${userId}`);
     } catch (syncErr) {
       console.error(`[Google OAuth callback] Failed to enqueue sync job:`, syncErr.message);
+    }
+
+    if (email) {
+      if (!req.session.userEmail) req.session.userEmail = email;
+      await Db.upsertUser(userId, req.session.username || email, email);
     }
 
     console.log(`[Google OAuth callback] Google-Konto erfolgreich verknüpft: ${email} für User ${userId}`);

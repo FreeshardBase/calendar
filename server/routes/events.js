@@ -14,6 +14,7 @@ const {
   buildItipReply,
   isNoOpEventSave,
   updateWholeSeries,
+  updateAttendeePartstat,
   resolveUrl
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
@@ -22,16 +23,32 @@ const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } =
 const { logEventChange } = require('../utils/eventHistory');
 const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
 
+function isValidEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 async function getUserEmailsForSession(req) {
   const emails = new Set();
-  if (req.session?.userEmail) emails.add(req.session.userEmail.toLowerCase().trim());
-  if (req.session?.username) emails.add(req.session.username.toLowerCase().trim());
-  if (req.session?.userId) emails.add(req.session.userId.toLowerCase().trim());
-
+  if (req.session?.userEmail && isValidEmail(req.session.userEmail)) {
+    emails.add(req.session.userEmail.toLowerCase().trim());
+  }
+  if (req.session?.username && isValidEmail(req.session.username)) {
+    emails.add(req.session.username.toLowerCase().trim());
+  }
   if (req.session?.userId) {
+    if (isValidEmail(req.session.userId)) {
+      emails.add(req.session.userId.toLowerCase().trim());
+    }
     try {
+      const dbEmail = await Db.getUserEmailByUserId(req.session.userId);
+      if (dbEmail && isValidEmail(dbEmail)) {
+        emails.add(dbEmail.toLowerCase().trim());
+      }
       const dbUsername = await Db.getUsernameByUserId(req.session.userId);
-      if (dbUsername) emails.add(dbUsername.toLowerCase().trim());
+      if (dbUsername && isValidEmail(dbUsername)) {
+        emails.add(dbUsername.toLowerCase().trim());
+      }
     } catch (_) {}
   }
 
@@ -486,6 +503,12 @@ router.post('/:uid/rsvp', async (req, res) => {
       return res.status(400).json({ error: 'calendarId, href, and status are required' });
     }
 
+    const validStatuses = ['ACCEPTED', 'DECLINED', 'TENTATIVE'];
+    const normStatus = String(status).toUpperCase();
+    if (!validStatuses.includes(normStatus)) {
+      return res.status(400).json({ error: 'Invalid status: must be ACCEPTED, DECLINED, or TENTATIVE' });
+    }
+
     const access = await checkCalendarAccess(req, calendarId, 'read');
     if (!access.allowed) {
       return res.status(access.status || 403).json({ error: access.reason });
@@ -505,17 +528,24 @@ router.post('/:uid/rsvp', async (req, res) => {
 
     const eventUrl = buildAbsoluteUrl(account.url, href);
     const current = await client.get(eventUrl);
+    if (!current || !current.ics) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
 
     // Issue #67 & #77: Validate user email against session identity and event attendees
     const parsedCurrent = parseICSToEvent(current.ics);
     const attendees = parsedCurrent?.attendees || [];
     const validEmails = await getUserEmailsForSession(req);
 
+    if (validEmails.length === 0) {
+      return res.status(403).json({ error: 'No verified user email found in session to perform RSVP' });
+    }
+
     let rsvpEmail = (email || '').toLowerCase().replace(/^mailto:/i, '').trim();
 
     if (rsvpEmail) {
-      const isUserEmail = validEmails.some(ve => ve === rsvpEmail);
-      if (!isUserEmail && validEmails.length > 0) {
+      const isUserEmail = validEmails.includes(rsvpEmail);
+      if (!isUserEmail) {
         return res.status(403).json({ error: 'Unauthorized email address for RSVP' });
       }
     } else {
@@ -535,12 +565,12 @@ router.post('/:uid/rsvp', async (req, res) => {
       return res.status(400).json({ error: 'Attendee email not found on event' });
     }
 
-    const updatedIcs = updateAttendeePartstat(current.ics, rsvpEmail, status, recurrenceId);
+    const updatedIcs = updateAttendeePartstat(current.ics, rsvpEmail, normStatus, recurrenceId);
     const result = await client.put(eventUrl, updatedIcs, current.etag);
 
     const parsedEv = parseICSToEvent(updatedIcs, { recurrenceId });
     const eventForReply = { ...(parsedEv || { uid: req.params.uid, title: 'Event' }), recurrenceId: recurrenceId || parsedEv?.recurrenceId };
-    const itipReply = buildItipReply(eventForReply, rsvpEmail, status);
+    const itipReply = buildItipReply(eventForReply, rsvpEmail, normStatus);
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
@@ -549,12 +579,12 @@ router.post('/:uid/rsvp', async (req, res) => {
       calendarId,
       userId: req.session.userId,
       action: 'RSVP',
-      newEvent: { status, recurrenceId }
+      newEvent: { status: normStatus, recurrenceId }
     }).catch(err => console.error('[events RSVP history]', err.message));
 
     res.json({
       success: true,
-      status,
+      status: normStatus,
       recurrenceId: recurrenceId || null,
       etag: (result && result.etag) ? result.etag : null,
       itipReply

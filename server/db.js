@@ -78,11 +78,13 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       user_id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL
+      username TEXT UNIQUE NOT NULL,
+      email TEXT
     )
   `);
+  db.run('ALTER TABLE users ADD COLUMN email TEXT', () => {});
   db.run(`
-    INSERT OR IGNORE INTO users (user_id, username) VALUES ('test', 'test'), ('testuser', 'testuser')
+    INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('test', 'test', 'test@example.com'), ('testuser', 'testuser', 'testuser@example.com')
   `);
   db.run(`
     CREATE TABLE IF NOT EXISTS linked_accounts (
@@ -1128,12 +1130,22 @@ const Db = {
     });
   },
 
-  upsertUser(userId, username) {
+  upsertUser(userId, username, email) {
     return new Promise((resolve, reject) => {
       if (!userId) return resolve();
       const newUsername = username || userId;
+      let targetEmail = (email && typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+        ? email.trim().toLowerCase()
+        : null;
+      if (!targetEmail) {
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(newUsername).trim())) {
+          targetEmail = String(newUsername).trim().toLowerCase();
+        } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(userId).trim())) {
+          targetEmail = String(userId).trim().toLowerCase();
+        }
+      }
 
-      db.get('SELECT user_id, username FROM users WHERE user_id = ?', [userId], (err, existingUser) => {
+      db.get('SELECT user_id, username, email FROM users WHERE user_id = ?', [userId], (err, existingUser) => {
         if (err) return reject(err);
 
         if (!existingUser) {
@@ -1141,8 +1153,8 @@ const Db = {
             if (err2) return reject(err2);
             const targetName = (conflictingUser && newUsername !== userId) ? userId : newUsername;
             db.run(
-              'INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)',
-              [userId, targetName],
+              'INSERT OR IGNORE INTO users (user_id, username, email) VALUES (?, ?, ?)',
+              [userId, targetName, targetEmail],
               (err3) => {
                 if (err3) return reject(err3);
                 resolve();
@@ -1150,20 +1162,45 @@ const Db = {
             );
           });
         } else {
+          const finalEmail = targetEmail || existingUser.email || null;
           if (newUsername === userId && existingUser.username && existingUser.username !== userId) {
-            return resolve();
+            if (finalEmail !== existingUser.email) {
+              db.run('UPDATE users SET email = ? WHERE user_id = ?', [finalEmail, userId], (err3) => {
+                if (err3) return reject(err3);
+                resolve();
+              });
+            } else {
+              return resolve();
+            }
+            return;
           }
           if (newUsername === existingUser.username) {
-            return resolve();
+            if (finalEmail !== existingUser.email) {
+              db.run('UPDATE users SET email = ? WHERE user_id = ?', [finalEmail, userId], (err3) => {
+                if (err3) return reject(err3);
+                resolve();
+              });
+            } else {
+              return resolve();
+            }
+            return;
           }
           db.get('SELECT user_id FROM users WHERE username = ? AND user_id != ?', [newUsername, userId], (err2, conflictingUser) => {
             if (err2) return reject(err2);
             if (conflictingUser) {
-              return resolve();
+              if (finalEmail !== existingUser.email) {
+                db.run('UPDATE users SET email = ? WHERE user_id = ?', [finalEmail, userId], (err3) => {
+                  if (err3) return reject(err3);
+                  resolve();
+                });
+              } else {
+                return resolve();
+              }
+              return;
             }
             db.run(
-              'UPDATE users SET username = ? WHERE user_id = ?',
-              [newUsername, userId],
+              'UPDATE users SET username = ?, email = ? WHERE user_id = ?',
+              [newUsername, finalEmail, userId],
               (err3) => {
                 if (err3) return reject(err3);
                 resolve();
@@ -1372,6 +1409,38 @@ const Db = {
           resolve(row.user_id);
         }
       );
+    });
+  },
+
+  getUserEmailByUserId(userId) {
+    return new Promise((resolve) => {
+      if (!userId) return resolve(null);
+      db.get('SELECT email, username, user_id FROM users WHERE user_id = ?', [userId], (err, row) => {
+        if (err || !row) return resolve(null);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (row.email && emailRegex.test(row.email.trim())) return resolve(row.email.trim().toLowerCase());
+        if (row.username && emailRegex.test(row.username.trim())) return resolve(row.username.trim().toLowerCase());
+        if (row.user_id && emailRegex.test(row.user_id.trim())) return resolve(row.user_id.trim().toLowerCase());
+        resolve(null);
+      });
+    });
+  },
+
+  getUserById(userId) {
+    return new Promise((resolve) => {
+      if (!userId) return resolve(null);
+      db.get('SELECT user_id, username, email FROM users WHERE user_id = ?', [userId], (err, row) => {
+        if (err || !row) return resolve(null);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const resolvedEmail = (row.email && emailRegex.test(row.email.trim()))
+          ? row.email.trim().toLowerCase()
+          : (emailRegex.test(row.username.trim()) ? row.username.trim().toLowerCase() : null);
+        resolve({
+          userId: row.user_id,
+          username: row.username,
+          email: resolvedEmail
+        });
+      });
     });
   },
 

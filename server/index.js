@@ -61,9 +61,18 @@ app.use(async (req, res, next) => {
     if (req.session.userId !== undefined) {
       delete req.session.userId;
     }
+    delete req.session.userEmail;
     newUserId = null;
   } else if (isTestEnv && req.headers['x-test-user-id']) {
     newUserId = req.headers['x-test-user-id'];
+    if (req.headers['x-test-username']) {
+      req.session.username = req.headers['x-test-username'];
+    }
+    if (req.headers['x-test-email'] || req.headers['x-test-user-email']) {
+      req.session.userEmail = (req.headers['x-test-email'] || req.headers['x-test-user-email']).trim().toLowerCase();
+    } else if (req.headers['x-test-username'] && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.headers['x-test-username'].trim())) {
+      req.session.userEmail = req.headers['x-test-username'].trim().toLowerCase();
+    }
   } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
     const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET || process.env.INTERNAL_WEBHOOK_SECRET;
     const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
@@ -73,9 +82,20 @@ app.use(async (req, res, next) => {
       if (headerUser) {
         newUserId = String(headerUser).trim();
       }
+      const headerEmail = req.headers['x-forwarded-email'] || req.headers['remote-email'] || req.headers['x-user-email'];
+      if (headerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(headerEmail).trim())) {
+        req.session.userEmail = String(headerEmail).trim().toLowerCase();
+      } else if (headerUser && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(headerUser).trim())) {
+        req.session.userEmail = String(headerUser).trim().toLowerCase();
+      }
     }
   } else if (!newUserId && authMethod === 'env' && (req.path === '/' || req.path === '/index.html' || req.path === '/api/auth/session' || process.env.E2E_TEST === 'true')) {
     newUserId = process.env.CALDAV_USERNAME || 'test';
+    if (process.env.CALDAV_EMAIL) {
+      req.session.userEmail = process.env.CALDAV_EMAIL.trim().toLowerCase();
+    } else if (process.env.CALDAV_USERNAME && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.CALDAV_USERNAME.trim())) {
+      req.session.userEmail = process.env.CALDAV_USERNAME.trim().toLowerCase();
+    }
   }
 
   if (newUserId && req.session.userId !== newUserId) {
@@ -85,10 +105,14 @@ app.use(async (req, res, next) => {
 
   if (userId) {
     try {
+      if (!req.session.userEmail) {
+        const dbEmail = await Db.getUserEmailByUserId(userId);
+        if (dbEmail) req.session.userEmail = dbEmail;
+      }
       if (req.session.userUpserted !== userId) {
-        await Db.upsertUser(userId, (req.session && req.session.username) || userId);
+        await Db.upsertUser(userId, (req.session && req.session.username) || userId, req.session.userEmail || null);
         if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
-          await Db.upsertUser('testuser-id', 'testuser@example.com');
+          await Db.upsertUser('testuser-id', 'testuser@example.com', 'testuser@example.com');
         }
         req.session.userUpserted = userId;
       }
