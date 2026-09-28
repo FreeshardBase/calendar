@@ -1353,6 +1353,19 @@ function _registerVTimezoneBlock(tzid, block) {
   }
 }
 
+function ridsMatch(r1, r2) {
+  if (!r1 || !r2) return false;
+  if (r1 === r2) return true;
+  const n1 = String(r1).replace(/\.\d{3}/, '').replace(/[-:]/g, '').toUpperCase();
+  const n2 = String(r2).replace(/\.\d{3}/, '').replace(/[-:]/g, '').toUpperCase();
+  if (n1 === n2) return true;
+  if (n1.replace(/Z$/, '') === n2.replace(/Z$/, '')) return true;
+  const d1 = new Date(r1).getTime();
+  const d2 = new Date(r2).getTime();
+  if (!isNaN(d1) && !isNaN(d2) && d1 === d2) return true;
+  return false;
+}
+
 /**
  * Determine whether a proposed event save would make no effective change to
  * the event stored at the CalDAV server.
@@ -1395,10 +1408,16 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
     try {
       const incStartMs = toUtcMs(incoming.start);
       if (incStartMs) {
-        const searchStart = new Date(incStartMs - 48 * 3600 * 1000).toISOString();
-        const searchEnd   = new Date(incStartMs + 48 * 3600 * 1000).toISOString();
+        let ridMs = null;
+        if (!isNaN(new Date(targetRid).getTime())) {
+          ridMs = new Date(targetRid).getTime();
+        }
+        const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
+        const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
+        const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
+        const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
         const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
-        const match = expanded.find(e => e.recurrenceId === targetRid || toUtcMs(e.start) === incStartMs);
+        const match = expanded.find(e => ridsMatch(e.recurrenceId, targetRid) || toUtcMs(e.start) === incStartMs);
         if (match) {
           stored = match;
         }
@@ -1420,16 +1439,20 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   if (targetRid && stored.recurrence) {
     try {
       const incStartMs = toUtcMs(incoming.start);
-      if (incStartMs) {
-        const searchStart = new Date(incStartMs - 48 * 3600 * 1000).toISOString();
-        const searchEnd   = new Date(incStartMs + 48 * 3600 * 1000).toISOString();
+        let ridMs = null;
+        if (!isNaN(new Date(targetRid).getTime())) {
+          ridMs = new Date(targetRid).getTime();
+        }
+        const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
+        const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
+        const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
+        const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
         const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
-        const match = expanded.find(e => e.recurrenceId === targetRid || toUtcMs(e.start) === incStartMs);
+        const match = expanded.find(e => ridsMatch(e.recurrenceId, targetRid) || toUtcMs(e.start) === incStartMs);
         if (match) {
           expectedStartUtcMs = toUtcMs(match.start);
           expectedEndUtcMs   = toUtcMs(match.end);
         }
-      }
     } catch (_) {}
   }
 
@@ -1520,12 +1543,25 @@ function updateWholeSeries(existingIcs, eventData) {
       if (origMasterEv && origMasterEv.start) {
         const incStartMs = new Date(eventData.start).getTime();
         if (!isNaN(incStartMs)) {
-          const searchStart = new Date(incStartMs - 48 * 3600 * 1000).toISOString();
-          const searchEnd   = new Date(incStartMs + 48 * 3600 * 1000).toISOString();
+          let ridMs = null;
+          try {
+            const t = occurrenceTime(master, targetRid);
+            if (t) ridMs = t.toJSDate().getTime();
+          } catch (_) {}
+          if (!ridMs && !isNaN(new Date(targetRid).getTime())) {
+            ridMs = new Date(targetRid).getTime();
+          }
+          const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
+          const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
+          const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
+          const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
           const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
-          const origOcc = expanded.find(e => e.recurrenceId === targetRid || new Date(e.start).getTime() === incStartMs);
-          if (origOcc && origOcc.start) {
-            const origOccStartMs = new Date(origOcc.start).getTime();
+          let origOcc = expanded.find(e => ridsMatch(e.recurrenceId, targetRid));
+          if (!origOcc) {
+            origOcc = expanded.find(e => new Date(e.start).getTime() === incStartMs);
+          }
+          const origOccStartMs = origOcc && origOcc.start ? new Date(origOcc.start).getTime() : ridMs;
+          if (origOccStartMs !== null && !isNaN(origOccStartMs)) {
             const timeDeltaMs = incStartMs - origOccStartMs;
             if (Math.abs(timeDeltaMs) <= 1000) {
               masterEventData = {

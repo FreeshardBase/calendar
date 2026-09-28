@@ -1789,18 +1789,19 @@ function showEventPopover(ev, mouseEvent) {
   const deleteBtn = $('popover-delete-btn');
   if (deleteBtn) {
     deleteBtn.onclick = async () => {
+      const recId = ev.recurrenceId || (ev.uid && ev.uid.includes('::') ? ev.uid.split('::')[1] : null);
       let scope = 'series';
-      if (ev.recurrenceId) {
+      if (recId) {
         scope = await chooseRecurrenceScope(`„${ev.title}“ löschen:`);
         if (!scope) return;
       } else {
         if (!(await confirmDialog(`„${ev.title}“ löschen?`))) return;
       }
       try {
-        const targetUid = ev.masterUid || ev.uid;
+        const targetUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : '');
         await EventsAPI.remove(targetUid, {
           calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
-          ...(scope === 'occurrence' ? { scope, recurrenceId: ev.recurrenceId } : {})
+          ...(scope === 'occurrence' ? { scope, recurrenceId: recId } : {})
         });
         closePopover();
         onEventDeleted(targetUid);

@@ -709,17 +709,18 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   $('event-form-error').classList.add('hidden');
 
   // Editing an instance of a recurring series: ask for the scope first
-  if (_currentEvent && _currentEvent.recurrenceId) {
+  const recurrenceId = _currentEvent?.recurrenceId || (_currentEvent?.uid && _currentEvent.uid.includes('::') ? _currentEvent.uid.split('::')[1] : null);
+  if (_currentEvent && recurrenceId) {
     setButtonLoading('event-save-btn', false);
     const scope = await chooseRecurrenceScope('Diese Änderung anwenden auf:');
     if (!scope) return;
     if (scope === 'occurrence') {
       payload.scope        = 'occurrence';
-      payload.recurrenceId = _currentEvent.recurrenceId;
+      payload.recurrenceId = recurrenceId;
       payload.recurrence   = null; // a detached exception carries no RRULE
     } else if (scope === 'series') {
       payload.scope        = 'series';
-      payload.recurrenceId = _currentEvent.recurrenceId;
+      payload.recurrenceId = recurrenceId;
     }
     setButtonLoading('event-save-btn', true);
   }
@@ -727,7 +728,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   try {
     if (_currentEvent) {
       // Update
-      const targetUid = _currentEvent.masterUid || _currentEvent.uid;
+      const targetUid = _currentEvent.masterUid || (_currentEvent.uid ? _currentEvent.uid.split('::')[0] : '');
       payload.uid  = targetUid;
       payload.href = _currentEvent.href;
       payload.etag = _currentEvent.etag;
@@ -756,7 +757,8 @@ async function handleDelete() {
   if (!_currentEvent) return;
 
   let scope = 'series';
-  if (_currentEvent.recurrenceId) {
+  const deleteRecurrenceId = _currentEvent.recurrenceId || (_currentEvent.uid && _currentEvent.uid.includes('::') ? _currentEvent.uid.split('::')[1] : null);
+  if (deleteRecurrenceId) {
     scope = await chooseRecurrenceScope(`„${_currentEvent.title}“ löschen:`);
     if (!scope) return;
   } else {
@@ -765,12 +767,12 @@ async function handleDelete() {
 
   setButtonLoading('event-save-btn', true);
   try {
-    const targetUid = _currentEvent.masterUid || _currentEvent.uid;
+    const targetUid = _currentEvent.masterUid || (_currentEvent.uid ? _currentEvent.uid.split('::')[0] : '');
     await EventsAPI.remove(targetUid, {
       calendarId: _currentEvent.calendarId,
       etag:       _currentEvent.etag,
       href:       _currentEvent.href,
-      ...(scope === 'occurrence' ? { scope, recurrenceId: _currentEvent.recurrenceId } : {})
+      ...(scope === 'occurrence' ? { scope, recurrenceId: deleteRecurrenceId } : {})
     });
     closeModal();
     showToast('Termin gelöscht.', 'info');

@@ -324,19 +324,23 @@ router.put('/:uid', async (req, res) => {
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
+    const targetRecurrenceId = recurrenceId || eventData.recurrenceId || (req.params.uid && req.params.uid.includes('::') ? req.params.uid.split('::')[1] : null) || (req.body.uid && req.body.uid.includes('::') ? req.body.uid.split('::')[1] : null);
     const masterUid = req.params.uid.split('::')[0];
     const event     = { ...eventData, uid: masterUid };
+    if (targetRecurrenceId) {
+      event.recurrenceId = targetRecurrenceId;
+    }
     const eventUrl  = buildAbsoluteUrl(account.url, href);
 
     let ics;
     let ifMatch;
     let existingIcs = null;
-    if (scope === 'occurrence' && recurrenceId) {
+    if (scope === 'occurrence' && targetRecurrenceId) {
       // Edit a single occurrence: write a detached exception VEVENT into the
       // existing resource instead of replacing the whole series.
       const current = await client.get(eventUrl);
       existingIcs = current ? current.ics : null;
-      if (current && current.ics && isNoOpEventSave(current.ics, eventData, recurrenceId)) {
+      if (current && current.ics && isNoOpEventSave(current.ics, eventData, targetRecurrenceId)) {
         queueSyncForCalendar(calendarId, req.session.userId);
         return res.json({
           ...event,
@@ -345,7 +349,7 @@ router.put('/:uid', async (req, res) => {
           calendarId
         });
       }
-      ics     = upsertOccurrenceOverride(current.ics, recurrenceId, eventData);
+      ics     = upsertOccurrenceOverride(current.ics, targetRecurrenceId, eventData);
       ifMatch = current.etag;
     } else {
       let current = null;
@@ -356,10 +360,20 @@ router.put('/:uid', async (req, res) => {
       }
       existingIcs = current ? current.ics : null;
 
-      if (current && current.ics && isNoOpEventSave(current.ics, eventData)) {
+      if (current && current.ics && isNoOpEventSave(current.ics, event, targetRecurrenceId)) {
         queueSyncForCalendar(calendarId, req.session.userId);
+        const { recurrenceId: _ignored, ...cleanMasterEvent } = event;
+        if (scope === 'series') {
+          try {
+            const parsed = parseICSToEvent(current.ics);
+            if (parsed && parsed.start) {
+              cleanMasterEvent.start = parsed.start;
+              cleanMasterEvent.end = parsed.end;
+            }
+          } catch (_) {}
+        }
         return res.json({
-          ...event,
+          ...(scope === 'series' ? cleanMasterEvent : event),
           href,
           etag: (current && current.etag) ? current.etag : etag,
           calendarId
@@ -384,18 +398,32 @@ router.put('/:uid', async (req, res) => {
     queueSyncForCalendar(calendarId, req.session.userId);
 
     const oldEvent = existingIcs ? parseICSToEvent(existingIcs) : null;
+    let responseEvent = event;
+    if (scope === 'series') {
+      const { recurrenceId: _ignored, ...cleanMasterEvent } = event;
+      if (ics) {
+        try {
+          const parsed = parseICSToEvent(ics);
+          if (parsed && parsed.start) {
+            cleanMasterEvent.start = parsed.start;
+            cleanMasterEvent.end = parsed.end;
+          }
+        } catch (_) {}
+      }
+      responseEvent = cleanMasterEvent;
+    }
     await logEventChange({
       eventUid: masterUid,
       calendarId,
       userId: req.session.userId,
       action: 'UPDATE',
       oldEvent,
-      newEvent: event,
+      newEvent: responseEvent,
       snapshotIcs: ics
     }).catch(err => console.error('[events PUT history]', err.message));
 
     res.json({
-      ...event,
+      ...responseEvent,
       href,
       etag:       (result && result.etag) ? result.etag : etag,
       calendarId
@@ -437,12 +465,13 @@ router.delete('/:uid', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const eventUrl = buildAbsoluteUrl(account.url, href);
+    const targetRecurrenceId = recurrenceId || (req.params.uid && req.params.uid.includes('::') ? req.params.uid.split('::')[1] : null);
 
-    if (scope === 'occurrence' && recurrenceId) {
+    if (scope === 'occurrence' && targetRecurrenceId) {
       // Delete a single occurrence: EXDATE it in the master instead of
       // deleting the whole series resource.
       const current = await client.get(eventUrl);
-      const ics = addOccurrenceException(current.ics, recurrenceId);
+      const ics = addOccurrenceException(current.ics, targetRecurrenceId);
       await client.put(eventUrl, ics, current.etag);
       queueSyncForCalendar(calendarId, req.session.userId);
       return res.json({ message: 'Occurrence deleted.' });
