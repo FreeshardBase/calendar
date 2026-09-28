@@ -21,6 +21,9 @@ router.get('/', (req, res) => {
   if (req.accountLoadError) {
     return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${req.accountLoadError}` });
   }
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   const accounts = req.session?.accounts || [];
   res.json(accounts.map(a => ({
     id:          a.id,
@@ -32,7 +35,10 @@ router.get('/', (req, res) => {
 
 // POST /api/accounts — add a new CalDAV account
 router.post('/', async (req, res) => {
-  let userId = req.session.userId;
+  const userId = req.session?.userId;
+  if (!userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
 
   let { url, username, password, displayName } = req.body;
 
@@ -69,9 +75,7 @@ router.post('/', async (req, res) => {
 
   // Issue #248: check both session accounts (env-default) and the DB directly (authoritative DB check
   // in case req.session.accounts was cold or stale).
-  req.session.userId = userId;
-
-  const sessionAccounts = req.session.accounts || [];
+  const sessionAccounts = req.session?.accounts || [];
   const existsInSession = sessionAccounts.some(
     a => a.url === discoveredUrl && a.username === username
   );
@@ -116,6 +120,9 @@ router.post('/:id/sync', async (req, res) => {
 
 // PATCH /api/accounts/:id — update display name
 router.patch('/:id', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
   if (req.params.id === 'env-default') {
     return res.status(403).json({ error: 'Systemkonto kann nicht geändert werden.' });
   }
@@ -135,6 +142,9 @@ router.patch('/:id', async (req, res) => {
 
 // DELETE /api/accounts/:id — remove account
 router.delete('/:id', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
   if (req.params.id === 'env-default') {
     return res.status(403).json({ error: 'Systemkonto kann nicht gelöscht werden.' });
   }
@@ -169,6 +179,9 @@ router.delete('/:id', async (req, res) => {
 
 // DELETE /api/accounts — remove all (logout)
 router.delete('/', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
   try {
     if (req.session.userId) {
       await Db.deleteUserAccounts(req.session.userId);
