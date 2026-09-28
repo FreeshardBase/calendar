@@ -65,7 +65,7 @@ test('Issue #121 — Generic OIDC & Multi-User Shard Identity', async (t) => {
             id: 'internal-caldav',
             url: `${localCalDAVCUrl}/${userId}/`,
             username: userId,
-            password: 'super-secret-bypass',
+            password: process.env.SYSTEM_SYNC_SECRET || 'test-sync-secret',
             displayName: 'Interner Kalender'
           });
         }

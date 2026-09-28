@@ -142,11 +142,14 @@ def resolve_encryption_secret(env=None, target_db_path=None):
             pass
 
     secret = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET") or os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET")
-    node_env = env.get("NODE_ENV", "").lower()
+    node_env = (env.get("NODE_ENV") or os.environ.get("NODE_ENV", "")).lower()
     if (node_env in ["production", "staging"] and 
         env.get("ALLOW_INSECURE_ENCRYPTION_KEY") != "true" and 
         (not secret or secret.strip() in _weak_keys or "portal.id" in secret.lower())):
         raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
+
+    if not secret:
+        secret = "freeshard-default-encryption-key-do-not-use-in-prod"
 
     try:
         key_dir = os.path.dirname(key_file_path)
@@ -189,6 +192,9 @@ def derive_key(secret_str, salt=None):
         backend=default_backend()
     )
     return kdf.derive(secret_str.encode('utf-8'))
+
+# Derive key once on startup
+KEY_BYTES = derive_key(ENCRYPTION_SECRET) if ENCRYPTION_SECRET else None
 
 def decrypt(encrypted_hex, iv_hex, key_bytes):
     encrypted = bytes.fromhex(encrypted_hex)

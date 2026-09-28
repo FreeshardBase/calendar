@@ -28,8 +28,8 @@ class Auth(BaseAuth):
                 pass
 
         # 2. Allow SYSTEM_SYNC_SECRET bypass for sync worker
-        system_secret = os.environ.get("SYSTEM_SYNC_SECRET")
-        if system_secret and hmac.compare_digest(password, system_secret):
+        system_secret = (os.environ.get("SYSTEM_SYNC_SECRET") or "").strip()
+        if system_secret and isinstance(password, str) and hmac.compare_digest(password, system_secret):
             return user_id
 
         # 3. Check App-Specific Password (ASP) in shared SQLite DB

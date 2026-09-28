@@ -103,5 +103,28 @@ class TestRadicaleCustomAuth(unittest.TestCase):
         user_id = self.auth._login("testuser", "pbkdf2pass")
         self.assertEqual(user_id, "")
 
+    def test_issue56_system_sync_secret_unset_rejects_bypass_and_wrong_password(self):
+        # Reproducing Clayde's finding:
+        # SYSTEM_SYNC_SECRET unset, throwaway SQLite DB holding one user:
+        # _login('testuser', 'super-secret-bypass') -> ''
+        # _login('testuser', 'wrong-password')      -> ''
+        os.environ.pop("SYSTEM_SYNC_SECRET", None)
+        self.assertEqual(self.auth._login("testuser", "super-secret-bypass"), "")
+        self.assertEqual(self.auth._login("testuser", "wrong-password"), "")
+
+    def test_issue56_empty_or_whitespace_secret_rejects_bypass(self):
+        os.environ["SYSTEM_SYNC_SECRET"] = ""
+        self.assertEqual(self.auth._login("testuser", ""), "")
+        self.assertEqual(self.auth._login("testuser", "super-secret-bypass"), "")
+
+        os.environ["SYSTEM_SYNC_SECRET"] = "   "
+        self.assertEqual(self.auth._login("testuser", "   "), "")
+        self.assertEqual(self.auth._login("testuser", "super-secret-bypass"), "")
+
+    def test_issue56_configured_secret_allows_sync_and_rejects_bypass(self):
+        os.environ["SYSTEM_SYNC_SECRET"] = "custom-secure-secret-999"
+        self.assertEqual(self.auth._login("testuser", "custom-secure-secret-999"), "uuid-user-1")
+        self.assertEqual(self.auth._login("testuser", "super-secret-bypass"), "")
+
 if __name__ == "__main__":
     unittest.main()

@@ -1017,6 +1017,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await subItem.click();
       await expect(page.locator('.event-chip, .event-block, [data-event-uid]').filter({ hasText: eventTitle }).first()).toBeVisible({ timeout: 5000 });
     } finally {
+      try {
+        const delBtn = page.locator('#webcal-list .calendar-item', { hasText: feedName }).locator('[data-delete-webcal]').first();
+        if (await delBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          page.once('dialog', d => d.accept());
+          await delBtn.click();
+        }
+      } catch (e) {}
       await new Promise(resolve => feedServer.close(resolve));
     }
   });
