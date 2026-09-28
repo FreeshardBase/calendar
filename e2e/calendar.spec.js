@@ -25,13 +25,40 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     } catch (e) {}
   });
 
-  test('unauthenticated API request returns 401 Unauthorized', async ({ request }) => {
-    const response = await request.get('/api/calendars', {
-      headers: {
-        'x-test-user-id': 'unauthenticated'
-      }
+  test('Issue #71 / E2E-1 — protected API endpoints strictly reject unauthenticated requests with 401 and Authentication required', async ({ request }) => {
+    const endpoints = [
+      { method: 'get', path: '/api/calendars' },
+      { method: 'get', path: '/api/events' },
+      { method: 'get', path: '/api/tasks' },
+      { method: 'get', path: '/api/resources' },
+      { method: 'get', path: '/api/delegates' },
+      { method: 'get', path: '/api/working-hours' },
+      { method: 'get', path: '/api/attachments/filebrowser/files' },
+      { method: 'post', path: '/api/quick-add/parse', data: { text: 'Meeting tomorrow at 3pm' } },
+      { method: 'post', path: '/api/freebusy/query', data: { timeMin: '2026-07-01T00:00:00Z', timeMax: '2026-07-02T00:00:00Z' } }
+    ];
+
+    for (const ep of endpoints) {
+      const response = await request[ep.method](ep.path, {
+        headers: {
+          'x-test-user-id': 'unauthenticated'
+        },
+        data: ep.data
+      });
+      expect(response.status()).toBe(401);
+      const body = await response.json();
+      expect(body.error).toBe('Authentication required');
+    }
+  });
+
+  test('Issue #71 / E2E-1 — browser displays authentication error toast when unauthenticated', async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      'x-test-user-id': 'unauthenticated'
     });
-    expect(response.status()).toBe(401);
+    await page.goto('/');
+    const toast = page.locator('.toast.error, #toast-container .toast');
+    await expect(toast).toBeVisible({ timeout: 10000 });
+    await expect(toast).toContainText('Authentication required');
   });
 
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {

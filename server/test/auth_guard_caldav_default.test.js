@@ -4,6 +4,9 @@ process.env.PORT = '3195';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
+process.env.CALDAVURL = process.env.CALDAVURL || `http://localhost:${process.env.PORT}/mock-dav/`;
+process.env.CALDAV_USERNAME = 'test';
+process.env.CALDAV_PASSWORD = 'password';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -93,5 +96,9 @@ test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t
     const body = await res.json();
     assert.ok(Array.isArray(body.calendars));
     assert.ok(body.calendars.length > 0);
+    assert.ok(!body.calendars.some(c => c.id && c.id.includes('(local)')), 'Must not return local fallback calendar when CalDAV server is operational');
+    const mockCal = body.calendars.find(c => c.name === 'Persönlich');
+    assert.ok(mockCal, 'Must return Persönlich calendar from mock-dav server');
+    assert.ok(mockCal.href.includes('/mock-dav/'), `Calendar href (${mockCal.href}) must originate from mock-dav endpoint`);
   });
 });
