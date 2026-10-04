@@ -61,7 +61,12 @@ router.get('/invitations', async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const accounts = req.session.accounts || [];
+    let accounts = req.session.accounts || [];
+    if (accounts.length === 0 && req.session?.userId) {
+      try {
+        accounts = await Db.getAccounts(req.session.userId);
+      } catch (_) {}
+    }
     const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
     const invitations = [];
 
@@ -70,6 +75,9 @@ router.get('/invitations', async (req, res) => {
     const endDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
     const validEmails = await getUserEmailsForSession(req);
+    const sessionIdentifiers = new Set(validEmails.map(e => e.toLowerCase()));
+    if (req.session?.userId) sessionIdentifiers.add(String(req.session.userId).toLowerCase().trim());
+    if (req.session?.username) sessionIdentifiers.add(String(req.session.username).toLowerCase().trim());
     const seenUids = new Set();
 
     await Promise.allSettled(
@@ -84,24 +92,28 @@ router.get('/invitations', async (req, res) => {
               const eventsXml = await client.getEvents(cal.url, startDate, endDate);
               const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
               for (const ev of events) {
-                if (!ev.uid || seenUids.has(ev.uid)) continue;
+                const baseUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : ev.uid);
+                if (!baseUid || seenUids.has(baseUid)) continue;
 
-                if (ev.organizer && ev.organizer.email) {
-                  const orgEmail = ev.organizer.email.toLowerCase().replace(/^mailto:/i, '').trim();
-                  if (validEmails.includes(orgEmail)) continue;
+                if (ev.organizer) {
+                  const rawOrg = typeof ev.organizer === 'string' ? ev.organizer : (ev.organizer?.email || ev.organizer?.name || '');
+                  const orgEmail = rawOrg.toLowerCase().replace(/^mailto:/i, '').trim();
+                  if (orgEmail && (validEmails.includes(orgEmail) || sessionIdentifiers.has(orgEmail))) continue;
                 }
 
                 if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
-                  const matchedAtt = ev.attendees.find(a =>
-                    validEmails.includes((a.email || '').toLowerCase().replace(/^mailto:/i, '').trim())
-                  );
+                  const matchedAtt = ev.attendees.find(a => {
+                    const aEmail = (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim();
+                    return validEmails.includes(aEmail) || sessionIdentifiers.has(aEmail);
+                  });
                   if (!matchedAtt) continue;
 
                   const status = (matchedAtt.status || matchedAtt.partstat || 'NEEDS-ACTION').toUpperCase();
                   if (status === 'ACCEPTED' || status === 'DECLINED' || status === 'DELEGATED' || status === 'TENTATIVE') continue;
 
                   ev.userEmail = matchedAtt.email;
-                  seenUids.add(ev.uid);
+                  ev.uid = baseUid;
+                  seenUids.add(baseUid);
                   invitations.push(ev);
                 }
               }
@@ -652,7 +664,13 @@ router.get('/:uid/history', async (req, res) => {
 
 async function resolveAccount(req, calendarId) {
   const accountId = calendarId.split('::')[0];
-  const account   = (req.session.accounts || []).find(a => a.id === accountId);
+  let account = (req.session.accounts || []).find(a => a.id === accountId);
+  if (!account && req.session?.userId) {
+    try {
+      const dbAccounts = await Db.getAccounts(req.session.userId);
+      account = dbAccounts.find(a => a.id === accountId);
+    } catch (_) {}
+  }
   if (!account) return { account: null, client: null };
 
   const client = await getClientForAccount(account);

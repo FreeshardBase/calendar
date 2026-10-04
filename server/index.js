@@ -366,6 +366,29 @@ END:VCALENDAR`);
 </d:multistatus>`);
         }
 
+        const veventResponses = [];
+        for (const [resPath, item] of mockResources.entries()) {
+          if (item.ics.includes('BEGIN:VEVENT')) {
+            veventResponses.push(`
+  <d:response>
+    <d:href>${resPath}</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>${item.etag}</d:getetag>
+        <c:calendar-data>${item.ics}</c:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`);
+          }
+        }
+        if (veventResponses.length > 0) {
+          return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  ${veventResponses.join('')}
+</d:multistatus>`);
+        }
+
         return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:response>
