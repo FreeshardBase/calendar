@@ -185,6 +185,48 @@ class TestSyncWorker(unittest.TestCase):
 
         sync_worker.purge_tmp_credential_files("user-verify-test")
 
+    def test_issue82_resolve_encryption_secret_rendered_portal_id(self):
+        rendered_portal_id = "8271dd" + "a" * 97
+        self.assertEqual(len(rendered_portal_id), 103)
+        with self.assertRaises(ValueError):
+            sync_worker.resolve_encryption_secret(
+                env={"NODE_ENV": "production", "ENCRYPTION_KEY": rendered_portal_id},
+                target_db_path=self.db_path
+            )
+
+    def test_issue82_resolve_encryption_secret_weak_file_in_production(self):
+        key_file = os.path.join(self.temp_dir, ".encryption_key")
+        with open(key_file, "w") as f:
+            f.write("freeshard-default-encryption-key-do-not-use-in-prod")
+        with self.assertRaises(ValueError):
+            sync_worker.resolve_encryption_secret(
+                env={"NODE_ENV": "production"},
+                target_db_path=self.db_path
+            )
+
+        rendered_portal_id = "8271dd" + "a" * 97
+        with open(key_file, "w") as f:
+            f.write(rendered_portal_id)
+        with self.assertRaises(ValueError):
+            sync_worker.resolve_encryption_secret(
+                env={"NODE_ENV": "production"},
+                target_db_path=self.db_path
+            )
+
+    def test_issue82_resolve_encryption_secret_generates_key_per_install(self):
+        key_file = os.path.join(self.temp_dir, ".encryption_key")
+        if os.path.exists(key_file):
+            os.remove(key_file)
+        key = sync_worker.resolve_encryption_secret(
+            env={"NODE_ENV": "development"},
+            target_db_path=self.db_path
+        )
+        self.assertNotEqual(key, "freeshard-default-encryption-key-do-not-use-in-prod")
+        self.assertEqual(len(key), 64)
+        self.assertTrue(os.path.exists(key_file))
+        with open(key_file, "r") as f:
+            self.assertEqual(f.read().strip(), key)
+
 if __name__ == "__main__":
     unittest.main()
 

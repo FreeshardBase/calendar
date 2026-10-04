@@ -125,41 +125,72 @@ _weak_keys = {
     "{{portal.id}}",
 }
 
+def is_weak_encryption_secret(secret, portal_id=None):
+    if not secret:
+        return True
+    s = str(secret).strip()
+    if not s or s in _weak_keys or "portal.id" in s.lower() or len(s) == 103:
+        return True
+    if portal_id and s == portal_id.strip():
+        return True
+    return False
+
 def resolve_encryption_secret(env=None, target_db_path=None):
     if env is None:
         env = os.environ
     if target_db_path is None:
         target_db_path = get_db_path()
 
+    node_env = (env.get("NODE_ENV") or "").lower()
+    is_prod_or_staging = node_env in ["production", "staging"]
+    allow_insecure = env.get("ALLOW_INSECURE_ENCRYPTION_KEY") == "true"
+    portal_id = env.get("PORTAL_ID")
+
     key_file_path = env.get("ENCRYPTION_KEY_FILE") or os.path.join(os.path.dirname(target_db_path), ".encryption_key")
+
     if os.path.exists(key_file_path):
         try:
             with open(key_file_path, "r", encoding="utf-8") as f:
                 content = f.read().strip()
                 if content:
+                    if is_prod_or_staging and not allow_insecure and is_weak_encryption_secret(content, portal_id):
+                        raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
                     return content
         except Exception:
+            if is_prod_or_staging and not allow_insecure:
+                raise
+
+    raw_env_key = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET")
+    if env is os.environ and not raw_env_key:
+        raw_env_key = os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET")
+    if raw_env_key and str(raw_env_key).strip():
+        secret = str(raw_env_key).strip()
+        if is_prod_or_staging and not allow_insecure and is_weak_encryption_secret(secret, portal_id):
+            raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
+        try:
+            if not os.path.exists(key_file_path):
+                key_dir = os.path.dirname(key_file_path)
+                if key_dir and not os.path.exists(key_dir):
+                    os.makedirs(key_dir, exist_ok=True)
+                with open(key_file_path, "w", encoding="utf-8") as f:
+                    f.write(secret)
+        except Exception:
             pass
+        return secret
 
-    secret = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET") or os.environ.get("ENCRYPTION_KEY") or os.environ.get("ENCRYPTION_SECRET")
-    node_env = (env.get("NODE_ENV") or os.environ.get("NODE_ENV", "")).lower()
-    if (node_env in ["production", "staging"] and 
-        env.get("ALLOW_INSECURE_ENCRYPTION_KEY") != "true" and 
-        (not secret or secret.strip() in _weak_keys or "portal.id" in secret.lower())):
-        raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
-
-    if not secret:
-        secret = "freeshard-default-encryption-key-do-not-use-in-prod"
-
+    import secrets
+    generated_secret = secrets.token_hex(32)
     try:
         key_dir = os.path.dirname(key_file_path)
-        if os.path.exists(key_dir):
-            with open(key_file_path, "w", encoding="utf-8") as f:
-                f.write(secret)
+        if key_dir and not os.path.exists(key_dir):
+            os.makedirs(key_dir, exist_ok=True)
+        with open(key_file_path, "w", encoding="utf-8") as f:
+            f.write(generated_secret)
     except Exception:
-        pass
+        if is_prod_or_staging and not allow_insecure:
+            raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
 
-    return secret
+    return generated_secret
 
 ENCRYPTION_SECRET = resolve_encryption_secret()
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")

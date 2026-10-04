@@ -6,6 +6,8 @@ sessions/
 test-results/
 playwright-report/
 .share_key
+.encryption_key
+.session_secret
 ssl/
 *.swp
 webcalendar.db*

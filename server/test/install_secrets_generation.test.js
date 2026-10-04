@@ -15,10 +15,12 @@ const { validateEncryptionKey } = require('../db');
 test.describe('Issue #82 — Per-Install ENCRYPTION_KEY & SESSION_SECRET Generation Guard', () => {
 
   test('getSessionConfig rejects portal.id and weak secrets in production', () => {
+    const renderedPortalId = '8271dd' + 'a'.repeat(97);
     const weakSecrets = [
       'portal.id',
       '{{ portal.id }}',
       '{{portal.id}}',
+      renderedPortalId,
       'freeshard-change-this-in-production',
       'freeshard-webcalendar-prod-secret-change-in-env',
       'change-me'
@@ -42,10 +44,12 @@ test.describe('Issue #82 — Per-Install ENCRYPTION_KEY & SESSION_SECRET Generat
   });
 
   test('validateEncryptionKey rejects portal.id and weak default keys in production', () => {
+    const renderedPortalId = '8271dd' + 'a'.repeat(97);
     const weakKeys = [
       'portal.id',
       '{{ portal.id }}',
       '{{portal.id}}',
+      renderedPortalId,
       'freeshard-default-encryption-key-do-not-use-in-prod',
       'change-me',
       'change-me-32-chars-or-more'

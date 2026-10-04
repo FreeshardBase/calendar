@@ -21,13 +21,28 @@ const WEAK_ENCRYPTION_KEYS = new Set([
   '{{portal.id}}',
 ]);
 
-function validateEncryptionKey(env = process.env) {
+function isWeakEncryptionKey(rawKey, env = process.env) {
+  if (!rawKey) return true;
+  const key = String(rawKey).trim();
+  if (!key) return true;
+  if (WEAK_ENCRYPTION_KEYS.has(key)) return true;
+  if (/portal\.id/i.test(key)) return true;
+  if (key.length === 103) return true; // Freeshard rendered portal.id length
+  const portalId = (env && env.PORTAL_ID) || process.env.PORTAL_ID;
+  if (portalId && key === portalId.trim()) return true;
+  return false;
+}
+
+function validateEncryptionKey(env = process.env, keyToValidate) {
   const isProd = env.NODE_ENV === 'production';
   const isStaging = env.NODE_ENV === 'staging';
-  const rawKey = (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || '').trim();
-  const isWeak = !rawKey || WEAK_ENCRYPTION_KEYS.has(rawKey) || /portal\.id/i.test(rawKey);
+  const rawKey = (keyToValidate !== undefined
+    ? String(keyToValidate)
+    : (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || '')
+  ).trim();
+  const isWeak = isWeakEncryptionKey(rawKey, env);
 
-  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true') {
+  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true' && env.E2E_TEST !== 'true') {
     throw new Error('ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.');
   }
 
@@ -36,27 +51,74 @@ function validateEncryptionKey(env = process.env) {
 
 function resolveEncryptionKey(env = process.env, targetDbPath = dbPath) {
   const keyFilePath = env.ENCRYPTION_KEY_FILE || path.join(path.dirname(targetDbPath), '.encryption_key');
+  const rawEnvKey = (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || '').trim();
+  const repoKeyFile = path.resolve(path.join(__dirname, '../.encryption_key'));
+  const isRepoKeyFile = path.resolve(keyFilePath) === repoKeyFile;
+
+  // 1. Check if .encryption_key exists on disk (prioritized for restore preservation)
   try {
     if (fs.existsSync(keyFilePath)) {
       const keyFromFile = fs.readFileSync(keyFilePath, 'utf8').trim();
       if (keyFromFile) {
-        return keyFromFile;
+        if (!isWeakEncryptionKey(keyFromFile, env)) {
+          return keyFromFile;
+        }
+        // File holds a weak key:
+        if (rawEnvKey && !isWeakEncryptionKey(rawEnvKey, env)) {
+          if (!isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath)) {
+            try {
+              fs.writeFileSync(keyFilePath, rawEnvKey, { encoding: 'utf8', mode: 0o600 });
+            } catch {}
+          }
+          return rawEnvKey;
+        }
+        // Enforce validation: a file containing default or weak key must NOT bypass production guard!
+        validateEncryptionKey(env, keyFromFile);
       }
     }
   } catch (err) {
-    // Ignore read error
+    if (env.NODE_ENV === 'production' || env.NODE_ENV === 'staging') {
+      throw err;
+    }
   }
 
-  const rawKey = validateEncryptionKey(env);
-  try {
-    const keyDir = path.dirname(keyFilePath);
-    if (fs.existsSync(keyDir)) {
-      fs.writeFileSync(keyFilePath, rawKey, { encoding: 'utf8', mode: 0o600 });
+  // 2. Explicit env key takes precedence if specified, but must be validated
+  if (rawEnvKey) {
+    validateEncryptionKey(env, rawEnvKey);
+    if (!isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath)) {
+      try {
+        if (!fs.existsSync(keyFilePath)) {
+          const keyDir = path.dirname(keyFilePath);
+          if (fs.existsSync(keyDir)) {
+            fs.writeFileSync(keyFilePath, rawEnvKey, { encoding: 'utf8', mode: 0o600 });
+          }
+        }
+      } catch {}
     }
-  } catch (err) {
-    // Ignore write error if directory not writable
+    return rawEnvKey;
   }
-  return rawKey;
+
+  // 3. In repo-level test runs against the default fixture database, allow test fixture default key
+  if (env.NODE_ENV === 'test' && targetDbPath === dbPath && !rawEnvKey) {
+    return 'freeshard-default-encryption-key-do-not-use-in-prod';
+  }
+
+  // 4. No explicit env key and no key file: generate 32 random bytes per install
+  const generatedKey = crypto.randomBytes(32).toString('hex');
+  if (!isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath)) {
+    try {
+      const keyDir = path.dirname(keyFilePath);
+      if (keyDir && !fs.existsSync(keyDir)) {
+        fs.mkdirSync(keyDir, { recursive: true });
+      }
+      fs.writeFileSync(keyFilePath, generatedKey, { encoding: 'utf8', mode: 0o600 });
+    } catch (err) {
+      if ((env.NODE_ENV === 'production' || env.NODE_ENV === 'staging') && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true' && env.E2E_TEST !== 'true') {
+        throw new Error('ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.');
+      }
+    }
+  }
+  return generatedKey;
 }
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';

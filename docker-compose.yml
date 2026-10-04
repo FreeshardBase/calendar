@@ -14,7 +14,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_PATH: /app/data/webcalendar.db
-      SESSION_SECRET: ${SESSION_SECRET:-freeshard-webcalendar-prod-secret-change-in-env}
+      SESSION_SECRET: ${SESSION_SECRET}
       TRUST_PROXY: "true"
       COOKIE_SECURE: "auto"
       COOKIE_SAME_SITE: "strict"

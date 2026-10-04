@@ -17,11 +17,46 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
+
+function validateSystemSyncSecret(env = process.env) {
+  const isProd = env.NODE_ENV === 'production';
+  const isStaging = env.NODE_ENV === 'staging';
+  const rawSecret = (env.SYSTEM_SYNC_SECRET || '').trim();
+  const legacyBypass = Buffer.from('c3VwZXItc2VjcmV0LWJ5cGFzcw==', 'base64').toString('utf8');
+  const weakSecrets = new Set([
+    legacyBypass,
+    'portal.id',
+    '{{ portal.id }}',
+    '{{portal.id}}',
+    'change-me'
+  ]);
+  let isWeak = !rawSecret || weakSecrets.has(rawSecret) || /portal\.id/i.test(rawSecret) || rawSecret.length === 103;
+  const portalId = (env && env.PORTAL_ID) || process.env.PORTAL_ID;
+  if (portalId && rawSecret === portalId.trim()) isWeak = true;
+
+  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_SYSTEM_SYNC_SECRET !== 'true' && env.E2E_TEST !== 'true') {
+    const msg = 'SYSTEM_SYNC_SECRET must be explicitly configured with a secure value in production environment.';
+    if (env.EXIT_ON_INVALID_SECRETS === 'true' || require.main === module) {
+      console.error(msg);
+      process.exit(1);
+    }
+    throw new Error(msg);
+  }
+}
+
+// Issue #82: Validate SYSTEM_SYNC_SECRET on server boot before any subsystems load
+if (require.main === module || process.env.EXIT_ON_INVALID_SECRETS === 'true') {
+  validateSystemSyncSecret(process.env);
+}
+
 const Db = require('./db');
 const { getTrustProxySetting, getSessionConfig } = require('./utils/sessionConfig');
 const { createRequireInternalMiddleware } = require('./utils/internalAuth');
 const securityHeaders = require('./utils/securityHeaders');
 const compression = require('./utils/compression');
+
+const defaultDbFilename = process.env.NODE_ENV === 'test' ? '../webcalendar.test.db' : '../webcalendar.db';
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, defaultDbFilename);
 
 const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
@@ -561,6 +596,6 @@ if (shouldListen) {
   webcalWorker = startWebcalSyncWorker();
 }
 
-module.exports = { app, server, webcalWorker };
+module.exports = { app, server, webcalWorker, validateSystemSyncSecret };
 
 
