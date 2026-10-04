@@ -1480,3 +1480,10 @@
   - Updated `GET /api/events/invitations` to properly exclude `TENTATIVE` RSVPs from the pending inbox.
   - Added filter to drop invitations where the current user is the `ORGANIZER`, preventing self-RSVPs on externally imported events.
   - Wrote TDD test `server/test/issue88_invitations_inbox.test.js` using a mock CalDAV HTTP server to ensure the filter correctly processes real event data, rather than relying on a mocked empty array.
+
+- **Issue #96 — Alarm Firing Window (24h), Reload Persistence & User-Gesture Gated Notification Permissions (`public/js/notifications.js`, `public/js/eventModal.js`, `public/index.html`, `public/js/app.js`, `server/test/issue96_alarm_firing_window_reload.test.js`):**
+  - Removed `requestNotificationPermission()` call from `initNotificationService()`, completely eliminating the unprompted permission request on page load / `boot()`.
+  - Added user-gesture permission request hooks in `public/js/eventModal.js` when selecting an alarm or saving an event with alarms.
+  - Added "Benachrichtigungen" settings section in `public/index.html` with explicit permission status and "Aktivieren" button wired in `public/js/app.js`.
+  - Replaced weak substring tests in `server/test/issue96_alarm_firing_window_reload.test.js` with comprehensive Node `vm` behavioral test suite verifying zero permission requests on boot, multi-session reload persistence using `localStorage`, and 24-hour catch-up alarm triggering with sharp teeth against sabotages.
+  - Verification: 100% green (`npm test` 1461 passed, `npx playwright test` 25 passed).
