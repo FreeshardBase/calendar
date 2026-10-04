@@ -15,6 +15,7 @@ const {
   isNoOpEventSave,
   updateWholeSeries,
   updateAttendeePartstat,
+  normalizeRecurrenceRule,
   resolveUrl
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
@@ -278,6 +279,9 @@ router.post('/', async (req, res) => {
 
     const uid = uuidv4();
     const event = { ...eventData, uid };
+    if (event.recurrence && event.start) {
+      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start);
+    }
     const ics = eventToICS(event);
 
     // Build event URL — URL-encode the filename to handle special chars
@@ -341,6 +345,9 @@ router.put('/:uid', async (req, res) => {
     const event     = { ...eventData, uid: masterUid };
     if (targetRecurrenceId) {
       event.recurrenceId = targetRecurrenceId;
+    }
+    if (event.recurrence && event.start) {
+      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start);
     }
     const eventUrl  = buildAbsoluteUrl(account.url, href);
 

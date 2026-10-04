@@ -22,7 +22,8 @@ const {
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,
-  updateWholeSeries
+  updateWholeSeries,
+  normalizeRecurrenceRule
 } = require('../utils/ical');
 
 const xmlParser = new DOMParser({
@@ -1393,6 +1394,7 @@ module.exports = {
   parseSyncCollectionResponse,
   isNoOpEventSave,
   updateWholeSeries,
+  normalizeRecurrenceRule,
   resolveUrl,
   foldLines
 };

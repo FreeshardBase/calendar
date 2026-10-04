@@ -250,6 +250,17 @@ export function openEditModal(event, callbacks) {
         const cb = document.querySelector(`.recur-byday[value="${day}"]`);
         if (cb) cb.checked = true;
       });
+    } else {
+      const startDateVal = $('ev-start-date').value;
+      if (startDateVal) {
+        const parts = startDateVal.split('-').map(Number);
+        if (parts.length >= 3 && !parts.some(isNaN)) {
+          const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+          const dayCode = ['SU','MO','TU','WE','TH','FR','SA'][d.getUTCDay()];
+          const cb = document.querySelector(`.recur-byday[value="${dayCode}"]`);
+          if (cb) cb.checked = true;
+        }
+      }
     }
   } else if (freq === 'MONTHLY') {
     const bydayMatch = rruleStr.match(/BYDAY=(-?\d)([A-Z]{2})/);
@@ -383,13 +394,11 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
     $('recur-monthly-week-idx').value = String(weekNum);
     $('recur-monthly-weekday').value = wd;
 
-    // Re-sync BYDAY checkboxes when start date changes, but ONLY in create
-    // mode (_currentEvent === null).  In edit mode the checkboxes were
-    // populated from the existing RRULE (e.g. BYDAY=WE); overwriting them on
-    // a start-date change would silently move the series to the wrong weekday
-    // (Issue #91).  Multi-day manual selections are always preserved.
+    // Re-sync BYDAY checkboxes when start date changes across both create and edit
+    // modes when a single day (or default) is selected (Issue #91).
+    // Multi-day manual selections (e.g. MO,WE,FR) are always preserved.
     const checkedBoxes = [...document.querySelectorAll('.recur-byday:checked')];
-    if (_currentEvent === null && checkedBoxes.length <= 1) {
+    if (checkedBoxes.length <= 1) {
       document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
       const cb = document.querySelector(`.recur-byday[value="${wd}"]`);
       if (cb) cb.checked = true;
@@ -833,7 +842,12 @@ export function initEventModal() {
     markRecurrenceTouched();
     updateRecurrenceOptions(false);
   });
-  $('ev-start-date').addEventListener('change', () => updateRecurrenceOptions(false));
+  const onStartDateChange = () => {
+    markRecurrenceTouched();
+    updateRecurrenceOptions(false);
+  };
+  $('ev-start-date').addEventListener('change', onStartDateChange);
+  $('ev-start-date').addEventListener('input', onStartDateChange);
   $('add-attendee-btn').addEventListener('click', handleAddAttendee);
 
   document.querySelectorAll('.recur-byday').forEach(cb => cb.addEventListener('change', markRecurrenceTouched));

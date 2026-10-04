@@ -414,6 +414,70 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   return instances;
 }
 
+/**
+ * Normalise a recurrence rule (RRULE) against the event's DTSTART.
+ * Specifically, for weekly recurrences (FREQ=WEEKLY) with a single BYDAY,
+ * ensure the BYDAY matches the day of the week of DTSTART (Issue #91).
+ * Multi-day rules (e.g. BYDAY=MO,WE,FR) and monthly/yearly positional rules
+ * (e.g. 2TH, -1SU) are preserved untouched.
+ *
+ * @param {string|null} recurrence - The RRULE string
+ * @param {Date|ICAL.Time|string|null} dtstart - The start date/time of the event
+ * @returns {string|null} - The normalised RRULE string
+ */
+function normalizeRecurrenceRule(recurrence, dtstart) {
+  if (!recurrence || typeof recurrence !== 'string') return recurrence;
+  if (!dtstart) return recurrence;
+
+  const hasRrulePrefix = /^RRULE:/i.test(recurrence.trim());
+  const cleanRecur = recurrence.replace(/^RRULE:/i, '').trim();
+
+  // Only weekly rules are subject to single-BYDAY weekday re-derivation
+  if (!/(?:^|;)FREQ=WEEKLY(?:;|$)/i.test(cleanRecur)) {
+    return recurrence;
+  }
+
+  // Extract BYDAY
+  const bydayMatch = cleanRecur.match(/(?:^|;)BYDAY=([^;]+)/i);
+  if (!bydayMatch) return recurrence;
+
+  const rawByDay = bydayMatch[1].trim().toUpperCase();
+  // Only single weekday without position (SU, MO, TU, WE, TH, FR, SA)
+  const singleWeekdayRegex = /^(SU|MO|TU|WE|TH|FR|SA)$/;
+  if (!singleWeekdayRegex.test(rawByDay)) {
+    return recurrence;
+  }
+
+  const dayNames = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  let targetWeekday = null;
+
+  if (typeof dtstart.dayOfWeek === 'function') {
+    targetWeekday = dayNames[dtstart.dayOfWeek() - 1];
+  } else if (dtstart instanceof Date) {
+    targetWeekday = isNaN(dtstart.getTime()) ? null : dayNames[dtstart.getUTCDay()];
+  } else if (typeof dtstart === 'string') {
+    const s = dtstart.trim().replace(/^.*:/, '');
+    const clean = s.split('T')[0];
+    if (/^\d{8}$/.test(clean)) {
+      const y = Number(clean.slice(0, 4)), m = Number(clean.slice(4, 6)), d = Number(clean.slice(6, 8));
+      targetWeekday = dayNames[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+    } else if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+      const p = clean.split('-').map(Number);
+      targetWeekday = dayNames[new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()];
+    } else {
+      const d = new Date(dtstart);
+      targetWeekday = isNaN(d.getTime()) ? null : dayNames[d.getUTCDay()];
+    }
+  }
+
+  if (targetWeekday && targetWeekday !== rawByDay) {
+    const updated = cleanRecur.replace(/(^|;)BYDAY=[^;]+/i, `$1BYDAY=${targetWeekday}`);
+    return hasRrulePrefix ? `RRULE:${updated}` : updated;
+  }
+
+  return recurrence;
+}
+
 function eventToICS(event, existingIcs = null) {
   const baseIcs = existingIcs || event.rawIcs || null;
 
@@ -521,7 +585,10 @@ function eventToICS(event, existingIcs = null) {
         // Recurrence (RRULE)
         if ('recurrence' in event && event.recurrence !== undefined) {
           if (event.recurrence) {
-            const rruleClean = String(event.recurrence).replace(/^RRULE:/i, '').trim();
+            const dtstartProp = master.getFirstProperty('dtstart');
+            const dtstartTime = dtstartProp ? dtstartProp.getFirstValue() : null;
+            const normRecur = normalizeRecurrenceRule(event.recurrence, dtstartTime || event.start);
+            const rruleClean = String(normRecur).replace(/^RRULE:/i, '').trim();
             try {
               const recur = ICAL.Recur.fromString(rruleClean);
               const prop = master.getFirstProperty('rrule');
@@ -531,10 +598,26 @@ function eventToICS(event, existingIcs = null) {
                 master.addPropertyWithValue('rrule', recur);
               }
             } catch (_) {
-              setPropValue('rrule', event.recurrence);
+              setPropValue('rrule', normRecur);
             }
           } else {
             master.removeAllProperties('rrule');
+          }
+        } else if (event.start !== undefined) {
+          const rruleProp = master.getFirstProperty('rrule');
+          const dtstartProp = master.getFirstProperty('dtstart');
+          if (rruleProp && dtstartProp) {
+            const dtstartTime = dtstartProp.getFirstValue();
+            const currRruleVal = rruleProp.getFirstValue();
+            const currRruleStr = currRruleVal ? currRruleVal.toString() : rruleProp.toICALString();
+            const normRrule = normalizeRecurrenceRule(currRruleStr, dtstartTime || event.start);
+            if (normRrule && normRrule !== currRruleStr) {
+              try {
+                rruleProp.setValue(ICAL.Recur.fromString(normRrule.replace(/^RRULE:/i, '').trim()));
+              } catch (_) {
+                rruleProp.setValue(normRrule);
+              }
+            }
           }
         }
 
@@ -780,7 +863,10 @@ function eventToICS(event, existingIcs = null) {
     lines.push(`ATTENDEE;CUTYPE=INDIVIDUAL${cn}${partstat}${rsvp}:mailto:${String(att.email).replace(/[\r\n]/g, '')}`);
   }
 
-  if (event.recurrence) lines.push(`RRULE:${String(event.recurrence).replace(/[\r\n]/g, '')}`);
+  if (event.recurrence) {
+    const normRecur = normalizeRecurrenceRule(event.recurrence, event.start);
+    lines.push(`RRULE:${String(normRecur).replace(/^RRULE:/i, '').replace(/[\r\n]/g, '')}`);
+  }
 
   const alarms = Array.isArray(event.alarms) ? event.alarms : (event.valarm ? [event.valarm] : []);
   for (const alarm of alarms) {
@@ -1580,11 +1666,17 @@ function updateWholeSeries(existingIcs, eventData) {
                 newMasterEndIso = new Date(newMasterStartMs + durationMs).toISOString();
               }
 
+              const shiftedRecurrence = normalizeRecurrenceRule(
+                eventData.recurrence || origMasterEv?.recurrence || masterEventData.recurrence,
+                newMasterStartIso
+              );
+
               masterEventData = {
                 ...masterEventData,
                 uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
                 start: newMasterStartIso,
-                end: newMasterEndIso || eventData.end
+                end: newMasterEndIso || eventData.end,
+                ...(shiftedRecurrence ? { recurrence: shiftedRecurrence } : {})
               };
             }
             delete masterEventData.recurrenceId;
@@ -1592,6 +1684,12 @@ function updateWholeSeries(existingIcs, eventData) {
         }
       }
     } catch (_) {}
+  }
+
+  if (masterEventData.recurrence && masterEventData.start) {
+    masterEventData.recurrence = normalizeRecurrenceRule(masterEventData.recurrence, masterEventData.start);
+  } else if (!masterEventData.recurrence && origMasterEv?.recurrence && masterEventData.start) {
+    masterEventData.recurrence = normalizeRecurrenceRule(origMasterEv.recurrence, masterEventData.start);
   }
 
   const newMasterIcs = eventToICS(masterEventData, existingIcs);
@@ -1605,6 +1703,23 @@ function updateWholeSeries(existingIcs, eventData) {
   const newMaster = newMasterComp.getAllSubcomponents('vevent').find(v => !v.getFirstProperty('recurrence-id')) || newMasterComp.getFirstSubcomponent('vevent');
   if (!newMaster) {
     return eventToICS(eventData);
+  }
+
+  // Ensure single weekly BYDAY matches newMaster's dtstart
+  const rruleProp = newMaster.getFirstProperty('rrule');
+  const dtstartProp = newMaster.getFirstProperty('dtstart');
+  if (rruleProp && dtstartProp) {
+    const dtstartTime = dtstartProp.getFirstValue();
+    const currRruleVal = rruleProp.getFirstValue();
+    const currRruleStr = currRruleVal ? currRruleVal.toString() : rruleProp.toICALString();
+    const normRrule = normalizeRecurrenceRule(currRruleStr, dtstartTime);
+    if (normRrule && normRrule !== currRruleStr) {
+      try {
+        rruleProp.setValue(ICAL.Recur.fromString(normRrule.replace(/^RRULE:/i, '').trim()));
+      } catch (_) {
+        rruleProp.setValue(normRrule);
+      }
+    }
   }
 
   const existingExdateIcs = new Set(newMaster.getAllProperties('exdate').map(p => p.toICALString()));
@@ -1647,6 +1762,7 @@ module.exports = {
   addOccurrenceException,
   upsertOccurrenceOverride,
   updateWholeSeries,
+  normalizeRecurrenceRule,
   foldLines
 };
 
