@@ -8,7 +8,7 @@ import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI } from './api
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
-import { initNotificationService, checkAndTriggerAlarms } from './notifications.js';
+import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
 import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
 import { initAvailabilityManager } from './availability.js';
@@ -1310,6 +1310,36 @@ function renderSettings() {
   renderSettingsCalendars();
   renderSettingsAppPasswords();
   renderSettingsTimezone();
+  renderSettingsNotifications();
+}
+
+function renderSettingsNotifications() {
+  const statusEl = $('notification-status-text');
+  const btn = $('request-notification-btn');
+  if (!statusEl || !btn) return;
+
+  if (typeof Notification === 'undefined') {
+    statusEl.textContent = 'Status: Nicht unterstützt';
+    btn.classList.add('hidden');
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    statusEl.textContent = 'Status: Aktiviert';
+    btn.textContent = 'Aktiviert';
+    btn.disabled = true;
+    btn.classList.remove('hidden');
+  } else if (Notification.permission === 'denied') {
+    statusEl.textContent = 'Status: Blockiert';
+    btn.textContent = 'Blockiert';
+    btn.disabled = true;
+    btn.classList.remove('hidden');
+  } else {
+    statusEl.textContent = 'Status: Nicht aktiviert';
+    btn.textContent = 'Aktivieren';
+    btn.disabled = false;
+    btn.classList.remove('hidden');
+  }
 }
 
 function renderSettingsTimezone() {
@@ -1998,6 +2028,15 @@ function attachListeners() {
     themeSelect.value = getStoredTheme();
     themeSelect.addEventListener('change', e => {
       if (typeof setTheme === 'function') setTheme(e.target.value);
+    });
+  }
+
+  // Notification Permission Settings Control
+  const reqNotifBtn = $('request-notification-btn');
+  if (reqNotifBtn) {
+    reqNotifBtn.addEventListener('click', async () => {
+      await requestNotificationPermission();
+      renderSettingsNotifications();
     });
   }
 

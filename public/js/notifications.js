@@ -142,9 +142,6 @@ let _intervalId = null;
 export function initNotificationService() {
   if (_intervalId) clearInterval(_intervalId);
 
-  // Request permission on user interaction if appropriate
-  requestNotificationPermission();
-
   // Register service worker for background push notifications if available
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(err => {

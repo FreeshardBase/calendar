@@ -6,6 +6,7 @@ import { store, calendarById } from './store.js';
 import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
+import { requestNotificationPermission } from './notifications.js';
 
 let _onSaved  = null;
 let _onDeleted = null;
@@ -717,6 +718,14 @@ function getUtcDate(dateStr, timeStr, timeZone) {
   setButtonLoading('event-save-btn', true);
   $('event-form-error').classList.add('hidden');
 
+  if (alarms.length > 0 && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    try {
+      await requestNotificationPermission();
+    } catch (e) {
+      console.warn('[eventModal] Notification permission request error:', e);
+    }
+  }
+
   // Editing an instance of a recurring series: ask for the scope first
   const recurrenceId = _currentEvent?.recurrenceId || (_currentEvent?.uid && _currentEvent.uid.includes('::') ? _currentEvent.uid.split('::')[1] : null);
   if (_currentEvent && recurrenceId) {
@@ -838,6 +847,17 @@ export function initEventModal() {
   const markRecurrenceTouched = () => { _recurrenceTouched = true; };
 
   $('ev-allday').addEventListener('change', e => updateAlldayUI(e.target.checked));
+  if ($('ev-alarm')) {
+    $('ev-alarm').addEventListener('change', async (e) => {
+      if (e.target.value && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        try {
+          await requestNotificationPermission();
+        } catch (err) {
+          console.warn('[eventModal] Notification permission request error on alarm select:', err);
+        }
+      }
+    });
+  }
   $('ev-recurrence').addEventListener('change', () => {
     markRecurrenceTouched();
     updateRecurrenceOptions(false);
