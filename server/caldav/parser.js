@@ -11,8 +11,6 @@ const { DOMParser } = require('@xmldom/xmldom');
 const ICAL = require('ical.js');
 const { v4: uuidv4 } = require('uuid');
 const {
-  parseTriggerOffsetMs,
-  calculateAlarmTime,
   parseValarms,
   parseVEventToEvent,
   parseICSToEvent,
@@ -469,9 +467,10 @@ function parseICSToTask(icsString, meta = {}) {
         }
       } catch (_) {}
     }
-    const vtodo = comp.getFirstSubcomponent('vtodo');
-    if (!vtodo) return null;
-    return parseVTodoToTask(vtodo, { rawIcs: icsString, ...meta });
+    const vtodos = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtodo') : [];
+    if (vtodos.length === 0) return null;
+    const masterVtodo = vtodos.find(v => !v.getFirstProperty('recurrence-id')) || vtodos[0];
+    return parseVTodoToTask(masterVtodo, { rawIcs: icsString, allVtodos: vtodos, ...meta });
   } catch (e) {
     console.warn('[parser] Failed to parse ICS string to task:', e.message);
     return null;
@@ -673,7 +672,8 @@ function taskToICS(rawTask, existingIcs = null) {
     try {
       const jcal = ICAL.parse(baseIcs);
       const comp = new ICAL.Component(jcal);
-      const vtodo = comp.getFirstSubcomponent('vtodo');
+      const vtodos = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtodo') : [];
+      const vtodo = vtodos.find(v => !v.getFirstProperty('recurrence-id')) || vtodos[0];
       if (vtodo) {
         const uid = task.uid || vtodo.getFirstPropertyValue('uid') || `${uuidv4()}@freeshard.webcalendar`;
 
@@ -960,7 +960,8 @@ function taskToICS(rawTask, existingIcs = null) {
     }
   }
 
-  lines.push('END:VTODO', 'END:VCALENDAR');
+  lines.push('END:VTODO');
+  lines.push('END:VCALENDAR');
 
   return foldLines(lines.join('\n')) + '\r\n';
 }
@@ -985,8 +986,17 @@ function advanceRecurringTask(task) {
   if (isNaN(baseDue.getTime())) return null;
 
   const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
-  const completionTime = task.completed || new Date().toISOString();
+  const completionTime = task.completed
+    ? (new Date(task.completed).toISOString())
+    : new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
   const completedHistory = [...currentHistory, completionTime];
+
+  const countMatch = rruleStr.match(/\bCOUNT=(\d+)\b/i);
+  const currentCount = countMatch ? parseInt(countMatch[1], 10) : null;
+  if (currentCount !== null && currentCount <= 1) {
+    // COUNT series exhausted (last occurrence completed)
+    return null;
+  }
 
   if (recur) {
     // Build DTSTART: prefer explicit task.dtstart, otherwise use the due date
@@ -1010,10 +1020,26 @@ function advanceRecurringTask(task) {
       }
       const nextMs = next.toJSDate().getTime();
       if (nextMs > dueMs) {
-        // Found the first occurrence strictly after the current due date
+        // Found the first occurrence strictly after the current due date.
+        // Advance DTSTART by the same occurrence delta and decrement COUNT.
+        const timeDeltaMs = nextMs - dueMs;
+        let newDtstart = null;
+        if (task.dtstart) {
+          const origDtstartMs = new Date(task.dtstart).getTime();
+          if (!isNaN(origDtstartMs)) {
+            newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
+          }
+        }
+        let newRrule = task.recurrence;
+        if (currentCount !== null) {
+          newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
+        }
+
         return {
           ...task,
+          dtstart: newDtstart,
           due: next.toJSDate().toISOString(),
+          recurrence: newRrule,
           status: 'NEEDS-ACTION',
           completed: null,
           percentComplete: 0,
@@ -1027,7 +1053,6 @@ function advanceRecurringTask(task) {
   }
 
   // ICAL.Recur.fromString failed — fall back to simple interval arithmetic.
-  // No COUNT/UNTIL awareness in this path.
   const rruleUpper = rruleStr.toUpperCase();
   let interval = 1;
   const matchInterval = rruleUpper.match(/INTERVAL=(\d+)/);
@@ -1046,9 +1071,25 @@ function advanceRecurringTask(task) {
     nextDate.setUTCDate(nextDate.getUTCDate() + 1);
   }
 
+  const timeDeltaMs = nextDate.getTime() - baseDue.getTime();
+  let newDtstart = null;
+  if (task.dtstart) {
+    const origDtstartMs = new Date(task.dtstart).getTime();
+    if (!isNaN(origDtstartMs)) {
+      newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
+    }
+  }
+
+  let newRrule = task.recurrence;
+  if (currentCount !== null) {
+    newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
+  }
+
   return {
     ...task,
+    dtstart: newDtstart,
     due: nextDate.toISOString(),
+    recurrence: newRrule,
     status: 'NEEDS-ACTION',
     completed: null,
     percentComplete: 0,

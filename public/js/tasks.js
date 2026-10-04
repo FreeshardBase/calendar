@@ -445,9 +445,9 @@ function createKanbanCard(task, callbacks) {
     const nextStatus = task.status === 'NEEDS-ACTION' ? 'IN-PROCESS' : 'COMPLETED';
     try {
       const payload = (nextStatus === 'COMPLETED' && task.recurrence) ? advanceRecurringTaskJS(task) : { ...task, status: nextStatus };
-      await TasksAPI.update(task.uid, payload);
+      const updated = await TasksAPI.update(task.uid, payload);
       if (nextStatus === 'COMPLETED') {
-        notifyToast(getTaskCompletionToast(task, payload), 'success');
+        notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
       } else {
         notifyToast('Aufgabenstatus aktualisiert.', 'success');
       }
@@ -460,8 +460,8 @@ function createKanbanCard(task, callbacks) {
   card.querySelector('.btn-complete')?.addEventListener('click', async () => {
     try {
       const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
-      await TasksAPI.update(task.uid, payload);
-      notifyToast(getTaskCompletionToast(task, payload), 'success');
+      const updated = await TasksAPI.update(task.uid, payload);
+      notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
       notifyToast('Fehler beim Abschließen: ' + err.message, 'error');
@@ -484,23 +484,48 @@ function createKanbanCard(task, callbacks) {
 export function advanceRecurringTaskJS(task) {
   if (!task || !task.recurrence) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
 
+  const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
+  const countMatch = rruleStr.match(/\bCOUNT=(\d+)\b/i);
+  const currentCount = countMatch ? parseInt(countMatch[1], 10) : null;
+  if (currentCount !== null && currentCount <= 1) {
+    return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+  }
+
+  const baseDue = task.due ? new Date(task.due) : new Date();
+  if (isNaN(baseDue.getTime())) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+
   const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
-  const completionTime = task.completed || new Date().toISOString();
+  const completionTime = task.completed
+    ? (new Date(task.completed).toISOString())
+    : new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
   const completedHistory = [...currentHistory, completionTime];
 
+  let icalRecur = null;
+  let icalTimeClass = null;
   if (typeof window !== 'undefined' && window.ICAL && window.ICAL.Recur) {
-    const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
+    icalRecur = window.ICAL.Recur;
+    icalTimeClass = window.ICAL.Time;
+  } else {
+    try {
+      const ICAL = require('ical.js');
+      if (ICAL && ICAL.Recur) {
+        icalRecur = ICAL.Recur;
+        icalTimeClass = ICAL.Time;
+      }
+    } catch (_) {}
+  }
+
+  if (icalRecur && icalTimeClass) {
     let recur;
     try {
-      recur = window.ICAL.Recur.fromString(rruleStr);
+      recur = icalRecur.fromString(rruleStr);
     } catch (_) {
       recur = null;
     }
-    const baseDue = task.due ? new Date(task.due) : new Date();
-    if (!isNaN(baseDue.getTime()) && recur) {
+    if (recur) {
       const dtStartMs = task.dtstart ? new Date(task.dtstart).getTime() : baseDue.getTime();
       const dtStart = isNaN(dtStartMs) ? baseDue : new Date(dtStartMs);
-      const icalStart = window.ICAL.Time.fromJSDate(dtStart, true);
+      const icalStart = icalTimeClass.fromJSDate(dtStart, true);
       const iterator = recur.iterator(icalStart);
       const dueMs = baseDue.getTime();
       let steps = 0;
@@ -509,13 +534,27 @@ export function advanceRecurringTaskJS(task) {
         next = iterator.next();
         steps++;
         if (!next) {
-          return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+          return { ...task, status: 'COMPLETED', completed: completionTime, percentComplete: 100 };
         }
         const nextMs = next.toJSDate().getTime();
         if (nextMs > dueMs) {
+          const timeDeltaMs = nextMs - dueMs;
+          let newDtstart = null;
+          if (task.dtstart) {
+            const origDtstartMs = new Date(task.dtstart).getTime();
+            if (!isNaN(origDtstartMs)) {
+              newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
+            }
+          }
+          let newRrule = task.recurrence;
+          if (currentCount !== null) {
+            newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
+          }
           return {
             ...task,
+            dtstart: newDtstart,
             due: next.toJSDate().toISOString(),
+            recurrence: newRrule,
             status: 'NEEDS-ACTION',
             completed: null,
             percentComplete: 0,
@@ -523,15 +562,11 @@ export function advanceRecurringTaskJS(task) {
           };
         }
       }
-      return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+      return { ...task, status: 'COMPLETED', completed: completionTime, percentComplete: 100 };
     }
   }
 
-  const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
   const rruleUpper = rruleStr.toUpperCase();
-  const baseDue = task.due ? new Date(task.due) : new Date();
-  if (isNaN(baseDue.getTime())) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
-
   const untilMatch = rruleUpper.match(/UNTIL=([0-9TJSZ]+)/);
   if (untilMatch) {
     const uStr = untilMatch[1];
@@ -542,7 +577,7 @@ export function advanceRecurringTaskJS(task) {
       untilDate = new Date(uStr.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z'));
     }
     if (!isNaN(untilDate.getTime()) && baseDue.getTime() >= untilDate.getTime()) {
-      return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
+      return { ...task, status: 'COMPLETED', completed: completionTime, percentComplete: 100 };
     }
   }
 
@@ -565,9 +600,25 @@ export function advanceRecurringTaskJS(task) {
     nextDate.setUTCDate(nextDate.getUTCDate() + 1);
   }
 
+  const timeDeltaMs = nextDate.getTime() - baseDue.getTime();
+  let newDtstart = null;
+  if (task.dtstart) {
+    const origDtstartMs = new Date(task.dtstart).getTime();
+    if (!isNaN(origDtstartMs)) {
+      newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
+    }
+  }
+
+  let newRrule = task.recurrence;
+  if (currentCount !== null) {
+    newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
+  }
+
   return {
     ...task,
+    dtstart: newDtstart,
     due: nextDate.toISOString(),
+    recurrence: newRrule,
     status: 'NEEDS-ACTION',
     completed: null,
     percentComplete: 0,
@@ -628,8 +679,8 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
       e.stopPropagation();
       try {
         const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
-        await TasksAPI.update(task.uid, payload);
-        notifyToast(getTaskCompletionToast(task, payload), 'success');
+        const updated = await TasksAPI.update(task.uid, payload);
+        notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
         notifyToast('Fehler beim Aktualisieren: ' + err.message, 'error');

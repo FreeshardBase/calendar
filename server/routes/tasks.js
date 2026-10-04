@@ -307,22 +307,48 @@ router.put('/:uid', async (req, res) => {
           }
         }
         if (!('percentComplete' in taskData) && !('percent-complete' in taskData) && existingTask.percentComplete !== undefined) {
-          task.percentComplete = existingTask.percentComplete;
+          if (taskData.status === 'COMPLETED') {
+            task.percentComplete = 100;
+          } else {
+            task.percentComplete = existingTask.percentComplete;
+          }
         }
         if (!('completed' in taskData) && existingTask.completed !== undefined) {
-          task.completed = existingTask.completed;
+          if (taskData.status === 'COMPLETED' && !existingTask.completed) {
+            task.completed = task.completed || new Date().toISOString();
+          } else {
+            task.completed = existingTask.completed;
+          }
         }
         if (!('completedHistory' in taskData) && existingTask.completedHistory !== undefined) {
           task.completedHistory = existingTask.completedHistory;
+        }
+        if (!('recurrence' in taskData) && existingTask.recurrence !== undefined) {
+          task.recurrence = existingTask.recurrence;
+        }
+        if (!('title' in taskData) && existingTask.title !== undefined) {
+          task.title = existingTask.title;
+        }
+        if (!('categories' in taskData) && existingTask.categories !== undefined) {
+          task.categories = existingTask.categories;
         }
       }
     }
 
     if (task.status === 'COMPLETED' && (task.recurrence || (existingIcs && existingIcs.includes('RRULE:')))) {
       const fullTask = parseICSToTask(existingIcs || '', { uid: req.params.uid, ...taskData });
-      const advanced = advanceRecurringTask(fullTask || task);
+      const targetTask = { ...(fullTask || {}), ...task, status: 'COMPLETED' };
+      const advanced = advanceRecurringTask(targetTask);
       if (advanced) {
         task = advanced;
+      } else {
+        task = {
+          ...task,
+          status: 'COMPLETED',
+          percentComplete: 100,
+          completed: task.completed || new Date().toISOString(),
+          completedHistory: targetTask.completedHistory || task.completedHistory
+        };
       }
     }
 
