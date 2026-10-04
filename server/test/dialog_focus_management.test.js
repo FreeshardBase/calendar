@@ -320,36 +320,48 @@ describe('Issue #87 — Dialog Focus Management & Tab/Escape Controls', () => {
     vm.createContext(context);
     vm.runInContext(code, context);
 
-    const modalIds = [
-      'event-modal-backdrop',
-      'account-modal-backdrop',
-      'welcome-modal-backdrop',
-      'scope-dialog-backdrop',
-      'task-modal-backdrop',
-      'invitations-modal-backdrop',
-      'msgraph-modal-backdrop',
-      'availability-modal-backdrop',
-      'shortcuts-modal-backdrop',
-      'settings-drawer'
+    const dialogSpecs = [
+      { id: 'event-modal-backdrop', closeBtnId: 'event-modal-close', isDrawer: false },
+      { id: 'account-modal-backdrop', closeBtnId: 'account-modal-close', isDrawer: false },
+      { id: 'welcome-modal-backdrop', closeBtnId: 'welcome-modal-close', isDrawer: false },
+      { id: 'scope-dialog-backdrop', closeBtnId: 'scope-cancel-btn', isDrawer: false },
+      { id: 'task-modal-backdrop', closeBtnId: 'task-modal-close', isDrawer: false },
+      { id: 'invitations-modal-backdrop', closeBtnId: 'invitations-modal-close', isDrawer: false },
+      { id: 'msgraph-modal-backdrop', closeBtnId: 'msgraph-modal-close', isDrawer: false },
+      { id: 'availability-modal-backdrop', closeBtnId: 'availability-modal-close', isDrawer: false },
+      { id: 'shortcuts-modal-backdrop', closeBtnId: 'shortcuts-modal-close', isDrawer: false },
+      { id: 'settings-drawer', closeBtnId: 'close-settings-btn', isDrawer: true },
+      { id: 'webcal-modal-backdrop', closeBtnId: 'webcal-modal-close', isDrawer: false },
+      { id: 'confirm-dialog-backdrop', closeBtnId: 'confirm-dialog-close', isDrawer: false }
     ];
 
-    modalIds.forEach(id => {
-      const backdrop = createMockElement('div', id, 'modal-backdrop hidden');
-      const closeBtn = createMockElement('button', `${id}-close`, 'modal-close');
-      let closed = false;
-      closeBtn.onclick = () => {
-        backdrop.classList.add('hidden');
-        closed = true;
-      };
-      backdrop.appendChild(closeBtn);
-      document.body.appendChild(backdrop);
+    dialogSpecs.forEach(spec => {
+      const className = spec.isDrawer ? 'sidebar-settings-drawer' : 'modal-backdrop hidden';
+      const container = createMockElement('div', spec.id, className);
+      if (spec.isDrawer) container.setAttribute('inert', '');
 
-      context.openDialog(backdrop);
-      assert.strictEqual(backdrop.classList.contains('hidden'), false);
+      // Assert that on page load before openDialog, closed settings-drawer is NOT reported as top dialog
+      if (spec.isDrawer) {
+        assert.strictEqual(context.getTopDialog(), null, 'Closed drawer with real class must not be reported as top dialog on load');
+      }
+
+      // Close button with its specific ID (no generic modal-close class) to ensure selector teeth
+      const closeBtn = createMockElement('button', spec.closeBtnId);
+      let closeBtnClicked = false;
+      closeBtn.onclick = () => {
+        closeBtnClicked = true;
+        context.closeDialog(container);
+      };
+      container.appendChild(closeBtn);
+      document.body.appendChild(container);
+
+      context.openDialog(container);
+      assert.strictEqual(context.getTopDialog()?.element?.id, spec.id, `${spec.id} must be top dialog when open`);
 
       const handled = context.handleEscapeKey({ key: 'Escape' });
-      assert.strictEqual(handled, true, `Escape should handle closing ${id}`);
-      assert.strictEqual(backdrop.classList.contains('hidden'), true, `${id} must be closed after Escape`);
+      assert.strictEqual(handled, true, `Escape should handle closing ${spec.id}`);
+      assert.strictEqual(closeBtnClicked, true, `Escape must click specific button #${spec.closeBtnId} for ${spec.id}`);
+      assert.strictEqual(context.getTopDialog(), null, `${spec.id} must be closed after Escape`);
     });
   });
 });

@@ -13,7 +13,7 @@ import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from
 import { initInvitations } from './invitations.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
-import { initDialogFocusManager, openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
+import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, handleEscapeKey } from './dialogFocus.js';
 
 const { initTheme, setTheme, getStoredTheme } = (typeof window !== 'undefined' && window.ThemeManager) ? window.ThemeManager : {};
 
@@ -2068,9 +2068,34 @@ function attachListeners() {
     window.WorkingHoursModule.init();
   }
 
-  // Mobile sidebar toggle
-  $('menu-btn').addEventListener('click', () => $('sidebar').classList.add('open'));
-  $('sidebar-toggle').addEventListener('click', () => $('sidebar').classList.remove('open'));
+  // Mobile sidebar toggle with inert management
+  function syncSidebarInert() {
+    const sidebar = $('sidebar');
+    if (!sidebar) return;
+    if (window.innerWidth <= 768 && !sidebar.classList.contains('open')) {
+      sidebar.setAttribute('inert', '');
+    } else {
+      sidebar.removeAttribute('inert');
+    }
+  }
+  $('menu-btn').addEventListener('click', () => {
+    const sidebar = $('sidebar');
+    if (sidebar) {
+      sidebar.classList.add('open');
+      sidebar.removeAttribute('inert');
+    }
+  });
+  $('sidebar-toggle').addEventListener('click', () => {
+    const sidebar = $('sidebar');
+    if (sidebar) {
+      sidebar.classList.remove('open');
+      if (window.innerWidth <= 768) {
+        sidebar.setAttribute('inert', '');
+      }
+    }
+  });
+  syncSidebarInert();
+  window.addEventListener('resize', syncSidebarInert);
 
   // Search (inline in toolbar, no toggle needed)
   $('search-input').addEventListener('input', e => {
@@ -2197,8 +2222,11 @@ function attachListeners() {
 
     switch (action) {
       case 'CLOSE_MODAL':
-        document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
-        document.querySelectorAll('.popover').forEach(p => p.remove());
+        if (!handleEscapeKey(e)) {
+          closePopover();
+          document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(m => closeDialog(m));
+          document.querySelectorAll('.popover').forEach(p => p.remove());
+        }
         break;
 
       case 'NAV_MONTH':

@@ -15,6 +15,8 @@ export function getFocusableElements(container) {
 
   return elements.filter(el => {
     if (el.getAttribute && el.getAttribute('tabindex') === '-1') return false;
+    if (el.hasAttribute && el.hasAttribute('inert')) return false;
+    if (el.closest && (el.closest('.hidden') || el.closest('[inert]'))) return false;
     if (el.offsetWidth === 0 && el.offsetHeight === 0 && (!el.getClientRects || !el.getClientRects().length)) {
       return false;
     }
@@ -22,7 +24,6 @@ export function getFocusableElements(container) {
       const style = window.getComputedStyle(el);
       if (style.visibility === 'hidden' || style.display === 'none') return false;
     }
-    if (el.closest && el.closest('.hidden')) return false;
     return true;
   });
 }
@@ -37,6 +38,9 @@ export function openDialog(containerEl, focusTarget = null) {
 
   containerEl.classList.remove('hidden');
   containerEl.classList.add('open');
+  if (typeof containerEl.removeAttribute === 'function') {
+    containerEl.removeAttribute('inert');
+  }
 
   // Push onto modal stack
   activeModalStack = activeModalStack.filter(item => item.element !== containerEl);
@@ -62,6 +66,9 @@ export function closeDialog(containerEl) {
 
   containerEl.classList.add('hidden');
   containerEl.classList.remove('open');
+  if (typeof containerEl.setAttribute === 'function') {
+    containerEl.setAttribute('inert', '');
+  }
 
   const idx = activeModalStack.findIndex(item => item.element === containerEl);
   if (idx !== -1) {
@@ -80,17 +87,33 @@ export function closeDialog(containerEl) {
 }
 
 /**
+ * Determines whether a dialog or drawer container is currently open and interactive.
+ */
+export function isDialogOpen(el) {
+  if (!el) return false;
+  if (el.hasAttribute && el.hasAttribute('inert')) return false;
+  if (el.classList.contains('hidden')) return false;
+  if (el.classList.contains('sidebar-settings-drawer') || el.id === 'settings-drawer' || el.classList.contains('sidebar')) {
+    return el.classList.contains('open');
+  }
+  return true;
+}
+
+/**
  * Returns the currently active top-most open modal dialog.
  */
 export function getTopDialog() {
   for (let i = activeModalStack.length - 1; i >= 0; i--) {
     const item = activeModalStack[i];
-    if (item.element && !item.element.classList.contains('hidden')) {
+    if (item.element && isDialogOpen(item.element)) {
       return item;
     }
   }
   if (typeof document !== 'undefined' && document.querySelectorAll) {
-    const openModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden), .sidebar-settings-drawer.open, #settings-drawer.open, .sidebar.open'));
+    const candidates = Array.from(document.querySelectorAll(
+      '.modal-backdrop:not(.hidden):not([inert]), .sidebar-settings-drawer.open:not([inert]), #settings-drawer.open:not([inert]), .sidebar.open:not([inert]), .event-popover:not(.hidden):not([inert])'
+    ));
+    const openModals = candidates.filter(isDialogOpen);
     if (openModals.length > 0) {
       const el = openModals[openModals.length - 1];
       return { element: el, previousFocus: null };
@@ -142,10 +165,11 @@ export function handleEscapeKey(e) {
   const el = top.element;
 
   const closeBtn = el.querySelector(
-    '.modal-close, #event-modal-close, #event-cancel-btn, #account-modal-close, #account-cancel-btn, ' +
+    '#close-settings-btn, #event-modal-close, #event-cancel-btn, #account-modal-close, #account-cancel-btn, ' +
     '#welcome-modal-close, #welcome-btn-close, #task-modal-close, #task-cancel-btn, #invitations-modal-close, ' +
-    '#msgraph-modal-close, #availability-modal-close, #shortcuts-modal-close, #close-settings-btn, ' +
-    '#scope-cancel-btn, #import-cancel, #edit-cal-cancel, #share-cal-close, #confirm-dialog-close, #confirm-dialog-cancel'
+    '#msgraph-modal-close, #msgraph-cancel-btn, #availability-modal-close, #shortcuts-modal-close, ' +
+    '#scope-cancel-btn, #import-cancel, #edit-cal-cancel, #share-cal-close, #confirm-dialog-close, #confirm-dialog-cancel, ' +
+    '#webcal-modal-close, #webcal-cancel-btn, .modal-close'
   );
 
   if (closeBtn && typeof closeBtn.click === 'function') {

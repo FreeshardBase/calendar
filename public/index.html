@@ -225,9 +225,9 @@
     </div>
 
     <!-- Settings Drawer -->
-    <div class="sidebar-settings-drawer hidden" id="settings-drawer">
+    <div class="sidebar-settings-drawer hidden" id="settings-drawer" inert role="dialog" aria-modal="true" aria-labelledby="settings-drawer-title">
       <div class="settings-drawer-header">
-        <h2>Einstellungen</h2>
+        <h2 id="settings-drawer-title">Einstellungen</h2>
         <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -498,7 +498,7 @@
 </div>
 
 <!-- ── Event Modal ──────────────────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="event-modal-backdrop">
+<div class="modal-backdrop hidden" id="event-modal-backdrop" inert>
   <div class="modal" id="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="event-modal-title">Neuer Termin</h3>
@@ -718,7 +718,7 @@
 </div>
 
 <!-- ── Account Modal ────────────────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="account-modal-backdrop">
+<div class="modal-backdrop hidden" id="account-modal-backdrop" inert>
   <div class="modal modal-sm" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="account-modal-title">Account hinzufügen</h3>
@@ -805,7 +805,7 @@
 </div>
 
 <!-- ── Webcal Subscription Modal ────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="webcal-modal-backdrop">
+<div class="modal-backdrop hidden" id="webcal-modal-backdrop" inert>
   <div class="modal modal-sm" id="webcal-modal" role="dialog" aria-modal="true" aria-labelledby="webcal-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="webcal-modal-title">Webcal-Abonnement hinzufügen</h3>
@@ -856,7 +856,7 @@
 </div>
 
 <!-- ── Welcome Modal ────────────────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="welcome-modal-backdrop">
+<div class="modal-backdrop hidden" id="welcome-modal-backdrop" inert>
   <div class="modal modal-sm" id="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="welcome-modal-title">Willkommen beim WebCalendar</h3>
@@ -894,7 +894,7 @@
 </div>
 
 <!-- ── Custom Confirmation Dialog ────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="confirm-dialog-backdrop">
+<div class="modal-backdrop hidden" id="confirm-dialog-backdrop" inert>
   <div class="modal modal-sm" id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
     <div class="modal-header">
       <h3 class="modal-title" id="confirm-dialog-title">Bestätigung</h3>
@@ -915,7 +915,7 @@
 </div>
 
 <!-- ── Recurrence Scope Dialog ─────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="scope-dialog-backdrop">
+<div class="modal-backdrop hidden" id="scope-dialog-backdrop" inert>
   <div class="modal modal-sm" id="scope-dialog" role="dialog" aria-modal="true" aria-labelledby="scope-dialog-title">
     <div class="modal-header">
       <h3 class="modal-title" id="scope-dialog-title">Wiederkehrender Termin</h3>
@@ -938,7 +938,7 @@
 </div>
 
 <!-- ── Task Modal ───────────────────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="task-modal-backdrop">
+<div class="modal-backdrop hidden" id="task-modal-backdrop" inert>
   <div class="modal" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="task-modal-title">Neue Aufgabe</h3>
@@ -1033,7 +1033,7 @@
 <div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
 <!-- ── Invitations Modal ────────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="invitations-modal-backdrop">
+<div class="modal-backdrop hidden" id="invitations-modal-backdrop" inert>
   <div class="modal" id="invitations-modal" style="max-width: 600px;" role="dialog" aria-modal="true" aria-labelledby="invitations-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="invitations-modal-title">Einladungen & RSVP</h3>
@@ -1049,7 +1049,7 @@
   </div>
 </div>
 <!-- ── MS Graph / Office 365 Modal ────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="msgraph-modal-backdrop">
+<div class="modal-backdrop hidden" id="msgraph-modal-backdrop" inert>
   <div class="modal modal-sm" id="msgraph-modal" role="dialog" aria-modal="true" aria-labelledby="msgraph-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="msgraph-modal-title">Microsoft Office 365 / Outlook Sync</h3>
@@ -1086,7 +1086,7 @@
 </div>
 
 <!-- ── Availability Booking Modal ────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="availability-modal-backdrop">
+<div class="modal-backdrop hidden" id="availability-modal-backdrop" inert>
   <div class="modal" id="availability-modal" style="max-width: 650px;" role="dialog" aria-modal="true" aria-labelledby="availability-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="availability-modal-title">Öffentliche Termin-Buchungsseiten</h3>
@@ -1144,7 +1144,7 @@
 </div>
 
 <!-- ── Keyboard Shortcuts Modal ────────────────────────────────────────────── -->
-<div class="modal-backdrop hidden" id="shortcuts-modal-backdrop">
+<div class="modal-backdrop hidden" id="shortcuts-modal-backdrop" inert>
   <div class="modal" id="shortcuts-modal" style="max-width: 520px;" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="shortcuts-modal-title">Tastaturkürzel für Power-User</h3>
