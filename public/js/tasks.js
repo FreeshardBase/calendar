@@ -25,6 +25,23 @@ export function formatRecurrenceLabel(recurrence) {
   return recurrence;
 }
 
+export function getTaskCompletionToast(task, payload) {
+  if (task && task.recurrence && payload && payload.status !== 'COMPLETED') {
+    const isDate = Boolean(
+      task.dueIsDate ||
+      task.allDay ||
+      (payload && payload.dueIsDate) ||
+      (typeof payload?.due === 'string' && !payload.due.includes('T'))
+    );
+    const d = payload && payload.due ? new Date(payload.due) : null;
+    const dateStr = d && !isNaN(d.getTime())
+      ? (isDate ? d.toLocaleDateString('de-DE', { timeZone: 'UTC' }) : d.toLocaleDateString('de-DE'))
+      : '';
+    return dateStr ? `Aufgabe auf ${dateStr} verschoben.` : 'Aufgabe verschoben.';
+  }
+  return 'Aufgabe als erledigt markiert.';
+}
+
 let taskCallbacks = {};
 let _currentTask = null;
 
@@ -429,7 +446,11 @@ function createKanbanCard(task, callbacks) {
     try {
       const payload = (nextStatus === 'COMPLETED' && task.recurrence) ? advanceRecurringTaskJS(task) : { ...task, status: nextStatus };
       await TasksAPI.update(task.uid, payload);
-      notifyToast(nextStatus === 'COMPLETED' ? 'Aufgabe als erledigt markiert.' : 'Aufgabenstatus aktualisiert.', 'success');
+      if (nextStatus === 'COMPLETED') {
+        notifyToast(getTaskCompletionToast(task, payload), 'success');
+      } else {
+        notifyToast('Aufgabenstatus aktualisiert.', 'success');
+      }
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
       notifyToast('Fehler beim Aktualisieren des Status: ' + err.message, 'error');
@@ -440,7 +461,7 @@ function createKanbanCard(task, callbacks) {
     try {
       const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
       await TasksAPI.update(task.uid, payload);
-      notifyToast('Aufgabe als erledigt markiert.', 'success');
+      notifyToast(getTaskCompletionToast(task, payload), 'success');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
       notifyToast('Fehler beim Abschließen: ' + err.message, 'error');
@@ -608,7 +629,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
       try {
         const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
         await TasksAPI.update(task.uid, payload);
-        notifyToast('Aufgabe als erledigt markiert.', 'success');
+        notifyToast(getTaskCompletionToast(task, payload), 'success');
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
         notifyToast('Fehler beim Aktualisieren: ' + err.message, 'error');

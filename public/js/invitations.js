@@ -4,6 +4,15 @@
 
 import { InvitationsAPI } from './api.js';
 import { openDialog, closeDialog } from './dialogFocus.js';
+import { showToast } from './app.js';
+
+function notifyToast(message, type = 'info') {
+  if (typeof showToast === 'function') {
+    showToast(message, type);
+  } else if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+    window.showToast(message, type);
+  }
+}
 
 let invitationsList = [];
 let invitationsError = false;
@@ -162,7 +171,7 @@ function renderInvitationsList() {
         renderInvitationsList();
       } catch (err) {
         console.error('[invitations] RSVP error:', err);
-        alert('RSVP konnte nicht gespeichert werden: ' + err.message);
+        notifyToast('RSVP konnte nicht gespeichert werden: ' + err.message, 'error');
       }
     });
   });
@@ -175,7 +184,8 @@ if (typeof module !== 'undefined' && module.exports) {
     openInvitationsModal,
     closeInvitationsModal,
     escHtml,
-    renderInvitationsHTML
+    renderInvitationsHTML,
+    renderInvitationsList
   };
 }
 
