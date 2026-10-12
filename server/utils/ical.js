@@ -305,14 +305,44 @@ function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const jcal = ICAL.parse(icsString);
   const comp = new ICAL.Component(jcal);
   _registerEmbeddedTimezones(comp);
-  const vevents = comp.getAllSubcomponents('vevent');
+  return expandVEventGroup(comp.getAllSubcomponents('vevent'), rangeStart, rangeEnd, meta);
+}
+
+/**
+ * Expand every series in a multi-UID VCALENDAR (e.g. a webcal feed) into the
+ * occurrences overlapping [rangeStart, rangeEnd]. Non-recurring events outside
+ * the window are dropped. Throws on invalid iCalendar input.
+ */
+function expandCalendarInRange(icsString, rangeStart, rangeEnd, meta = {}) {
+  const comp = new ICAL.Component(ICAL.parse(icsString));
+  _registerEmbeddedTimezones(comp);
+  const groups = new Map();
+  for (const vevent of comp.getAllSubcomponents('vevent')) {
+    const uid = vevent.getFirstPropertyValue('uid');
+    if (!groups.has(uid)) groups.set(uid, []);
+    groups.get(uid).push(vevent);
+  }
+  const startMs = new Date(rangeStart).getTime();
+  const endMs = new Date(rangeEnd).getTime();
+  const result = [];
+  for (const vevents of groups.values()) {
+    for (const ev of expandVEventGroup(vevents, rangeStart, rangeEnd, meta)) {
+      const evStart = new Date(ev.start).getTime();
+      const evEnd = ev.end ? new Date(ev.end).getTime() : evStart;
+      if (evEnd >= startMs && evStart <= endMs) result.push(ev);
+    }
+  }
+  return result;
+}
+
+function expandVEventGroup(vevents, rangeStart, rangeEnd, meta = {}) {
   if (vevents.length === 0) return [];
 
   const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
   const event = parseVEventToEvent(master, meta);
   if (!event) return [];
 
-  if (!master.getFirstProperty('rrule')) {
+  if (!master.getFirstProperty('rrule') && !master.getFirstProperty('rdate')) {
     return [event];
   }
 
@@ -1768,6 +1798,7 @@ module.exports = {
   parseVEventToEvent,
   parseICSToEvent,
   parseAndExpandEvent,
+  expandCalendarInRange,
   eventToICS,
   escIcal,
   escParamVal,

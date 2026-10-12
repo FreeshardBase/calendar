@@ -5,7 +5,8 @@ const router = express.Router();
 const Db = require('../db');
 const {
   normalizeWebcalUrl,
-  fetchAndParseWebcalFeed
+  parseWebcalFeed,
+  refreshWebcalFeed
 } = require('../utils/webcalSubscription');
 const { assertPublicUrl } = require('../utils/outboundFetch');
 
@@ -66,8 +67,9 @@ router.post('/subscriptions', async (req, res, next) => {
     });
 
     try {
-      await fetchAndParseWebcalFeed(subscription);
+      await refreshWebcalFeed(subscription);
     } catch (fetchErr) {
+      // Recorded as last_error on the subscription; the sidebar shows it.
       console.warn(`[Webcal] Initial feed fetch for subscription ${subscription.id}:`, fetchErr.message);
     }
 
@@ -133,7 +135,7 @@ router.patch('/subscriptions/:id', async (req, res, next) => {
 });
 
 /**
- * GET /api/webcal/subscriptions/:id/events - Fetch and parse feed events
+ * GET /api/webcal/subscriptions/:id/events?start=&end= - Feed events expanded for the window
  */
 router.get('/subscriptions/:id/events', async (req, res, next) => {
   try {
@@ -147,15 +149,32 @@ router.get('/subscriptions/:id/events', async (req, res, next) => {
       return res.status(404).json({ error: 'Webcal subscription not found' });
     }
 
-    const force = req.query.force === 'true' || req.query.force === '1';
-    const cached = await Db.getCachedWebcalEvents(req.params.id, userId);
-
-    if (!force && cached && cached.length > 0) {
-      return res.json({ events: cached });
+    const start = new Date(req.query.start);
+    const end = new Date(req.query.end);
+    if (!req.query.start || !req.query.end || isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+      return res.status(400).json({ error: 'Valid start and end query parameters are required' });
     }
 
-    const events = await fetchAndParseWebcalFeed(subscription);
-    res.json({ events });
+    const force = req.query.force === 'true' || req.query.force === '1';
+    let cachedIcs = await Db.getCachedWebcalIcs(req.params.id, userId);
+    let refreshError = null;
+
+    if (force || !cachedIcs) {
+      try {
+        await refreshWebcalFeed(subscription);
+        cachedIcs = await Db.getCachedWebcalIcs(req.params.id, userId);
+      } catch (err) {
+        // #342: the failure is recorded on the subscription; keep serving the last good copy.
+        refreshError = err.message;
+      }
+    }
+
+    if (!cachedIcs) {
+      return res.status(502).json({ error: refreshError, events: [] });
+    }
+
+    const events = parseWebcalFeed(cachedIcs, subscription, start.toISOString(), end.toISOString());
+    res.json(refreshError ? { events, error: refreshError } : { events });
   } catch (err) {
     next(err);
   }
@@ -176,13 +195,20 @@ router.post('/subscriptions/:id/sync', async (req, res, next) => {
       return res.status(404).json({ error: 'Webcal subscription not found' });
     }
 
-    const events = await fetchAndParseWebcalFeed(subscription);
+    let eventCount;
+    try {
+      ({ eventCount } = await refreshWebcalFeed(subscription));
+    } catch (err) {
+      // #342: recorded as last_error; the cached feed is unchanged.
+      const failedSub = await Db.getWebcalSubscription(req.params.id, userId);
+      return res.status(502).json({ success: false, error: err.message, subscription: failedSub });
+    }
     const updatedSub = await Db.getWebcalSubscription(req.params.id, userId);
 
     res.json({
       success: true,
       subscription: updatedSub,
-      eventCount: events.length
+      eventCount
     });
   } catch (err) {
     next(err);

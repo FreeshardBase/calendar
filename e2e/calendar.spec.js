@@ -1195,6 +1195,84 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
+  test('webcal: recurring feed events show every occurrence, and a broken feed keeps them with an error in the sidebar (Issue #342)', async ({ page }) => {
+    const http = require('http');
+    const timestamp = Date.now();
+    const eventTitle = `E2E Weekly Lesson ${timestamp}`;
+    const feedName = `E2E Timetable ${timestamp}`;
+    // Mondays 10:00 UTC from 6 Nov 2028; 11 Dec cancelled. December month view
+    // (27 Nov – 7 Jan) shows 27 Nov, 4/18/25 Dec, 1 Jan.
+    let feedBody = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Test User Feed//EN',
+      'BEGIN:VEVENT',
+      `UID:e2e-weekly-${timestamp}@example.com`,
+      `SUMMARY:${eventTitle}`,
+      'DTSTART:20281106T100000Z',
+      'DTEND:20281106T110000Z',
+      'RRULE:FREQ=WEEKLY;BYDAY=MO',
+      'EXDATE:20281211T100000Z',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const feedServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8' });
+      res.end(feedBody);
+    });
+    await new Promise(resolve => feedServer.listen(0, resolve));
+    const feedUrl = `http://127.0.0.1:${feedServer.address().port}/timetable.ics`;
+    const chips = page.locator('.event-chip, .event-block, [data-event-uid]').filter({ hasText: eventTitle });
+    const subItem = page.locator('#webcal-list .calendar-item', { hasText: feedName }).first();
+
+    try {
+      await page.goto('/?date=2028-12-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+      await page.click('#add-webcal-btn');
+      await page.fill('#webcal-url', feedUrl);
+      await page.fill('#webcal-name', feedName);
+      await page.click('#webcal-save-btn');
+      await expect(page.locator('#webcal-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
+      await expect(subItem).toBeVisible({ timeout: 5000 });
+
+      await expect(chips).toHaveCount(5, { timeout: 5000 });
+      await expect(subItem.locator('.webcal-sync-error')).toHaveCount(0);
+
+      // The feed starts returning an HTML error page with status 200.
+      feedBody = '<html><body>Service temporarily unavailable</body></html>';
+      await subItem.locator('[data-sync-webcal]').click();
+      await expect(page.locator('#toast-container, .toast').filter({ hasText: 'Sync fehlgeschlagen' }).first()).toBeVisible({ timeout: 5000 });
+
+      const errorLabel = page.locator('#webcal-list .calendar-item', { hasText: feedName }).locator('.webcal-sync-error');
+      await expect(errorLabel).toBeVisible({ timeout: 5000 });
+      await expect(errorLabel).toHaveAttribute('title', /not valid iCalendar/);
+      await expect(chips).toHaveCount(5);
+
+      // After a reload the cached occurrences and the error are still there.
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(errorLabel).toBeVisible({ timeout: 10000 });
+      await expect(chips).toHaveCount(5, { timeout: 5000 });
+
+      // Navigating to the next month expands the series for the new window.
+      await page.click('#next-btn');
+      await expect(page.locator('#toolbar-title')).toContainText('Januar 2029', { timeout: 5000 });
+      // January view: 1 Jan – 11 Feb 2029 → 1/8/15/22/29 Jan, 5 Feb.
+      await expect(chips).toHaveCount(6, { timeout: 5000 });
+    } finally {
+      const delBtn = page.locator('#webcal-list .calendar-item', { hasText: feedName }).locator('[data-delete-webcal]').first();
+      if (await delBtn.isVisible()) {
+        await delBtn.click();
+        const confirmBtn = page.locator('#confirm-dialog-ok');
+        if (await confirmBtn.isVisible()) await confirmBtn.click();
+      }
+      await new Promise(resolve => feedServer.close(resolve));
+    }
+  });
+
 });
 
 
