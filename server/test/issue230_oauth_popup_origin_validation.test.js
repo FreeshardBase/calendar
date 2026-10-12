@@ -4,17 +4,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 test('Issue #230: OAuth popup postMessage origin validation in server and client', async (t) => {
-  await t.test('server auth route does not send postMessage to wildcard origin *', () => {
-    const authRoutePath = path.join(__dirname, '../routes/auth.js');
-    const content = fs.readFileSync(authRoutePath, 'utf8');
+  // The popup script moved from server/routes/auth.js into an external file (issue #338, strict CSP).
+  await t.test('OAuth popup script does not send postMessage to wildcard origin *', () => {
+    const popupScriptPath = path.join(__dirname, '../../public/js/oauthLinked.js');
+    const content = fs.readFileSync(popupScriptPath, 'utf8');
 
     assert.ok(
       !content.includes("postMessage('google-account-linked', '*')"),
-      'OAuth popup callback in server/routes/auth.js must not send postMessage to wildcard origin *'
+      'OAuth popup script public/js/oauthLinked.js must not send postMessage to wildcard origin *'
     );
     assert.ok(
       content.includes("postMessage('google-account-linked', window.location.origin)"),
-      'OAuth popup callback in server/routes/auth.js must send postMessage to window.location.origin'
+      'OAuth popup script public/js/oauthLinked.js must send postMessage to window.location.origin'
     );
   });
 

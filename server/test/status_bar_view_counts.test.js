@@ -6,6 +6,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+// app.js expects window.SafeUrl (loaded by index.html as a classic script).
+const SafeUrl = require('../../public/js/safeUrl');
 
 describe('Issue #106 — Status Bar Synchronization, View Counts & Timeout Removal', () => {
   const appJsPath = path.resolve(__dirname, '../../public/js/app.js');
@@ -64,7 +66,8 @@ describe('Issue #106 — Status Bar Synchronization, View Counts & Timeout Remov
       URLSearchParams,
       window: {
         location: { search: '' },
-        addEventListener: () => {}
+        addEventListener: () => {},
+        SafeUrl
       },
       $: getEl,
       document: {

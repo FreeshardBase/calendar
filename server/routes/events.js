@@ -23,6 +23,18 @@ const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
 const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
+const { isSafeLinkUrl } = require('../../public/js/safeUrl');
+
+// Issue #338: attachment URLs are rendered as links — reject non-link schemes up front.
+function hasUnsafeAttachment(attachments) {
+  if (!Array.isArray(attachments)) return false;
+  return attachments.some(att => {
+    if (!att) return false;
+    const url = typeof att === 'string' ? att : att.url;
+    return Boolean(url) && !isSafeLinkUrl(url);
+  });
+}
+const UNSAFE_ATTACHMENT_ERROR = 'Unsafe attachment URL rejected: only http, https and mailto URLs are allowed';
 
 function isValidEmail(email) {
   if (!email || typeof email !== 'string') return false;
@@ -268,6 +280,9 @@ router.post('/', async (req, res) => {
     if (!calendarId) {
       return res.status(400).json({ error: 'calendarId is required' });
     }
+    if (hasUnsafeAttachment(eventData.attachments)) {
+      return res.status(400).json({ error: UNSAFE_ATTACHMENT_ERROR });
+    }
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
@@ -322,6 +337,9 @@ router.put('/:uid', async (req, res) => {
 
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
+    if (hasUnsafeAttachment(eventData.attachments)) {
+      return res.status(400).json({ error: UNSAFE_ATTACHMENT_ERROR });
+    }
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {

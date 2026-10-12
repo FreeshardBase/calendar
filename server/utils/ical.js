@@ -6,6 +6,17 @@
 
 const ICAL = require('ical.js');
 const { v4: uuidv4 } = require('uuid');
+const { isSafeLinkUrl } = require('../../public/js/safeUrl');
+
+/**
+ * Attachment URLs end up as clickable links, so only http(s)/mailto may be
+ * written to an event (issue #338).
+ */
+function assertSafeAttachmentUrl(url) {
+  if (!isSafeLinkUrl(url)) {
+    throw new Error('Unsafe attachment URL rejected: only http, https and mailto URLs are allowed');
+  }
+}
 
 /**
  * Parse an iCalendar TRIGGER string into millisecond offset.
@@ -213,7 +224,8 @@ function parseVEventToEvent(vevent, meta = {}) {
   for (const prop of vevent.getAllProperties('attach')) {
     const val = prop.getFirstValue();
     const url = typeof val === 'string' ? val : (val && val.toString ? val.toString() : '');
-    if (!url) continue;
+    // Foreign data (invitations, imports, webcal, sync): drop non-link schemes.
+    if (!isSafeLinkUrl(url)) continue;
     let name = prop.getParameter('x-filename') || prop.getParameter('filename') || prop.getParameter('cn') || null;
     if (!name) {
       const parts = url.split('/');
@@ -479,6 +491,11 @@ function normalizeRecurrenceRule(recurrence, dtstart) {
 }
 
 function eventToICS(event, existingIcs = null) {
+  // Validate before the existing-ICS branch, whose catch would otherwise swallow the rejection.
+  for (const att of Array.isArray(event.attachments) ? event.attachments : []) {
+    const url = att && (typeof att === 'string' ? att : att.url);
+    if (url) assertSafeAttachmentUrl(url);
+  }
   const baseIcs = existingIcs || event.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {

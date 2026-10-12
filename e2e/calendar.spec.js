@@ -902,6 +902,146 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(attachmentLink).toHaveText(driveFileName);
   });
 
+  // Issue #338 — imports an ICS with `javascript:`/`data:` ATTACH values and asserts that
+  // no clickable script link reaches the popover.
+  async function importIcsAndOpenPopover(page, testDate, title, attachLines) {
+    await page.goto(`/?date=${testDate}`);
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    await page.click('#view-week');
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//Issue338//EN',
+      'BEGIN:VEVENT',
+      `UID:e2e-issue338-${Date.now()}`,
+      `DTSTART;VALUE=DATE:${testDate.replace(/-/g, '')}`,
+      `SUMMARY:${title}`,
+      ...attachLines,
+      'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n');
+    await page.evaluate((icsText) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([icsText], 'invite.ics', { type: 'text/calendar' }));
+      document.querySelector('.sidebar').dispatchEvent(
+        new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
+      );
+    }, ics);
+    await expect(page.locator('#import-dialog-backdrop')).toBeVisible();
+    await page.click('#import-confirm');
+    await expect(page.locator('#import-dialog-backdrop')).toBeHidden({ timeout: 20000 });
+    const chip = page.locator('.event-chip').filter({ hasText: title }).first();
+    await expect(chip).toBeVisible({ timeout: 15000 });
+    await chip.click();
+    await expect(page.locator('#popover-delete-btn')).toBeVisible({ timeout: 5000 });
+    return chip;
+  }
+
+  async function deleteViaPopover(page, chip) {
+    page.on('dialog', dialog => dialog.accept());
+    await page.click('#popover-delete-btn');
+    await expect(chip).not.toBeVisible({ timeout: 10000 });
+  }
+
+  async function scriptSchemeLinks(page) {
+    return page.evaluate(() => Array.from(document.querySelectorAll('a[href]'))
+      .map(a => a.getAttribute('href'))
+      .filter(href => /^\s*(javascript|data|vbscript):/i.test(href.replace(/[\t\n\r]/g, ''))));
+  }
+
+  test('Issue #338 — imported ICS with ATTACH:javascript: renders no script link, safe attachment stays clickable', async ({ page }) => {
+    const testDate = '2036-03-12';
+    const title = `E2E Issue338 Import ${Date.now()}`;
+    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+      'ATTACH;X-FILENAME=Agenda.pdf:javascript:document.title="pwned"',
+      'ATTACH;X-FILENAME=Payload.html:data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==',
+      'ATTACH;X-FILENAME=Brief.pdf:https://files.example.com/d/brief.pdf'
+    ]);
+
+    const links = page.locator('#popover-attachments a');
+    await expect(links).toHaveCount(1);
+    await expect(links.first()).toHaveAttribute('href', 'https://files.example.com/d/brief.pdf');
+    await expect(links.first()).toHaveText('Brief.pdf');
+    expect(await scriptSchemeLinks(page)).toEqual([]);
+
+    await deleteViaPopover(page, chip);
+  });
+
+  test('Issue #338 — popover refuses to render javascript: attachment URLs even if the API returns them', async ({ page }) => {
+    const testDate = '2036-03-19';
+    const title = `E2E Issue338 Client Guard ${Date.now()}`;
+    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+      'ATTACH;X-FILENAME=Brief.pdf:https://files.example.com/d/brief.pdf'
+    ]);
+    await page.keyboard.press('Escape');
+
+    // Simulate a payload that bypassed server-side filtering (e.g. an older cached response).
+    await page.route('**/api/events?**', async (route) => {
+      const response = await route.fetch();
+      const events = await response.json();
+      for (const ev of events) {
+        if (ev.title === title) {
+          ev.attachments = [
+            { url: 'javascript:document.title="pwned"', name: 'Agenda.pdf' },
+            { url: 'JaVaScRiPt:alert(1)', name: 'Mixed.pdf' },
+            { url: 'https://files.example.com/d/brief.pdf', name: 'Brief.pdf' }
+          ];
+        }
+      }
+      await route.fulfill({ response, json: events });
+    });
+    await page.reload();
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    const reloadedChip = page.locator('.event-chip').filter({ hasText: title }).first();
+    await expect(reloadedChip).toBeVisible({ timeout: 15000 });
+    await reloadedChip.click();
+
+    const links = page.locator('#popover-attachments a');
+    await expect(links).toHaveCount(1);
+    await expect(links.first()).toHaveAttribute('href', 'https://files.example.com/d/brief.pdf');
+    expect(await scriptSchemeLinks(page)).toEqual([]);
+
+    await page.unroute('**/api/events?**');
+    await deleteViaPopover(page, reloadedChip);
+  });
+
+  test('Issue #338 — CSP blocks injected inline scripts and the app still works without unsafe-inline', async ({ page }) => {
+    const violations = [];
+    page.on('console', msg => {
+      if (/Content Security Policy/i.test(msg.text())) violations.push(msg.text());
+    });
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    expect(violations).toEqual([]);
+
+    const result = await page.evaluate(async () => {
+      window.__issue338Inline = false;
+      window.__issue338Handler = false;
+      const s = document.createElement('script');
+      s.textContent = 'window.__issue338Inline = true;';
+      document.body.appendChild(s);
+      const img = document.createElement('img');
+      img.setAttribute('onerror', 'window.__issue338Handler = true');
+      img.src = 'data:image/png;base64,invalid';
+      document.body.appendChild(img);
+      await new Promise(r => setTimeout(r, 300));
+      return { inline: window.__issue338Inline, handler: window.__issue338Handler };
+    });
+    // 'unsafe-eval' is asserted on the header in server/test (page.evaluate itself bypasses eval CSP).
+    expect(result).toEqual({ inline: false, handler: false });
+  });
+
+  test('Issue #338 — OAuth popup script is external and still notifies the opener under the strict CSP', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    const message = await page.evaluate(() => new Promise((resolve) => {
+      window.addEventListener('message', (e) => resolve(e.data), { once: true });
+      const popup = window.open('', 'issue338-popup');
+      popup.document.write('<script src="/js/oauthLinked.js"><\/script>');
+      popup.document.close();
+    }));
+    expect(message).toBe('google-account-linked');
+  });
+
   test('should configure working hours policy and ooo auto-decline rules in settings drawer', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
