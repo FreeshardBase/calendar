@@ -5,26 +5,25 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const CalDAVClient = require('../caldav/client');
 
-test('Issue #156 — CalDAV discovery resolves relative hrefs against post-redirect base & preserves Authorization across redirects', async (t) => {
+test('Issue #156 — CalDAV discovery resolves relative hrefs against post-redirect base & preserves Authorization across same-origin redirects', async (t) => {
   let serverA;
-  let serverB;
   let portA;
-  let portB;
 
   let serverARequestCount = 0;
   let serverBHeaders = null;
   let serverBRequestedUrl = null;
 
   test.before(async () => {
-    // Server A: Redirects to Server B (cross-origin due to different port)
+    // Redirects /caldav to the DAV root on the same origin. Cross-origin
+    // redirects strip Authorization (#336), so this stays same-origin.
     serverA = http.createServer((req, res) => {
       serverARequestCount++;
-      res.writeHead(302, { Location: `http://127.0.0.1:${portB}/remote.php/dav/` });
-      res.end();
-    });
+      if (req.url === '/caldav') {
+        res.writeHead(302, { Location: '/remote.php/dav/' });
+        return res.end();
+      }
 
-    // Server B: WebDAV / CalDAV endpoint requiring Authorization header
-    serverB = http.createServer((req, res) => {
+      // WebDAV / CalDAV endpoint requiring Authorization header
       serverBHeaders = req.headers;
       serverBRequestedUrl = req.url;
 
@@ -57,15 +56,12 @@ test('Issue #156 — CalDAV discovery resolves relative hrefs against post-redir
     });
 
     await new Promise((resolve) => serverA.listen(0, '127.0.0.1', resolve));
-    await new Promise((resolve) => serverB.listen(0, '127.0.0.1', resolve));
 
     portA = serverA.address().port;
-    portB = serverB.address().port;
   });
 
   test.after(async () => {
     if (serverA) await new Promise((resolve) => serverA.close(resolve));
-    if (serverB) await new Promise((resolve) => serverB.close(resolve));
   });
 
   await t.test('discover() preserves Authorization header and resolves relative href against post-redirect base URL', async () => {
@@ -77,14 +73,14 @@ test('Issue #156 — CalDAV discovery resolves relative hrefs against post-redir
 
     const discoveredUrl = await client.discover();
 
-    // 1. Verify Authorization header was preserved across cross-origin redirect to Server B
-    assert.ok(serverBHeaders, 'Server B should have received request');
-    assert.ok(serverBHeaders['authorization'], 'Server B must receive Authorization header across cross-origin redirect');
+    // 1. Verify Authorization header was preserved across the same-origin redirect
+    assert.ok(serverBHeaders, 'DAV root should have received request');
+    assert.ok(serverBHeaders['authorization'], 'DAV root must receive Authorization header across same-origin redirect');
     const expectedAuth = 'Basic ' + Buffer.from('testuser:testpassword').toString('base64');
     assert.equal(serverBHeaders['authorization'], expectedAuth);
 
-    // 2. Verify relative href 'calendars/testuser/' was resolved against POST-REDIRECT base URL (portB, NOT portA)
-    const expectedUrl = `http://127.0.0.1:${portB}/remote.php/dav/calendars/testuser/`;
+    // 2. Verify relative href 'calendars/testuser/' was resolved against POST-REDIRECT base URL (/remote.php/dav/, NOT /caldav)
+    const expectedUrl = `http://127.0.0.1:${portA}/remote.php/dav/calendars/testuser/`;
     assert.equal(discoveredUrl, expectedUrl, 'Returned discovered URL must use post-redirect host and path');
     assert.equal(client.baseUrl, expectedUrl, 'client.baseUrl must be updated to post-redirect home-set URL');
   });
@@ -98,6 +94,6 @@ test('Issue #156 — CalDAV discovery resolves relative hrefs against post-redir
 
     const res = await client._request('PROPFIND', `http://127.0.0.1:${portA}/caldav`);
     assert.equal(res.status, 207);
-    assert.equal(res.url, `http://127.0.0.1:${portB}/remote.php/dav/`);
+    assert.equal(res.url, `http://127.0.0.1:${portA}/remote.php/dav/`);
   });
 });
