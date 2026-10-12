@@ -2,7 +2,7 @@
 
 const ICAL = require('ical.js');
 const Db = require('../db');
-const { parseICSToEvent } = require('../caldav/parser');
+const { expandCalendarInRange } = require('./ical');
 const { safeFetch, readTextLimited } = require('./outboundFetch');
 
 // Issue #337: cap for a single ICS feed download.
@@ -40,88 +40,103 @@ function normalizeWebcalUrl(rawUrl) {
 }
 
 /**
- * Parses an iCalendar (.ics) string into an array of read-only event objects tagged with subscription metadata.
+ * Checks that a downloaded feed is a usable iCalendar document and returns the
+ * number of distinct events in it. Throws on anything else (HTML error pages,
+ * empty or truncated bodies) so a bad response never replaces the cache (#342).
  */
-function parseWebcalFeed(icsString, subscription = {}) {
-  if (!icsString || typeof icsString !== 'string') {
-    return [];
+function validateWebcalFeed(icsText) {
+  if (!icsText || !icsText.trim()) {
+    throw new Error('Feed response is empty');
   }
-
+  if (!/END:VCALENDAR\s*$/i.test(icsText)) {
+    throw new Error('Feed is not valid iCalendar: END:VCALENDAR missing (wrong content or truncated response)');
+  }
+  let comp;
   try {
-    const jcal = ICAL.parse(icsString);
-    const comp = new ICAL.Component(jcal);
-    const vevents = comp.getAllSubcomponents('vevent');
-
-    return vevents.map(vevent => {
-      const eventComp = new ICAL.Event(vevent);
-      const uid = eventComp.uid || (vevent.getFirstPropertyValue('uid') || `webcal-${Date.now()}-${Math.random().toString(36).substring(2)}`);
-      const summary = eventComp.summary || (vevent.getFirstPropertyValue('summary') || 'Untitled Event');
-      const description = eventComp.description || (vevent.getFirstPropertyValue('description') || '');
-      const location = eventComp.location || (vevent.getFirstPropertyValue('location') || '');
-
-      let start = null;
-      let end = null;
-      let allDay = false;
-
-      if (eventComp.startDate) {
-        start = eventComp.startDate.toJSDate().toISOString();
-        allDay = eventComp.startDate.isDate;
-      }
-      if (eventComp.endDate) {
-        end = eventComp.endDate.toJSDate().toISOString();
-      }
-
-      return {
-        id: uid,
-        uid,
-        title: summary,
-        description,
-        location,
-        start,
-        end,
-        allDay,
-        readOnly: true,
-        isSubscription: true,
-        subscriptionId: subscription.id || null,
-        subscriptionName: subscription.name || null,
-        color: subscription.color || '#3b82f6'
-      };
-    });
+    comp = new ICAL.Component(ICAL.parse(icsText));
   } catch (err) {
-    // Fail fast / return empty array on invalid ical syntax
-    return [];
+    throw new Error(`Feed is not valid iCalendar: ${err.message}`);
   }
+  if (comp.name !== 'vcalendar') {
+    throw new Error(`Feed is not valid iCalendar: root component is ${comp.name || 'missing'}`);
+  }
+  const uids = new Set();
+  for (const vevent of comp.getAllSubcomponents('vevent')) {
+    const uid = vevent.getFirstPropertyValue('uid');
+    if (!uid) throw new Error('Feed is not valid iCalendar: VEVENT without UID');
+    if (!vevent.getFirstPropertyValue('dtstart')) {
+      throw new Error(`Feed is not valid iCalendar: VEVENT ${uid} without DTSTART`);
+    }
+    uids.add(uid);
+  }
+  return uids.size;
 }
 
 /**
- * Fetches an external webcal/ICS feed from subscription URL, parses events, and updates sync timestamp.
+ * Expands a cached feed into read-only event objects for [rangeStart, rangeEnd],
+ * including RRULE/RDATE/EXDATE occurrences and RECURRENCE-ID overrides, using the
+ * same engine as CalDAV events (#342).
  */
-async function fetchAndParseWebcalFeed(subscription) {
+function parseWebcalFeed(icsString, subscription, rangeStart, rangeEnd) {
+  if (!rangeStart || !rangeEnd) {
+    throw new Error('parseWebcalFeed requires a time range');
+  }
+  return expandCalendarInRange(icsString, rangeStart, rangeEnd).map(ev => ({
+    id: ev.uid,
+    uid: ev.uid,
+    masterUid: ev.masterUid || ev.uid,
+    recurrenceId: ev.recurrenceId || null,
+    recurrence: ev.recurrence || null,
+    title: ev.title,
+    description: ev.description || '',
+    location: ev.location || '',
+    start: ev.start,
+    end: ev.end,
+    allDay: ev.allDay,
+    readOnly: true,
+    isSubscription: true,
+    subscriptionId: subscription.id || null,
+    subscriptionName: subscription.name || null,
+    color: subscription.color || '#3b82f6'
+  }));
+}
+
+/**
+ * Fetches a subscription's feed and replaces the cache only if the feed is valid.
+ * Any failure is recorded on the subscription (last_error) and rethrown; the last
+ * good cached copy stays in place (#342).
+ */
+async function refreshWebcalFeed(subscription) {
   if (!subscription || !subscription.url) {
     throw new Error('Subscription and valid URL required');
   }
 
-  const targetUrl = normalizeWebcalUrl(subscription.url);
-  const response = await safeFetch(targetUrl, {
-    headers: {
-      'User-Agent': 'FreeShard-WebCalendar/1.0 (Webcal-Subscription-Worker)'
+  try {
+    const targetUrl = normalizeWebcalUrl(subscription.url);
+    const response = await safeFetch(targetUrl, {
+      headers: {
+        'User-Agent': 'FreeShard-WebCalendar/1.0 (Webcal-Subscription-Worker)'
+      }
+    });
+
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Failed to fetch webcal feed (HTTP ${response.status})`);
     }
-  });
 
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`Failed to fetch webcal feed (HTTP ${response.status})`);
+    const icsText = await readTextLimited(response, MAX_FEED_BYTES);
+    const eventCount = validateWebcalFeed(icsText);
+
+    if (subscription.id) {
+      await Db.storeWebcalFeed(subscription.id, Math.floor(Date.now() / 1000), icsText);
+    }
+    return { eventCount };
+  } catch (err) {
+    if (subscription.id) {
+      await Db.recordWebcalSyncError(subscription.id, Math.floor(Date.now() / 1000), err.message);
+    }
+    throw err;
   }
-
-  const icsText = await readTextLimited(response, MAX_FEED_BYTES);
-  const events = parseWebcalFeed(icsText, subscription);
-  const now = Math.floor(Date.now() / 1000);
-
-  if (subscription.id) {
-    await Db.updateWebcalSubscriptionSyncTime(subscription.id, now, JSON.stringify(events));
-  }
-
-  return events;
 }
 
 /**
@@ -134,7 +149,7 @@ async function syncDueWebcalSubscriptions(referenceTime = Math.floor(Date.now() 
 
   for (const sub of due) {
     try {
-      await fetchAndParseWebcalFeed(sub);
+      await refreshWebcalFeed(sub);
       syncedCount++;
     } catch (err) {
       errors.push({ id: sub.id, error: err.message });
@@ -176,8 +191,9 @@ function startWebcalSyncWorker(intervalMs = 60000) {
 
 module.exports = {
   normalizeWebcalUrl,
+  validateWebcalFeed,
   parseWebcalFeed,
-  fetchAndParseWebcalFeed,
+  refreshWebcalFeed,
   syncDueWebcalSubscriptions,
   startWebcalSyncWorker
 };

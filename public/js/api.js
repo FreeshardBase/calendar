@@ -163,7 +163,7 @@ export const WebcalAPI = {
   create: (data) => request('POST', '/api/webcal/subscriptions', data),
   update: (id, data) => request('PATCH', `/api/webcal/subscriptions/${encodeURIComponent(id)}`, data),
   remove: (id) => request('DELETE', `/api/webcal/subscriptions/${encodeURIComponent(id)}`),
-  getEvents: (id, force = false) => request('GET', `/api/webcal/subscriptions/${encodeURIComponent(id)}/events${force ? '?force=true' : ''}`),
+  getEvents: (id, start, end) => request('GET', `/api/webcal/subscriptions/${encodeURIComponent(id)}/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
   sync: (id) => request('POST', `/api/webcal/subscriptions/${encodeURIComponent(id)}/sync`),
 };
 

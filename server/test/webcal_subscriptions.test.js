@@ -16,7 +16,7 @@ const Db = require('../db');
 const {
   normalizeWebcalUrl,
   parseWebcalFeed,
-  fetchAndParseWebcalFeed,
+  refreshWebcalFeed,
   syncDueWebcalSubscriptions,
   startWebcalSyncWorker
 } = require('../utils/webcalSubscription');
@@ -82,7 +82,7 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
     ].join('\r\n');
 
     const subscription = { id: 'sub-123', name: 'Public Holidays', color: '#ff5722' };
-    const events = parseWebcalFeed(mockIcs, subscription);
+    const events = parseWebcalFeed(mockIcs, subscription, '2025-12-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z');
 
     assert.equal(events.length, 1);
     assert.equal(events[0].id, 'holiday-2026-01-01@example.com');
@@ -206,7 +206,7 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
     assert.equal(delRes.status, 200);
   });
 
-  await t.test('Feed Caching - fetchAndParseWebcalFeed persists events in SQLite and caches them', async () => {
+  await t.test('Feed Caching - refreshWebcalFeed persists events in SQLite and caches them', async () => {
     let mockRequests = 0;
     const mockIcsPayload = [
       'BEGIN:VCALENDAR',
@@ -243,21 +243,21 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
       });
 
       // 1. Initial fetch & cache
-      const events = await fetchAndParseWebcalFeed(sub);
-      assert.equal(events.length, 1);
-      assert.equal(events[0].id, 'feed-event-1@example.com');
-      assert.equal(events[0].isSubscription, true);
-      assert.equal(events[0].readOnly, true);
+      const { eventCount } = await refreshWebcalFeed(sub);
+      assert.equal(eventCount, 1);
       assert.equal(mockRequests, 1);
 
       // 2. Check persisted cache in Db
-      const cached = await Db.getCachedWebcalEvents(sub.id, userId);
+      const cachedIcs = await Db.getCachedWebcalIcs(sub.id, userId);
+      const cached = parseWebcalFeed(cachedIcs, sub, '2026-10-01T00:00:00.000Z', '2026-10-31T00:00:00.000Z');
       assert.equal(cached.length, 1);
       assert.equal(cached[0].id, 'feed-event-1@example.com');
       assert.equal(cached[0].title, 'Quarterly Planning');
+      assert.equal(cached[0].isSubscription, true);
+      assert.equal(cached[0].readOnly, true);
 
       // 3. GET /api/webcal/subscriptions/:id/events serves from DB cache without new network request
-      const getEventsRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${sub.id}/events`, {
+      const getEventsRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${sub.id}/events?start=2026-10-01T00:00:00.000Z&end=2026-10-31T00:00:00.000Z`, {
         headers: { 'x-test-user-id': userId }
       });
       assert.equal(getEventsRes.status, 200);
@@ -342,7 +342,7 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
       assert.equal(mockRefreshRequests, 1);
 
       // Verify staleSub cache was updated
-      const updatedStaleCached = await Db.getCachedWebcalEvents(staleSub.id, userId);
+      const updatedStaleCached = parseWebcalFeed(await Db.getCachedWebcalIcs(staleSub.id, userId), staleSub, '2026-11-01T00:00:00.000Z', '2026-11-02T00:00:00.000Z');
       assert.equal(updatedStaleCached.length, 1);
       assert.equal(updatedStaleCached[0].id, 'periodic-event-99@example.com');
 

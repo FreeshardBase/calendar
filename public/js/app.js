@@ -189,8 +189,11 @@ async function loadEvents() {
   }
 
   try {
+    const webcalPromise = loadWebcalEvents(start, end);
     const events = await EventsAPI.list(start.toISOString(), end.toISOString());
+    const rangeWebcalEvents = await webcalPromise;
     if (seq !== loadEventsSeq) return;
+    webcalEvents = rangeWebcalEvents;
     cacheEvents(cacheKey, events);
     const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
     store.set({ events: [...events, ...activeCurrentSubs] });
@@ -245,31 +248,37 @@ async function loadWebcalSubscriptions() {
     webcalSubscriptions = res.subscriptions || [];
     renderWebcalSidebar();
 
-    const allEvents = [];
-    await Promise.allSettled(
-      webcalSubscriptions.map(async (sub) => {
-        try {
-          const evRes = await WebcalAPI.getEvents(sub.id);
-          const evs = (evRes.events || []).map(e => ({
-            ...e,
-            isSubscription: true,
-            subscriptionId: sub.id,
-            subscriptionName: sub.name,
-            calendarId: `webcal::${sub.id}`,
-            color: sub.color || e.color || '#3b82f6',
-            readOnly: true
-          }));
-          allEvents.push(...evs);
-        } catch (e) {
-          console.warn('[webcal] Failed to load events for subscription:', sub.id, e.message);
-        }
-      })
-    );
-    webcalEvents = allEvents;
+    const { start, end } = getDateRange(store.get('view'), store.get('currentDate'));
+    webcalEvents = await loadWebcalEvents(start, end);
     mergeAndRenderEvents();
   } catch (err) {
     console.warn('[webcal] Failed to load subscriptions:', err.message);
   }
+}
+
+// #342: the server expands recurring feed events for the visible range.
+async function loadWebcalEvents(start, end) {
+  const allEvents = [];
+  await Promise.allSettled(
+    webcalSubscriptions.map(async (sub) => {
+      try {
+        const evRes = await WebcalAPI.getEvents(sub.id, start.toISOString(), end.toISOString());
+        const evs = (evRes.events || []).map(e => ({
+          ...e,
+          isSubscription: true,
+          subscriptionId: sub.id,
+          subscriptionName: sub.name,
+          calendarId: `webcal::${sub.id}`,
+          color: sub.color || e.color || '#3b82f6',
+          readOnly: true
+        }));
+        allEvents.push(...evs);
+      } catch (e) {
+        console.warn('[webcal] Failed to load events for subscription:', sub.id, e.message);
+      }
+    })
+  );
+  return allEvents;
 }
 
 function mergeAndRenderEvents() {
@@ -292,11 +301,13 @@ function renderWebcalSidebar() {
   list.innerHTML = webcalSubscriptions.map(sub => {
     const checked = !hiddenWebcal.has(sub.id);
     return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.name)}">
+      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.last_error ? `${sub.name} (Sync fehlgeschlagen: ${sub.last_error})` : sub.name)}">
         <div class="calendar-dot" style="background:${escHtml(sanitizeColor(sub.color))}"></div>
         <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
           <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.name)}">${escHtml(sub.name)}</span>
-          <span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Webcal-Feed</span>
+          ${sub.last_error
+            ? `<span class="webcal-sync-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.last_error)}">Sync fehlgeschlagen – zeige letzten Stand</span>`
+            : '<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Webcal-Feed</span>'}
         </div>
         <div class="cal-item-actions">
           <button class="cal-action-btn" data-sync-webcal="${escHtml(sub.id)}" title="Jetzt synchronisieren">
@@ -354,6 +365,7 @@ function renderWebcalSidebar() {
         await loadWebcalSubscriptions();
       } catch (err) {
         showToast('Sync fehlgeschlagen: ' + err.message, 'error');
+        await loadWebcalSubscriptions();
       } finally {
         btn.classList.remove('rotating');
       }
