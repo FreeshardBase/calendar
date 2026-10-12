@@ -13,6 +13,7 @@ import time
 import subprocess
 import urllib.request
 import urllib.parse
+import urllib.error
 import json
 import xml.etree.ElementTree as ET
 import signal
@@ -21,6 +22,7 @@ import tempfile
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+from tls_context import ssl_context_for
 
 # Configuration variables from environment
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
@@ -342,23 +344,21 @@ def discover_google_collections(google_url, access_token):
 import base64
 
 def fetch_external_event_ics(url, access_token, uid):
+    """Returns the event's ICS, or None if the external server no longer has it (404/410).
+    Any other failure (TLS, network, HTTP error) propagates."""
+    event_url = f"{url.rstrip('/')}/{uid}.ics"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "text/calendar, application/xml, */*"
+    }
+    req = urllib.request.Request(event_url, headers=headers, method="GET")
     try:
-        event_url = f"{url.rstrip('/')}/{uid}.ics"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "text/calendar, application/xml, */*"
-        }
-        req = urllib.request.Request(event_url, headers=headers, method="GET")
-        import ssl
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        with urllib.request.urlopen(req, context=ctx) as res:
-            if res.status == 200:
-                return res.read().decode("utf-8")
-    except Exception:
-        pass
-    return None
+        with urllib.request.urlopen(req, context=ssl_context_for(event_url, LOCAL_CALDAV_URL)) as res:
+            return res.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 410):
+            return None
+        raise
 
 def protect_cross_user_deletions(user_id, conn, accounts):
     try:
@@ -401,11 +401,7 @@ def protect_cross_user_deletions(user_id, conn, accounts):
                         method="PUT"
                     )
                     try:
-                        import ssl
-                        ctx = ssl.create_default_context()
-                        ctx.check_hostname = False
-                        ctx.verify_mode = ssl.CERT_NONE
-                        with urllib.request.urlopen(req, context=ctx) as res:
+                        with urllib.request.urlopen(req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)) as res:
                             print(f"[Sync-Worker] Protected & restored cross-user deleted event {uid} for owner {user_id}")
                     except Exception as put_err:
                         print(f"[Sync-Worker] Error restoring event {uid}: {put_err}")

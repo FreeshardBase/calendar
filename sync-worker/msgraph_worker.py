@@ -13,6 +13,7 @@ import json
 import base64
 import urllib.request
 import urllib.parse
+from tls_context import ssl_context_for
 
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
@@ -123,11 +124,7 @@ def sync_msgraph_accounts(user_id, conn=None):
         new_delta_link = endpoint
         try:
             req = urllib.request.Request(endpoint, headers=headers, method="GET")
-            import ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(req, context=ctx) as res:
+            with urllib.request.urlopen(req, context=ssl_context_for(endpoint, LOCAL_CALDAV_URL)) as res:
                 if res.status == 200:
                     resp_data = json.loads(res.read().decode("utf-8"))
                     events = resp_data.get("value", [])
@@ -149,14 +146,10 @@ def sync_msgraph_accounts(user_id, conn=None):
                     auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
                     del_req = urllib.request.Request(del_url, headers={"Authorization": f"Basic {auth_str}"}, method="DELETE")
                     try:
-                        import ssl
-                        ctx = ssl.create_default_context()
-                        ctx.check_hostname = False
-                        ctx.verify_mode = ssl.CERT_NONE
-                        with urllib.request.urlopen(del_req, context=ctx):
+                        with urllib.request.urlopen(del_req, context=ssl_context_for(del_url, LOCAL_CALDAV_URL)):
                             pass
-                    except Exception:
-                        pass
+                    except Exception as del_err:
+                        print(f"[MSGraph-Worker] Error deleting event from local CalDAV: {del_err}")
                     cursor.execute("DELETE FROM msgraph_event_mappings WHERE graph_id = ?", (graph_id,))
             else:
                 local_uid = f"msgraph-event-{graph_id}"
@@ -206,11 +199,7 @@ def sync_msgraph_accounts(user_id, conn=None):
                     method="PUT"
                 )
                 try:
-                    import ssl
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    with urllib.request.urlopen(put_req, context=ctx):
+                    with urllib.request.urlopen(put_req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)):
                         pass
                 except Exception as put_err:
                     print(f"[MSGraph-Worker] Error putting event to local CalDAV: {put_err}")
