@@ -300,7 +300,10 @@ router.delete('/app-passwords/:id', async (req, res) => {
     return res.status(401).json({ error: 'Nicht authentifiziert.' });
   }
   try {
-    await Db.deleteAppPassword(req.params.id);
+    const deleted = await Db.deleteAppPassword(req.params.id, req.session.userId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Passwort nicht gefunden.' });
+    }
     res.json({ message: 'Passwort entfernt.' });
   } catch (err) {
     res.status(500).json({ error: err.message });

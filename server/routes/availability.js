@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const Db = require('../db');
 const { calculateFreeSlots } = require('../utils/availabilityBooking');
+const { checkCalendarAccess } = require('../utils/calendarAuth');
 
 function getUserIdFromReq(req) {
   if (req.session && req.session.userId) {
@@ -42,6 +43,13 @@ router.post('/availability-slots', async (req, res) => {
     const { slug, title, calendarId, durationMinutes, startHour, endHour, daysOfWeek } = req.body;
     if (!slug || !title || !calendarId) {
       return res.status(400).json({ error: 'Slug, Titel und Kalender-ID sind erforderlich' });
+    }
+
+    // The page books into calendarId, so the caller needs write access to it.
+    // Any denial is reported as 404 so foreign calendar ids cannot be probed.
+    const access = await checkCalendarAccess(req, calendarId, 'write');
+    if (!access.allowed) {
+      return res.status(404).json({ error: 'Kalender nicht gefunden' });
     }
 
     const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');

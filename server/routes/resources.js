@@ -33,7 +33,7 @@ router.post('/', async (req, res) => {
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }
-    const resource = await Db.addResource({ name, type, capacity, location, status });
+    const resource = await Db.addResource({ name, type, capacity, location, status, ownerId: req.session.userId });
     res.status(201).json({ success: true, resource });
   } catch (err) {
     console.error('[resources create]', err.message);
@@ -55,13 +55,21 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// Resources are visible to every member, but only their creator may change them.
+// Foreign ids get 404 (not 403) so members cannot probe each other's ids.
+async function findOwnedResource(req) {
+  const resource = await Db.getResourceById(req.params.id);
+  if (!resource || resource.ownerId !== req.session.userId) return null;
+  return resource;
+}
+
 // PATCH /api/resources/:id — update resource
 router.patch('/:id', async (req, res) => {
   try {
-    const resource = await Db.updateResource(req.params.id, req.body);
-    if (!resource) {
+    if (!(await findOwnedResource(req))) {
       return res.status(404).json({ error: 'Resource not found' });
     }
+    const resource = await Db.updateResource(req.params.id, req.body);
     res.json({ success: true, resource });
   } catch (err) {
     console.error('[resources update]', err.message);
@@ -72,6 +80,9 @@ router.patch('/:id', async (req, res) => {
 // DELETE /api/resources/:id — delete resource
 router.delete('/:id', async (req, res) => {
   try {
+    if (!(await findOwnedResource(req))) {
+      return res.status(404).json({ error: 'Resource not found' });
+    }
     await Db.deleteResource(req.params.id);
     res.json({ success: true });
   } catch (err) {
