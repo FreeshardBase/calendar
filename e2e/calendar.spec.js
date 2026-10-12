@@ -968,7 +968,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('Issue #338 — popover refuses to render javascript: attachment URLs even if the API returns them', async ({ page }) => {
     const testDate = '2036-03-19';
     const title = `E2E Issue338 Client Guard ${Date.now()}`;
-    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+    await importIcsAndOpenPopover(page, testDate, title, [
       'ATTACH;X-FILENAME=Brief.pdf:https://files.example.com/d/brief.pdf'
     ]);
     await page.keyboard.press('Escape');
@@ -1036,7 +1036,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const message = await page.evaluate(() => new Promise((resolve) => {
       window.addEventListener('message', (e) => resolve(e.data), { once: true });
       const popup = window.open('', 'issue338-popup');
-      popup.document.write('<script src="/js/oauthLinked.js"><\/script>');
+      popup.document.write('<script src="/js/oauthLinked.js"></' + 'script>');
       popup.document.close();
     }));
     expect(message).toBe('google-account-linked');
