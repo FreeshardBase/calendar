@@ -6,6 +6,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+// app.js expects window.SafeUrl (loaded by index.html as a classic script).
+const SafeUrl = require('../../public/js/safeUrl');
 
 function createMockDomEnvironment() {
   const elements = new Map();
@@ -179,6 +181,7 @@ function createMockDomEnvironment() {
 
   const window = {
     document,
+    SafeUrl,
     alert: () => {},
     showToast: () => {},
     confirm: () => true

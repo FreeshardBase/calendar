@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webcalendar-v1';
+const CACHE_NAME = 'webcalendar-v2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -15,7 +15,8 @@ const PRECACHE_ASSETS = [
   '/js/eventModal.js',
   '/js/accountModal.js',
   '/js/shortcuts.js',
-  '/js/offlineCache.js'
+  '/js/offlineCache.js',
+  '/js/safeUrl.js'
 ];
 
 // Install Event — Pre-cache core shell resources

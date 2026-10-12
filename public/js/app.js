@@ -16,6 +16,7 @@ import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
 import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, handleEscapeKey } from './dialogFocus.js';
 
 const { initTheme, setTheme, getStoredTheme } = (typeof window !== 'undefined' && window.ThemeManager) ? window.ThemeManager : {};
+const { isSafeLinkUrl } = window.SafeUrl;
 
 // ── Element refs ──────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -1740,11 +1741,13 @@ function showEventPopover(ev, mouseEvent) {
        </div>`
     : '';
 
-  const attachHtml = (Array.isArray(ev.attachments) && ev.attachments.length > 0)
+  // Only http(s)/mailto attachments become links; escaping alone does not stop `javascript:` (issue #338).
+  const linkAttachments = Array.isArray(ev.attachments) ? ev.attachments.filter(a => a && isSafeLinkUrl(a.url)) : [];
+  const attachHtml = linkAttachments.length > 0
     ? `<div class="popover-row popover-attachments" id="popover-attachments">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
         <div style="display:flex; flex-direction:column; gap:2px;">
-          ${ev.attachments.map(a => `
+          ${linkAttachments.map(a => `
             <a href="${escHtml(a.url)}" target="_blank" rel="noopener" class="attachment-drive-link" style="color:var(--accent); font-size:12px; text-decoration:underline;">${escHtml(a.name || a.url)}</a>
           `).join('')}
         </div>

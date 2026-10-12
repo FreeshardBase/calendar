@@ -40,7 +40,7 @@ router.get('/login', async (req, res) => {
     res.redirect(authUrl);
   } catch (err) {
     console.error('[OIDC login error]', err.message);
-    res.status(500).send('OIDC-Initialisierung fehlgeschlagen: ' + err.message);
+    res.status(500).type('text/plain').send('OIDC-Initialisierung fehlgeschlagen: ' + err.message);
   }
 });
 
@@ -86,7 +86,7 @@ router.get('/callback', async (req, res) => {
     res.redirect('/');
   } catch (err) {
     console.error('[OIDC callback error]', err.message);
-    res.status(400).send('OIDC-Authentifizierung fehlgeschlagen: ' + err.message);
+    res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: ' + err.message);
   }
 });
 
@@ -130,7 +130,7 @@ router.get('/google/callback', async (req, res) => {
 
   if (error) {
     console.error('[Google OAuth error callback]', error);
-    return res.status(400).send('Google OAuth fehlgeschlagen: ' + error);
+    return res.status(400).type('text/plain').send('Google OAuth fehlgeschlagen: ' + error);
   }
 
   if (!code) {
@@ -227,19 +227,14 @@ router.get('/google/callback', async (req, res) => {
     res.send(`
       <html>
         <body>
-          <script>
-            if (window.opener) {
-              window.opener.postMessage('google-account-linked', window.location.origin);
-            }
-            window.close();
-          </script>
+          <script src="/js/oauthLinked.js"></script>
           Verbindung erfolgreich! Dieses Fenster schließt sich automatisch...
         </body>
       </html>
     `);
   } catch (err) {
     console.error('[Google OAuth callback error]', err.message);
-    res.status(500).send('Verknüpfung des Google-Kontos fehlgeschlagen: ' + err.message);
+    res.status(500).type('text/plain').send('Verknüpfung des Google-Kontos fehlgeschlagen: ' + err.message);
   }
 });
 
@@ -265,7 +260,7 @@ router.post(['/backchannel-logout', '/backchannel_logout'], express.urlencoded({
     return res.status(200).send('OK');
   } catch (err) {
     console.error('[Back-Channel Logout error]', err.message);
-    return res.status(400).send('Ungültiges logout_token: ' + err.message);
+    return res.status(400).type('text/plain').send('Ungültiges logout_token: ' + err.message);
   }
 });
 
