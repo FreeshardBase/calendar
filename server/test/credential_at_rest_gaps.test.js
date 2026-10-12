@@ -123,7 +123,7 @@ test.describe('Issue #72 — Credential-at-Rest Gaps Security Suite', () => {
     assert.equal(isInvalid, false, 'Db.verifyAppPassword must return false for wrong password');
 
     // Cleanup
-    await Db.deleteAppPassword(result.id);
+    await Db.deleteAppPassword(result.id, testUserId);
   });
 
   test('ENCRYPTION_SALT environment configuration support', () => {

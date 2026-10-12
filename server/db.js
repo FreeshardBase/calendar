@@ -259,9 +259,14 @@ db.serialize(() => {
       capacity INTEGER NOT NULL DEFAULT 1,
       location TEXT,
       status TEXT NOT NULL DEFAULT 'AVAILABLE',
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      owner_id TEXT
     )
   `);
+  // Pre-#339 rows keep owner_id NULL and can no longer be modified through the API.
+  db.run('ALTER TABLE resources ADD COLUMN owner_id TEXT', (err) => {
+    if (err && !/duplicate column name/i.test(err.message)) throw err;
+  });
   db.run(`
     CREATE TABLE IF NOT EXISTS web_push_subscriptions (
       id TEXT PRIMARY KEY,
@@ -918,11 +923,13 @@ const Db = {
     });
   },
 
-  deleteAppPassword(id) {
+  // Resolves true if a password owned by userId was deleted, false otherwise.
+  deleteAppPassword(id, userId) {
+    if (!userId) throw new Error('deleteAppPassword requires userId');
     return new Promise((resolve, reject) => {
-      db.run('DELETE FROM app_passwords WHERE id = ?', [id], (err) => {
+      db.run('DELETE FROM app_passwords WHERE id = ? AND user_id = ?', [id, userId], function (err) {
         if (err) return reject(err);
-        resolve();
+        resolve(this.changes > 0);
       });
     });
   },
@@ -1720,17 +1727,17 @@ const Db = {
     });
   },
 
-  addResource({ id, name, type = 'ROOM', capacity = 1, location = '', status = 'AVAILABLE' }) {
+  addResource({ id, name, type = 'ROOM', capacity = 1, location = '', status = 'AVAILABLE', ownerId = null }) {
     return new Promise((resolve, reject) => {
       const resId = id || `res-${uuidv4()}`;
       const now = Date.now();
       db.run(
-        `INSERT INTO resources (id, name, type, capacity, location, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [resId, name, type, capacity, location, status, now],
+        `INSERT INTO resources (id, name, type, capacity, location, status, created_at, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [resId, name, type, capacity, location, status, now, ownerId],
         (err) => {
           if (err) return reject(err);
-          resolve({ id: resId, name, type, capacity, location, status, createdAt: now });
+          resolve({ id: resId, name, type, capacity, location, status, createdAt: now, ownerId });
         }
       );
     });
@@ -1746,7 +1753,7 @@ const Db = {
       if (status) { conditions.push('status = ?'); params.push(status); }
 
       const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      db.all(`SELECT id, name, type, capacity, location, status, created_at FROM resources ${whereClause} ORDER BY name ASC`, params, (err, rows) => {
+      db.all(`SELECT id, name, type, capacity, location, status, created_at, owner_id FROM resources ${whereClause} ORDER BY name ASC`, params, (err, rows) => {
         if (err) return reject(err);
         resolve(rows.map(r => ({
           id: r.id,
@@ -1755,7 +1762,8 @@ const Db = {
           capacity: r.capacity,
           location: r.location,
           status: r.status,
-          createdAt: r.created_at
+          createdAt: r.created_at,
+          ownerId: r.owner_id
         })));
       });
     });
@@ -1763,7 +1771,7 @@ const Db = {
 
   getResourceById(id) {
     return new Promise((resolve, reject) => {
-      db.get(`SELECT id, name, type, capacity, location, status, created_at FROM resources WHERE id = ?`, [id], (err, row) => {
+      db.get(`SELECT id, name, type, capacity, location, status, created_at, owner_id FROM resources WHERE id = ?`, [id], (err, row) => {
         if (err) return reject(err);
         if (!row) return resolve(null);
         resolve({
@@ -1773,7 +1781,8 @@ const Db = {
           capacity: row.capacity,
           location: row.location,
           status: row.status,
-          createdAt: row.created_at
+          createdAt: row.created_at,
+          ownerId: row.owner_id
         });
       });
     });

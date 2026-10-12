@@ -29,7 +29,8 @@ test('Availability Slots Booking Engine Suite', async (t) => {
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let sessionCookie = '';
-  const testCalendarId = 'internal-caldav::/testuser/personal/';
+  // Owned by the session user 'testuser-id' (page creation checks calendar write access, #339)
+  const testCalendarId = 'internal-caldav::/testuser-id/personal/';
   let createdPageId = '';
   let testSlug = 'testuser-consulting';
 
