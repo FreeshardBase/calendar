@@ -7,28 +7,86 @@ on:
     branches: [ master, main ]
 
 jobs:
-  lint-and-test:
+  lint:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Linter
+      - run: npm ci
+      - name: Lint (every JS file separately, plus Python compile)
         run: npm run lint
 
-      - name: Run Tests
-        run: npm test
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm test
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s server/test/python -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+      TZ: Europe/Berlin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Start Radicale (self-signed TLS from the image entrypoint)
+        run: |
+          docker build -t webcalendar-radicale ./radicale
+          docker run -d --name radicale -p 5232:5232 \
+            -e SYSTEM_SYNC_SECRET=super-secret-bypass \
+            -e DATABASE_PATH=/data/webcalendar.db \
+            webcalendar-radicale
+          for i in $(seq 1 30); do
+            curl -sk -o /dev/null https://localhost:5232/ && exit 0
+            sleep 1
+          done
+          docker logs radicale
+          echo "Radicale did not become ready" >&2
+          exit 1
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app image (no push)
+        run: docker build -t webcalendar:ci .
+      - name: Build Radicale image (no push)
+        run: docker build -t webcalendar-radicale:ci ./radicale
+      - name: Build sync-worker image (no push)
+        run: docker build -t webcalendar-sync-worker:ci ./sync-worker
