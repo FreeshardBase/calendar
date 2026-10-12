@@ -11,7 +11,7 @@ Three services around one shared SQLite database:
 
 | Service | Stack | Role |
 |---|---|---|
-| `webcalendar` | Node 20 / Express, vanilla-JS SPA | Web UI + REST API, talks CalDAV to any server |
+| `webcalendar` | Node 22 / Express, vanilla-JS SPA | Web UI + REST API, talks CalDAV to any server |
 | `caldav-server` | [Radicale](https://radicale.org) + custom auth/rights plugins | Internal CalDAV storage engine (unexposed to external clients in shipping topology); auth against shared DB |
 | `sync-worker` | Python + [vdirsyncer](https://vdirsyncer.pimutils.org) | Background two-way sync of linked Google/CalDAV calendars into Radicale |
 

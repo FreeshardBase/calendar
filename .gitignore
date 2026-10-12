@@ -19,3 +19,7 @@ data/
 .stryker-tmp/
 reports/
 .worktrees/
+scratch/
+scratchpad.md
+__pycache__/
+*.pyc
