@@ -43,6 +43,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install worker dependencies
+        run: pip install -r radicale/requirements.txt -r sync-worker/requirements.txt
       - run: python3 -m unittest discover -s server/test/python -v
 
   e2e:
