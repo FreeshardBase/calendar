@@ -1,0 +1,76 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "npm",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": [
+      "server/test/availability_booking.test.js",
+      "server/test/caldav_fetch_error_channel.test.js",
+      "server/test/caldav_provider_presets.test.js",
+      "server/test/calendar_ownership_session.test.js",
+      "server/test/event_history.test.js",
+      "server/test/external_caldav_basic_sync.test.js",
+      "server/test/granular_permissions.test.js",
+      "server/test/issue121_oidc_generic_multiuser_shard.test.js",
+      "server/test/issue136_undecryptable_account_row.test.js",
+      "server/test/issue157_caldav_credential_validation.test.js",
+      "server/test/issue159_failed_accounts_boot_wizard.test.js",
+      "server/test/issue172_sqlite_request_fsync.test.js",
+      "server/test/issue173_response_compression.test.js",
+      "server/test/issue198_sync_worker_status_exposure.test.js",
+      "server/test/issue213_user_to_user_share.test.js",
+      "server/test/issue224_first_request_error_onboarding.test.js",
+      "server/test/issue230_oauth_popup_origin_validation.test.js",
+      "server/test/issue238_no_op_save_recurring_event_defects.test.js",
+      "server/test/issue243_fix53_with_79_series_preservation.test.js",
+      "server/test/issue244_node_test_suite_red_on_234_fix.test.js",
+      "server/test/issue245_node_test_suite_red_on_50_fix.test.js",
+      "server/test/issue246_require_auth_401_reachable.test.js",
+      "server/test/issue248_post_accounts_duplicate_409.test.js",
+      "server/test/issue252_session_cookie_handshake.test.js",
+      "server/test/issue262_docker_down_shares_cleanup.test.js",
+      "server/test/issue296_zero_edit_occurrence_detached_override_drift.test.js",
+      "server/test/issue334_accounts_input_validation.test.js",
+      "server/test/issue50_production_auth_bypass_prevention.test.js",
+      "server/test/issue51_unauthenticated_post_accounts.test.js",
+      "server/test/issue77_rsvp_email_validation.test.js",
+      "server/test/issue79_series_edit_master_dtstart.test.js",
+      "server/test/issue95_vtodo_rrule_completion_history.test.js",
+      "server/test/local_calendar_color.test.js",
+      "server/test/msgraph.test.js",
+      "server/test/noop_detached_override_scope.test.js",
+      "server/test/oauth_token_warning.test.js",
+      "server/test/oidc_backchannel_logout.test.js",
+      "server/test/public_share.test.js",
+      "server/test/public_share_acl.test.js",
+      "server/test/resource_booking.test.js",
+      "server/test/routes.test.js",
+      "server/test/series_destruction_noop.test.js",
+      "server/test/share_acceptance_workflow.test.js",
+      "server/test/strict_acl_enforcement.test.js",
+      "server/test/vtodo_routes.test.js",
+      "server/test/whole_series_preservation.test.js",
+      "server/test/working_hours.test.js"
+    ],
+    "forceBail": false
+  },
+  "mutate": [
+    "server/routes/auth.js",
+    "server/routes/accounts.js"
+  ],
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress"
+  ],
+  "htmlReporter": {
+    "fileName": "reports/mutation-routes/index.html"
+  },
+  "concurrency": 2,
+  "timeoutMS": 60000,
+  "thresholds": {
+    "high": 70,
+    "low": 50,
+    "break": 0
+  }
+}

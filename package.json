@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "test:all": "npm test && npm run test:e2e",
     "publish:containers": "node -e \"require('./server/utils/containerPublish').publishContainerImages(process.env.REGISTRY, process.env.TAG, { dryRun: process.env.DRY_RUN !== 'false' })\"",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "test:mutation:routes": "stryker run stryker.routes.config.json"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.8.10",
