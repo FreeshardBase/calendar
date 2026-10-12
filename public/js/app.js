@@ -2206,6 +2206,17 @@ function attachListeners() {
       await loadCalendars();
       await loadEvents();
     }
+    if (e.data === 'msgraph-account-linked') {
+      const modalBackdrop = $('msgraph-modal-backdrop');
+      if (modalBackdrop && !modalBackdrop.classList.contains('hidden')) {
+        modalBackdrop.classList.add('hidden');
+      }
+      showToast('Office 365 Kalender erfolgreich verknüpft!', 'success');
+
+      showApp();
+      await loadCalendars();
+      await loadEvents();
+    }
   });
 
   // ── Keyboard Shortcuts Integration ──────────────────────────────────────────

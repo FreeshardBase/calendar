@@ -148,24 +148,28 @@ export function initMSGraphModal() {
       const tenantId = $('msgraph-tenant')?.value?.trim() || 'common';
       if (!accountEmail) return;
 
-      const saveBtn = $('btn-save-msgraph');
-      if (saveBtn) saveBtn.disabled = true;
-
-      try {
-        await MSGraphAPI.addAccount({ accountEmail, tenantId });
-        if (typeof window.showToast === 'function') {
-          window.showToast(`Office 365 Konto (${accountEmail}) verbunden.`, 'success');
-        }
-        if (form) form.reset();
-        await loadMSGraphAccounts();
-      } catch (err) {
-        if (typeof window.showToast === 'function') {
-          window.showToast(err.message, 'error');
-        }
-      } finally {
-        if (saveBtn) saveBtn.disabled = false;
-      }
+      const width = 600;
+      const height = 650;
+      const left = (window.screen.width - width) / 2;
+      const top = (window.screen.height - height) / 2;
+      const popup = window.open(
+        `/api/msgraph/authorize?tenantId=${encodeURIComponent(tenantId)}`,
+        'msgraph-oauth',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+      );
+      if (popup) popup.focus();
     });
   }
+
+  window.addEventListener('message', async e => {
+    if (e.origin !== window.location.origin) return;
+    if (e.data === 'msgraph-account-linked') {
+      if (typeof window.showToast === 'function') {
+        window.showToast('Office 365 Kalender erfolgreich verknüpft!', 'success');
+      }
+      if (form) form.reset();
+      await loadMSGraphAccounts();
+    }
+  });
 }
 

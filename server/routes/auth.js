@@ -243,6 +243,18 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// GET /api/auth/msgraph — Redirect to Microsoft Graph PKCE authorization endpoint
+router.get('/msgraph', (req, res) => {
+  const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(`/api/msgraph/authorize${queryStr}`);
+});
+
+// GET /api/auth/msgraph/callback — Microsoft Graph authorization callback
+router.get('/msgraph/callback', (req, res) => {
+  const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(`/api/msgraph/callback${queryStr}`);
+});
+
 // POST /api/auth/backchannel-logout — OIDC Back-Channel Logout 1.0 endpoint
 router.post(['/backchannel-logout', '/backchannel_logout'], express.urlencoded({ extended: true }), async (req, res) => {
   const logoutToken = req.body?.logout_token;

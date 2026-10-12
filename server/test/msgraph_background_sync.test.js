@@ -36,7 +36,9 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
       body: JSON.stringify({
         accountEmail: 'm365user@example.com',
         tenantId: 'common',
-        clientId: 'test-m365-client'
+        clientId: 'test-m365-client',
+        accessToken: 'valid-bg-access-token',
+        refreshToken: 'valid-bg-refresh-token'
       })
     });
 

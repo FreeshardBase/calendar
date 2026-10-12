@@ -3,6 +3,197 @@
 const Db = require('../db');
 const { parseICSToEvent, eventToICS } = require('../caldav/parser');
 
+// Standard mapping from Microsoft Windows Time Zones to IANA Time Zones (Unicode CLDR)
+const WINDOWS_TO_IANA_TIMEZONES = {
+  'Dateline Standard Time': 'Etc/GMT+12',
+  'UTC-11': 'Etc/GMT+11',
+  'Aleutian Standard Time': 'America/Adak',
+  'Hawaiian Standard Time': 'Pacific/Honolulu',
+  'Marquesas Standard Time': 'Pacific/Marquesas',
+  'Alaskan Standard Time': 'America/Anchorage',
+  'UTC-09': 'Etc/GMT+9',
+  'Pacific Standard Time (Mexico)': 'America/Tijuana',
+  'UTC-08': 'Etc/GMT+8',
+  'Pacific Standard Time': 'America/Los_Angeles',
+  'US Mountain Standard Time': 'America/Phoenix',
+  'Mountain Standard Time (Mexico)': 'America/Mazatlan',
+  'Mountain Standard Time': 'America/Denver',
+  'Yukon Standard Time': 'America/Whitehorse',
+  'Central America Standard Time': 'America/Guatemala',
+  'Central Standard Time': 'America/Chicago',
+  'Easter Island Standard Time': 'Pacific/Easter',
+  'Central Standard Time (Mexico)': 'America/Mexico_City',
+  'Canada Central Standard Time': 'America/Regina',
+  'SA Pacific Standard Time': 'America/Bogota',
+  'Eastern Standard Time (Mexico)': 'America/Cancun',
+  'Eastern Standard Time': 'America/New_York',
+  'Haiti Standard Time': 'America/Port-au-Prince',
+  'Cuba Standard Time': 'America/Havana',
+  'US Eastern Standard Time': 'America/Indianapolis',
+  'Turks And Caicos Standard Time': 'America/Grand_Turk',
+  'Paraguay Standard Time': 'America/Asuncion',
+  'Atlantic Standard Time': 'America/Halifax',
+  'Venezuela Standard Time': 'America/Caracas',
+  'Central Brazilian Standard Time': 'America/Cuiaba',
+  'SA Western Standard Time': 'America/La_Paz',
+  'Pacific SA Standard Time': 'America/Santiago',
+  'Newfoundland Standard Time': 'America/St_Johns',
+  'Tocantins Standard Time': 'America/Araguaina',
+  'E. South America Standard Time': 'America/Sao_Paulo',
+  'SA Eastern Standard Time': 'America/Cayenne',
+  'Argentina Standard Time': 'America/Buenos_Aires',
+  'Greenland Standard Time': 'America/Godthab',
+  'Montevideo Standard Time': 'America/Montevideo',
+  'Magallanes Standard Time': 'America/Punta_Arenas',
+  'Saint Pierre Standard Time': 'America/Miquelon',
+  'Bahia Standard Time': 'America/Bahia',
+  'UTC-02': 'Etc/GMT+2',
+  'Azores Standard Time': 'Atlantic/Azores',
+  'Cape Verde Standard Time': 'Atlantic/Cape_Verde',
+  'UTC': 'UTC',
+  'GMT Standard Time': 'Europe/London',
+  'Greenwich Standard Time': 'Atlantic/Reykjavik',
+  'Sao Tome Standard Time': 'Africa/Sao_Tome',
+  'Morocco Standard Time': 'Africa/Casablanca',
+  'W. Europe Standard Time': 'Europe/Berlin',
+  'Central Europe Standard Time': 'Europe/Prague',
+  'Romance Standard Time': 'Europe/Paris',
+  'Central European Standard Time': 'Europe/Warsaw',
+  'W. Central Africa Standard Time': 'Africa/Lagos',
+  'Jordan Standard Time': 'Asia/Amman',
+  'GTB Standard Time': 'Europe/Bucharest',
+  'Middle East Standard Time': 'Asia/Beirut',
+  'Egypt Standard Time': 'Africa/Cairo',
+  'E. Europe Standard Time': 'Europe/Chisinau',
+  'Syria Standard Time': 'Asia/Damascus',
+  'West Bank Standard Time': 'Asia/Hebron',
+  'South Africa Standard Time': 'Africa/Johannesburg',
+  'FLE Standard Time': 'Europe/Kiev',
+  'Israel Standard Time': 'Asia/Jerusalem',
+  'Kaliningrad Standard Time': 'Europe/Kaliningrad',
+  'Sudan Standard Time': 'Africa/Khartoum',
+  'Libya Standard Time': 'Africa/Tripoli',
+  'Namibia Standard Time': 'Africa/Windhoek',
+  'Arabic Standard Time': 'Asia/Baghdad',
+  'Turkey Standard Time': 'Europe/Istanbul',
+  'Arab Standard Time': 'Asia/Riyadh',
+  'Belarus Standard Time': 'Europe/Minsk',
+  'Russian Standard Time': 'Europe/Moscow',
+  'E. Africa Standard Time': 'Africa/Nairobi',
+  'Iran Standard Time': 'Asia/Tehran',
+  'Arabian Standard Time': 'Asia/Dubai',
+  'Astrakhan Standard Time': 'Europe/Astrakhan',
+  'Azerbaijan Standard Time': 'Asia/Baku',
+  'Russia Time Zone 3': 'Europe/Samara',
+  'Mauritius Standard Time': 'Indian/Mauritius',
+  'Saratov Standard Time': 'Europe/Saratov',
+  'Georgian Standard Time': 'Asia/Tbilisi',
+  'Volgograd Standard Time': 'Europe/Volgograd',
+  'Caucasus Standard Time': 'Asia/Yerevan',
+  'Afghanistan Standard Time': 'Asia/Kabul',
+  'West Asia Standard Time': 'Asia/Tashkent',
+  'Ekaterinburg Standard Time': 'Asia/Yekaterinburg',
+  'Pakistan Standard Time': 'Asia/Karachi',
+  'Qyzylorda Standard Time': 'Asia/Qyzylorda',
+  'India Standard Time': 'Asia/Kolkata',
+  'Sri Lanka Standard Time': 'Asia/Colombo',
+  'Nepal Standard Time': 'Asia/Kathmandu',
+  'Central Asia Standard Time': 'Asia/Almaty',
+  'Bangladesh Standard Time': 'Asia/Dhaka',
+  'Omsk Standard Time': 'Asia/Omsk',
+  'Myanmar Standard Time': 'Asia/Yangon',
+  'SE Asia Standard Time': 'Asia/Bangkok',
+  'Altai Standard Time': 'Asia/Barnaul',
+  'W. Mongolia Standard Time': 'Asia/Hovd',
+  'North Asia Standard Time': 'Asia/Krasnoyarsk',
+  'N. Central Asia Standard Time': 'Asia/Novosibirsk',
+  'Tomsk Standard Time': 'Asia/Tomsk',
+  'China Standard Time': 'Asia/Shanghai',
+  'North Asia East Standard Time': 'Asia/Irkutsk',
+  'Singapore Standard Time': 'Asia/Singapore',
+  'W. Australia Standard Time': 'Australia/Perth',
+  'Taipei Standard Time': 'Asia/Taipei',
+  'Ulaanbaatar Standard Time': 'Asia/Ulaanbaatar',
+  'Aus Central W. Standard Time': 'Australia/Eucla',
+  'Transbaikal Standard Time': 'Asia/Chita',
+  'Tokyo Standard Time': 'Asia/Tokyo',
+  'North Korea Standard Time': 'Asia/Pyongyang',
+  'Korea Standard Time': 'Asia/Seoul',
+  'Yakutsk Standard Time': 'Asia/Yakutsk',
+  'Cen. Australia Standard Time': 'Australia/Adelaide',
+  'AUS Central Standard Time': 'Australia/Darwin',
+  'E. Australia Standard Time': 'Australia/Brisbane',
+  'AUS Eastern Standard Time': 'Australia/Sydney',
+  'West Pacific Standard Time': 'Pacific/Port_Moresby',
+  'Tasmania Standard Time': 'Australia/Hobart',
+  'Vladivostok Standard Time': 'Asia/Vladivostok',
+  'Lord Howe Standard Time': 'Australia/Lord_Howe',
+  'Bougainville Standard Time': 'Pacific/Bougainville',
+  'Russia Time Zone 10': 'Asia/Srednekolymsk',
+  'Magadan Standard Time': 'Asia/Magadan',
+  'Norfolk Standard Time': 'Pacific/Norfolk',
+  'Sakhalin Standard Time': 'Asia/Sakhalin',
+  'Central Pacific Standard Time': 'Pacific/Guadalcanal',
+  'Russia Time Zone 11': 'Asia/Kamchatka',
+  'New Zealand Standard Time': 'Pacific/Auckland',
+  'UTC+12': 'Etc/GMT-12',
+  'Fiji Standard Time': 'Pacific/Fiji',
+  'Chatham Islands Standard Time': 'Pacific/Chatham',
+  'UTC+13': 'Etc/GMT-13',
+  'Tonga Standard Time': 'Pacific/Tongatapu',
+  'Samoa Standard Time': 'Pacific/Apia',
+  'Line Islands Standard Time': 'Pacific/Kiritimati'
+};
+
+/**
+ * Converts Microsoft Graph dateTime and timeZone into a standard ISO 8601 UTC string.
+ * Handles both Windows timezone names and IANA timezone names.
+ */
+function graphDateTimeToISO(dateTimeStr, timeZone) {
+  if (!dateTimeStr) return new Date().toISOString();
+  if (dateTimeStr.endsWith('Z')) return new Date(dateTimeStr).toISOString();
+
+  const ianaZone = WINDOWS_TO_IANA_TIMEZONES[timeZone] || timeZone || 'UTC';
+  if (ianaZone === 'UTC' || ianaZone === 'Etc/UTC') {
+    return new Date(dateTimeStr + 'Z').toISOString();
+  }
+
+  const m = dateTimeStr.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
+  if (!m) return new Date(dateTimeStr + 'Z').toISOString();
+
+  const [_, y, mo, d, h, mi, s, msRaw] = m;
+  const ms = msRaw ? msRaw.slice(0, 3).padEnd(3, '0') : '000';
+  const approxUtc = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s, +ms);
+
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: ianaZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23'
+    });
+
+    let guess = approxUtc;
+    for (let i = 0; i < 3; i++) {
+      const parts = dtf.formatToParts(new Date(guess));
+      const getPart = (type) => parts.find(p => p.type === type)?.value;
+      const formattedY = +getPart('year');
+      const formattedMo = +getPart('month');
+      const formattedD = +getPart('day');
+      const formattedH = +getPart('hour');
+      const formattedMi = +getPart('minute');
+      const formattedS = +getPart('second');
+      const formattedAsUtc = Date.UTC(formattedY, formattedMo - 1, formattedD, formattedH, formattedMi, formattedS, +ms);
+      const diff = formattedAsUtc - approxUtc;
+      if (diff === 0) break;
+      guess -= diff;
+    }
+    return new Date(guess).toISOString();
+  } catch (err) {
+    return new Date(dateTimeStr + 'Z').toISOString();
+  }
+}
+
 /**
  * Converts Microsoft Graph Event JSON payload into standard WebCalendar VEVENT object.
  */
@@ -17,14 +208,12 @@ function graphEventToVEVENT(graphEvent) {
 
   let startIso = new Date().toISOString();
   if (graphEvent.start && graphEvent.start.dateTime) {
-    const rawStart = graphEvent.start.dateTime;
-    startIso = rawStart.endsWith('Z') ? rawStart : new Date(rawStart + 'Z').toISOString();
+    startIso = graphDateTimeToISO(graphEvent.start.dateTime, graphEvent.start.timeZone);
   }
 
   let endIso = new Date(Date.now() + 3600000).toISOString();
   if (graphEvent.end && graphEvent.end.dateTime) {
-    const rawEnd = graphEvent.end.dateTime;
-    endIso = rawEnd.endsWith('Z') ? rawEnd : new Date(rawEnd + 'Z').toISOString();
+    endIso = graphDateTimeToISO(graphEvent.end.dateTime, graphEvent.end.timeZone);
   }
 
   const attendees = Array.isArray(graphEvent.attendees)
@@ -88,6 +277,9 @@ function veventToGraphEvent(eventObj) {
   };
 }
 
+// In-flight push mutex map guarding against concurrent mapping race conditions in pushLocalEvent
+const pushMutex = new Map();
+
 /**
  * Microsoft Graph Sync Engine
  */
@@ -114,15 +306,26 @@ class MSGraphSyncEngine {
     if (this.account.refreshToken && this.fetch) {
       try {
         const tenant = this.account.tenantId || 'common';
+        const clientId = this.account.clientId || process.env.MSGRAPH_CLIENT_ID || 'freeshard-calendar-app';
+        const clientSecret = this.account.clientSecret || process.env.MSGRAPH_CLIENT_SECRET || '';
+        const scope = this.account.scope || process.env.MSGRAPH_SCOPE || 'offline_access https://graph.microsoft.com/Calendars.ReadWrite';
+
+        const bodyParams = {
+          client_id: clientId,
+          grant_type: 'refresh_token',
+          refresh_token: this.account.refreshToken,
+          scope
+        };
+        if (clientSecret) {
+          bodyParams.client_secret = clientSecret;
+        }
+
         const res = await this.fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            client_id: this.account.clientId || 'freeshard-calendar-app',
-            grant_type: 'refresh_token',
-            refresh_token: this.account.refreshToken
-          })
+          body: new URLSearchParams(bodyParams)
         });
+
         if (res.ok) {
           const data = await res.json();
           const newAccessToken = data.access_token;
@@ -160,7 +363,10 @@ class MSGraphSyncEngine {
    */
   async fetchRemoteDeltaEvents() {
     const token = await this.ensureAccessToken();
-    const endpoint = this.account.deltaLink || 'https://graph.microsoft.com/v1.0/me/events';
+    let endpoint = this.account.deltaLink || 'https://graph.microsoft.com/v1.0/me/events/delta';
+    if (endpoint === 'https://graph.microsoft.com/v1.0/me/events') {
+      endpoint = 'https://graph.microsoft.com/v1.0/me/events/delta';
+    }
 
     if (!this.fetch) {
       return { events: [], deltaLink: endpoint };
@@ -175,7 +381,8 @@ class MSGraphSyncEngine {
         const res = await this.fetch(currentUrl, {
           headers: {
             'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'Prefer': 'outlook.timezone="UTC"'
           }
         });
 
@@ -200,7 +407,11 @@ class MSGraphSyncEngine {
         if (data['@odata.nextLink']) {
           currentUrl = data['@odata.nextLink'];
         } else {
-          finalDeltaLink = data['@odata.deltaLink'] || currentUrl;
+          if (data['@odata.deltaLink']) {
+            finalDeltaLink = data['@odata.deltaLink'];
+          } else if (!finalDeltaLink || finalDeltaLink.includes('$skip=')) {
+            finalDeltaLink = endpoint.includes('/delta') ? endpoint : 'https://graph.microsoft.com/v1.0/me/events/delta';
+          }
           currentUrl = null;
         }
       }
@@ -215,58 +426,74 @@ class MSGraphSyncEngine {
   }
 
   /**
-   * Pushes a local event to Microsoft Graph API
+   * Pushes a local event to Microsoft Graph API with concurrency mutex to prevent duplicate mappings
    */
   async pushLocalEvent(eventObj) {
-    const token = await this.ensureAccessToken();
-    const payload = veventToGraphEvent(eventObj);
-    
-    const mapping = await Db.getMSGraphEventMapping(eventObj.uid);
+    if (!eventObj || !eventObj.uid) return null;
+    const uid = eventObj.uid;
 
-    let res;
-    if (mapping && mapping.graphId) {
-      // Update existing Graph Event
-      res = await this.fetch(`https://graph.microsoft.com/v1.0/me/events/${mapping.graphId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-    } else {
-      // Create new Graph Event
-      res = await this.fetch(`https://graph.microsoft.com/v1.0/me/events`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+    // Mutex lock per local UID to eliminate race condition between reading and upserting mapping
+    while (pushMutex.has(uid)) {
+      await pushMutex.get(uid);
     }
+    let unlock;
+    const lockPromise = new Promise(resolve => { unlock = resolve; });
+    pushMutex.set(uid, lockPromise);
 
-    if (!res.ok) {
-      throw new Error(`Failed to push event to MS Graph (${res.status}): ${await res.text()}`);
-    }
+    try {
+      const token = await this.ensureAccessToken();
+      const payload = veventToGraphEvent(eventObj);
+      
+      const mapping = await Db.getMSGraphEventMapping(uid);
 
-    let createdGraphEvent = {};
-    if (res.status !== 204) {
-      try {
-        const text = await res.text();
-        if (text) {
-          createdGraphEvent = JSON.parse(text);
-        }
-      } catch (err) {
-        // Safe fallback for empty or non-JSON response bodies
+      let res;
+      if (mapping && mapping.graphId) {
+        // Update existing Graph Event
+        res = await this.fetch(`https://graph.microsoft.com/v1.0/me/events/${mapping.graphId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        // Create new Graph Event
+        res = await this.fetch(`https://graph.microsoft.com/v1.0/me/events`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
       }
+
+      if (!res.ok) {
+        throw new Error(`Failed to push event to MS Graph (${res.status}): ${await res.text()}`);
+      }
+
+      let createdGraphEvent = {};
+      if (res.status !== 204) {
+        try {
+          const text = await res.text();
+          if (text) {
+            createdGraphEvent = JSON.parse(text);
+          }
+        } catch (err) {
+          // Safe fallback for empty or non-JSON response bodies
+        }
+      }
+
+      const graphId = createdGraphEvent.id || (mapping && mapping.graphId) || `graph-${Date.now()}`;
+      const eTag = createdGraphEvent['@odata.etag'] || (mapping && mapping.etag) || '';
+
+      await Db.upsertMSGraphEventMapping(uid, graphId, this.account.id, eTag);
+      return { graphId, eTag };
+    } finally {
+      pushMutex.delete(uid);
+      unlock();
     }
-
-    const graphId = createdGraphEvent.id || (mapping && mapping.graphId) || `graph-${Date.now()}`;
-    const eTag = createdGraphEvent['@odata.etag'] || (mapping && mapping.etag) || '';
-
-    await Db.upsertMSGraphEventMapping(eventObj.uid, graphId, this.account.id, eTag);
-    return { graphId, eTag };
   }
 
   /**
@@ -336,9 +563,11 @@ class MSGraphSyncEngine {
     }
 
     // Update account delta link
-    await Db.updateMSGraphAccount(this.account.id, {
-      deltaLink: remoteResult.deltaLink
-    });
+    if (remoteResult.deltaLink) {
+      await Db.updateMSGraphAccount(this.account.id, {
+        deltaLink: remoteResult.deltaLink
+      });
+    }
 
     return {
       accountId: this.account.id,
@@ -351,7 +580,10 @@ class MSGraphSyncEngine {
 }
 
 module.exports = {
+  graphDateTimeToISO,
   graphEventToVEVENT,
   veventToGraphEvent,
-  MSGraphSyncEngine
+  MSGraphSyncEngine,
+  pushMutex,
+  WINDOWS_TO_IANA_TIMEZONES
 };

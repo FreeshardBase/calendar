@@ -207,7 +207,9 @@ test('MS Graph Calendar Sync Engine Suite', async (t) => {
       body: JSON.stringify({
         accountEmail: 'testuser@example.com',
         tenantId: 'common',
-        clientId: 'client-abc'
+        clientId: 'client-abc',
+        accessToken: 'test-valid-access-token',
+        refreshToken: 'test-valid-refresh-token'
       })
     });
     assert.equal(resPost.status, 201);
