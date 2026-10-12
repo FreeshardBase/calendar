@@ -4,6 +4,9 @@ process.env.PORT = '3285';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
+// Hermetic key resolution: db.js prefers an existing .encryption_key file over the env/default key,
+// and any earlier run in the same checkout creates one. Point it at a path that never exists.
+process.env.ENCRYPTION_KEY_FILE = require('path').join(require('os').tmpdir(), 'issue136-no-such-key-file');
 
 const { describe, it, before, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');

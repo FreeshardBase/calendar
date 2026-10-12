@@ -6,6 +6,21 @@ const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { getPresets, resolvePreset, resolveCalDAVUrl } = require('../utils/caldavPresets');
 
+// Issue #334: url and username end up in the sync-worker's vdirsyncer config.
+// Control characters (newlines in particular) are never legitimate there.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+function isSafeHttpUrl(value) {
+  if (typeof value !== 'string' || CONTROL_CHARS.test(value)) return false;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+}
+
 // GET /api/accounts/presets — get available provider presets and resolve query parameters
 router.get('/presets', (req, res) => {
   const emailOrPreset = req.query.email || req.query.preset || req.query.username;
@@ -47,6 +62,12 @@ router.post('/', async (req, res) => {
   if (!targetUrl || !username || !password) {
     return res.status(400).json({ error: 'url, username and password are required' });
   }
+  if (typeof username !== 'string' || CONTROL_CHARS.test(username)) {
+    return res.status(400).json({ error: 'Ungültiger Benutzername.' });
+  }
+  if (!isSafeHttpUrl(targetUrl)) {
+    return res.status(400).json({ error: 'Ungültige URL: nur http(s) ohne Steuerzeichen erlaubt.' });
+  }
 
   const client = new CalDAVClient({ url: targetUrl, username, password });
 
@@ -61,6 +82,9 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'CalDAV-Server konnte nicht automatisch ermittelt werden. Bitte prüfe die URL.' });
     }
     return res.status(502).json({ error: 'Verbindung fehlgeschlagen. Bitte prüfe URL und Netzwerkverbindung.' });
+  }
+  if (!isSafeHttpUrl(discoveredUrl)) {
+    return res.status(400).json({ error: 'Der Server lieferte eine ungültige CalDAV-URL.' });
   }
 
   // Issue #157: verify credentials against the discovered calendar home.
