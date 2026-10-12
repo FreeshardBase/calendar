@@ -2307,13 +2307,14 @@ function attachListeners() {
         openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
         break;
 
-      case 'FOCUS_SEARCH':
+      case 'FOCUS_SEARCH': {
         e.preventDefault();
         const searchInput = $('search-input');
         if (searchInput) searchInput.focus();
         break;
+      }
 
-      case 'TOGGLE_HELP':
+      case 'TOGGLE_HELP': {
         const helpModal = $('shortcuts-modal-backdrop');
         if (helpModal) {
           if (helpModal.classList.contains('hidden')) {
@@ -2323,6 +2324,7 @@ function attachListeners() {
           }
         }
         break;
+      }
     }
   });
 
