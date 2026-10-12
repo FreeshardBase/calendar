@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 WORKDIR /app
 COPY sync_worker.py /app/sync_worker.py
 COPY msgraph_worker.py /app/msgraph_worker.py
+COPY tls_context.py /app/tls_context.py
 RUN chmod +x /app/sync_worker.py /app/msgraph_worker.py
 # Create non-root user and setup directory permissions
 RUN groupadd -r syncworker && useradd -r -g syncworker -m -s /bin/false syncworker \
