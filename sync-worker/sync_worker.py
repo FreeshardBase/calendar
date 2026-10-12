@@ -8,7 +8,6 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 os.environ["PYTHONUNBUFFERED"] = "1"
 import sqlite3
-import hashlib
 import time
 import subprocess
 import urllib.request
@@ -635,7 +634,7 @@ status_path = {ini_value(status_dir)}
                     conn.commit()
                     expires_at = new_expires
                     expires_at_ms = new_expires
-                    print(f"[Sync-Worker] Google token refreshed successfully.")
+                    print("[Sync-Worker] Google token refreshed successfully.")
                 except Exception as refresh_err:
                     conn.close()
                     return False, f"Google token refresh failed: {str(refresh_err)}"

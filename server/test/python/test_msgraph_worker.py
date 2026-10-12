@@ -4,7 +4,6 @@ import sqlite3
 import tempfile
 import shutil
 import sys
-import json
 
 SYNC_WORKER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../sync-worker"))
 if SYNC_WORKER_DIR not in sys.path:

@@ -1,0 +1,7 @@
+[lint]
+# E402: workers and their tests extend sys.path before importing sibling modules
+ignore = ["E402"]
+
+[lint.per-file-ignores]
+# the TLS-bypass block around this variable is being rewritten in #335; drop this entry afterwards
+"sync-worker/sync_worker.py" = ["F841"]

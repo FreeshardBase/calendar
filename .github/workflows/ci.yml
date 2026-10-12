@@ -20,7 +20,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
-      - name: Lint (every JS file separately, plus Python compile)
+      - run: pip install -r requirements-dev.txt
+      - name: Lint (syntax of every file, ESLint, ruff)
         run: npm run lint
 
   unit:

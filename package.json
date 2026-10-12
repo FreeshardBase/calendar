@@ -1,7 +1,7 @@
 {
   "name": "freeshard-webcalendar",
   "version": "1.0.0",
-  "description": "FreeShard WebCalendar \u2014 CalDAV web client",
+  "description": "FreeShard WebCalendar — CalDAV web client",
   "license": "FSL-1.1-ALv2",
   "main": "server/index.js",
   "type": "commonjs",
@@ -30,8 +30,11 @@
     "uuid": "^11.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.61.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@stryker-mutator/tap-runner": "^10.0.0"
+    "@stryker-mutator/tap-runner": "^10.0.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0"
   }
 }
