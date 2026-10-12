@@ -3,6 +3,10 @@
 const ICAL = require('ical.js');
 const Db = require('../db');
 const { parseICSToEvent } = require('../caldav/parser');
+const { safeFetch, readTextLimited } = require('./outboundFetch');
+
+// Issue #337: cap for a single ICS feed download.
+const MAX_FEED_BYTES = 10 * 1024 * 1024;
 
 /**
  * Normalizes webcal:// and webcal://http(s):// URLs to standard http/https URLs.
@@ -98,17 +102,18 @@ async function fetchAndParseWebcalFeed(subscription) {
   }
 
   const targetUrl = normalizeWebcalUrl(subscription.url);
-  const response = await fetch(targetUrl, {
+  const response = await safeFetch(targetUrl, {
     headers: {
       'User-Agent': 'FreeShard-WebCalendar/1.0 (Webcal-Subscription-Worker)'
     }
   });
 
   if (!response.ok) {
+    await response.body?.cancel();
     throw new Error(`Failed to fetch webcal feed (HTTP ${response.status})`);
   }
 
-  const icsText = await response.text();
+  const icsText = await readTextLimited(response, MAX_FEED_BYTES);
   const events = parseWebcalFeed(icsText, subscription);
   const now = Math.floor(Date.now() / 1000);
 

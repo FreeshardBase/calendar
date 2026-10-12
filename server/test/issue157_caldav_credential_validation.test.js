@@ -1,6 +1,8 @@
 'use strict';
 
 process.env.NODE_ENV = 'test';
+// #337: the mock CalDAV server stands in for a remote one — allow it explicitly.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1';
 process.env.PORT = '3957';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';

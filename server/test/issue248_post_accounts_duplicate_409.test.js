@@ -1,5 +1,8 @@
 'use strict';
 
+// #337: the mock CalDAV server stands in for a remote one — allow it explicitly.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1';
+
 /**
  * Issue #248 — POST /api/accounts links the same CalDAV server twice,
  * returning 201 where the contract demands 409.

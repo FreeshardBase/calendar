@@ -7,6 +7,7 @@ const {
   normalizeWebcalUrl,
   fetchAndParseWebcalFeed
 } = require('../utils/webcalSubscription');
+const { assertPublicUrl } = require('../utils/outboundFetch');
 
 function getUserId(req) {
   if (req.session && req.session.userId) {
@@ -53,6 +54,8 @@ router.post('/subscriptions', async (req, res, next) => {
     }
 
     const normalizedUrl = normalizeWebcalUrl(url);
+    // Issue #337: never store a subscription that points into the internal network.
+    await assertPublicUrl(normalizedUrl);
 
     const subscription = await Db.createWebcalSubscription({
       userId,
@@ -71,6 +74,9 @@ router.post('/subscriptions', async (req, res, next) => {
     const created = await Db.getWebcalSubscription(subscription.id, userId);
     res.status(201).json(created || subscription);
   } catch (err) {
+    if (err.code === 'OUTBOUND_URL_BLOCKED') {
+      return res.status(400).json({ error: 'Diese Adresse ist nicht erlaubt: interne oder private Netzwerkziele können nicht abonniert werden.' });
+    }
     if (err.message.includes('Unsupported subscription URL protocol') || err.message.includes('Invalid URL format')) {
       return res.status(400).json({ error: err.message });
     }

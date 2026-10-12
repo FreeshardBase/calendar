@@ -1,6 +1,7 @@
 'use strict';
 
 const { dispatcherFor, isInternalUrl } = require('../utils/tlsDispatcher');
+const { assertPublicUrl, getGuardedDispatcher } = require('../utils/outboundFetch');
 
 // Headers that carry credentials and must not follow a redirect to another
 // origin (scheme, host or port) — same rule as browsers / undici (#336).
@@ -22,8 +23,13 @@ function escapeXML(str) {
  * Uses Node.js 20 native fetch — no external HTTP dependency.
  */
 class CalDAVClient {
-  constructor({ url, username, password, authType = 'basic', accessToken }) {
+  /**
+   * guardOutbound: the URL is user-supplied (account linking) — every request
+   * and redirect hop must target a public address (#337).
+   */
+  constructor({ url, username, password, authType = 'basic', accessToken, guardOutbound = false }) {
     this.baseUrl = url.replace(/\/+$/, '');
+    this.guardOutbound = guardOutbound;
     this.username = username;
     this.password = password; // refresh_token for oauth2
     this.authType = authType;
@@ -61,10 +67,16 @@ class CalDAVClient {
     const maxRedirects = 5;
     // The TLS exception for the internal Radicale host only applies when the
     // caller targeted it directly; a redirect must not opt into it (#336).
-    const allowInternalDispatcher = isInternalUrl(url);
+    const allowInternalDispatcher = !this.guardOutbound && isInternalUrl(url);
 
     for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
-      const dispatcher = allowInternalDispatcher ? dispatcherFor(currentUrl) : undefined;
+      let dispatcher;
+      if (this.guardOutbound) {
+        await assertPublicUrl(currentUrl);
+        dispatcher = getGuardedDispatcher();
+      } else if (allowInternalDispatcher) {
+        dispatcher = dispatcherFor(currentUrl);
+      }
 
       let res;
       let lastErr;
@@ -89,6 +101,10 @@ class CalDAVClient {
 
           if (NON_RETRIABLE_CODES.has(causeCode) || isAbortOrTimeout) {
             throw err;
+          }
+          // Connect-time DNS check rejected the address (#337).
+          if (causeCode === 'OUTBOUND_URL_BLOCKED') {
+            throw err.cause;
           }
 
           if (err?.cause?.code === 'UND_ERR_SOCKET') {
@@ -308,7 +324,7 @@ class CalDAVClient {
         currentUrl = resObj.url;
       }
     } catch (e) {
-      if (e.message === 'UNAUTHORIZED') throw e;
+      if (e.message === 'UNAUTHORIZED' || e.code === 'OUTBOUND_URL_BLOCKED') throw e;
     }
 
     // Phase 2: Try /.well-known/caldav fallback
@@ -329,7 +345,7 @@ class CalDAVClient {
           }
         }
       } catch (e) {
-        if (e.message === 'UNAUTHORIZED') throw e;
+        if (e.message === 'UNAUTHORIZED' || e.code === 'OUTBOUND_URL_BLOCKED') throw e;
       }
     }
 
