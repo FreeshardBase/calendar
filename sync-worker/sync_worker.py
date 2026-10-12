@@ -16,6 +16,8 @@ import urllib.parse
 import json
 import xml.etree.ElementTree as ET
 import signal
+import shutil
+import tempfile
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -23,6 +25,8 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 # Configuration variables from environment
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 STATUS_ROOT = os.environ.get("STATUS_ROOT", "/data/vdir_status")
+VDIRSYNCER_TIMEOUT_SECONDS = int(os.environ.get("VDIRSYNCER_TIMEOUT_SECONDS", "900"))
+CONFIG_DIR_PREFIX = "vdirsyncer-cfg-"
 
 shutdown_requested = False
 active_job_id = None
@@ -411,6 +415,47 @@ def protect_cross_user_deletions(user_id, conn, accounts):
     except Exception as e:
         print(f"[Sync-Worker] Error in protect_cross_user_deletions: {e}")
 
+class SyncTimeout(Exception):
+    """A vdirsyncer run exceeded VDIRSYNCER_TIMEOUT_SECONDS; the job is marked ERROR without retry."""
+
+
+def ini_value(value):
+    """Serialise a value for the vdirsyncer config (Issue #334).
+
+    vdirsyncer reads the file with RawConfigParser and decodes each value with json.loads.
+    json.dumps(ensure_ascii=True) escapes quotes, backslashes and every control or line-break
+    character, so user-controlled values cannot end the line and inject keys or sections.
+    """
+    return json.dumps(value, ensure_ascii=True)
+
+
+def create_private_config_dir():
+    """Unpredictable per-run directory (mode 0700) for vdirsyncer config and token files."""
+    return tempfile.mkdtemp(prefix=CONFIG_DIR_PREFIX)
+
+
+def write_private_config(config_dir, content):
+    """Write content to a fresh mode-0600 file inside config_dir and return its path."""
+    fd, path = tempfile.mkstemp(suffix=".ini", dir=config_dir)
+    with os.fdopen(fd, "w") as f:
+        f.write(content)
+    return path
+
+
+def run_vdirsyncer(config_path, command, stdin=None):
+    try:
+        return subprocess.run(
+            ["vdirsyncer", "-c", config_path, command],
+            input=stdin,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=VDIRSYNCER_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        raise SyncTimeout(f"vdirsyncer {command} timed out after {VDIRSYNCER_TIMEOUT_SECONDS}s")
+
+
 def sync_basic_caldav_accounts(user_id, conn):
     """Replicate external CalDAV (Basic Auth) accounts into the local Radicale.
 
@@ -435,13 +480,12 @@ def sync_basic_caldav_accounts(user_id, conn):
 
     status_dir = os.path.join(get_status_root(), user_id + "_basic")
     os.makedirs(status_dir, exist_ok=True)
-    config_path = f"/tmp/vdir_basic_{user_id}.ini"
 
-    config_content = f'[general]\nstatus_path = "{status_dir}"\n'
+    config_content = f'[general]\nstatus_path = {ini_value(status_dir)}\n'
 
     # Determine SSL verification for local CalDAV
     cert_path = "/etc/ssl/certs/local/cert.pem"
-    verify_line = f'verify = "{cert_path}"' if os.path.exists(cert_path) else 'verify = false'
+    verify_line = f'verify = {ini_value(cert_path)}' if os.path.exists(cert_path) else 'verify = false'
     local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 
     for idx, acc in enumerate(basic_accounts):
@@ -465,50 +509,40 @@ conflict_resolution = "b wins"
 
 [storage {storage_ext}]
 type = "caldav"
-url = "{external_url}"
-username = "{username}"
-password = "{password}"
+url = {ini_value(external_url)}
+username = {ini_value(username)}
+password = {ini_value(password)}
 
 [storage {storage_loc}]
 type = "caldav"
-url = "{local_url}"
-username = "{user_id}"
-password = "{SYSTEM_SYNC_SECRET}"
+url = {ini_value(local_url)}
+username = {ini_value(user_id)}
+password = {ini_value(SYSTEM_SYNC_SECRET)}
 {verify_line}
 """
 
-    with open(config_path, "w") as f:
-        f.write(config_content)
-
+    config_dir = create_private_config_dir()
     try:
+        config_path = write_private_config(config_dir, config_content)
+
         print(f"[Sync-Worker] Running Basic-CalDAV discover for user {user_id}...")
-        disc_res = subprocess.run(
-            ["vdirsyncer", "-c", config_path, "discover"],
-            input="y\n" * 20,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        disc_res = run_vdirsyncer(config_path, "discover", stdin="y\n" * 20)
         if disc_res.returncode != 0:
             return False, f"vdirsyncer basic discover failed: {disc_res.stderr}"
 
         print(f"[Sync-Worker] Running Basic-CalDAV sync for user {user_id}...")
-        sync_res = subprocess.run(
-            ["vdirsyncer", "-c", config_path, "sync"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        sync_res = run_vdirsyncer(config_path, "sync")
         if sync_res.returncode != 0:
             return False, f"vdirsyncer basic sync failed: {sync_res.stderr}"
 
         print(f"[Sync-Worker] Basic-CalDAV sync completed for user {user_id}.")
         return True, ""
+    except SyncTimeout:
+        raise
     except Exception as run_err:
         return False, f"vdirsyncer basic runner exception: {run_err}"
     finally:
-        if os.path.exists(config_path):
-            os.remove(config_path)
+        shutil.rmtree(config_dir)
 
 
 def sync_user(user_id):
@@ -542,7 +576,11 @@ def sync_user(user_id):
         return True, ""
 
     # Run Basic-CalDAV replication first (independent of OAuth2 path)
-    basic_ok, basic_err = sync_basic_caldav_accounts(user_id, conn)
+    try:
+        basic_ok, basic_err = sync_basic_caldav_accounts(user_id, conn)
+    except SyncTimeout:
+        conn.close()
+        raise
     if not basic_ok:
         conn.close()
         return False, basic_err
@@ -562,17 +600,15 @@ def sync_user(user_id):
     # Protect against cross-user deletions prior to vdirsyncer execution
     protect_cross_user_deletions(user_id, conn, oauth2_accounts)
 
-    config_path = f"/tmp/vdir_{user_id}.ini"
     status_dir = os.path.join(get_status_root(), user_id)
     os.makedirs(status_dir, exist_ok=True)
 
     # We build a vdirsyncer configuration file dynamically
     config_content = f"""[general]
-status_path = "{status_dir}"
+status_path = {ini_value(status_dir)}
 """
 
-    updated_accounts = []
-    
+    config_dir = create_private_config_dir()
     try:
         for idx, acc in enumerate(oauth2_accounts):
             acc_id = acc["id"]
@@ -615,7 +651,7 @@ status_path = "{status_dir}"
 
             # Write the token file for vdirsyncer google_calendar storage (vdirsyncer expects seconds)
             expires_at_sec = (expires_at_ms / 1000.0) if expires_at_ms else (time.time() + 3600)
-            token_file_path = f"/tmp/google_token_{user_id}_{idx}.json"
+            token_file_path = os.path.join(config_dir, f"google_token_{idx}.json")
             token_data = {
                 "access_token": access_token,
                 "refresh_token": refresh_token,
@@ -624,9 +660,8 @@ status_path = "{status_dir}"
                 "expires_at": expires_at_sec
             }
             try:
-                with open(token_file_path, "w") as tf:
+                with os.fdopen(os.open(token_file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as tf:
                     json.dump(token_data, tf)
-                updated_accounts.append(token_file_path)
             except Exception as write_err:
                 conn.close()
                 return False, f"Failed to write Google token file: {str(write_err)}"
@@ -669,14 +704,14 @@ status_path = "{status_dir}"
             if collections_mapped:
                 items = []
                 for item in collections_mapped:
-                    items.append(f'["{item[1]}", "{item[0]}", "{item[1]}"]')
-                collections_toml = f"collections = [{', '.join(items)}]"
+                    items.append([item[1], item[0], item[1]])
+                collections_toml = f"collections = {ini_value(items)}"
             else:
                 collections_toml = 'collections = ["from a"]'
 
             # Determine SSL verification for local CalDAV server
             cert_path = "/etc/ssl/certs/local/cert.pem"
-            verify_line = f'verify = "{cert_path}"' if os.path.exists(cert_path) else 'verify = false'
+            verify_line = f'verify = {ini_value(cert_path)}' if os.path.exists(cert_path) else 'verify = false'
 
             local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 
@@ -689,62 +724,41 @@ conflict_resolution = "b wins"
 
 [storage {storage_google}]
 type = "google_calendar"
-token_file = "{token_file_path}"
-client_id = "{GOOGLE_CLIENT_ID}"
-client_secret = "{GOOGLE_CLIENT_SECRET}"
+token_file = {ini_value(token_file_path)}
+client_id = {ini_value(GOOGLE_CLIENT_ID)}
+client_secret = {ini_value(GOOGLE_CLIENT_SECRET)}
 
 [storage {storage_local}]
 type = "caldav"
-url = "{local_url}"
-username = "{user_id}"
-password = "{SYSTEM_SYNC_SECRET}"
+url = {ini_value(local_url)}
+username = {ini_value(user_id)}
+password = {ini_value(SYSTEM_SYNC_SECRET)}
 {verify_line}
 """
 
         conn.close()
 
-        # Write config file
-        with open(config_path, "w") as f:
-            f.write(config_content)
+        config_path = write_private_config(config_dir, config_content)
 
         # Run vdirsyncer discover and sync
         print(f"[Sync-Worker] Running discover for user {user_id}...")
-        disc_res = subprocess.run(
-            ["vdirsyncer", "-c", config_path, "discover"],
-            input="y\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\ny\n",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        disc_res = run_vdirsyncer(config_path, "discover", stdin="y\n" * 20)
         if disc_res.returncode != 0:
             return False, f"vdirsyncer discover failed: {disc_res.stderr}"
 
         print(f"[Sync-Worker] Running sync for user {user_id}...")
-        sync_res = subprocess.run(
-            ["vdirsyncer", "-c", config_path, "sync"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        sync_res = run_vdirsyncer(config_path, "sync")
         if sync_res.returncode != 0:
             return False, f"vdirsyncer sync failed: {sync_res.stderr}"
 
         print(f"[Sync-Worker] Sync completed successfully for user {user_id}.")
         return True, ""
+    except SyncTimeout:
+        raise
     except Exception as run_err:
         return False, f"vdirsyncer runner exception: {str(run_err)}"
     finally:
-        if os.path.exists(config_path):
-            try:
-                os.remove(config_path)
-            except Exception:
-                pass
-        for tf_path in updated_accounts:
-            if os.path.exists(tf_path):
-                try:
-                    os.remove(tf_path)
-                except Exception:
-                    pass
+        shutil.rmtree(config_dir)
 
 def process_next_job(db_path=None):
     """Fetches and processes one pending sync job safely without stranding in RUNNING."""
@@ -800,8 +814,13 @@ def process_next_job(db_path=None):
     # Safely execute sync_user
     success = False
     error_msg = ""
+    timed_out = False
     try:
         success, error_msg = sync_user(user_id)
+    except SyncTimeout as exc:
+        print(f"[Sync-Worker] Sync for user {user_id} timed out: {exc}")
+        timed_out = True
+        error_msg = str(exc)
     except Exception as exc:
         print(f"[Sync-Worker] Unguarded exception during sync_user({user_id}): {exc}")
         success = False
@@ -821,7 +840,13 @@ def process_next_job(db_path=None):
         else:
             print(f"[Sync-Worker] Job failed: {error_msg}")
             new_attempts = attempts + 1
-            if new_attempts < max_attempts:
+            if timed_out:
+                # A hanging remote would block the queue for the full timeout on every retry.
+                cursor.execute(
+                    "UPDATE sync_queue SET status = 'ERROR', error_message = ?, attempts = ?, retry_state = 'TIMEOUT', next_retry_at = NULL, updated_at = ? WHERE id = ?",
+                    (error_msg, new_attempts, now_ms, job_id)
+                )
+            elif new_attempts < max_attempts:
                 backoff_ms = min(5000 * (2 ** (new_attempts - 1)), 300000)
                 next_retry_at = now_ms + backoff_ms
                 cursor.execute(
