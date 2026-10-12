@@ -37,6 +37,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
+      - name: Install dev tools (a unit test runs npm run lint, which needs ruff)
+        run: pip install -r requirements-dev.txt
       - name: Install worker dependencies (several node tests execute the Python workers)
         run: pip install -r radicale/requirements.txt -r sync-worker/requirements.txt
       - name: Unit tests (per-test timeout so a hang names the culprit)
