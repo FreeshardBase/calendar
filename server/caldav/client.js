@@ -1,6 +1,10 @@
 'use strict';
 
-const { dispatcherFor } = require('../utils/tlsDispatcher');
+const { dispatcherFor, isInternalUrl } = require('../utils/tlsDispatcher');
+
+// Headers that carry credentials and must not follow a redirect to another
+// origin (scheme, host or port) — same rule as browsers / undici (#336).
+const CREDENTIAL_HEADERS = new Set(['authorization', 'cookie', 'proxy-authorization']);
 
 function escapeXML(str) {
   if (str == null) return '';
@@ -33,7 +37,7 @@ class CalDAVClient {
       ? `Bearer ${this.accessToken}`
       : 'Basic ' + Buffer.from(`${this.username}:${this.password}`).toString('base64');
 
-    const reqHeaders = {
+    let reqHeaders = {
       Authorization: authHeader,
       'Accept-Encoding': 'identity',
       ...headers
@@ -55,9 +59,12 @@ class CalDAVClient {
     let currentMethod = method;
     let currentBody = body;
     const maxRedirects = 5;
+    // The TLS exception for the internal Radicale host only applies when the
+    // caller targeted it directly; a redirect must not opt into it (#336).
+    const allowInternalDispatcher = isInternalUrl(url);
 
     for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
-      const dispatcher = dispatcherFor(currentUrl);
+      const dispatcher = allowInternalDispatcher ? dispatcherFor(currentUrl) : undefined;
 
       let res;
       let lastErr;
@@ -100,7 +107,13 @@ class CalDAVClient {
       if ([301, 302, 303, 307, 308].includes(res.status)) {
         const location = res.headers.get('location');
         if (location && redirectCount < maxRedirects) {
-          currentUrl = new URL(location, currentUrl).href;
+          const nextUrl = new URL(location, currentUrl).href;
+          if (new URL(nextUrl).origin !== new URL(currentUrl).origin) {
+            reqHeaders = Object.fromEntries(
+              Object.entries(reqHeaders).filter(([name]) => !CREDENTIAL_HEADERS.has(name.toLowerCase()))
+            );
+          }
+          currentUrl = nextUrl;
           if (res.status === 303) {
             currentMethod = 'GET';
             currentBody = undefined;
