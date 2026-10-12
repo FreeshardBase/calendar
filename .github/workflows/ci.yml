@@ -9,6 +9,7 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,6 +25,7 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,10 +36,12 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
-      - run: npm test
+      - name: Unit tests (per-test timeout so a hang names the culprit)
+        run: NODE_ENV=test node --test --test-concurrency=1 --test-timeout=120000 --test-reporter=spec server/test/*.test.js
 
   python:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +53,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CI: 'true'
       TZ: Europe/Berlin
@@ -84,6 +89,7 @@ jobs:
 
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Build app image (no push)
