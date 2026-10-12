@@ -11,7 +11,15 @@
  * listening server that counts hits, so "rejected" means "never contacted".
  */
 
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue337-'));
+// The DB opens asynchronously on require; remove its directory only at exit.
+process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
 process.env.NODE_ENV = 'production';
+process.env.DATABASE_PATH = path.join(tmpDir, 'issue337.db');
 delete process.env.OUTBOUND_FETCH_ALLOW_HOSTS;
 
 const test    = require('node:test');

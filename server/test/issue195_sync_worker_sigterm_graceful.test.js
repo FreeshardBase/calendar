@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const Db = require('../db');
 const { spawn, execFileSync } = require('child_process');
 const path = require('path');
+const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
 describe('Issue #195 — Sync Worker SIGTERM Signal & Graceful Exit Suite', () => {
   const scriptDir = path.join(__dirname, '../../sync-worker');
@@ -23,7 +24,7 @@ for _ in range(50):
 `;
 
     const child = spawn('python3', ['-c', pyCode], {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
@@ -74,7 +75,7 @@ print(f"RECOVERED:{count}")
 `;
 
     const out = execFileSync('python3', ['-c', pyCode], {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       encoding: 'utf8'
     }).trim();
 
@@ -113,7 +114,7 @@ time.sleep(5)
 `;
 
     const child = spawn('python3', ['-c', pyCode], {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       stdio: ['ignore', 'pipe', 'pipe']
     });
 

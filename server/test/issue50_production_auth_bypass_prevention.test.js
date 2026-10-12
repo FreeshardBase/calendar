@@ -3,6 +3,15 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs');
+
+// Production semantics on an isolated database: the repository's default
+// webcalendar.db is shared with other suites that use other encryption keys (#333).
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue50-'));
+process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
+process.env.DATABASE_PATH = path.join(tmpDir, 'issue50.db');
 
 test('Issue #50: Impersonation via X-Test-User-Id / X-Forwarded-User is strictly blocked in production', async (t) => {
   const origEnv = { ...process.env };

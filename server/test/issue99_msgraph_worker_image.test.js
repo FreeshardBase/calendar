@@ -13,6 +13,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 const path = require('node:path');
 const { execSync } = require('child_process');
 
@@ -82,7 +83,7 @@ test.describe('Issue #99 — sync-worker/msgraph_worker.py Container Packaging &
 
       const out = execSync('python3', {
         input: code,
-        env: { ...process.env, DATABASE_PATH: testDbPath },
+        env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH: testDbPath },
         encoding: 'utf8'
       });
       assert.ok(out.includes('RES:True'), 'sync_user must complete successfully with msgraph_worker imported');

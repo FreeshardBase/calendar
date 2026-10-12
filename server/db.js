@@ -9,6 +9,7 @@ const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = requir
 
 const defaultDbFilename = process.env.NODE_ENV === 'test' ? '../webcalendar.test.db' : '../webcalendar.db';
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, defaultDbFilename);
+const dbExistedAtBoot = fs.existsSync(dbPath);
 const db = new sqlite3.Database(dbPath);
 
 const WEAK_ENCRYPTION_KEYS = new Set([
@@ -49,81 +50,80 @@ function validateEncryptionKey(env = process.env, keyToValidate) {
   return rawKey || 'freeshard-default-encryption-key-do-not-use-in-prod';
 }
 
-function resolveEncryptionKey(env = process.env, targetDbPath = dbPath) {
+// Issue #333: writes fail loudly (losing a freshly minted key means losing every credential
+// encrypted with it) and never replace a key file another process created in the meantime.
+function persistKeyFile(keyFilePath, key, replace = false) {
+  fs.mkdirSync(path.dirname(keyFilePath), { recursive: true });
+  try {
+    fs.writeFileSync(keyFilePath, key, { encoding: 'utf8', mode: 0o600, flag: replace ? 'w' : 'wx' });
+    return key;
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+  }
+  const existing = fs.readFileSync(keyFilePath, 'utf8').trim();
+  if (!existing) throw new Error(`Encryption key file ${keyFilePath} exists but is empty.`);
+  return existing;
+}
+
+/**
+ * Resolves the encryption secret. A key is only generated when no key file and no ENCRYPTION_KEY
+ * exist. If the database file already exists, no key is written here: the returned
+ * `pendingKeyFile` is written by verifyEncryptionKey() only after it proved that the key matches
+ * the database (or, for a generated key, that the database holds no ciphertexts) (#333).
+ */
+function resolveEncryptionKeyState(env = process.env, targetDbPath = dbPath, dbExists = fs.existsSync(targetDbPath)) {
   const keyFilePath = env.ENCRYPTION_KEY_FILE || path.join(path.dirname(targetDbPath), '.encryption_key');
   const rawEnvKey = (env.ENCRYPTION_KEY || env.ENCRYPTION_SECRET || '').trim();
   const repoKeyFile = path.resolve(path.join(__dirname, '../.encryption_key'));
   const isRepoKeyFile = path.resolve(keyFilePath) === repoKeyFile;
+  const mayWriteKeyFile = !isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath);
+  const keyState = (secret, generated, replaceKeyFile = false) => {
+    if (!mayWriteKeyFile || (!generated && !replaceKeyFile && fs.existsSync(keyFilePath))) {
+      return { secret, generated, pendingKeyFile: null, replaceKeyFile: false };
+    }
+    if (dbExists) return { secret, generated, pendingKeyFile: keyFilePath, replaceKeyFile };
+    return { secret: persistKeyFile(keyFilePath, secret, replaceKeyFile), generated, pendingKeyFile: null, replaceKeyFile: false };
+  };
 
   // 1. Check if .encryption_key exists on disk (prioritized for restore preservation)
-  try {
-    if (fs.existsSync(keyFilePath)) {
-      const keyFromFile = fs.readFileSync(keyFilePath, 'utf8').trim();
-      if (keyFromFile) {
-        if (!isWeakEncryptionKey(keyFromFile, env)) {
-          return keyFromFile;
-        }
-        // File holds a weak key:
-        if (rawEnvKey && !isWeakEncryptionKey(rawEnvKey, env)) {
-          if (!isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath)) {
-            try {
-              fs.writeFileSync(keyFilePath, rawEnvKey, { encoding: 'utf8', mode: 0o600 });
-            } catch {}
-          }
-          return rawEnvKey;
-        }
-        // Enforce validation: a file containing default or weak key must NOT bypass production guard!
-        validateEncryptionKey(env, keyFromFile);
+  if (fs.existsSync(keyFilePath)) {
+    const keyFromFile = fs.readFileSync(keyFilePath, 'utf8').trim();
+    if (keyFromFile) {
+      if (!isWeakEncryptionKey(keyFromFile, env)) {
+        return { secret: keyFromFile, generated: false, pendingKeyFile: null, replaceKeyFile: false };
       }
-    }
-  } catch (err) {
-    if (env.NODE_ENV === 'production' || env.NODE_ENV === 'staging') {
-      throw err;
+      // File holds a weak key:
+      if (rawEnvKey && !isWeakEncryptionKey(rawEnvKey, env)) {
+        return keyState(rawEnvKey, false, true);
+      }
+      // Enforce validation: a file containing default or weak key must NOT bypass production guard!
+      validateEncryptionKey(env, keyFromFile);
     }
   }
 
   // 2. Explicit env key takes precedence if specified, but must be validated
   if (rawEnvKey) {
     validateEncryptionKey(env, rawEnvKey);
-    if (!isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath)) {
-      try {
-        if (!fs.existsSync(keyFilePath)) {
-          const keyDir = path.dirname(keyFilePath);
-          if (fs.existsSync(keyDir)) {
-            fs.writeFileSync(keyFilePath, rawEnvKey, { encoding: 'utf8', mode: 0o600 });
-          }
-        }
-      } catch {}
-    }
-    return rawEnvKey;
+    return keyState(rawEnvKey, false);
   }
 
   // 3. In repo-level test runs against the default fixture database, allow test fixture default key
   if (env.NODE_ENV === 'test' && targetDbPath === dbPath && !rawEnvKey) {
-    return 'freeshard-default-encryption-key-do-not-use-in-prod';
+    return { secret: 'freeshard-default-encryption-key-do-not-use-in-prod', generated: false, pendingKeyFile: null, replaceKeyFile: false };
   }
 
   // 4. No explicit env key and no key file: generate 32 random bytes per install
-  const generatedKey = crypto.randomBytes(32).toString('hex');
-  if (!isRepoKeyFile && (env.NODE_ENV !== 'test' || targetDbPath !== dbPath)) {
-    try {
-      const keyDir = path.dirname(keyFilePath);
-      if (keyDir && !fs.existsSync(keyDir)) {
-        fs.mkdirSync(keyDir, { recursive: true });
-      }
-      fs.writeFileSync(keyFilePath, generatedKey, { encoding: 'utf8', mode: 0o600 });
-    } catch (err) {
-      if ((env.NODE_ENV === 'production' || env.NODE_ENV === 'staging') && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true' && env.E2E_TEST !== 'true') {
-        throw new Error('ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.');
-      }
-    }
-  }
-  return generatedKey;
+  return keyState(crypto.randomBytes(32).toString('hex'), true);
+}
+
+function resolveEncryptionKey(env = process.env, targetDbPath = dbPath) {
+  return resolveEncryptionKeyState(env, targetDbPath).secret;
 }
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_SALT = process.env.ENCRYPTION_SALT || 'salt';
-const ENCRYPTION_SECRET = resolveEncryptionKey(process.env, dbPath);
+const ENCRYPTION_KEY_STATE = resolveEncryptionKeyState(process.env, dbPath, dbExistedAtBoot);
+const ENCRYPTION_SECRET = ENCRYPTION_KEY_STATE.secret;
 const ENCRYPTION_KEY = crypto.scryptSync(
   ENCRYPTION_SECRET,
   ENCRYPTION_SALT,
@@ -461,6 +461,15 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_sync_conflicts_user_id ON sync_conflicts(user_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_delegate_permissions_delegate ON delegate_permissions(delegate_user_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_cross_user_deletions_owner ON cross_user_deletions(owner_user_id)`);
+  // #333: one value encrypted with the install's key, checked on every boot.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS encryption_key_check (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      ciphertext TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
   runMigrations(db).catch((err) => {
     console.error('[db] Error running schema migrations:', err);
   });
@@ -484,6 +493,98 @@ function decrypt(encryptedText, ivHex) {
   decrypted += decipher.final('utf8');
   return decrypted;
 }
+
+const KEY_CHECK_PLAINTEXT = 'freeshard-webcalendar-key-check-v1';
+const ENCRYPTED_TOKEN_PATTERN = /^[0-9a-fA-F]{32}:[0-9a-fA-F]+$/;
+
+function decryptsWithKey(keyBytes, cipherHex, ivHex) {
+  try {
+    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, keyBytes, Buffer.from(ivHex, 'hex'));
+    const plain = Buffer.concat([decipher.update(cipherHex, 'hex'), decipher.final()]);
+    return new TextDecoder('utf-8', { fatal: true }).decode(plain);
+  } catch (err) {
+    // Wrong key, corrupted ciphertext or IV: this value does not decrypt.
+    if (/^(ERR_OSSL_|ERR_CRYPTO_INVALID_IV$|ERR_ENCODING_INVALID_ENCODED_DATA$)/.test(err.code)) return null;
+    throw err;
+  }
+}
+
+function dbGet(database, sql, params = []) {
+  return new Promise((resolve, reject) => database.get(sql, params, (err, row) => (err ? reject(err) : resolve(row))));
+}
+
+function dbAll(database, sql, params = []) {
+  return new Promise((resolve, reject) => database.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows))));
+}
+
+function dbRun(database, sql, params = []) {
+  return new Promise((resolve, reject) => database.run(sql, params, (err) => (err ? reject(err) : resolve())));
+}
+
+async function findCiphertexts(database) {
+  const ciphertexts = [];
+  const accounts = await dbAll(database, 'SELECT id, password_encrypted, iv FROM linked_accounts');
+  for (const row of accounts) {
+    ciphertexts.push({ ref: `linked_accounts/${row.id}`, cipherHex: row.password_encrypted, ivHex: row.iv });
+  }
+  const graphAccounts = await dbAll(database, 'SELECT id, access_token, refresh_token FROM msgraph_accounts');
+  for (const row of graphAccounts) {
+    for (const token of [row.refresh_token, row.access_token]) {
+      if (typeof token === 'string' && ENCRYPTED_TOKEN_PATTERN.test(token)) {
+        const [ivHex, cipherHex] = token.split(':');
+        ciphertexts.push({ ref: `msgraph_accounts/${row.id}`, cipherHex, ivHex });
+      }
+    }
+  }
+  return ciphertexts;
+}
+
+/**
+ * Issue #333: refuses to run with a key that does not belong to this database.
+ * - A stored key-check value must decrypt with the configured key.
+ * - A database from before #333 (no key-check) is adopted only if its ciphertexts decrypt.
+ * - A generated key is only accepted (and only then persisted) if the database holds no ciphertexts.
+ */
+async function verifyEncryptionKey(database, keyBytes, keyState) {
+  const missingKeyHint = keyState.generated
+    ? 'No ENCRYPTION_KEY is set and no .encryption_key file was found, so a new key was generated - '
+    : '';
+  const check = await dbGet(database, 'SELECT ciphertext, iv FROM encryption_key_check WHERE id = 1');
+  if (check && decryptsWithKey(keyBytes, check.ciphertext, check.iv) !== KEY_CHECK_PLAINTEXT) {
+    throw new Error(`${missingKeyHint}the configured encryption key cannot decrypt the key-check value of this database. ` +
+      'Restore the original .encryption_key / ENCRYPTION_KEY; refusing to start.');
+  }
+
+  if (!check) {
+    const ciphertexts = await findCiphertexts(database);
+    if (ciphertexts.length > 0 && keyState.generated) {
+      throw new Error(`${missingKeyHint}but the database already holds ${ciphertexts.length} encrypted credential(s). ` +
+        'Restore the original .encryption_key / ENCRYPTION_KEY; refusing to start and not persisting a new encryption key.');
+    }
+    if (ciphertexts.length > 0 && !ciphertexts.some((c) => decryptsWithKey(keyBytes, c.cipherHex, c.ivHex) !== null)) {
+      throw new Error(`The configured encryption key cannot decrypt any of the ${ciphertexts.length} encrypted credential(s) ` +
+        `in this database (e.g. ${ciphertexts[0].ref}). Restore the original .encryption_key / ENCRYPTION_KEY; refusing to start.`);
+    }
+  }
+
+  // The key is proven to belong to this database: only now may it be written to the key file.
+  if (keyState.pendingKeyFile &&
+      persistKeyFile(keyState.pendingKeyFile, keyState.secret, keyState.replaceKeyFile) !== keyState.secret) {
+    throw new Error(`${keyState.pendingKeyFile} was created by another process with a different key; restart to use it.`);
+  }
+
+  if (!check) {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, keyBytes, iv);
+    const ciphertext = cipher.update(KEY_CHECK_PLAINTEXT, 'utf8', 'hex') + cipher.final('hex');
+    await dbRun(database, 'INSERT INTO encryption_key_check (id, ciphertext, iv, created_at) VALUES (1, ?, ?, ?)',
+      [ciphertext, iv.toString('hex'), Date.now()]);
+  }
+}
+
+// Resolves once the configured key is proven to match this database; server/index.js holds
+// every request until then and exits on rejection.
+const ready = verifyEncryptionKey(db, ENCRYPTION_KEY, ENCRYPTION_KEY_STATE);
 
 function encryptToken(token) {
   if (!token || typeof token !== 'string') return token;
@@ -2819,13 +2920,15 @@ const Db = {
     });
   },
 
-  quiesceDatabase(mode = 'TRUNCATE') {
+  async quiesceDatabase(mode = 'TRUNCATE') {
+    const validModes = new Set(['PASSIVE', 'FULL', 'RESTART', 'TRUNCATE']);
+    const normalizedMode = String(mode || 'TRUNCATE').toUpperCase();
+    if (!validModes.has(normalizedMode)) {
+      throw new Error(`Invalid wal_checkpoint mode: ${mode}`);
+    }
+    // A TRUNCATE checkpoint fails with SQLITE_LOCKED while the boot-time key check (#333) still reads.
+    await ready;
     return new Promise((resolve, reject) => {
-      const validModes = new Set(['PASSIVE', 'FULL', 'RESTART', 'TRUNCATE']);
-      const normalizedMode = String(mode || 'TRUNCATE').toUpperCase();
-      if (!validModes.has(normalizedMode)) {
-        return reject(new Error(`Invalid wal_checkpoint mode: ${mode}`));
-      }
       db.get(`PRAGMA wal_checkpoint(${normalizedMode})`, (err, row) => {
         if (err) return reject(err);
         resolve({
@@ -2920,6 +3023,7 @@ Db.dbPath = dbPath;
 module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
 module.exports.resolveEncryptionKey = resolveEncryptionKey;
+module.exports.ready = ready;
 module.exports.withTransaction = Db.withTransaction.bind(Db);
 module.exports.getSchemaVersion = Db.getSchemaVersion;
 module.exports.setSchemaVersion = Db.setSchemaVersion;

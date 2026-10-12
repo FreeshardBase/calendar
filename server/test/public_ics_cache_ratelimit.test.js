@@ -24,13 +24,12 @@ describe('Issue #8 — Public ICS Subscription Caching & Rate-Limiting', () => {
   before(async () => {
     await new Promise(r => setTimeout(r, 200));
     // Note: addCalendarShare auto-generates a token; we seed the test row directly.
+    // Seed the database the app uses (it used to target the repo-root webcalendar.db,
+    // which only existed when another suite had created it first).
     await new Promise((resolve, reject) => {
-      const db = require('sqlite3').verbose();
-      const path = require('path');
-      const d = new db.Database(process.env.DATABASE_PATH || path.join(__dirname, '..', '..', 'webcalendar.db'));
-      d.run("INSERT OR REPLACE INTO calendar_shares (token, calendar_id, label, created_at) VALUES (?, ?, ?, ?)",
+      Db.db.run("INSERT OR REPLACE INTO calendar_shares (token, calendar_id, label, created_at) VALUES (?, ?, ?, ?)",
         [token, 'internal-caldav::/testuser/personal/', 'Test ICS Feed', Date.now()],
-        (err) => { d.close(); err ? reject(err) : resolve(); });
+        (err) => (err ? reject(err) : resolve()));
     });
   });
 

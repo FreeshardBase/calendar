@@ -7,6 +7,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 os.environ["PYTHONUNBUFFERED"] = "1"
+import re
 import sqlite3
 import time
 import subprocess
@@ -140,6 +141,60 @@ def is_weak_encryption_secret(secret, portal_id=None):
         return True
     return False
 
+KEY_CHECK_PLAINTEXT = "freeshard-webcalendar-key-check-v1"
+_ENCRYPTED_TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32}:[0-9a-fA-F]+$")
+
+
+def count_ciphertexts(db_path):
+    """Issue #333: number of values in the database encrypted with the install's key."""
+    if not os.path.exists(db_path):
+        return 0
+    conn = sqlite3.connect(db_path)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        count = 0
+        if "encryption_key_check" in tables:
+            count += conn.execute("SELECT COUNT(*) FROM encryption_key_check").fetchone()[0]
+        if "linked_accounts" in tables:
+            count += conn.execute("SELECT COUNT(*) FROM linked_accounts").fetchone()[0]
+        if "msgraph_accounts" in tables:
+            for access_token, refresh_token in conn.execute("SELECT access_token, refresh_token FROM msgraph_accounts"):
+                count += sum(1 for t in (access_token, refresh_token) if isinstance(t, str) and _ENCRYPTED_TOKEN_RE.match(t))
+        return count
+    finally:
+        conn.close()
+
+
+def _persist_key_file(key_file_path, secret):
+    key_dir = os.path.dirname(key_file_path)
+    if key_dir:
+        os.makedirs(key_dir, exist_ok=True)
+    try:
+        fd = os.open(key_file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Another process (the web app) created the key first; use that one.
+        with open(key_file_path, "r", encoding="utf-8") as f:
+            existing = f.read().strip()
+        if not existing:
+            raise ValueError(f"Encryption key file {key_file_path} exists but is empty.")
+        return existing
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(secret)
+    return secret
+
+
+def _persist_key_file_or_warn(key_file_path, secret, strict):
+    # Outside production (e.g. importing the worker without a /data volume) an unpersistable key
+    # is reported and used for this process only; in production it is fatal.
+    try:
+        return _persist_key_file(key_file_path, secret)
+    except OSError as err:
+        if strict:
+            raise ValueError(f"Cannot persist encryption key to {key_file_path}: {err}") from err
+        print(f"[Sync-Worker] WARNING: encryption key not persisted to {key_file_path}: {err}", file=sys.stderr)
+        return secret
+
+
 def resolve_encryption_secret(env=None, target_db_path=None):
     if env is None:
         env = os.environ
@@ -154,16 +209,12 @@ def resolve_encryption_secret(env=None, target_db_path=None):
     key_file_path = env.get("ENCRYPTION_KEY_FILE") or os.path.join(os.path.dirname(target_db_path), ".encryption_key")
 
     if os.path.exists(key_file_path):
-        try:
-            with open(key_file_path, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if content:
-                    if is_prod_or_staging and not allow_insecure and is_weak_encryption_secret(content, portal_id):
-                        raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
-                    return content
-        except Exception:
-            if is_prod_or_staging and not allow_insecure:
-                raise
+        with open(key_file_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if content:
+            if is_prod_or_staging and not allow_insecure and is_weak_encryption_secret(content, portal_id):
+                raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
+            return content
 
     raw_env_key = env.get("ENCRYPTION_KEY") or env.get("ENCRYPTION_SECRET")
     if env is os.environ and not raw_env_key:
@@ -172,30 +223,39 @@ def resolve_encryption_secret(env=None, target_db_path=None):
         secret = str(raw_env_key).strip()
         if is_prod_or_staging and not allow_insecure and is_weak_encryption_secret(secret, portal_id):
             raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
-        try:
-            if not os.path.exists(key_file_path):
-                key_dir = os.path.dirname(key_file_path)
-                if key_dir and not os.path.exists(key_dir):
-                    os.makedirs(key_dir, exist_ok=True)
-                with open(key_file_path, "w", encoding="utf-8") as f:
-                    f.write(secret)
-        except Exception:
-            pass
+        if not os.path.exists(key_file_path):
+            _persist_key_file_or_warn(key_file_path, secret, is_prod_or_staging and not allow_insecure)
         return secret
 
+    # Issue #333: a new key is only minted on a fresh install, never next to existing ciphertexts.
+    existing = count_ciphertexts(target_db_path)
+    if existing:
+        raise ValueError(
+            f"No ENCRYPTION_KEY and no {key_file_path}, but {target_db_path} holds {existing} encrypted value(s). "
+            "Restore the original encryption key; refusing to generate a new one."
+        )
     import secrets
-    generated_secret = secrets.token_hex(32)
-    try:
-        key_dir = os.path.dirname(key_file_path)
-        if key_dir and not os.path.exists(key_dir):
-            os.makedirs(key_dir, exist_ok=True)
-        with open(key_file_path, "w", encoding="utf-8") as f:
-            f.write(generated_secret)
-    except Exception:
-        if is_prod_or_staging and not allow_insecure:
-            raise ValueError("ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.")
+    return _persist_key_file_or_warn(key_file_path, secrets.token_hex(32), is_prod_or_staging and not allow_insecure)
 
-    return generated_secret
+
+def verify_encryption_key(db_path, key_bytes):
+    """Issue #333: raises if the key-check value written by the web app does not decrypt with key_bytes."""
+    conn = sqlite3.connect(db_path)
+    try:
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'encryption_key_check'"
+        ).fetchone()
+        row = conn.execute("SELECT ciphertext, iv FROM encryption_key_check WHERE id = 1").fetchone() if has_table else None
+    finally:
+        conn.close()
+    if row is None:
+        return
+    try:
+        plain = decrypt(row[0], row[1], key_bytes)
+    except (ValueError, UnicodeDecodeError) as err:
+        raise ValueError(f"The configured encryption key cannot decrypt the key-check value of {db_path}: {err}") from err
+    if plain != KEY_CHECK_PLAINTEXT:
+        raise ValueError(f"The configured encryption key cannot decrypt the key-check value of {db_path}.")
 
 ENCRYPTION_SECRET = resolve_encryption_secret()
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
@@ -876,6 +936,9 @@ def main():
 
     if shutdown_requested:
         return
+
+    # Issue #333: never sync with a key that does not belong to this database.
+    verify_encryption_key(DB_PATH, KEY_BYTES)
 
     # Recover any stranded jobs left over from previous unclean process termination/SIGKILL
     recover_stranded_jobs(DB_PATH)
