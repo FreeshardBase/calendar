@@ -1,5 +1,7 @@
 'use strict';
 process.env.NODE_ENV = 'test';
+// #337: the local feed servers stand in for remote ones — allow them explicitly.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1,localhost';
 process.env.PORT = '3288';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';

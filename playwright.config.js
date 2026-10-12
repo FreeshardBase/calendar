@@ -21,7 +21,7 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: 'PORT=3098 NODE_ENV=production SESSION_SECRET="e2e-playwright-test-session-secret-key-32bytes!" ENCRYPTION_KEY="e2e-playwright-encryption-key-32bytes!" E2E_TEST=true INTERNAL_CALDAV_URL="https://localhost:5232" NODE_TLS_REJECT_UNAUTHORIZED="0" UNDICI_NO_AUTO_SELECT_FAMILY="1" SSL_KEY_PATH="" SSL_CERT_PATH="" SYSTEM_SYNC_SECRET="super-secret-bypass" node server/index.js',
+    command: 'PORT=3098 NODE_ENV=production SESSION_SECRET="e2e-playwright-test-session-secret-key-32bytes!" ENCRYPTION_KEY="e2e-playwright-encryption-key-32bytes!" E2E_TEST=true INTERNAL_CALDAV_URL="https://localhost:5232" NODE_TLS_REJECT_UNAUTHORIZED="0" UNDICI_NO_AUTO_SELECT_FAMILY="1" SSL_KEY_PATH="" SSL_CERT_PATH="" SYSTEM_SYNC_SECRET="super-secret-bypass" OUTBOUND_FETCH_ALLOW_HOSTS="127.0.0.1" node server/index.js',
     url: 'http://localhost:3098',
     reuseExistingServer: !process.env.CI,
     stdout: 'ignore',

@@ -17,6 +17,8 @@ const accountsRouter = require('../routes/accounts');
 const CalDAVClient   = require('../caldav/client');
 
 const VALID_URL = 'https://caldav.example.com/dav/';
+// #337: discovery is stubbed; skip the DNS check for the placeholder host.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = 'caldav.example.com';
 
 function listen() {
   const app = express();

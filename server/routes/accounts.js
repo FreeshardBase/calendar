@@ -5,6 +5,9 @@ const router = express.Router();
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { getPresets, resolvePreset, resolveCalDAVUrl } = require('../utils/caldavPresets');
+const { assertPublicUrl } = require('../utils/outboundFetch');
+
+const BLOCKED_TARGET_ERROR = 'Diese Adresse ist nicht erlaubt: interne oder private Netzwerkziele können nicht verknüpft werden.';
 
 // Issue #334: url and username end up in the sync-worker's vdirsyncer config.
 // Control characters (newlines in particular) are never legitimate there.
@@ -69,12 +72,25 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Ungültige URL: nur http(s) ohne Steuerzeichen erlaubt.' });
   }
 
-  const client = new CalDAVClient({ url: targetUrl, username, password });
+  // Issue #337: no server-side probe of internal/private targets (SSRF, port scan).
+  try {
+    await assertPublicUrl(targetUrl);
+  } catch (e) {
+    if (e.code === 'OUTBOUND_URL_BLOCKED') {
+      return res.status(400).json({ error: BLOCKED_TARGET_ERROR });
+    }
+    return res.status(502).json({ error: 'Verbindung fehlgeschlagen. Bitte prüfe URL und Netzwerkverbindung.' });
+  }
+
+  const client = new CalDAVClient({ url: targetUrl, username, password, guardOutbound: true });
 
   let discoveredUrl = targetUrl;
   try {
     discoveredUrl = await client.discover();
   } catch (e) {
+    if (e.code === 'OUTBOUND_URL_BLOCKED') {
+      return res.status(400).json({ error: BLOCKED_TARGET_ERROR });
+    }
     if (e.message === 'UNAUTHORIZED') {
       return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
     }
@@ -94,6 +110,9 @@ router.post('/', async (req, res) => {
   try {
     await client.testConnection();
   } catch (e) {
+    if (e.code === 'OUTBOUND_URL_BLOCKED') {
+      return res.status(400).json({ error: BLOCKED_TARGET_ERROR });
+    }
     return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
   }
 
