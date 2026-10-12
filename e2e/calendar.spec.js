@@ -416,40 +416,76 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Open share dialog for the first calendar
     const shareBtn = firstCalItem.locator('[data-share-cal]');
+    const linkLoaded = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'GET');
     await shareBtn.click();
     await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
+    const initialLink = await (await linkLoaded).json();
 
     const publicEnableCheckbox = page.locator('#public-link-enable');
     const publicArea = page.locator('#public-link-area');
     const publicInput = page.locator('#public-link-input');
 
-    // 1. Enable public link if not already enabled
-    const isChecked = await publicEnableCheckbox.isChecked();
-    if (!isChecked) {
+    // 1. Enable a fresh public link (a leftover link from an earlier run is disabled first).
+    // Wait until the dialog shows the loaded state, otherwise the leftover URL is read before its DELETE lands.
+    await expect(publicEnableCheckbox).toBeChecked({ checked: initialLink.enabled, timeout: 10000 });
+    if (initialLink.enabled) {
+      const disabled = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'DELETE');
       await publicEnableCheckbox.click();
+      expect((await disabled).status()).toBe(200);
+      await expect(publicArea).toHaveClass(/hidden/, { timeout: 10000 });
     }
+    const enabled = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'POST');
+    await publicEnableCheckbox.click();
+    const enabledLink = await (await enabled).json();
     await expect(publicArea).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(publicInput).toHaveValue(enabledLink.url);
 
     // 2. Extract public ICS share URL
     const publicUrl = await publicInput.inputValue();
     expect(publicUrl).toContain('/api/public/calendars/share/');
     expect(publicUrl).toContain('.ics');
 
-    // 3. Fetch ICS feed via HTTP GET and verify contents
+    // 3. Issue #341: the feed defaults to free/busy — the event blocks its slot but its title stays private
+    const publicDetail = page.locator('#public-link-detail');
+    await expect(publicDetail).toBeVisible();
+    await expect(publicDetail).toHaveValue('busy');
+    const busyResponse = await request.get(publicUrl);
+    expect(busyResponse.status()).toBe(200);
+    expect(busyResponse.headers()['content-type']).toContain('text/calendar');
+    const busyText = await busyResponse.text();
+    expect(busyText).toContain('BEGIN:VCALENDAR');
+    expect(busyText).toContain('DTSTART;VALUE=DATE:20280615');
+    expect(busyText).not.toContain(shareEventTitle);
+
+    // Switching the dialog to "full details" publishes titles on the same link
+    const detailSaved = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'PUT');
+    await publicDetail.selectOption('full');
+    expect((await detailSaved).status()).toBe(200);
     const icsResponse = await request.get(publicUrl);
     expect(icsResponse.status()).toBe(200);
-    expect(icsResponse.headers()['content-type']).toContain('text/calendar');
     const icsText = await icsResponse.text();
-    expect(icsText).toContain('BEGIN:VCALENDAR');
     expect(icsText).toContain('BEGIN:VEVENT');
     expect(icsText).toContain(shareEventTitle);
     expect(icsText).toContain('END:VCALENDAR');
 
+    // Reopening the dialog shows the stored level
+    await page.click('#share-cal-close');
+    const linkReloaded = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'GET');
+    await shareBtn.click();
+    await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
+    await linkReloaded;
+    await expect(publicDetail).toHaveValue('full');
+    // Each status load re-encrypts the token, so the reopened URL is the baseline for regeneration
+    const reopenedUrl = await publicInput.inputValue();
+    expect((await request.get(reopenedUrl)).status()).toBe(200);
+
     // 4. Regenerate link
+    const regenerated = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'POST');
     page.once('dialog', async dialog => {
       await dialog.accept();
     });
     await page.click('#public-link-regen-btn');
+    expect((await regenerated).status()).toBe(200);
 
     // Wait for public input to update to new URL
     await page.waitForFunction(
@@ -457,7 +493,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         const input = document.querySelector('#public-link-input');
         return input && input.value && input.value !== oldUrl;
       },
-      publicUrl,
+      reopenedUrl,
       { timeout: 10000 }
     );
 
@@ -465,9 +501,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(newPublicUrl).not.toBe(publicUrl);
     expect(newPublicUrl).toContain('/api/public/calendars/share/');
 
-    // 5. Verify regenerated link fetches valid ICS
+    // 5. Verify regenerated link fetches valid ICS (and keeps the chosen detail level); the old one is dead
     const newIcsRes = await request.get(newPublicUrl);
     expect(newIcsRes.status()).toBe(200);
+    expect(await newIcsRes.text()).toContain(shareEventTitle);
+    expect((await request.get(reopenedUrl)).status()).toBe(404);
 
     // 6. Disable/revoke public link
     await publicEnableCheckbox.click();

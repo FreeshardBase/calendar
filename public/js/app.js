@@ -1011,6 +1011,13 @@ function openShareCalendarDialog(cal) {
               </svg>
             </button>
           </div>
+          <div class="form-group hidden" id="public-link-detail-group" style="margin-top: var(--sp-2);">
+            <label class="form-label" for="public-link-detail">Sichtbare Details</label>
+            <select class="form-input" id="public-link-detail">
+              <option value="busy">Nur frei/belegt</option>
+              <option value="full">Alle Details (ohne private Termine und Teilnehmende)</option>
+            </select>
+          </div>
         </div>
 
       </div>
@@ -1027,6 +1034,8 @@ function openShareCalendarDialog(cal) {
   const publicInput  = backdrop.querySelector('#public-link-input');
   const publicCopy   = backdrop.querySelector('#public-link-copy-btn');
   const publicRegen  = backdrop.querySelector('#public-link-regen-btn');
+  const publicDetailGroup = backdrop.querySelector('#public-link-detail-group');
+  const publicDetail = backdrop.querySelector('#public-link-detail');
 
   if (!isOAuth) {
     const searchInput = backdrop.querySelector('#share-search-input');
@@ -1249,6 +1258,7 @@ function openShareCalendarDialog(cal) {
   }
 
   let publicLinkSeq = 0;
+  let savedPublicDetail = 'busy';
 
   async function loadPublicLink() {
     const seq = ++publicLinkSeq;
@@ -1258,10 +1268,13 @@ function openShareCalendarDialog(cal) {
       if (data.enabled) {
         publicEnable.checked = true;
         publicArea.classList.remove('hidden');
+        publicDetailGroup.classList.remove('hidden');
         publicInput.value = data.url;
+        publicDetail.value = savedPublicDetail = data.detail;
       } else {
         publicEnable.checked = false;
         publicArea.classList.add('hidden');
+        publicDetailGroup.classList.add('hidden');
         publicInput.value = '';
       }
     } catch (e) {
@@ -1278,12 +1291,15 @@ function openShareCalendarDialog(cal) {
         const data = await CalendarsAPI.enablePublicLink(cal.id);
         if (seq !== publicLinkSeq) return;
         publicArea.classList.remove('hidden');
+        publicDetailGroup.classList.remove('hidden');
         publicInput.value = data.url;
+        publicDetail.value = savedPublicDetail = data.detail;
         showToast('Öffentlicher Link aktiviert.', 'success');
       } else {
         await CalendarsAPI.disablePublicLink(cal.id);
         if (seq !== publicLinkSeq) return;
         publicArea.classList.add('hidden');
+        publicDetailGroup.classList.add('hidden');
         publicInput.value = '';
         showToast('Öffentlicher Link deaktiviert.', 'info');
       }
@@ -1291,6 +1307,21 @@ function openShareCalendarDialog(cal) {
       if (seq !== publicLinkSeq) return;
       showToast('Änderung fehlgeschlagen: ' + e.message, 'error');
       publicEnable.checked = !targetState;
+    }
+  });
+
+  publicDetail.addEventListener('change', async () => {
+    const seq = ++publicLinkSeq;
+    const detail = publicDetail.value;
+    try {
+      await CalendarsAPI.setPublicLinkDetail(cal.id, detail);
+      savedPublicDetail = detail;
+      if (seq !== publicLinkSeq) return;
+      showToast(detail === 'full' ? 'Abonnement zeigt jetzt alle Details.' : 'Abonnement zeigt jetzt nur frei/belegt.', 'success');
+    } catch (e) {
+      if (seq !== publicLinkSeq) return;
+      showToast('Änderung fehlgeschlagen: ' + e.message, 'error');
+      publicDetail.value = savedPublicDetail;
     }
   });
 
