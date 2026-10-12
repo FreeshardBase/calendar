@@ -15,6 +15,9 @@ const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendar
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
 const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
+const { sanitizePublicIcs, isValidDetail, DEFAULT_DETAIL } = require('../utils/publicIcs');
+
+const SHARE_NS = 'http://freeshard.de/ns/';
 
 function slugify(name) {
   if (!name) return '';
@@ -90,6 +93,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
 
     let payload = null;
     let isDbShare = false;
+    let detail = DEFAULT_DETAIL;
 
     // 1. Try DB-based share lookup
     try {
@@ -111,6 +115,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
               authType: account.authType
             };
             isDbShare = true;
+            detail = shareRecord.detail;
           }
         }
       }
@@ -163,7 +168,11 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
         await Db.deleteIcsCache(token).catch(() => {});
         return res.status(404).json({ error: 'Diese öffentliche Kalenderfreigabe wurde deaktiviert oder neu erstellt.' });
       }
+      detail = (await client.getCustomProperty(payload.url, SHARE_NS, 'public-share-detail')) || DEFAULT_DETAIL;
     }
+
+    // The cache holds the raw collection; the share's detail level is applied
+    // on every response so a level change takes effect immediately (#341).
 
     // ── Cache-first serve (after authorization verification) ────────────────
     try {
@@ -173,13 +182,14 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
         res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
         res.setHeader('X-Cache', 'HIT');
-        return res.send(cached.body);
+        return res.send(sanitizePublicIcs(cached.body, detail));
       }
     } catch (cacheErr) {
       console.warn('[ICS cache read error]', cacheErr.message);
     }
 
     const ics = await fetchCalendarICS(client, payload.url);
+    const publicIcs = sanitizePublicIcs(ics, detail);
 
     // ── Populate cache + record fetch ───────────────────────────────────────
     try {
@@ -196,10 +206,10 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"`);
     res.setHeader('X-Cache', 'MISS');
-    res.send(ics);
+    res.send(publicIcs);
   } catch (err) {
     console.error('[Public Share Export Error]', err.message);
-    res.status(500).json({ error: sanitizeErrorMessage(err, 'Fehler beim Erstellen des Kalenderexports.') });
+    res.status(err.status || 500).json({ error: sanitizeErrorMessage(err, 'Fehler beim Erstellen des Kalenderexports.') });
   }
 });
 
@@ -207,6 +217,8 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
  * Fetch a whole calendar collection as one ICS document. Tries a collection
  * GET first (Radicale native, Nextcloud via ?export), falls back to a
  * calendar-query REPORT re-assembled from the raw event payloads.
+ * Throws (status 502) when both fail — an empty calendar would make
+ * subscribers delete every event (#341).
  */
 async function fetchCalendarICS(client, calendarUrl) {
   const exportUrl = calendarUrl.endsWith('/') ? (calendarUrl + '?export') : (calendarUrl + '/?export');
@@ -241,7 +253,9 @@ CALSCALE:GREGORIAN\r\n`;
     return ics;
   } catch (err) {
     console.error('[fetchCalendarICS fallback error]', err.message);
-    return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`;
+    const failure = new Error(`Calendar backend unavailable: ${err.message}`);
+    failure.status = 502;
+    throw failure;
   }
 }
 
@@ -719,26 +733,18 @@ router.get('/:id/export', async (req, res) => {
     }
 
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
-    const slug = calendarUrl ? (new URL(calendarUrl).pathname.split('/').filter(Boolean).pop() || 'calendar') : 'calendar';
+    if (!client) return res.status(404).json({ error: 'Account not found' });
+    const slug = new URL(calendarUrl).pathname.split('/').filter(Boolean).pop() || 'calendar';
+
+    // A backend failure must not download as an empty calendar (#341).
+    const ics = await fetchCalendarICS(client, calendarUrl);
 
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${slug}.ics"`);
-
-    if (!client) {
-      return res.send(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
-    }
-
-    try {
-      const ics = await fetchCalendarICS(client, calendarUrl);
-      res.send(ics || `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
-    } catch (e) {
-      res.send(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
-    }
+    res.send(ics);
   } catch (err) {
     console.error('[calendars export]', err.message);
-    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
-    res.send(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FreeShard WebCalendar//EN\r\nEND:VCALENDAR\r\n`);
+    res.status(err.status || 500).json({ error: sanitizeErrorMessage(err, 'Fehler beim Exportieren des Kalenders.') });
   }
 });
 
@@ -1192,9 +1198,11 @@ router.get('/:id/public-link', async (req, res) => {
       authType: account.authType
     });
 
+    const detail = (await client.getCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail')) || DEFAULT_DETAIL;
     res.json({
       enabled: true,
-      url: getPublicShareUrl(req, token)
+      url: getPublicShareUrl(req, token),
+      detail
     });
   } catch (err) {
     console.error('[public-link GET]', err.message);
@@ -1226,9 +1234,11 @@ router.post('/:id/public-link', async (req, res) => {
       authType: account.authType
     });
 
+    const detail = (await client.getCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail')) || DEFAULT_DETAIL;
     res.json({
       enabled: true,
-      url: getPublicShareUrl(req, token)
+      url: getPublicShareUrl(req, token),
+      detail
     });
   } catch (err) {
     console.error('[public-link POST]', err.message);
@@ -1249,9 +1259,36 @@ router.delete('/:id/public-link', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     await client.setCustomProperty(calendarUrl, 'http://freeshard.de/ns/', 'public-share-token', null);
+    await client.setCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail', null);
     res.json({ enabled: false, message: 'Public share link disabled.' });
   } catch (err) {
     console.error('[public-link DELETE]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/calendars/:id/public-link — set the detail level ('busy' | 'full') of the public link
+router.put('/:id/public-link', async (req, res) => {
+  try {
+    const calendarId = decodeURIComponent(req.params.id);
+    const access = await checkCalendarAccess(req, calendarId, 'owner');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const { detail } = req.body || {};
+    if (!isValidDetail(detail)) {
+      return res.status(400).json({ error: 'Ungültige Detailstufe.' });
+    }
+
+    const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+    if (!client) return res.status(404).json({ error: 'Account not found' });
+
+    const saved = await client.setCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail', detail);
+    if (!saved) throw new Error('Detailstufe konnte nicht gespeichert werden.');
+    res.json({ detail });
+  } catch (err) {
+    console.error('[public-link PUT]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1272,6 +1309,7 @@ router.get('/:id/shares-public', async (req, res) => {
       token: s.token,
       label: s.label,
       createdAt: s.createdAt,
+      detail: s.detail,
       url: getPublicShareUrl(req, s.token)
     })));
   } catch (err) {
@@ -1288,15 +1326,19 @@ router.post('/:id/shares-public', async (req, res) => {
       return res.status(access.status || 403).json({ error: access.reason });
     }
 
-    const { label } = req.body;
+    const { label, detail = DEFAULT_DETAIL } = req.body;
     if (!label || !label.trim()) {
       return res.status(400).json({ error: 'Bezeichnung ist erforderlich.' });
     }
-    const share = await Db.addCalendarShare(calendarId, label.trim());
+    if (!isValidDetail(detail)) {
+      return res.status(400).json({ error: 'Ungültige Detailstufe.' });
+    }
+    const share = await Db.addCalendarShare(calendarId, label.trim(), detail);
     res.status(201).json({
       token: share.token,
       label: share.label,
       createdAt: share.createdAt,
+      detail: share.detail,
       url: getPublicShareUrl(req, share.token)
     });
   } catch (err) {

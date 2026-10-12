@@ -178,9 +178,14 @@ db.serialize(() => {
       token TEXT PRIMARY KEY,
       calendar_id TEXT NOT NULL,
       label TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      detail TEXT NOT NULL DEFAULT 'busy'
     )
   `);
+  // #341: per-share detail level ('busy' | 'full'); existing shares become free/busy.
+  db.run(`ALTER TABLE calendar_shares ADD COLUMN detail TEXT NOT NULL DEFAULT 'busy'`, (err) => {
+    if (err && !/duplicate column name/i.test(err.message)) throw err;
+  });
   db.run(`
     CREATE TABLE IF NOT EXISTS sync_queue (
       id TEXT PRIMARY KEY,
@@ -1048,31 +1053,32 @@ const Db = {
   getCalendarShares(calendarId) {
     return new Promise((resolve, reject) => {
       db.all(
-        'SELECT token, label, created_at FROM calendar_shares WHERE calendar_id = ? ORDER BY created_at DESC',
+        'SELECT token, label, created_at, detail FROM calendar_shares WHERE calendar_id = ? ORDER BY created_at DESC',
         [calendarId],
         (err, rows) => {
           if (err) return reject(err);
           resolve(rows.map(r => ({
             token: r.token,
             label: r.label,
-            createdAt: r.created_at
+            createdAt: r.created_at,
+            detail: r.detail
           })));
         }
       );
     });
   },
 
-  addCalendarShare(calendarId, label) {
+  addCalendarShare(calendarId, label, detail = 'busy') {
     return new Promise((resolve, reject) => {
       const token = crypto.randomBytes(24).toString('hex'); // unique random path token
       const now = Date.now();
 
       db.run(
-        'INSERT INTO calendar_shares (token, calendar_id, label, created_at) VALUES (?, ?, ?, ?)',
-        [token, calendarId, label, now],
+        'INSERT INTO calendar_shares (token, calendar_id, label, created_at, detail) VALUES (?, ?, ?, ?, ?)',
+        [token, calendarId, label, now, detail],
         (err) => {
           if (err) return reject(err);
-          resolve({ token, calendarId, label, createdAt: now });
+          resolve({ token, calendarId, label, createdAt: now, detail });
         }
       );
     });

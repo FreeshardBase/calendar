@@ -69,6 +69,7 @@ export const CalendarsAPI = {
   getPublicLink: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/public-link`),
   enablePublicLink: (id) => request('POST', `/api/calendars/${encodeURIComponent(id)}/public-link`),
   disablePublicLink: (id) => request('DELETE', `/api/calendars/${encodeURIComponent(id)}/public-link`),
+  setPublicLinkDetail: (id, detail) => request('PUT', `/api/calendars/${encodeURIComponent(id)}/public-link`, { detail }),
   importICS: (id, ics, resolutions, defaultStrategy) => request('POST', `/api/calendars/${encodeURIComponent(id)}/import`, { ics, resolutions, defaultStrategy }),
   detectICSConflicts: (id, ics) => request('POST', `/api/calendars/${encodeURIComponent(id)}/import/detect`, { ics }),
   exportUrl: (id) => `/api/calendars/${encodeURIComponent(id)}/export`,

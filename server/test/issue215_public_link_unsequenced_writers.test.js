@@ -77,6 +77,12 @@ test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Respo
     const mockPublicRegen = {
       addEventListener(evt, fn) { this._handler = fn; }
     };
+    // #341: detail-level selector shown alongside the link
+    const mockPublicDetail = {
+      value: 'busy',
+      addEventListener(evt, fn) { this._handler = fn; }
+    };
+    const mockPublicDetailGroup = { classList: { remove() {}, add() {} } };
 
     // Extract the public link handling logic inside openShareDialog from app.js
     const shareDialogSectionMatch = appJsContent.match(/let\s+publicLinkSeq[\s\S]*?loadPublicLink\(\);/);
@@ -99,6 +105,8 @@ test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Respo
       'publicInput',
       'publicCopy',
       'publicRegen',
+      'publicDetail',
+      'publicDetailGroup',
       'CalendarsAPI',
       'showToast',
       'cal',
@@ -114,6 +122,8 @@ test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Respo
       mockPublicInput,
       mockPublicCopy,
       mockPublicRegen,
+      mockPublicDetail,
+      mockPublicDetailGroup,
       mockCalendarsAPI,
       mockShowToast,
       { id: 'cal-123' }
@@ -125,7 +135,7 @@ test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Respo
     const enablePromise = instance.fireEnableChange();
 
     // 3. Request 2 (enablePublicLink) resolves FIRST with new live link
-    enablePublicLinkResolver({ enabled: true, url: 'http://example.com/live-share.ics' });
+    enablePublicLinkResolver({ enabled: true, url: 'http://example.com/live-share.ics', detail: 'busy' });
     await enablePromise;
 
     assert.equal(mockPublicEnableChecked, true, 'publicEnable.checked should be true after enable resolution');
