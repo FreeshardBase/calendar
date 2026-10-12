@@ -36,8 +36,16 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
+      - name: Install worker dependencies (several node tests execute the Python workers)
+        run: pip install -r radicale/requirements.txt -r sync-worker/requirements.txt
+      # Tests that read ../app-repository (a sibling repo that is not checked out here) cannot
+      # run in this job; they are listed explicitly instead of failing or silently skipping.
       - name: Unit tests (per-test timeout so a hang names the culprit)
-        run: NODE_ENV=test node --test --test-concurrency=1 --test-timeout=120000 --test-reporter=spec server/test/*.test.js
+        run: |
+          EXCLUDED=$(grep -l 'app-repository' server/test/*.test.js || true)
+          echo "Excluded (need sibling app-repository checkout, tracked in #332):"; echo "$EXCLUDED"
+          FILES=$(ls server/test/*.test.js | grep -vxF "$EXCLUDED" || true)
+          NODE_ENV=test node --test --test-concurrency=1 --test-timeout=120000 --test-reporter=spec $FILES
 
   python:
     runs-on: ubuntu-latest
