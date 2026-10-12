@@ -59,3 +59,24 @@ point at a real server.
 
 All configuration is via environment variables — see [`.env.example`](.env.example)
 for the full annotated list.
+
+### Credential encryption key
+
+Linked-account passwords and Google / Microsoft tokens are encrypted with the install's
+key: `ENCRYPTION_KEY`, persisted to `.encryption_key` next to the database
+(or `ENCRYPTION_KEY_FILE`). The file wins over the environment variable.
+
+- **Fresh install only:** a key is generated only when neither the variable nor the file
+  exists *and* the database holds no encrypted values.
+- **Key check:** the database stores one value encrypted with the key
+  (`encryption_key_check`). If the configured key cannot decrypt it, the web app and the
+  sync worker refuse to start instead of producing unreadable credentials. Databases from
+  before this check adopt it on the first boot whose key decrypts their credentials.
+- **Backups** must contain `webcalendar.db` *and* `.encryption_key` (or the
+  `ENCRYPTION_KEY` value). A database restored without its key cannot be used. Restore the
+  key and the service starts again.
+- **Rotation:** there is no re-encryption tool yet. To replace a key, stop all services,
+  delete the rows of `linked_accounts`, `msgraph_accounts` and `encryption_key_check`,
+  remove `.encryption_key`, set the new `ENCRYPTION_KEY`, start, and re-link the accounts.
+  The `.encryption_key` committed in `23ec28d` (untracked again in `03044ac`) is still
+  in the git history. Treat it as public and never reuse it for a real install.

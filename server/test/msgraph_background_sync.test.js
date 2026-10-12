@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const Db = require('../db');
 const { execSync } = require('child_process');
 const path = require('path');
+const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
 test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) => {
   const { app, server } = require('../index');
@@ -96,7 +97,7 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
     const pyCmd = `python3 -c "import sys, os, sqlite3; sys.path.insert(0, '${scriptDir}'); from sync_worker import sync_user; conn = sqlite3.connect('${dbPath}'); conn.row_factory = sqlite3.Row; res, err = sync_user('py-msgraph-user'); print(f'SUCCESS:{res},ERR:{err}')"`;
 
     const out = execSync(pyCmd, {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       encoding: 'utf8'
     });
 

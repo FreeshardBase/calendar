@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
+const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 const { execFileSync } = require('child_process');
 const Db = require('../db');
 
@@ -170,7 +171,7 @@ auth = Auth({})
 print(auth._login('${login}', '${pw}'))
 `;
     return execFileSync('python3', ['-c', pyScript], {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       encoding: 'utf8'
     }).trim();
   };

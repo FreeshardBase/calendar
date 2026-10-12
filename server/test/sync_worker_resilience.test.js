@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const Db = require('../db');
 const { execFileSync } = require('child_process');
 const path = require('path');
+const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
 describe('Issue #62 — Sync Worker Exception Guard & Expiration Mismatch Suite', () => {
   const scriptDir = path.join(__dirname, '../../sync-worker');
@@ -35,7 +36,7 @@ print(f"PY_RES:{res}, NOW:{int(time.time()*1000)}")
 `;
 
     execFileSync('python3', ['-c', pyCode], {
-      env: { ...process.env, DATABASE_PATH: targetDbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:targetDbPath },
       encoding: 'utf8'
     });
 
@@ -73,7 +74,7 @@ print(f"TOK:{token},EXP:{expires_at},NOW:{now_ms}")
 `;
 
     const out = execFileSync('python3', ['-c', pyCode], {
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       encoding: 'utf8'
     }).trim();
 

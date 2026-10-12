@@ -80,7 +80,17 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', getTrustProxySetting());
 
+// Issue #333: never run with an encryption key that does not belong to the database.
+Db.ready.catch((err) => {
+  console.error(`[startup] ${err.message}`);
+  process.exit(1);
+});
+
 // ── Middleware ────────────────────────────────────────────────────────────────
+// No request is served before the encryption key has been verified against the database.
+app.use((req, res, next) => {
+  Db.ready.then(() => next(), next);
+});
 app.use(compression());
 app.use(securityHeaders);
 app.use(session(getSessionConfig()));

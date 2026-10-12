@@ -25,8 +25,15 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 
 const ROOT = path.join(__dirname, '../..');
+
+// Production semantics on an isolated database: the repository's default
+// webcalendar.db is shared with other suites that use other encryption keys (#333).
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue59-'));
+process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
+process.env.DATABASE_PATH = path.join(tmpDir, 'issue59.db');
 
 test('Issue #59: server/index.js wires createRequireInternalMiddleware and has no local requireInternal bypass', () => {
   const indexSrc = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
