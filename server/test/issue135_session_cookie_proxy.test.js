@@ -12,7 +12,8 @@
  *      when trust proxy is active (e.g. NODE_ENV=production), preventing X-Forwarded-For
  *      spoofing on internal webhooks when INTERNAL_WEBHOOK_SECRET is unconfigured.
  *   3. Secret-based authentication for internal webhooks functions as expected.
- *   4. Direct loopback socket access functions in development mode when trust proxy is off.
+ *   4. Direct loopback socket access is refused without a secret, even in development
+ *      mode with trust proxy off (issue #59: no IP allow-list).
  */
 
 const test = require('node:test');
@@ -86,7 +87,7 @@ test.describe('Issue #135 & Issue #205 — TLS Proxy Session Cookie & Internal A
 
       assert.strictEqual(response.status, 403, 'Must reject spoofed X-Forwarded-For loopback requests with 403');
       const data = await response.json();
-      assert.ok(data.error.includes('trust proxy is enabled'), 'Error message must state trust proxy requirement');
+      assert.ok(data.error.includes('INTERNAL_WEBHOOK_SECRET'), 'Error message must name the missing INTERNAL_WEBHOOK_SECRET');
     } finally {
       server.close();
     }
@@ -130,7 +131,7 @@ test.describe('Issue #135 & Issue #205 — TLS Proxy Session Cookie & Internal A
     }
   });
 
-  test('createRequireInternalMiddleware allows true loopback in development mode when trust proxy is off', async () => {
+  test('createRequireInternalMiddleware refuses loopback without secret in development mode when trust proxy is off', async () => {
     const env = { NODE_ENV: 'development' };
 
     const app = express();
@@ -149,7 +150,7 @@ test.describe('Issue #135 & Issue #205 — TLS Proxy Session Cookie & Internal A
         method: 'POST'
       });
 
-      assert.strictEqual(response.status, 200, 'Direct socket loopback in dev mode must succeed');
+      assert.strictEqual(response.status, 403, 'Direct socket loopback without a secret must be refused');
     } finally {
       server.close();
     }

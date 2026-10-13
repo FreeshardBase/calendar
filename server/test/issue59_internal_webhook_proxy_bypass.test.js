@@ -231,6 +231,75 @@ test('Issue #59: Live probe against server/index.js app with INTERNAL_WEBHOOK_SE
   assert.strictEqual(resQuiesce.status, 200, 'Valid secret allows database quiesce');
 });
 
+async function startProductionApp(t, { trustProxy, secret }) {
+  const origEnv = { ...process.env };
+  process.env.NODE_ENV = 'production';
+  process.env.SESSION_SECRET = 'test-prod-session-secret-9876543210123456';
+  process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  process.env.TRUST_PROXY = trustProxy;
+  process.env.PREVENT_AUTO_LISTEN = 'true';
+  if (secret) process.env.INTERNAL_WEBHOOK_SECRET = secret;
+  else delete process.env.INTERNAL_WEBHOOK_SECRET;
+
+  delete require.cache[require.resolve('../index.js')];
+  const { app } = require('../index.js');
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  t.after(() => {
+    server.close();
+    process.env = origEnv;
+    delete require.cache[require.resolve('../index.js')];
+  });
+
+  return { app, port: server.address().port };
+}
+
+test('Issue #59: Live probe with TRUST_PROXY=false and no secret refuses loopback callers (no IP allow-list)', async (t) => {
+  const { app, port } = await startProductionApp(t, { trustProxy: 'false', secret: null });
+  assert.strictEqual(app.get('trust proxy'), false, 'precondition: trust proxy must be off');
+
+  // A reverse proxy reaching the app over loopback makes every forwarded caller
+  // a loopback socket peer. Without a secret that must not be enough.
+  const resWebhook = await fetch(`http://127.0.0.1:${port}/internal/webhooks/user-deleted`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: 'victim-user-123' })
+  });
+  assert.strictEqual(resWebhook.status, 403, 'loopback peer without secret must not reach user-deleted');
+  const webhookBody = await resWebhook.json();
+  assert.ok(
+    webhookBody.error && webhookBody.error.includes('INTERNAL_WEBHOOK_SECRET'),
+    'Error response must tell the operator to configure INTERNAL_WEBHOOK_SECRET'
+  );
+
+  const resQuiesce = await fetch(`http://127.0.0.1:${port}/internal/db/quiesce`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'TRUNCATE' })
+  });
+  assert.strictEqual(resQuiesce.status, 403, 'loopback peer without secret must not reach db/quiesce');
+});
+
+test('Issue #59: Live probe with TRUST_PROXY=false and secret configured requires the secret from loopback too', async (t) => {
+  const secret = 'custom-configured-webhook-secret-xyz';
+  const { port } = await startProductionApp(t, { trustProxy: 'false', secret });
+
+  const resNoSecret = await fetch(`http://127.0.0.1:${port}/internal/db/quiesce`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'TRUNCATE' })
+  });
+  assert.strictEqual(resNoSecret.status, 403);
+
+  const resValid = await fetch(`http://127.0.0.1:${port}/internal/db/quiesce`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-freeshard-secret': secret },
+    body: JSON.stringify({ mode: 'TRUNCATE' })
+  });
+  assert.strictEqual(resValid.status, 200);
+});
+
 test('Issue #59: Falsification - vulnerable requireInternal implementation allows spoofed XFF bypass', async () => {
   // Simulate the vulnerable 11b4e53 requireInternal function
   function vulnerableRequireInternal(req, res, next) {

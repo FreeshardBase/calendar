@@ -13,17 +13,14 @@
  *     trust proxy is on because X-Forwarded-For is attacker-controlled.
  *
  * When INTERNAL_WEBHOOK_SECRET is NOT configured:
- *   ─ If trust proxy is disabled (TRUST_PROXY is falsy), req.ip reflects the
- *     real socket address, which is unforgeable. Loopback IPs (127.0.0.1 / ::1)
- *     are allowed as a dev/CI convenience.
- *   ─ If trust proxy is enabled, req.ip is spoofable → block all callers.
- *     (Operators MUST set INTERNAL_WEBHOOK_SECRET in this configuration.)
+ *   ─ Every caller is refused, loopback included, regardless of trust proxy.
+ *     A reverse proxy that connects over loopback would otherwise make every
+ *     external request look "internal".
  *
  * NODE_ENV=test always bypasses the check (existing test-suite contract).
  */
 
 const crypto = require('crypto');
-const { getTrustProxySetting } = require('./sessionConfig');
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -61,21 +58,10 @@ function createRequireInternalMiddleware(env = process.env) {
       return res.status(403).json({ error: 'Access denied: Internal only' });
     }
 
-    // No secret configured: fall back to IP-based check ONLY when trust proxy is off
-    const trustProxySetting = (req.app && req.app.get && req.app.get('trust proxy')) || getTrustProxySetting(env);
-    const trustProxyEnabled = Boolean(trustProxySetting);
-
-    if (trustProxyEnabled) {
-      // req.ip is spoofable — refuse to use it as a security gate
-      return res.status(403).json({ error: 'Access denied: Set INTERNAL_WEBHOOK_SECRET when trust proxy is enabled' });
-    }
-
-    // Trust proxy off → req.ip is the actual socket address (unforgeable)
-    const ip = req.ip || (req.connection && req.connection.remoteAddress) || '';
-    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-    if (isLoopback) return next();
-
-    return res.status(403).json({ error: 'Access denied: Internal only' });
+    // No secret configured: the routes are closed. There is no IP allow-list —
+    // with trust proxy on req.ip comes from X-Forwarded-For, and with it off a
+    // reverse proxy on loopback makes every forwarded caller a loopback peer.
+    return res.status(403).json({ error: 'Access denied: Set INTERNAL_WEBHOOK_SECRET to enable internal endpoints' });
   };
 }
 
