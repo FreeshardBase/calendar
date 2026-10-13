@@ -10,9 +10,8 @@
  * Fix: extract requireInternal logic into server/utils/internalAuth.js as
  *      createRequireInternalMiddleware(env), which:
  *      1. When INTERNAL_WEBHOOK_SECRET is set: requires exact header match, IP ignored.
- *      2. When INTERNAL_WEBHOOK_SECRET is NOT set and TRUST_PROXY is falsy: allows
- *         loopback-socket connections (dev/CI convenience path).
- *      3. All other cases: 403 Forbidden.
+ *      2. When INTERNAL_WEBHOOK_SECRET is NOT set: 403 Forbidden for every caller,
+ *         loopback included, whatever TRUST_PROXY says (no IP allow-list).
  */
 
 const test = require('node:test');
@@ -156,9 +155,9 @@ test('createRequireInternalMiddleware blocks wrong secret header', async () => {
   assert.strictEqual(statusCode, 403, 'Wrong secret must be blocked (403)');
 });
 
-// ── Test 7: fallback — no secret + trust proxy off + true loopback ──────────────
+// ── Test 7: no secret + trust proxy off + true loopback → still blocked ─────────
 
-test('createRequireInternalMiddleware allows true loopback when no secret configured and trust proxy off', async () => {
+test('createRequireInternalMiddleware blocks true loopback when no secret configured and trust proxy off', async () => {
   const { createRequireInternalMiddleware } = require(path.join(ROOT, 'server/utils/internalAuth'));
 
   const middleware = createRequireInternalMiddleware({
@@ -181,7 +180,7 @@ test('createRequireInternalMiddleware allows true loopback when no secret config
     middleware(mockReq, mockRes, () => { statusCode = 200; resolve(); });
   });
 
-  assert.strictEqual(statusCode, 200, 'True loopback with no secret configured must pass (200)');
+  assert.strictEqual(statusCode, 403, 'Loopback without a configured secret must be blocked (403)');
 });
 
 // ── Test 8: no secret + trust proxy on → all non-test requests blocked ───────────
