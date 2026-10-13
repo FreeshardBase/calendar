@@ -2,23 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const pyRightsPath = path.join(__dirname, '../../radicale/radicale_custom_rights.py');
 
 test('Issue #192 — Read-Write Sharee Deny-Delete Permission Enforcement', async (t) => {
-  await t.test('1. Static source analysis: radicale_custom_rights.py emits "rw" for collection and "rwd" for item sharee access', () => {
-    const code = fs.readFileSync(pyRightsPath, 'utf8');
-    assert.match(
-      code,
-      /return\s+["']rwd["']\s+if\s+has_write\s+else\s+["']rd["']/,
-      'radicale_custom_rights.py must emit item level "rwd" for write sharees and "rd" for read sharees'
-    );
-  });
-
-  await t.test('2. Python unit execution: Rights.authorization returns correct collection vs item permissions', () => {
+  await t.test('Rights.authorization: sharees carry deny-delete "d" on the collection, the owner never gets "D"/"d"', () => {
     const pythonScript = `
 import sys
 import os
@@ -77,22 +67,32 @@ try:
 
     rights = radicale_custom_rights.Rights()
 
-    # Owner access check (collection level)
+    # Radicale 3.4 collection DELETE (app/delete.py, permit_delete_collection=True)
+    # needs "w" on the collection path and is refused if "d" is on that path.
+    def collection_delete_allowed(perm):
+        return 'w' in perm and 'd' not in perm
+
+    # Owner: no deny bits, may delete her own calendar
     owner_perm = rights.authorization('owner1', 'owner1/cal1')
-    assert owner_perm == 'RWDrwd', f"Owner expected 'RWDrwd', got {owner_perm!r}"
+    assert owner_perm == 'rw', f"Owner expected 'rw', got {owner_perm!r}"
+    assert collection_delete_allowed(owner_perm), f"Owner must be able to delete own calendar, got {owner_perm!r}"
+    owner_item_perm = rights.authorization('owner1', 'owner1/cal1/item.ics')
+    assert 'd' not in owner_item_perm and 'D' not in owner_item_perm, f"Owner item expected no deny bits, got {owner_item_perm!r}"
 
-    # Read-write sharee access check (collection level must NOT include 'd' or 'D')
+    # Read-write sharee: may write, must NOT delete the owner's collection
     rw_sharee_col_perm = rights.authorization('sharee_write', 'owner1/cal1')
-    assert 'd' not in rw_sharee_col_perm and 'D' not in rw_sharee_col_perm, f"Read-write sharee collection expected 'rw', got {rw_sharee_col_perm!r}"
-    assert rw_sharee_col_perm == 'rw', f"Read-write sharee collection expected 'rw', got {rw_sharee_col_perm!r}"
-
-    # Read-write sharee access check (item level must include 'd')
+    assert rw_sharee_col_perm == 'rwd', f"Read-write sharee collection expected 'rwd', got {rw_sharee_col_perm!r}"
+    assert not collection_delete_allowed(rw_sharee_col_perm), f"Read-write sharee could delete owner's calendar: {rw_sharee_col_perm!r}"
     rw_sharee_item_perm = rights.authorization('sharee_write', 'owner1/cal1/item.ics')
     assert rw_sharee_item_perm == 'rwd', f"Read-write sharee item expected 'rwd', got {rw_sharee_item_perm!r}"
 
-    # Read-only sharee access check
+    # Read-only sharee
     ro_sharee_col_perm = rights.authorization('sharee_read', 'owner1/cal1')
-    assert ro_sharee_col_perm == 'r', f"Read-only sharee collection expected 'r', got {ro_sharee_col_perm!r}"
+    assert ro_sharee_col_perm == 'rd', f"Read-only sharee collection expected 'rd', got {ro_sharee_col_perm!r}"
+    assert not collection_delete_allowed(ro_sharee_col_perm)
+
+    # Stranger
+    assert rights.authorization('stranger', 'owner1/cal1') == ''
 
     print("ALL_PYTHON_RIGHTS_TESTS_PASSED")
 finally:

@@ -77,13 +77,13 @@ try:
     rights = radicale_custom_rights.Rights({})
 
     # 1. Sharee uppercase
-    assert rights.authorization("USER1", "user2/shared-read") == "r", "USER1 should get read permission"
+    assert rights.authorization("USER1", "user2/shared-read") == "rd", "USER1 should get read permission"
 
     # 2. Owner uppercase in path
-    assert rights.authorization("user1", "USER2/shared-read") == "r", "user1 should get read permission on USER2 path"
+    assert rights.authorization("user1", "USER2/shared-read") == "rd", "user1 should get read permission on USER2 path"
 
     # 3. Mixed case both
-    assert rights.authorization("User1", "User2/shared-write") == "rw", "User1 should get read-write permission on User2 path"
+    assert rights.authorization("User1", "User2/shared-write") == "rwd", "User1 should get read-write permission on User2 path"
 
     print("OK")
 finally:

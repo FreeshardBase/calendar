@@ -61,7 +61,7 @@ test('Issue #201 — Prevent Unauthenticated & Sharee Permanent Calendar Deletio
     }
   });
 
-  await t.test('1. Python unit execution: Rights.authorization returns "RWDrwd" for owner and "rw"/"r" for sharees on collection level', () => {
+  await t.test('1. Python unit execution: Rights.authorization returns "rw" for owner and deny-delete "rwd"/"rd" for sharees on collection level', () => {
     const pythonScript = `
 import sys
 import os
@@ -117,24 +117,23 @@ try:
 
     rights = radicale_custom_rights.Rights()
 
-    # Owner access check at collection level (must have 'D' and 'd' to delete collection/items)
+    # In Radicale "D"/"d" are deny-delete bits (checked against the collection
+    # path on a collection DELETE). The owner must not carry them; sharees must.
     owner_perm = rights.authorization('owner1', 'owner1/cal1')
-    assert 'D' in owner_perm and 'd' in owner_perm, f"Owner expected collection delete permission 'D' and 'd', got {owner_perm!r}"
-    assert owner_perm == 'RWDrwd', f"Owner expected 'RWDrwd', got {owner_perm!r}"
+    assert 'D' not in owner_perm and 'd' not in owner_perm, f"Owner must not carry deny-delete bits, got {owner_perm!r}"
+    assert owner_perm == 'rw', f"Owner expected 'rw', got {owner_perm!r}"
 
-    # Write sharee access check at collection level (must NOT contain 'd' or 'D' at collection level)
+    # Write sharee at collection level must carry 'd' so it cannot delete the collection
     rw_sharee_col_perm = rights.authorization('sharee_write', 'owner1/cal1')
-    assert 'd' not in rw_sharee_col_perm and 'D' not in rw_sharee_col_perm, f"Write sharee collection level must NOT contain 'd' or 'D', got {rw_sharee_col_perm!r}"
-    assert rw_sharee_col_perm == 'rw', f"Write sharee collection level expected 'rw', got {rw_sharee_col_perm!r}"
+    assert rw_sharee_col_perm == 'rwd', f"Write sharee collection level expected 'rwd', got {rw_sharee_col_perm!r}"
 
-    # Write sharee access check at item level (must contain 'd' to delete events inside collection)
+    # Write sharee at item level keeps write access to events
     rw_sharee_item_perm = rights.authorization('sharee_write', 'owner1/cal1/event1.ics')
-    assert 'd' in rw_sharee_item_perm, f"Write sharee item level expected 'd', got {rw_sharee_item_perm!r}"
     assert rw_sharee_item_perm == 'rwd', f"Write sharee item level expected 'rwd', got {rw_sharee_item_perm!r}"
 
-    # Read sharee access check at collection level
+    # Read sharee at collection level
     ro_sharee_col_perm = rights.authorization('sharee_read', 'owner1/cal1')
-    assert ro_sharee_col_perm == 'r', f"Read sharee collection level expected 'r', got {ro_sharee_col_perm!r}"
+    assert ro_sharee_col_perm == 'rd', f"Read sharee collection level expected 'rd', got {ro_sharee_col_perm!r}"
 
     print("ALL_ISSUE201_PYTHON_RIGHTS_TESTS_PASSED")
 finally:
