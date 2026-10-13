@@ -1,7 +1,46 @@
 'use strict';
 
+const path = require('path');
 const Db = require('../db');
 const { checkDelegateAccess } = require('./delegatePermissions');
+
+/**
+ * The path a calendar href really addresses on the internal Radicale (#232).
+ * The request URL comes from WHATWG URL resolution against the account base
+ * (host pinned, "%2e%2e" resolved), and Radicale's WSGI server then
+ * percent-decodes PATH_INFO ("..%2f" becomes "../") and strips dot-segments.
+ * Authorizing on anything less decoded lets "/me/%2e%2e/victim/cal/" pass as
+ * the caller's own calendar while the request lands in the victim's.
+ *
+ * @param {string} href Relative path or absolute URL
+ * @returns {string|null} Normalized absolute path, or null if not decodable
+ */
+function canonicalCollectionPath(href) {
+  try {
+    const { pathname } = new URL(href, 'http://internal-caldav.invalid/');
+    return path.posix.normalize('/' + decodeURIComponent(pathname));
+  } catch (e) {
+    // Malformed URL or percent-encoding: callers refuse the href.
+    return null;
+  }
+}
+
+/**
+ * Path segments of a stored share href, percent-decoded but not resolved, or
+ * null if undecodable. A row keeping a dot-segment can thus never equal the
+ * (normalized) segments of a request.
+ *
+ * @param {string} href Stored calendar href, e.g. "/owner/personal/"
+ * @returns {string[]|null}
+ */
+function storedShareSegments(href) {
+  try {
+    return decodeURIComponent(href).split('/').filter(Boolean);
+  } catch (e) {
+    // Undecodable stored id: it can match no request.
+    return null;
+  }
+}
 
 /**
  * Check whether the requesting user in `req` has permission to perform `requiredAccess`
@@ -40,14 +79,10 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
   }
 
   // Internal CalDAV calendars: /ownerId/calendarSlug/
-  let hrefPath = calendarHref;
-  if (/^https?:\/\//i.test(calendarHref)) {
-    try {
-      hrefPath = new URL(calendarHref).pathname;
-    } catch (e) {}
+  const hrefPath = canonicalCollectionPath(calendarHref);
+  if (hrefPath === null) {
+    return { allowed: false, status: 400, reason: 'Invalid calendar href' };
   }
-  const pathPosix = require('path').posix;
-  hrefPath = pathPosix.normalize('/' + hrefPath);
   const segments = hrefPath.split('/').filter(Boolean);
   const ownerId = segments[0];
 
@@ -90,20 +125,19 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
   const ownerUuid = (await Db.getUserIdByUsername(ownerId)) || ownerId;
   const ownerUsername = (await Db.getUsernameByUserId(ownerId)) || ownerId;
 
+  // Share rows are compared decoded but never resolved: a row stored under a
+  // traversal id such as "/me/%2e%2e/victim/cal/" matches nothing, just as
+  // the Radicale rights plugin (exact canonical id) never honors it.
   const matchingShare = userShares.find(s => {
-    if (s.calendar_id === calendarId) return true;
     const parts = s.calendar_id.split('::');
     if (parts.length < 2) return false;
-    const sHref = parts[1];
-    const sSegs = sHref.split('/').filter(Boolean);
+    const sSegs = storedShareSegments(parts.slice(1).join('::'));
+    if (sSegs === null) return false;
     const sOwner = sSegs[0];
     const sSlug = sSegs.slice(1).join('/');
 
-    const reqParts = calendarId.split('::');
-    const reqHref = reqParts[1] || '';
-    const reqSegs = reqHref.split('/').filter(Boolean);
-    const reqOwner = reqSegs[0];
-    const reqSlug = reqSegs.slice(1).join('/');
+    const reqOwner = segments[0];
+    const reqSlug = segments.slice(1).join('/');
 
     const slugMatches = (sSlug === reqSlug);
     // The share's owner must be the requested owner (under any of its ids).
@@ -167,14 +201,8 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
  */
 function extractCalendarIdFromHref(accountId, href) {
   if (!accountId || !href) return null;
-  let pathStr = href;
-  if (/^https?:\/\//i.test(href)) {
-    try {
-      pathStr = new URL(href).pathname;
-    } catch (e) {}
-  }
-  const pathPosix = require('path').posix;
-  pathStr = pathPosix.normalize('/' + pathStr);
+  const pathStr = canonicalCollectionPath(href);
+  if (pathStr === null) return null;
   const parts = pathStr.split('/').filter(Boolean);
   if (parts.length < 2) return null;
   const calHref = '/' + parts.slice(0, 2).join('/') + '/';

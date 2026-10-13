@@ -246,7 +246,10 @@ router.put('/:uid', async (req, res) => {
 
     const accountId = calendarId.split('::')[0];
     const derivedCalId = extractCalendarIdFromHref(accountId, href);
-    if (derivedCalId && derivedCalId !== calendarId) {
+    // An href that names no calendar (undecodable, or above calendar level)
+    // cannot be authorized, so it is refused rather than left unchecked (#232).
+    if (!derivedCalId) return res.status(400).json({ error: 'Invalid href' });
+    if (derivedCalId !== calendarId) {
       const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
       if (!hrefAccess.allowed) {
         return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
@@ -408,7 +411,10 @@ router.delete('/:uid', async (req, res) => {
 
     const accountId = calendarId.split('::')[0];
     const derivedCalId = extractCalendarIdFromHref(accountId, href);
-    if (derivedCalId && derivedCalId !== calendarId) {
+    // An href that names no calendar (undecodable, or above calendar level)
+    // cannot be authorized, so it is refused rather than left unchecked (#232).
+    if (!derivedCalId) return res.status(400).json({ error: 'Invalid href' });
+    if (derivedCalId !== calendarId) {
       const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
       if (!hrefAccess.allowed) {
         return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
