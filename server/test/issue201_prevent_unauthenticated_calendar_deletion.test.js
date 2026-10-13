@@ -168,4 +168,58 @@ finally:
     const data = await res.json();
     assert.ok(data.error, 'Error message must be present');
   });
+
+  // The chain's link 3 needs a share to exist: a read-write sharee, or a sharee
+  // allowed to manage shares, must still not be able to delete the collection.
+  for (const [label, role, canManageShares] of [
+    ['read-write sharee', 'WRITE', false],
+    ['share-managing sharee', 'ADMIN', true]
+  ]) {
+    await t.test(`4. DELETE /api/calendars/:id rejects a ${label} with 403 and keeps the share`, async () => {
+      const rawId = `internal-caldav::/owner_201/del-${role.toLowerCase()}/`;
+      await Db.addUserShare(rawId, 'sharee_201', true, 'ACCEPTED', role, false, canManageShares);
+      t.after(() => Db.removeUserShare(rawId, 'sharee_201'));
+
+      const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(rawId)}`, {
+        method: 'DELETE',
+        headers: { 'x-test-user': 'sharee_201' }
+      });
+      assert.equal(res.status, 403, `A ${label} must get 403 on calendar DELETE`);
+
+      const shares = await Db.getSharedCalendarsForUser('sharee_201');
+      assert.ok(shares.some(s => s.calendar_id === rawId), 'Rejected DELETE must not drop the calendar data');
+    });
+  }
+
+  // Link 2: a share on someone else's calendar that merely has the same slug
+  // must not grant anything on the victim's calendar.
+  await t.test('5. A share on another owner\'s same-named calendar grants no access to the victim\'s calendar', async () => {
+    await Db.upsertUser('accomplice_201', 'accomplice_201', 'accomplice_201@example.com');
+    const accompliceCal = 'internal-caldav::/accomplice_201/personal/';
+    const victimCal = 'internal-caldav::/owner_201/personal/';
+    await Db.addUserShare(accompliceCal, 'attacker_201', true, 'ACCEPTED', 'ADMIN', true, true);
+    t.after(async () => {
+      await Db.removeUserShare(accompliceCal, 'attacker_201');
+      await Db.removeUserShare(victimCal, 'attacker_201');
+    });
+
+    // Control: the share is live on the calendar it was granted on.
+    const own = await checkCalendarAccess({ session: { userId: 'attacker_201' } }, accompliceCal, 'owner');
+    assert.equal(own.allowed, true, 'Control: the ADMIN share must work on the shared calendar itself');
+
+    for (const level of ['read', 'write', 'owner']) {
+      const access = await checkCalendarAccess({ session: { userId: 'attacker_201' } }, victimCal, level);
+      assert.equal(access.allowed, false, `Same-slug share must not grant '${level}' on the victim's calendar`);
+    }
+
+    const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(victimCal)}/shares`, {
+      method: 'POST',
+      headers: { 'x-test-user': 'attacker_201', 'content-type': 'application/json' },
+      body: JSON.stringify({ sharee: 'attacker_201', readWrite: true })
+    });
+    assert.equal(res.status, 403, 'Self-granting a share on the victim\'s calendar must be rejected');
+
+    const rows = (await Db.getUserShares(victimCal)).filter(s => s.shareeUserId === 'attacker_201');
+    assert.equal(rows.length, 0, 'No share row may be written for the victim\'s calendar');
+  });
 });

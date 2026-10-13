@@ -106,12 +106,13 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
     const reqSlug = reqSegs.slice(1).join('/');
 
     const slugMatches = (sSlug === reqSlug);
+    // The share's owner must be the requested owner (under any of its ids).
+    // reqOwner is always one of ownerUuid/ownerUsername, so comparing those to
+    // each other would match a same-slug calendar of any other user.
     const ownerMatches = (
       sOwner === reqOwner ||
       sOwner === ownerUuid ||
-      sOwner === ownerUsername ||
-      reqOwner === ownerUuid ||
-      reqOwner === ownerUsername
+      sOwner === ownerUsername
     );
     return slugMatches && ownerMatches;
   });
