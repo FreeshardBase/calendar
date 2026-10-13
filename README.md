@@ -1,5 +1,12 @@
 # FreeShard WebCalendar
 
+> **Work in progress, not ready for production use.** This project is under active
+> development and has open, unresolved security issues (tracked publicly in the
+> [issue tracker](https://github.com/FreeshardBase/calendar/issues), see the
+> [roadmap issue](https://github.com/FreeshardBase/calendar/issues/361) for current
+> status). It is not installed on any Freeshard shard today. Do not deploy this for
+> real calendar data yet.
+
 A self-hosted CalDAV web calendar for [Freeshard](https://freeshard.net) shards.
 Month/week/day/agenda views, recurring events, calendar sharing between shard
 users, public ICS links, app-passwords for internal service integration, and optional
