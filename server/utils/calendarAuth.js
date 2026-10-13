@@ -70,7 +70,7 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
   }
 
   if (isOwner) {
-    return { allowed: true, isOwner: true };
+    return { allowed: true, isOwner: true, ownerId };
   }
 
   // 2. Check internal calendar share table
@@ -182,49 +182,39 @@ function extractCalendarIdFromHref(accountId, href) {
 }
 
 /**
- * Safely enqueues sync jobs for calendar operations after verifying request owner authorization.
+ * Enqueues sync jobs after a calendar operation.
+ *
+ * The owner is never parsed out of the caller-supplied href on its own (#323):
+ * for internal calendars the owner is the one checkCalendarAccess resolved and
+ * matched to the requesting user (same person, possibly under a mapped id).
+ * Everyone else only ever gets their own sync job.
  *
  * @param {string} calendarId Format: "accountId::calendarHref"
- * @param {string} fallbackUserId Requesting user ID
+ * @param {string} requestingUserId Requesting user ID (req.session.userId)
  */
-async function queueSyncForCalendar(calendarId, fallbackUserId) {
-  if (!fallbackUserId || fallbackUserId === 'unauthenticated' || fallbackUserId === 'none') {
+async function queueSyncForCalendar(calendarId, requestingUserId) {
+  if (!requestingUserId || requestingUserId === 'unauthenticated' || requestingUserId === 'none') {
     return;
   }
-  try {
-    const parts = (calendarId || '').split('::');
-    const calendarHref = parts[1] || parts[0];
-    if (calendarHref) {
-      const pathPosix = require('path').posix;
-      const normalizedHref = pathPosix.normalize('/' + calendarHref);
-      const segments = normalizedHref.split('/').filter(Boolean);
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const ownerUserId = segments.find(s => uuidRegex.test(s));
-      if (ownerUserId) {
-        if (fallbackUserId === ownerUserId) {
-          await Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-          return;
-        }
-        // Verify authorization of fallbackUserId on calendarId before enqueuing owner sync job
-        const mockReq = { session: { userId: fallbackUserId } };
-        const access = await checkCalendarAccess(mockReq, calendarId, 'read');
-        if (access && access.allowed) {
-          if (access.isOwner) {
-            await Db.addSyncJob(ownerUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-          }
-          await Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
-        } else {
-          console.warn(`[sync-queue] Unauthorized sync queue request on ${calendarId} by user ${fallbackUserId}`);
-        }
-        return;
-      }
-    }
-  } catch (e) {
-    console.error('[sync] Error parsing calendar owner for sync:', e.message);
+  const enqueue = (userId) => Db.addSyncJob(userId)
+    .catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+
+  const sep = (calendarId || '').indexOf('::');
+  if (sep === -1 || calendarId.slice(0, sep) !== 'internal-caldav') {
+    // External account (or bare URL): the only party is the requester.
+    await enqueue(requestingUserId);
+    return;
   }
-  if (fallbackUserId) {
-    await Db.addSyncJob(fallbackUserId).catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+
+  const access = await checkCalendarAccess({ session: { userId: requestingUserId } }, calendarId, 'read');
+  if (!access.allowed) {
+    console.warn(`[sync-queue] Unauthorized sync queue request on ${calendarId} by user ${requestingUserId}`);
+    return;
   }
+  if (access.isOwner && access.ownerId !== requestingUserId) {
+    await enqueue(access.ownerId);
+  }
+  await enqueue(requestingUserId);
 }
 
 module.exports = {
