@@ -18,11 +18,12 @@ class Rights(BaseRights):
         segments = sane_path.split("/")
         owner_id = segments[0]
 
-        # 1. Owner always gets full permissions
+        # 1. Owner always gets full permissions. "D"/"d" are deny-delete bits
+        # in Radicale, so the owner must never receive them.
         if user.lower() == owner_id.lower():
             if len(segments) == 1:
                 return "RW"
-            return "RWDrwd"
+            return "rw"
 
         # 2. Accessing someone else's space
         if len(segments) < 2:
@@ -61,9 +62,9 @@ class Rights(BaseRights):
                 has_write = bool(rw_flag) or role in ('WRITE', 'ADMIN')
                 if role in ('READ', 'FREE_BUSY'):
                     has_write = False
-                if len(segments) > 2:
-                    return "rwd" if has_write else "rd"
-                return "rw" if has_write else "r"
+                # "d" denies deleting the collection itself (Radicale checks it
+                # against the collection path), so only the owner can delete it.
+                return "rwd" if has_write else "rd"
 
             return ""
         except Exception:

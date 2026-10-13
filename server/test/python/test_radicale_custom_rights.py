@@ -31,6 +31,13 @@ if RADICALE_DIR not in sys.path:
 
 import radicale_custom_rights
 
+
+def collection_delete_allowed(permissions):
+    """Radicale 3.4 DELETE on a calendar collection (radicale/app/delete.py,
+    permit_delete_collection=True): requires "w" on the collection path and
+    is refused when the deny-delete bit "d" is present on that same path."""
+    return "w" in permissions and "d" not in permissions
+
 class TestRadicaleCustomRights(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -107,8 +114,13 @@ class TestRadicaleCustomRights(unittest.TestCase):
         self.assertEqual(perm_case, "RW")
 
     def test_owner_calendar_subpath(self):
+        # Radicale's "D"/"d" are deny-delete bits: the owner must keep the
+        # ability to delete her own calendar collection and its items.
         perm = self.rights.authorization("user1", "user1/my-cal")
-        self.assertEqual(perm, "RWDrwd")
+        self.assertEqual(perm, "rw")
+        self.assertTrue(collection_delete_allowed(perm))
+        perm_item = self.rights.authorization("user1", "user1/my-cal/item.ics")
+        self.assertEqual(perm_item, "rw")
 
     def test_other_user_principal_root_access_denied(self):
         perm = self.rights.authorization("user1", "user2")
@@ -116,19 +128,24 @@ class TestRadicaleCustomRights(unittest.TestCase):
 
     def test_sharee_read_only_access(self):
         perm = self.rights.authorization("user1", "user2/shared-read")
-        self.assertEqual(perm, "r")
+        self.assertEqual(perm, "rd")
+        self.assertFalse(collection_delete_allowed(perm))
         perm_item = self.rights.authorization("user1", "user2/shared-read/item.ics")
         self.assertEqual(perm_item, "rd")
 
     def test_sharee_write_access(self):
+        # Issue #192: a read-write sharee must not be able to delete the
+        # owner's calendar collection, so the collection path carries "d".
         perm = self.rights.authorization("user1", "user2/shared-write")
-        self.assertEqual(perm, "rw")
+        self.assertEqual(perm, "rwd")
+        self.assertFalse(collection_delete_allowed(perm))
         perm_item = self.rights.authorization("user1", "user2/shared-write/item.ics")
         self.assertEqual(perm_item, "rwd")
 
     def test_sharee_admin_access(self):
         perm = self.rights.authorization("user1", "user2/shared-admin")
-        self.assertEqual(perm, "rw")
+        self.assertEqual(perm, "rwd")
+        self.assertFalse(collection_delete_allowed(perm))
         perm_item = self.rights.authorization("user1", "user2/shared-admin/item.ics")
         self.assertEqual(perm_item, "rwd")
 
@@ -148,15 +165,15 @@ class TestRadicaleCustomRights(unittest.TestCase):
     def test_sharee_case_insensitive_access(self):
         # Case-insensitive sharee username matching
         perm_upper_sharee = self.rights.authorization("USER1", "user2/shared-read")
-        self.assertEqual(perm_upper_sharee, "r")
+        self.assertEqual(perm_upper_sharee, "rd")
         perm_mixed_sharee = self.rights.authorization("User1", "user2/shared-write/item.ics")
         self.assertEqual(perm_mixed_sharee, "rwd")
 
         # Case-insensitive calendar owner matching in path
         perm_upper_owner = self.rights.authorization("user1", "USER2/shared-read")
-        self.assertEqual(perm_upper_owner, "r")
+        self.assertEqual(perm_upper_owner, "rd")
         perm_mixed_both = self.rights.authorization("USER1", "User2/shared-write")
-        self.assertEqual(perm_mixed_both, "rw")
+        self.assertEqual(perm_mixed_both, "rwd")
 
 if __name__ == "__main__":
     unittest.main()
