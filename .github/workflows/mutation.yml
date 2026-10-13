@@ -1,12 +1,9 @@
 name: Mutation testing
 
-# Deliberately NOT on push or pull_request: this repo is private, so Actions
-# minutes are billed, and a full Stryker pass over the iCalendar layer takes
-# tens of minutes. Run it on demand, plus a weekly baseline.
+# Manual only: this repo is private, so Actions minutes are capped, and a
+# Stryker pass takes about 45 minutes. Run it on demand from the Actions tab.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 3 * * 1'   # Mondays 03:17 UTC
 
 jobs:
   mutation:

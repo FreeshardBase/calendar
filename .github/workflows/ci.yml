@@ -1,10 +1,17 @@
 name: CI
 
+# Private repo on the Free plan: Actions minutes are capped (2000/month), so CI
+# runs once per PR and not again on the squash-merge push to master. Doc-only
+# changes do not run it; a newer push to the same PR cancels the older run.
 on:
-  push:
-    branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
