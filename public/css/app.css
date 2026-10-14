@@ -256,6 +256,8 @@ a { color: inherit; text-decoration: none; }
   position: relative;
 }
 .mini-cal-day:hover { background: var(--bg); color: var(--ink); }
+.mini-cal-day:focus-visible,
+.sidebar-task-info:focus-visible { outline: 2px solid var(--line); outline-offset: 1px; }
 .mini-cal-day.today {
   font-weight: 600; color: var(--data);
 }
