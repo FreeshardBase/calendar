@@ -91,6 +91,9 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       'webcalEvents',
       'hiddenWebcal',
       'loadWebcalEvents',
+      'calendarsUnchanged',
+      'invalidateEventCache',
+      'loadCalendars',
       `
       ${loadEventsFnMatch[0]}
       return loadEvents;
@@ -118,7 +121,10 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       () => {},
       [],
       new Set(),
-      async () => []
+      async () => [],
+      async () => false, // delta check reports a change: full fetch (#170)
+      () => {},
+      () => {}
     );
 
     // 1. Navigation 1 (March 2026): req1 triggered
@@ -128,6 +134,8 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
     // 2. Navigation 2 (April 2026): req2 triggered immediately after
     mockStore.set({ currentDate: new Date('2026-04-01T00:00:00.000Z') });
     const p2 = loadEventsInstance();
+    // Both requests are issued after the awaited delta check (#170).
+    await new Promise(resolve => setImmediate(resolve));
 
     // 3. Req2 (April) resolves FIRST with April events
     const aprilEvents = [{ id: 'evt-april-1', title: 'April Event' }];

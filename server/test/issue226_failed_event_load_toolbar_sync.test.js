@@ -86,6 +86,7 @@ describe('Issue #226 — Failed Event Load Toolbar & Internal Date Synchronizati
     const testFn = new Function(
       'store', 'EventsAPI', 'getDateRange', 'getCachedEvents', 'cacheEvents',
       'renderCalendarView', 'showToast', 'setStatus', 'announce', '$', 'webcalEvents', 'hiddenWebcal', 'loadWebcalEvents',
+      'calendarsUnchanged', 'invalidateEventCache', 'loadCalendars',
       `
       ${loadEventsMatch[0]}
       return loadEvents();
@@ -94,7 +95,8 @@ describe('Issue #226 — Failed Event Load Toolbar & Internal Date Synchronizati
 
     await testFn(
       mockStore, mockEventsAPI, mockGetDateRange, mockGetCachedEvents, mockCacheEvents,
-      mockRenderCalendarView, mockShowToast, mockSetStatus, mockAnnounce, mockDollar, [], new Set(), async () => []
+      mockRenderCalendarView, mockShowToast, mockSetStatus, mockAnnounce, mockDollar, [], new Set(), async () => [],
+      async () => false, () => {}, () => {} // delta check reports a change: full fetch (#170)
     );
 
     assert.ok(renderCalendarViewCalled, 'renderCalendarView must be called in loadEvents catch block');

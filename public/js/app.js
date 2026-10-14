@@ -169,6 +169,24 @@ async function syncCalendarDelta(calendarId) {
   }
 }
 
+// Asks every calendar for its changes since the last sync token (RFC 6578).
+// True only if each calendar had a token and reports no change; an empty
+// calendar list, a calendar without a token, a response without a new token,
+// a fallback to an initial sync or a failed check count as changed. Either way
+// the tokens are advanced before the caller fetches, so a change landing after
+// this check is seen by the next one (#170).
+async function calendarsUnchanged() {
+  const calendars = store.get('calendars') || [];
+  if (calendars.length === 0) return false;
+  const results = await Promise.all(calendars.map(async (cal) => {
+    const hadToken = Boolean(getCalendarSyncCache(cal.id)?.syncToken);
+    const res = await syncCalendarDelta(cal.id);
+    return hadToken && Boolean(res?.syncToken) && !res.fallbackPerformed &&
+      (res.updated || []).length === 0 && (res.deleted || []).length === 0;
+  }));
+  return results.every(Boolean);
+}
+
 let loadEventsSeq = 0;
 let lastUnparseableNotice = '';
 
@@ -192,7 +210,7 @@ async function loadEvents() {
   const { start, end } = getDateRange(view, date);
   const cacheKey = `${view}_${start.toISOString()}_${end.toISOString()}`;
 
-  const cached = getCachedEvents(cacheKey);
+  let cached = getCachedEvents(cacheKey);
   const activeSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
   if (cached && Array.isArray(cached)) {
     store.set({ events: [...cached, ...activeSubs] });
@@ -204,12 +222,35 @@ async function loadEvents() {
 
   try {
     const webcalPromise = loadWebcalEvents(start, end);
+    // Cheap delta check first: if no calendar changed, the cached range is
+    // still exact and the full PROPFIND + REPORT + re-expansion is skipped.
+    const unchanged = await calendarsUnchanged();
+    if (!unchanged) invalidateEventCache();
+    // Re-read: a concurrent load may have dropped the cache meanwhile.
+    cached = getCachedEvents(cacheKey);
+    if (unchanged && cached) {
+      const rangeWebcalEvents = await webcalPromise;
+      if (seq !== loadEventsSeq) return;
+      webcalEvents = rangeWebcalEvents;
+      const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
+      store.set({ events: [...cached, ...activeCurrentSubs] });
+      renderCalendarView();
+      checkAndTriggerAlarms();
+      return;
+    }
     let unparseable = null;
     const events = await EventsAPI.list(start.toISOString(), end.toISOString(), info => { unparseable = info; });
     const rangeWebcalEvents = await webcalPromise;
     if (seq !== loadEventsSeq) return;
     if (unparseable) reportUnparseableEvents(unparseable);
     webcalEvents = rangeWebcalEvents;
+    // Events from a calendar the delta check does not know (created or shared
+    // elsewhere): other cached ranges may lack it, and it needs a sync token.
+    const known = new Set((store.get('calendars') || []).map(c => c.id));
+    if (events.some(ev => !known.has(ev.calendarId))) {
+      invalidateEventCache();
+      loadCalendars();
+    }
     cacheEvents(cacheKey, events);
     const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
     store.set({ events: [...events, ...activeCurrentSubs] });
