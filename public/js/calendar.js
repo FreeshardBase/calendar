@@ -154,16 +154,31 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
       const isToday    = sameDay(d, today);
       const isSelected = sameDay(d, currentDate);
       const hasEvents  = eventDays.has(col + 1);
+      const label = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
       html += `<div class="mini-cal-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${hasEvents ? 'has-events' : ''}"
-                    data-mini-day="${d.toISOString()}">${col + 1}</div>`;
+                    data-mini-day="${d.toISOString()}" tabindex="0" role="button"
+                    aria-label="${label}"${isToday ? ' aria-current="date"' : ''}>${col + 1}</div>`;
     }
   }
 
   html += `</div>`;
+  // Any re-render (picking a day, background refresh) replaces the cells; put
+  // keyboard focus back on the same day instead of dropping it to <body>.
+  const focusedDay = document.activeElement?.getAttribute?.('data-mini-day');
   container.innerHTML = html;
+  if (focusedDay) {
+    [...container.querySelectorAll('[data-mini-day]')]
+      .find(el => el.dataset.miniDay === focusedDay)?.focus();
+  }
 
   container.querySelectorAll('[data-mini-day]').forEach(el => {
     el.addEventListener('click', () => onDayClick(new Date(el.dataset.miniDay)));
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onDayClick(new Date(el.dataset.miniDay));
+      }
+    });
   });
   container.querySelector('[data-mini-prev]')?.addEventListener('click', () => {
     const d = new Date(currentDate); d.setMonth(d.getMonth() - 1);

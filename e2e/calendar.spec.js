@@ -887,6 +887,137 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator(`.kanban-card:has-text("${taskTitle}")`)).not.toBeVisible({ timeout: 10000 });
   });
 
+  test.describe('Issue #182 — sidebar controls are keyboard operable', () => {
+    // The sidebar shows only the first 10 pending tasks, so a task created on
+    // the shared Radicale could be pushed out by leftovers from other runs.
+    // Serve a fixed task list instead; page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+    const taskTitle = 'E2E Keyboard Task';
+
+    test.beforeEach(async ({ page }) => {
+      await page.route(/\/api\/tasks(\?.*)?$/, route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify([{
+            uid: 'e2e-issue182-task',
+            title: taskTitle,
+            status: 'NEEDS-ACTION',
+            calendarId: 'internal-caldav::/test/personal/',
+            href: '/test/personal/e2e-issue182-task.ics',
+            etag: '"1"',
+          }]),
+        });
+      });
+      await page.goto('/?date=2027-03-10');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+      await expect(page.locator('#sidebar-task-list')).toContainText(taskTitle, { timeout: 10000 });
+    });
+
+    test('Tab reaches the calendar row, ICS dropzone, mini-calendar days and sidebar task', async ({ page }) => {
+      await page.evaluate(() => { document.activeElement && document.activeElement.blur(); });
+      const stops = [];
+      const found = () => [
+        stops.some(s => /\bcalendar-item\b/.test(s.cls) && s.calId),
+        stops.some(s => s.id === 'ics-dropzone'),
+        stops.some(s => /\bmini-cal-day\b/.test(s.cls) && s.miniDay),
+        stops.some(s => /\bsidebar-task-info\b/.test(s.cls) && s.text.includes(taskTitle)),
+      ].every(Boolean);
+      for (let i = 0; i < 1000 && !found(); i++) {
+        await page.keyboard.press('Tab');
+        const stop = await page.evaluate(() => {
+          const el = document.activeElement;
+          if (!el || el === document.body) return null;
+          return {
+            cls: el.className && typeof el.className === 'string' ? el.className : '',
+            id: el.id,
+            calId: el.dataset.calId || null,
+            miniDay: el.dataset.miniDay || null,
+            text: (el.textContent || '').trim().slice(0, 120),
+          };
+        });
+        if (stop) stops.push(stop);
+      }
+
+      // The focused element must be the control itself, not a decorative child.
+      expect(stops.some(s => /\bcalendar-item\b/.test(s.cls) && s.calId)).toBe(true);
+      expect(stops.some(s => s.id === 'ics-dropzone')).toBe(true);
+      expect(stops.some(s => /\bmini-cal-day\b/.test(s.cls) && s.miniDay)).toBe(true);
+      expect(stops.some(s => /\bsidebar-task-info\b/.test(s.cls) && s.text.includes(taskTitle))).toBe(true);
+    });
+
+    test('Enter and Space on a mini-calendar day select that date', async ({ page }) => {
+      const day20 = page.locator('#mini-calendar [data-mini-day]', { hasText: /^20$/ });
+      await day20.focus();
+      await expect(day20).toBeFocused();
+      await expect(day20).toHaveAttribute('role', 'button');
+      await expect(day20).toHaveAttribute('aria-label', /20\. März 2027/);
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('20');
+      // The grid re-renders; focus must stay on the chosen day, not fall to <body>.
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toBeFocused();
+
+      const day5 = page.locator('#mini-calendar [data-mini-day]', { hasText: /^5$/ });
+      await day5.focus();
+      await expect(day5).toBeFocused();
+      await page.keyboard.press(' ');
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('5');
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toBeFocused();
+
+      // Re-renders not started from a day cell must leave focus where it is.
+      await page.locator('#next-btn').focus();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toContainText('Apr');
+      await expect(page.locator('#next-btn')).toBeFocused();
+    });
+
+    test('Enter and Space on a sidebar task open the task editor', async ({ page }) => {
+      const info = page.locator('#sidebar-task-list .sidebar-task-info', { hasText: taskTitle });
+      await info.focus();
+      await expect(info).toBeFocused();
+      await expect(info).toHaveAttribute('role', 'button');
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#task-title')).toHaveValue(taskTitle);
+      await page.click('#task-cancel-btn');
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
+
+      await info.focus();
+      await expect(info).toBeFocused();
+      await page.keyboard.press(' ');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#task-title')).toHaveValue(taskTitle);
+      await page.click('#task-cancel-btn');
+    });
+
+    test('Enter and Space on the focused ICS dropzone open the file picker', async ({ page }) => {
+      const zone = page.locator('#ics-dropzone');
+      await zone.focus();
+      await expect(zone).toBeFocused();
+      let chooser = page.waitForEvent('filechooser', { timeout: 5000 });
+      await page.keyboard.press('Enter');
+      await chooser;
+      chooser = page.waitForEvent('filechooser', { timeout: 5000 });
+      await page.keyboard.press(' ');
+      await chooser;
+    });
+
+    test('Space on the focused calendar row toggles its visibility and aria-checked', async ({ page }) => {
+      const row = page.locator('#calendar-list .calendar-item[data-cal-id]').first();
+      const calId = await row.getAttribute('data-cal-id');
+      await row.focus();
+      await expect(row).toBeFocused();
+      await expect(row).toHaveAttribute('aria-checked', 'true');
+      await page.keyboard.press(' ');
+      const toggled = page.locator(`#calendar-list .calendar-item[data-cal-id="${calId}"]`);
+      await expect(toggled).toHaveAttribute('aria-checked', 'false');
+      await toggled.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.locator(`#calendar-list .calendar-item[data-cal-id="${calId}"]`)).toHaveAttribute('aria-checked', 'true');
+    });
+  });
+
   test('should open invitations modal and inspect iTIP/RSVP inbox', async ({ page }) => {
     const invRespPromise = page.waitForResponse(resp => resp.url().includes('/api/events/invitations'));
     await page.goto('/');

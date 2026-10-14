@@ -529,7 +529,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
 
     item.innerHTML = `
       <input type="checkbox" class="sidebar-task-checkbox" title="Als erledigt markieren" />
-      <div class="sidebar-task-info" style="cursor:pointer; flex:1;">
+      <div class="sidebar-task-info" tabindex="0" role="button" style="cursor:pointer; flex:1;">
         <div class="sidebar-task-title ${prioClass}">${escapeHtml(task.title)}</div>
         <div class="sidebar-task-meta" style="font-size:0.75rem; color:var(--ink-muted);">
           ${task.due ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${(task.dueIsDate || task.allDay) ? new Date(task.due).toLocaleDateString('de-DE', { timeZone: 'UTC' }) : new Date(task.due).toLocaleDateString('de-DE')}` : ''}
@@ -550,7 +550,14 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
       }
     });
 
-    item.querySelector('.sidebar-task-info').addEventListener('click', () => openTaskModal(task));
+    const info = item.querySelector('.sidebar-task-info');
+    info.addEventListener('click', () => openTaskModal(task));
+    info.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openTaskModal(task);
+      }
+    });
     container.appendChild(item);
   });
 }
