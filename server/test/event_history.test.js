@@ -19,6 +19,7 @@ helper.getClientForAccount = async () => ({
 });
 
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Issue #25 — Event Modification History and Audit Logs (Changelog)', async (t) => {
   t.before(async () => {
@@ -104,17 +105,17 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
   });
 
   await t.test('Authenticate test sessions', async () => {
+    userCookie = await loginAs(userId, { email: 'history_user@example.com' });
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': userId }
+      headers: { cookie: userCookie }
     });
     assert.strictEqual(res1.status, 200);
-    userCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    strangerCookie = await loginAs(strangerId, { email: 'history_stranger@example.com' });
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': strangerId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(res2.status, 200);
-    strangerCookie = res2.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('REST GET /api/events/:uid/history access control and retrieval', async () => {
@@ -128,20 +129,18 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
     });
 
     // Unauthenticated -> 401
-    const unauthRes = await fetch(`${baseUrl}/api/events/${eventUid}/history`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const unauthRes = await fetch(`${baseUrl}/api/events/${eventUid}/history`);
     assert.strictEqual(unauthRes.status, 401);
 
     // Stranger -> 403
     const strangerRes = await fetch(`${baseUrl}/api/events/${eventUid}/history?calendarId=${encodeURIComponent(calId)}`, {
-      headers: { cookie: strangerCookie, 'x-test-user-id': strangerId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(strangerRes.status, 403);
 
     // Authorized owner -> 200
     const ownerRes = await fetch(`${baseUrl}/api/events/${eventUid}/history?calendarId=${encodeURIComponent(calId)}`, {
-      headers: { cookie: userCookie, 'x-test-user-id': userId }
+      headers: { cookie: userCookie }
     });
     assert.strictEqual(ownerRes.status, 200);
     const body = await ownerRes.json();
@@ -157,8 +156,7 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        cookie: userCookie,
-        'x-test-user-id': userId
+        cookie: userCookie
       },
       body: JSON.stringify({
         calendarId: envCalId,
@@ -180,8 +178,7 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        cookie: userCookie,
-        'x-test-user-id': userId
+        cookie: userCookie
       },
       body: JSON.stringify({
         calendarId: envCalId,

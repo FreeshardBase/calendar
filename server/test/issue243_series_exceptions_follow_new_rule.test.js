@@ -16,6 +16,7 @@ const ICAL = require('ical.js');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { updateWholeSeries, parseAndExpandEvent } = require('../caldav/parser');
 
 const UID = 'probe-uid';
@@ -247,9 +248,9 @@ test('#243 PUT /api/events/:uid series time shift stores no orphaned exception',
   const baseUrl = `http://localhost:${process.env.PORT}`;
   const userId = 'testuser-243';
   await Db.upsertUser(userId, 'testuser@example.com');
-  const authRes = await fetch(`${baseUrl}/api/accounts`, { headers: { 'x-test-user-id': userId } });
+  const cookie = await loginAs(userId);
+  const authRes = await fetch(`${baseUrl}/api/accounts`, { headers: { cookie } });
   assert.equal(authRes.status, 200);
-  const cookie = authRes.headers.get('set-cookie').split(';')[0];
   const href = `/users/${userId}/calendars/personal/${UID}.ics`;
   const eventUrl = `http://localhost:1080${href}`;
   store.set(eventUrl, { ics: PROBE_ICS, etag: '"etag-243-0"' });

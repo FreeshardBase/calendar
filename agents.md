@@ -11,12 +11,15 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `NODE_ENV=test npm test` — node:test integration suite (`server/test/*.test.js`).
   Tests are self-contained and spin up isolated Express instances on ephemeral ports. No pre-started server is required.
   Tests isolate database state using `webcalendar.test.db` when `DATABASE_PATH` is unset to protect developer databases.
+  A test becomes a user with `await loginAs(userId, { username, email })` from `server/test/helpers/testSession.js`:
+  it writes a real session row and returns a signed `cookie` header value. No request header asserts an identity,
+  under any `NODE_ENV` (#50/#245); the only header identity is the secret-gated proxy auth (`HTTP_HEADER_AUTH`/`oidc`).
 - `python3 -m unittest discover -s server/test/python` — Python test suite (`radicale_custom_auth`, `radicale_custom_rights`, `sync_worker`, `msgraph_worker`).
 - `npm run lint` — syntax check JS files (`node --check`) and compile Python modules (`py_compile`).
 - `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
 - `npx playwright test` — e2e (`e2e/calendar.spec.js`), starts its own server via `playwright.config.js`
   (`reuseExistingServer` outside CI). That server runs the shipping configuration (`NODE_ENV=production`,
-  no test-mode switch: `X-Test-*` headers are ignored, no fake users are seeded) on its own database
+  no test-mode switch, no fake users are seeded) on its own database
   `$TMPDIR/webcalendar-e2e/webcalendar.db`; specs seed fixtures there themselves (#211). A server you
   started yourself on :3098 is reused as-is, so leave the port free and let Playwright start it. Needs a
   reachable internal CalDAV server whose `SYSTEM_SYNC_SECRET` matches `playwright.config.js`; local recipe:

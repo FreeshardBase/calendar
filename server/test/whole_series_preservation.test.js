@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { updateWholeSeries, parseAndExpandEvent } = require('../caldav/parser');
 
 test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation', async (t) => {
@@ -272,11 +273,11 @@ test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation
     const testUserId = 'test-series-user-241';
     await Db.upsertUser(testUserId, 'series241@example.com');
 
+    const cookie = await loginAs(testUserId, { email: 'series241@example.com' });
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'recurring-series-master-241';

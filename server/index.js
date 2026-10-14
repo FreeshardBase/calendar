@@ -101,25 +101,9 @@ app.use(express.urlencoded({ extended: true }));
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
   const authMethod = process.env.AUTH_METHOD || 'env';
-  const isTestEnv = process.env.NODE_ENV === 'test';
+  // #50/#245: identity comes only from the session or the secret-gated proxy headers below.
   let newUserId = req.session.userId;
-  if (isTestEnv && (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none')) {
-    if (req.session.userId !== undefined) {
-      delete req.session.userId;
-    }
-    delete req.session.userEmail;
-    newUserId = null;
-  } else if (isTestEnv && req.headers['x-test-user-id']) {
-    newUserId = req.headers['x-test-user-id'];
-    if (req.headers['x-test-username']) {
-      req.session.username = req.headers['x-test-username'];
-    }
-    if (req.headers['x-test-email'] || req.headers['x-test-user-email']) {
-      req.session.userEmail = (req.headers['x-test-email'] || req.headers['x-test-user-email']).trim().toLowerCase();
-    } else if (req.headers['x-test-username'] && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.headers['x-test-username'].trim())) {
-      req.session.userEmail = req.headers['x-test-username'].trim().toLowerCase();
-    }
-  } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
+  if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
     const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET || process.env.INTERNAL_WEBHOOK_SECRET;
     const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
 

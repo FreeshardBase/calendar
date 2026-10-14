@@ -12,6 +12,7 @@ const { checkResourceAvailability, bookResource, cancelResourceBooking, suggestA
 
 test('Resource & Room Booking System Suite', async (t) => {
   const { app, server } = require('../index');
+  const { loginAs } = require('./helpers/testSession');
 
   t.after(() => {
     if (server && server.close) {
@@ -23,14 +24,11 @@ test('Resource & Room Booking System Suite', async (t) => {
   let sessionCookie = '';
 
   await t.test('Initial setup - authenticate session', async () => {
+    sessionCookie = await loginAs('testuser-id', { username: 'testuser', email: 'testuser@example.com' });
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'testuser-id' }
+      headers: { cookie: sessionCookie }
     });
     assert.equal(res.status, 200);
-    const cookieHeader = res.headers.get('set-cookie');
-    if (cookieHeader) {
-      sessionCookie = cookieHeader.split(';')[0];
-    }
   });
 
   await t.test('Database Resource CRUD Operations', async () => {

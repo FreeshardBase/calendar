@@ -19,6 +19,7 @@ const {
 
 test('Delegate Permissions System Suite', async (t) => {
   const { app, server } = require('../index');
+  const { loginAs } = require('./helpers/testSession');
 
   t.before(async () => {
     if (!server.listening) {
@@ -104,9 +105,12 @@ test('Delegate Permissions System Suite', async (t) => {
   });
 
   await t.test('REST API Endpoints - /api/delegates management', async () => {
+    const principalCookie = await loginAs(principalId);
+    const delegateCookie = await loginAs(delegateId);
+
     // GET /api/delegates
     const resGet = await fetch(`${baseUrl}/api/delegates`, {
-      headers: { 'x-test-user-id': principalId }
+      headers: { cookie: principalCookie }
     });
     assert.equal(resGet.status, 200);
     const bodyGet = await resGet.json();
@@ -116,7 +120,7 @@ test('Delegate Permissions System Suite', async (t) => {
     const resPost = await fetch(`${baseUrl}/api/delegates`, {
       method: 'POST',
       headers: {
-        'x-test-user-id': principalId,
+        cookie: principalCookie,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -144,7 +148,7 @@ test('Delegate Permissions System Suite', async (t) => {
 
     // GET /api/delegates/principals as assistant user
     const resPrincipals = await fetch(`${baseUrl}/api/delegates/principals`, {
-      headers: { 'x-test-user-id': delegateId }
+      headers: { cookie: delegateCookie }
     });
     assert.equal(resPrincipals.status, 200);
     const bodyPrincipals = await resPrincipals.json();
@@ -154,7 +158,7 @@ test('Delegate Permissions System Suite', async (t) => {
     const resActAs = await fetch(`${baseUrl}/api/delegates/act-as`, {
       method: 'POST',
       headers: {
-        'x-test-user-id': delegateId,
+        cookie: delegateCookie,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ principalUserId: principalId, calendarId: 'work-cal' })
@@ -166,7 +170,7 @@ test('Delegate Permissions System Suite', async (t) => {
     // DELETE /api/delegates/:id
     const resDel = await fetch(`${baseUrl}/api/delegates/${bodyPost.id}`, {
       method: 'DELETE',
-      headers: { 'x-test-user-id': principalId }
+      headers: { cookie: principalCookie }
     });
     assert.equal(resDel.status, 200);
 

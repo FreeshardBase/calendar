@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { isNoOpEventSave, eventToICS } = require('../caldav/parser');
 
 test('Issue #53 — Series Destruction & Recurrence Rule Preservation on No-Op Event Saves', async (t) => {
@@ -57,11 +58,11 @@ test('Issue #53 — Series Destruction & Recurrence Rule Preservation on No-Op E
     const testUserId = 'test-series-user-53';
     await Db.upsertUser(testUserId, 'series53@example.com');
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     // 1. Pre-seed a recurring event with EXDATE in mockStore
@@ -120,10 +121,11 @@ test('Issue #53 — Series Destruction & Recurrence Rule Preservation on No-Op E
     const baseUrl = `http://localhost:${process.env.PORT}`;
     const testUserId = 'test-series-user-53';
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
+    assert.equal(authRes.status, 200);
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'edited-event-53';

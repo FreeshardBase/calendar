@@ -16,19 +16,20 @@ test('Issue #77 — Deep Server User Email Validation & RSVP ACL Verification', 
   app.use(express.json());
   app.use(session({ secret: 'test-secret-77', resave: false, saveUninitialized: true }));
 
-  // Mock sessions based on headers
+  // Test-local mock session middleware on this standalone app (not the
+  // production server, which ignores identity headers since #245/#50).
   app.use(async (req, res, next) => {
-    if (req.headers['x-test-user-id']) {
-      req.session.userId = req.headers['x-test-user-id'];
-      req.session.username = req.headers['x-test-username'] || req.headers['x-test-user-id'];
-      if (req.headers['x-test-email']) {
-        req.session.userEmail = req.headers['x-test-email'];
+    if (req.headers['x-mock-user-id']) {
+      req.session.userId = req.headers['x-mock-user-id'];
+      req.session.username = req.headers['x-mock-username'] || req.headers['x-mock-user-id'];
+      if (req.headers['x-mock-email']) {
+        req.session.userEmail = req.headers['x-mock-email'];
       }
       req.session.accounts = [
         {
           id: 'internal-caldav',
           url: 'http://localhost:3177/mock-dav',
-          username: req.headers['x-test-username'] || req.headers['x-test-user-id']
+          username: req.headers['x-mock-username'] || req.headers['x-mock-user-id']
         }
       ];
       if (req.headers['x-mock-account-username']) {
@@ -101,9 +102,9 @@ END:VCALENDAR`;
   await t.test('2. GET /api/auth/session returns user email', async () => {
     const res = await fetch(`${baseUrl}/api/auth/session`, {
       headers: {
-        'x-test-user-id': 'user-alice-77',
-        'x-test-username': 'alice',
-        'x-test-email': 'alice@example.com'
+        'x-mock-user-id': 'user-alice-77',
+        'x-mock-username': 'alice',
+        'x-mock-email': 'alice@example.com'
       }
     });
     assert.equal(res.status, 200);
@@ -117,9 +118,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-bob-77',
-        'x-test-username': 'bob',
-        'x-test-email': 'bob@example.com',
+        'x-mock-user-id': 'user-bob-77',
+        'x-mock-username': 'bob',
+        'x-mock-email': 'bob@example.com',
         'x-mock-account-username': 'alice@example.com'
       },
       body: JSON.stringify({
@@ -140,7 +141,7 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-no-email-77'
+        'x-mock-user-id': 'user-no-email-77'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-no-email-77/personal/',
@@ -160,9 +161,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-bob-77',
-        'x-test-username': 'bob',
-        'x-test-email': 'bob@example.com'
+        'x-mock-user-id': 'user-bob-77',
+        'x-mock-username': 'bob',
+        'x-mock-email': 'bob@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-bob-77/personal/',
@@ -188,9 +189,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-bob-77',
-        'x-test-username': 'bob',
-        'x-test-email': 'bob@example.com'
+        'x-mock-user-id': 'user-bob-77',
+        'x-mock-username': 'bob',
+        'x-mock-email': 'bob@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-bob-77/personal/',

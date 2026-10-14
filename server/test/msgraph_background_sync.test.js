@@ -14,6 +14,7 @@ const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
 test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) => {
   const { app, server } = require('../index');
+  const { loginAs } = require('./helpers/testSession');
   await new Promise(r => setTimeout(r, 100));
   await Db.clearAll().catch(() => {});
 
@@ -26,13 +27,14 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   const userId = 'msgraph-bg-user-id';
+  const userCookie = await loginAs(userId);
 
   await t.test('POST /api/msgraph/accounts should automatically enqueue a PENDING sync job', async () => {
     const res = await fetch(`${baseUrl}/api/msgraph/accounts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': userId
+        cookie: userCookie
       },
       body: JSON.stringify({
         accountEmail: 'm365user@example.com',
@@ -68,7 +70,7 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': userId
+        cookie: userCookie
       },
       body: JSON.stringify({ localEvents: [] })
     });

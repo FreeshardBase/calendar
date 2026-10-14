@@ -40,13 +40,16 @@ function listen(server) {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 }
 
+// #245: identity is a real session (helpers/testSession.js), created in before().
+let sessionCookie = '';
+
 function makeRequest(method, urlPath, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const opts = {
       hostname: '127.0.0.1', port: appPort, path: urlPath, method,
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': TEST_USER,
+        cookie: sessionCookie,
         ...extraHeaders
       }
     };
@@ -159,6 +162,7 @@ describe('Issue #157 — CalDAV credential validation on account add', () => {
     // --- App server ---
     Db = require('../db');
     const index = require('../index');
+    sessionCookie = await require('./helpers/testSession').loginAs(TEST_USER);
     appServer = index.server;
     if (!appServer.listening) {
       await new Promise((resolve, reject) => {

@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const http = require('http');
 const Db = require('../db');
 const { app, server: appServer } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 function makeRequest(server, options, body = null) {
   return new Promise((resolve, reject) => {
@@ -38,6 +39,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
   const strangerId = 'user-198-test-stranger';
   let server;
   let port;
+  let ownerCookie;
 
   before(async () => {
     await Db.upsertUser(userId, 'user198owner');
@@ -51,6 +53,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
     }
     port = appServer.address().port;
     server = appServer;
+    ownerCookie = await loginAs(userId);
   });
 
   after(() => {
@@ -70,9 +73,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
       port,
       path: '/api/accounts/sync-status',
       method: 'GET',
-      headers: {
-        'x-test-user-id': 'unauthenticated'
-      }
+      headers: {}
     });
 
     assert.equal(res.status, 401);
@@ -89,7 +90,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
       path: '/api/accounts/sync-status',
       method: 'GET',
       headers: {
-        'x-test-user-id': userId
+        cookie: ownerCookie
       }
     });
 
@@ -115,7 +116,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
       path: '/api/accounts/sync-status',
       method: 'GET',
       headers: {
-        'x-test-user-id': userId
+        cookie: ownerCookie
       }
     });
 
@@ -132,9 +133,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
       port,
       path: `/api/accounts/sync-jobs/${job.id}`,
       method: 'GET',
-      headers: {
-        'x-test-user-id': 'unauthenticated'
-      }
+      headers: {}
     });
 
     assert.equal(res.status, 401);
@@ -148,7 +147,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
       path: `/api/accounts/sync-jobs/${strangerJob.id}`,
       method: 'GET',
       headers: {
-        'x-test-user-id': userId
+        cookie: ownerCookie
       }
     });
 
@@ -166,7 +165,7 @@ describe('Issue #198 — Sync Worker Status & Error Message API Exposure', () =>
       path: `/api/accounts/sync-jobs/${job.id}`,
       method: 'GET',
       headers: {
-        'x-test-user-id': userId
+        cookie: ownerCookie
       }
     });
 

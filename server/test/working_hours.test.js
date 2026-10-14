@@ -10,6 +10,7 @@ const assert = require('assert');
 const Db = require('../db');
 const { evaluateWorkingHoursPolicy } = require('../utils/workingHoursPolicy');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
@@ -21,13 +22,11 @@ test('Working Hours Policy Suite', async (t) => {
       await new Promise((resolve) => server.listen(process.env.PORT, resolve));
     }
     // Obtain session cookie
+    sessionCookie = await loginAs('test');
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'test' }
+      headers: { cookie: sessionCookie }
     });
-    const cookieHeader = res.headers.get('set-cookie');
-    if (cookieHeader) {
-      sessionCookie = cookieHeader.split(';')[0];
-    }
+    assert.strictEqual(res.status, 200);
   });
 
   t.after(() => {

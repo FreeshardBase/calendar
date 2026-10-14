@@ -15,6 +15,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
@@ -31,9 +32,10 @@ test('HTTP Routes Integration Suite', async (t) => {
   let sessionCookie = '';
   let testCalendarId = '';
 
-  await t.test('GET /api/accounts should return auto-configured account and set session cookie', async () => {
+  await t.test('GET /api/accounts should return auto-configured account for the session user', async () => {
+    sessionCookie = await loginAs('test');
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'test' }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
     
@@ -42,19 +44,12 @@ test('HTTP Routes Integration Suite', async (t) => {
     assert.strictEqual(accounts.length, 1);
     assert.ok(accounts[0].id === 'env-default' || accounts[0].id === 'internal-caldav');
     assert.strictEqual(accounts[0].username, 'test');
-
-    // Extract session cookie
-    const cookieHeader = res.headers.get('set-cookie');
-    if (cookieHeader) {
-      sessionCookie = cookieHeader.split(';')[0];
-    }
   });
 
   await t.test('GET /api/calendars should return calendars list using session cookie', async () => {
     const res = await fetch(`${baseUrl}/api/calendars`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'test'
+        cookie: sessionCookie
       }
     });
     assert.strictEqual(res.status, 200);
@@ -71,8 +66,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     const end = '2026-07-31T23:59:59Z';
     const res = await fetch(`${baseUrl}/api/events?start=${start}&end=${end}`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'test'
+        cookie: sessionCookie
       }
     });
     assert.strictEqual(res.status, 200);
@@ -89,8 +83,7 @@ test('HTTP Routes Integration Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        cookie: sessionCookie,
-        'x-test-user-id': 'test'
+        cookie: sessionCookie
       },
       body: JSON.stringify({
         url: baseUrlOnly,
@@ -107,7 +100,7 @@ test('HTTP Routes Integration Suite', async (t) => {
 
   await t.test('GET /api/calendars/:id/shares should return shares list', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares`, {
-      headers: { cookie: sessionCookie, 'x-test-user-id': 'test' }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
     const body = await res.json();
@@ -117,8 +110,7 @@ test('HTTP Routes Integration Suite', async (t) => {
   await t.test('POST, PUT/update and DELETE /api/calendars/:id/shares should manage calendar share permissions', async () => {
     const headers = {
       'Content-Type': 'application/json',
-      cookie: sessionCookie,
-      'x-test-user-id': 'test'
+      cookie: sessionCookie
     };
 
     // 1. Add share (read-write)
@@ -177,7 +169,7 @@ test('HTTP Routes Integration Suite', async (t) => {
 
   await t.test('GET /api/calendars/search-users should return matched users', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/search-users?q=test`, {
-      headers: { cookie: sessionCookie, 'x-test-user-id': 'test' }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
     const users = await res.json();
@@ -188,7 +180,7 @@ test('HTTP Routes Integration Suite', async (t) => {
   });
 
   await t.test('POST /api/calendars/:id/public-link should enable public link and GET /api/public/calendars/share/:token.ics should download ICS', async () => {
-    const headers = { cookie: sessionCookie, 'x-test-user-id': 'test' };
+    const headers = { cookie: sessionCookie };
 
     // 1. Enable public link
     const enableRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/public-link`, {
@@ -231,16 +223,10 @@ test('HTTP Routes Integration Suite', async (t) => {
   });
 
   await t.test('POST, PATCH, DELETE /api/accounts and POST /internal/webhooks/user-deleted should manage accounts and clean up via webhook', async () => {
-    const getSessRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'webhook-test-user' }
-    });
-    const rawCookie = getSessRes.headers.get('set-cookie');
-    const sessionCookie = rawCookie ? rawCookie.split(';')[0] : '';
-
+    // Second identity, as a real session (#245).
     const headers = {
       'Content-Type': 'application/json',
-      cookie: sessionCookie,
-      'x-test-user-id': 'webhook-test-user'
+      cookie: await loginAs('webhook-test-user')
     };
 
     // 1. Add a temporary account
@@ -307,12 +293,12 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(hookRes2.status, 200);
 
-    // 7. Verify account is deleted by webhook
+    // 7. Verify account and session are deleted by webhook
+    assert.ok(!(await Db.getAccounts('webhook-test-user')).some(a => a.id === addAccData.id));
     const listRes4 = await fetch(`${baseUrl}/api/accounts`, {
       headers
     });
-    const listData4 = await listRes4.json();
-    assert.ok(!listData4.some(a => a.id === addAccData.id));
+    assert.strictEqual(listRes4.status, 401, 'deleted user\'s session must no longer authenticate');
   });
 
   await t.test('GET /api/auth/login should return 302/200 or 500 depending on OIDC config', async () => {

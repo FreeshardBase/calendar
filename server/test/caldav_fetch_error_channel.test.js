@@ -12,6 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
@@ -33,21 +34,17 @@ test('Issue #65 — CalDAV Fetch Error Channel & Status Enforcement', async (t) 
   let sessionCookie = '';
 
   await t.test('Setup session with unreachable CalDAV account', async () => {
+    sessionCookie = await loginAs('testuser');
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'testuser' }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
-    const cookieHeader = res.headers.get('set-cookie');
-    if (cookieHeader) {
-      sessionCookie = cookieHeader.split(';')[0];
-    }
   });
 
   await t.test('GET /api/calendars provides X-CalDAV-Error header and error channel when CalDAV fetches fail', async () => {
     const res = await fetch(`${baseUrl}/api/calendars`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       }
     });
 
@@ -62,8 +59,7 @@ test('Issue #65 — CalDAV Fetch Error Channel & Status Enforcement', async (t) 
     
     const res = await fetch(`${baseUrl}/api/events?start=${start}&end=${end}`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       }
     });
 
@@ -74,8 +70,7 @@ test('Issue #65 — CalDAV Fetch Error Channel & Status Enforcement', async (t) 
   await t.test('GET /api/tasks returns HTTP 502 and X-CalDAV-Error header when CalDAV fetch fails completely', async () => {
     const res = await fetch(`${baseUrl}/api/tasks`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       }
     });
 

@@ -13,6 +13,7 @@ const path = require('path');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { updateWholeSeries, parseAndExpandEvent, isNoOpEventSave } = require('../utils/ical');
 
 test('Issue #79 — Editing a series from a later occurrence rewrites master DTSTART and deletes earlier occurrences', async (t) => {
@@ -170,11 +171,11 @@ test('Issue #79 — Editing a series from a later occurrence rewrites master DTS
     const testUserId = 'test-series-user-79';
     await Db.upsertUser(testUserId, 'series79@example.com');
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'series-79-http';
@@ -241,11 +242,11 @@ test('Issue #79 — Editing a series from a later occurrence rewrites master DTS
     const testUserId = 'test-series-user-79-override';
     await Db.upsertUser(testUserId, 'series79override@example.com');
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'series-79-override-http';
@@ -301,11 +302,11 @@ test('Issue #79 — Editing a series from a later occurrence rewrites master DTS
     const testUserId = 'test-series-user-79-noop';
     await Db.upsertUser(testUserId, 'series79noop@example.com');
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'series-79-noop-http';

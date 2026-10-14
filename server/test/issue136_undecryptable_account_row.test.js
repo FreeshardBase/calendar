@@ -20,13 +20,16 @@ let app;
 let server;
 let port = 3196;
 
+// #245: identity is a real session (helpers/testSession.js), created in before().
+let sessionCookie = '';
+
 function makeRequest(method, urlPath, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const opts = {
       hostname: '127.0.0.1', port, path: urlPath, method,
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': TEST_USER,
+        cookie: sessionCookie,
         ...extraHeaders
       }
     };
@@ -89,6 +92,7 @@ describe('Issue #136 — un-decryptable linked_accounts row', () => {
   before(async () => {
     Db = require('../db');
     const index = require('../index');
+    sessionCookie = await require('./helpers/testSession').loginAs(TEST_USER);
     app = index.app;
     server = index.server;
     port = Number(process.env.PORT) || 3285;

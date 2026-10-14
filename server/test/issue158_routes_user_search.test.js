@@ -13,6 +13,7 @@ const TEST_USER = 'user-158-test';
 
 let Db;
 let appServer;
+let testUserCookie;
 const appPort = 3958;
 
 function makeRequest(method, urlPath, body, extraHeaders = {}) {
@@ -24,7 +25,7 @@ function makeRequest(method, urlPath, body, extraHeaders = {}) {
       method,
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': TEST_USER,
+        cookie: testUserCookie,
         ...extraHeaders
       }
     };
@@ -59,6 +60,7 @@ describe('Issue #158 — Satisfiable search-users assertions across internal and
         appServer.once('error', reject);
       });
     }
+    testUserCookie = await require('./helpers/testSession').loginAs(TEST_USER);
   });
 
   after(async () => {

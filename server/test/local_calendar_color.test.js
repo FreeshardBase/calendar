@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', async (t) => {
   t.after(() => {
@@ -54,17 +55,17 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
   });
 
   await t.test('Authenticate user sessions', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    inviteeCookie = await loginAs(inviteeUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': inviteeUserId }
+      headers: { cookie: inviteeCookie }
     });
     assert.strictEqual(res2.status, 200);
-    inviteeCookie = res2.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('Set up shared calendar with read-only access for invitee', async () => {
@@ -77,7 +78,6 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
       method: 'PATCH',
       headers: {
         'Cookie': inviteeCookie,
-        'x-test-user-id': inviteeUserId,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ color: '#ec4899' })
@@ -93,7 +93,6 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
       method: 'PATCH',
       headers: {
         'Cookie': inviteeCookie,
-        'x-test-user-id': inviteeUserId,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ name: 'Hacked Name' })
@@ -104,7 +103,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
 
   await t.test('GET /api/calendars returns customized color for invitee, default color for owner', async () => {
     const resInvitee = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'Cookie': inviteeCookie, 'x-test-user-id': inviteeUserId }
+      headers: { 'Cookie': inviteeCookie }
     });
     assert.strictEqual(resInvitee.status, 200);
     const dataInvitee = await resInvitee.json();
@@ -113,7 +112,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
     assert.strictEqual(inviteeCal.color, '#ec4899');
 
     const resOwner = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'Cookie': ownerCookie, 'x-test-user-id': ownerUserId }
+      headers: { 'Cookie': ownerCookie }
     });
     assert.strictEqual(resOwner.status, 200);
     const dataOwner = await resOwner.json();
@@ -127,7 +126,6 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
       method: 'PATCH',
       headers: {
         'Cookie': inviteeCookie,
-        'x-test-user-id': inviteeUserId,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ color: null })
@@ -136,7 +134,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
     assert.strictEqual(res.status, 200);
     
     const resInvitee = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'Cookie': inviteeCookie, 'x-test-user-id': inviteeUserId }
+      headers: { 'Cookie': inviteeCookie }
     });
     const dataInvitee = await resInvitee.json();
     const inviteeCal = dataInvitee.calendars.find(c => c.id === ownerCalId);

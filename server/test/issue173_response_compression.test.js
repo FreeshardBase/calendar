@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const zlib = require('node:zlib');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 describe('Issue #173 — Response Compression for JS, CSS, HTML and API responses', () => {
   before(async () => {
@@ -67,11 +68,12 @@ describe('Issue #173 — Response Compression for JS, CSS, HTML and API response
   });
 
   test('GET /api/accounts with Accept-Encoding: gzip returns compressed JSON', async () => {
+    const cookie = await loginAs('test-compression-user');
     const res = await new Promise((resolve, reject) => {
       const req = http.request(`${baseUrl}/api/accounts`, {
         headers: {
           'Accept-Encoding': 'gzip',
-          'x-test-user-id': 'test-compression-user'
+          cookie
         }
       }, (res) => {
         const chunks = [];

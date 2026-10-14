@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Issue #3 — Granular Permission Management for Shared Calendars', async (t) => {
   if (server && !server.listening) {
@@ -44,29 +45,29 @@ test('Issue #3 — Granular Permission Management for Shared Calendars', async (
   const timeQuery = '&start=2026-01-01T00:00:00Z&end=2026-12-31T23:59:59Z';
 
   await t.test('Authenticate user sessions', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    readOnlyCookie = await loginAs(readOnlyUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': readOnlyUserId }
+      headers: { cookie: readOnlyCookie }
     });
     assert.strictEqual(res2.status, 200);
-    readOnlyCookie = res2.headers.get('set-cookie').split(';')[0];
 
+    freeBusyCookie = await loginAs(freeBusyUserId);
     const res3 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': freeBusyUserId }
+      headers: { cookie: freeBusyCookie }
     });
     assert.strictEqual(res3.status, 200);
-    freeBusyCookie = res3.headers.get('set-cookie').split(';')[0];
 
+    adminShareeCookie = await loginAs(adminShareeUserId);
     const res4 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': adminShareeUserId }
+      headers: { cookie: adminShareeCookie }
     });
     assert.strictEqual(res4.status, 200);
-    adminShareeCookie = res4.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('Owner creates a share with FREE_BUSY role', async () => {

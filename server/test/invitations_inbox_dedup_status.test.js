@@ -9,6 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const Db = require('../db');
+const { loginAs } = require('./helpers/testSession');
 
 test('Issue #88 — Invitations Inbox Deduplication and PARTSTAT Filtering', async (t) => {
   const { app, server } = require('../index');
@@ -143,9 +144,7 @@ END:VCALENDAR`;
     }
 
     const headers = {
-      'x-test-user-id': testUserId,
-      'x-test-username': testEmail,
-      'x-test-email': testEmail
+      cookie: await loginAs(testUserId, { username: testEmail, email: testEmail })
     };
 
     const res = await fetch(`${baseUrl}/api/events/invitations`, { headers });

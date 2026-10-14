@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const ICAL = require('ical.js');
 const { parseICSToTask, parseVTodoToTask, taskToICS, advanceRecurringTask } = require('../caldav/parser');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 const testUserId = 'test-issue95-user';
@@ -23,9 +24,9 @@ function splitVtodos(ics) {
   assert.equal(masters.length, 1, 'exactly one master VTODO');
   return { master: masters[0], instances: vtodos.filter(v => v.getFirstProperty('recurrence-id')) };
 }
+// The session cookie is filled in by test.before() (#245: identity comes only from a session).
 const authHeaders = {
-  'Content-Type': 'application/json',
-  'x-test-user-id': testUserId
+  'Content-Type': 'application/json'
 };
 
 test.describe('Issue #95 — Recurring VTODO Completion History & Live Implementation', () => {
@@ -34,6 +35,7 @@ test.describe('Issue #95 — Recurring VTODO Completion History & Live Implement
     if (server && !server.listening) {
       await new Promise((resolve) => server.listen(process.env.PORT || 3116, resolve));
     }
+    authHeaders.cookie = await loginAs(testUserId);
   });
 
   test.after(async () => {
@@ -292,7 +294,7 @@ END:VCALENDAR`;
   test('live PUT /api/tasks/:uid advances recurring task, writes X-COMPLETED-DATES to CalDAV, and terminates upon series exhaustion', async () => {
     // 1. Initialize user session accounts via /api/accounts
     const accRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie: authHeaders.cookie }
     });
     assert.equal(accRes.status, 200);
 

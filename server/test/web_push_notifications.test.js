@@ -12,6 +12,8 @@ const {
   formatPushPayload
 } = require('../utils/webPushNotifications');
 const notificationsRouter = require('../routes/notifications');
+const { getSessionConfig } = require('../utils/sessionConfig');
+const { loginAs } = require('./helpers/testSession');
 
 const TEST_USER_ID = 'test-user-push-17';
 
@@ -101,8 +103,12 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
   await t.test('Push Notifications REST API Endpoints', async (t2) => {
     const app = express();
     app.use(express.json());
-    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: true }));
+    // Production session config (SQLite store + resolved secret), so loginAs()
+    // sessions are the only way to be identified (#245/#50).
+    app.use(session(getSessionConfig(process.env)));
     app.use('/api/notifications', notificationsRouter);
+
+    const userCookie = await loginAs(TEST_USER_ID, { username: 'testuser', email: 'testuser@example.com' });
 
     let server;
     let baseUrl;
@@ -120,8 +126,13 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
     });
 
     await t2.test('GET /api/notifications/push-subscriptions returns 401 when unauthenticated', async () => {
+      const res = await fetch(`${baseUrl}/api/notifications/push-subscriptions`);
+      assert.equal(res.status, 401);
+    });
+
+    await t2.test('GET /api/notifications/push-subscriptions ignores an x-test-user-id header (#245/#50)', async () => {
       const res = await fetch(`${baseUrl}/api/notifications/push-subscriptions`, {
-        headers: { 'x-test-user-id': 'unauthenticated' }
+        headers: { 'x-test-user-id': TEST_USER_ID }
       });
       assert.equal(res.status, 401);
     });
@@ -132,7 +143,7 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-test-user-id': TEST_USER_ID
+          cookie: userCookie
         },
         body: JSON.stringify({
           endpoint: 'https://fcm.googleapis.com/fcm/send/test-token-777',
@@ -153,7 +164,7 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
 
     await t2.test('GET /api/notifications/push-subscriptions returns user subscriptions', async () => {
       const res = await fetch(`${baseUrl}/api/notifications/push-subscriptions`, {
-        headers: { 'x-test-user-id': TEST_USER_ID }
+        headers: { cookie: userCookie }
       });
       assert.equal(res.status, 200);
       const data = await res.json();
@@ -167,7 +178,7 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-test-user-id': TEST_USER_ID
+          cookie: userCookie
         },
         body: JSON.stringify({
           now: '2026-08-25T09:45:00.000Z',
@@ -193,14 +204,14 @@ test('Web Push Notifications & VALARM Engine (Issue #17)', async (t) => {
     await t2.test('DELETE /api/notifications/push-subscriptions/:id deletes subscription', async () => {
       const res = await fetch(`${baseUrl}/api/notifications/push-subscriptions/${createdSubId}`, {
         method: 'DELETE',
-        headers: { 'x-test-user-id': TEST_USER_ID }
+        headers: { cookie: userCookie }
       });
       assert.equal(res.status, 200);
       const data = await res.json();
       assert.equal(data.success, true);
 
       const checkRes = await fetch(`${baseUrl}/api/notifications/push-subscriptions`, {
-        headers: { 'x-test-user-id': TEST_USER_ID }
+        headers: { cookie: userCookie }
       });
       const checkData = await checkRes.json();
       assert.equal(checkData.length, 0);

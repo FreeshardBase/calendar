@@ -157,9 +157,10 @@ test('iTIP & RSVP Suite', async (t) => {
   await t.test('POST /api/events/:uid/rsvp without body parameters must return 400 or 401 — no silent catch (issue #98)', async () => {
     // Port is set at top of file; server was required above so it IS running.
     const port = process.env.PORT || 3099;
+    const cookie = await require('./helpers/testSession').loginAs('testuser-id');
     const res = await fetch(`http://localhost:${port}/api/events/ev-123/rsvp`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user-id': 'testuser-id' },
+      headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({})
     });
     // Must observe an error response — 400 (missing email) or 401 (unauthenticated).

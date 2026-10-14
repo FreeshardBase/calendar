@@ -15,6 +15,8 @@ const {
 } = require('../utils/freebusyScheduler');
 
 const freebusyRouter = require('../routes/freebusy');
+const { getSessionConfig } = require('../utils/sessionConfig');
+const { loginAs } = require('./helpers/testSession');
 
 test('Participant Availability (Free/Busy) Scheduler Unit Suite', async (t) => {
 
@@ -151,7 +153,8 @@ test('Participant Availability (Free/Busy) Scheduler REST API Suite', async (t) 
   t.before(async () => {
     app = express();
     app.use(express.json());
-    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: true }));
+    // #245: production session store and secret, so a loginAs() session authenticates.
+    app.use(session(getSessionConfig(process.env)));
     app.use('/api/freebusy', freebusyRouter);
 
     await new Promise((resolve) => {
@@ -187,7 +190,7 @@ test('Participant Availability (Free/Busy) Scheduler REST API Suite', async (t) 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'testuser-id'
+        cookie: await loginAs('testuser-id')
       },
       body: JSON.stringify({
         participants: ['testuser@example.com'],
@@ -208,7 +211,7 @@ test('Participant Availability (Free/Busy) Scheduler REST API Suite', async (t) 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'testuser-id'
+        cookie: await loginAs('testuser-id')
       },
       body: JSON.stringify({
         participants: ['testuser@example.com'],
@@ -229,7 +232,7 @@ test('Participant Availability (Free/Busy) Scheduler REST API Suite', async (t) 
   await t.test('GET /api/freebusy/vfreebusy returns text/calendar VFREEBUSY attachment', async () => {
     const res = await fetch(`${baseUrl}/api/freebusy/vfreebusy?user=testuser@example.com&startTime=2026-08-25T00:00:00Z&endTime=2026-08-25T23:59:59Z`, {
       headers: {
-        'x-test-user-id': 'testuser-id'
+        cookie: await loginAs('testuser-id')
       }
     });
 

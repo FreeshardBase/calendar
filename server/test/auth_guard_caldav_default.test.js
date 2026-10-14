@@ -12,6 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
@@ -66,7 +67,7 @@ test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t
     }
   });
 
-  await t.test('Protected API endpoints strictly reject requests with explicit x-test-user-id: unauthenticated', async () => {
+  await t.test('Protected API endpoints ignore an x-test-user-id identity header without a session (#245/#50)', async () => {
     const endpoints = [
       { method: 'GET', path: '/api/calendars' },
       { method: 'GET', path: '/api/events' },
@@ -77,10 +78,12 @@ test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t
       const res = await fetch(`${baseUrl}${ep.path}`, {
         method: ep.method,
         headers: {
-          'x-test-user-id': 'unauthenticated'
+          'x-test-user-id': 'testuser',
+          'x-test-username': 'testuser',
+          'x-test-email': 'testuser@example.com'
         }
       });
-      assert.strictEqual(res.status, 401, `Endpoint ${ep.method} ${ep.path} should return 401 for explicit unauthenticated header`);
+      assert.strictEqual(res.status, 401, `Endpoint ${ep.method} ${ep.path} must return 401: identity headers are not an identity`);
       const body = await res.json();
       assert.strictEqual(body.error, 'Authentication required');
     }
@@ -89,7 +92,7 @@ test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t
   await t.test('CalDAV integration route tests run against mock-dav server by default without skipping', async () => {
     const res = await fetch(`${baseUrl}/api/calendars`, {
       headers: {
-        'x-test-user-id': 'testuser'
+        cookie: await loginAs('testuser', { username: 'testuser', email: 'testuser@example.com' })
       }
     });
     assert.strictEqual(res.status, 200);

@@ -11,6 +11,7 @@ const http = require('http');
 const Db = require('../db');
 const { app, server: appServer } = require('../index');
 const { queueSyncForCalendar } = require('../utils/calendarAuth');
+const { loginAs } = require('./helpers/testSession');
 
 function makeRequest(server, options, body = null) {
   return new Promise((resolve, reject) => {
@@ -40,6 +41,8 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
   const calendarId = `internal-caldav::/${ownerUserId}/personal/`;
   let server;
   let port;
+  let ownerCookie;
+  let strangerCookie;
 
   before(async () => {
     await Db.upsertUser(ownerUserId, 'owner323');
@@ -49,6 +52,8 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
       await new Promise(r => appServer.listen(port, r));
     }
     server = appServer;
+    ownerCookie = await loginAs(ownerUserId);
+    strangerCookie = await loginAs(strangerUserId);
   });
 
   after(() => {
@@ -83,9 +88,7 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
       port,
       path: `/api/calendars/${encodeURIComponent(calendarId)}/sync-queue`,
       method: 'POST',
-      headers: {
-        'x-test-user-id': 'unauthenticated'
-      }
+      headers: {}
     });
 
     assert.equal(res.status, 401);
@@ -98,7 +101,7 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
       path: `/api/calendars/${encodeURIComponent(calendarId)}/sync-queue`,
       method: 'POST',
       headers: {
-        'x-test-user-id': strangerUserId,
+        cookie: strangerCookie,
         'Content-Type': 'application/json'
       }
     });
@@ -115,7 +118,7 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
       path: `/api/calendars/${encodeURIComponent(calendarId)}/sync-queue`,
       method: 'POST',
       headers: {
-        'x-test-user-id': ownerUserId,
+        cookie: ownerCookie,
         'Content-Type': 'application/json'
       }
     });
@@ -144,7 +147,7 @@ describe('Issue #323 — Sync Queue Request Owner Authorization Verification', (
       path: `/api/msgraph/accounts/${account.id}/sync`,
       method: 'POST',
       headers: {
-        'x-test-user-id': strangerUserId,
+        cookie: strangerCookie,
         'Content-Type': 'application/json'
       }
     });

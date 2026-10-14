@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { isNoOpEventSave, updateWholeSeries, parseICSToEvent, parseAndExpandEvent } = require('../caldav/parser');
 
 test('Issue #238 — No-Op Save on Recurring Event Preserves Stored Bytes, EXDATE, Overrides and Timezones', async (t) => {
@@ -112,11 +113,11 @@ test('Issue #238 — No-Op Save on Recurring Event Preserves Stored Bytes, EXDAT
     const testUserId = 'test-user-238';
     await Db.upsertUser(testUserId, 'user238@example.com');
 
+    const cookie = await loginAs(testUserId, { email: 'user238@example.com' });
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'recurring-238-master';
@@ -206,11 +207,11 @@ test('Issue #238 — No-Op Save on Recurring Event Preserves Stored Bytes, EXDAT
   const putMan0 = async (uid, body) => {
     if (!man0Cookie) {
       await Db.upsertUser(man0TestUser, 'testuser@example.com');
+      man0Cookie = await loginAs(man0TestUser, { email: 'testuser@example.com' });
       const authRes = await fetch(`http://localhost:${process.env.PORT}/api/accounts`, {
-        headers: { 'x-test-user-id': man0TestUser }
+        headers: { cookie: man0Cookie }
       });
       assert.equal(authRes.status, 200);
-      man0Cookie = authRes.headers.get('set-cookie').split(';')[0];
     }
     mockStore.set(man0Url, { ics: man0Ics, etag: '"man0-etag"' });
     putCount = 0;

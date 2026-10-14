@@ -13,6 +13,7 @@ const { parseICSToEvent, eventToICS } = require('../utils/ical');
 
 test('Issue #12 — Support event attachments using FileBrowser integration and central OIDC/OAuth2 authentication Suite', async (t) => {
   const { app, server } = require('../index');
+  const { loginAs } = require('./helpers/testSession');
 
   if (server && !server.listening) {
     await new Promise((resolve) => server.listen(process.env.PORT || 3108, resolve));
@@ -59,18 +60,14 @@ test('Issue #12 — Support event attachments using FileBrowser integration and 
   });
 
   await t.test('GET /api/attachments/filebrowser/files returns 401 when unauthenticated', async () => {
-    const res = await fetch(`${baseUrl}/api/attachments/filebrowser/files`, {
-      headers: {
-        'x-test-user-id': 'unauthenticated'
-      }
-    });
+    const res = await fetch(`${baseUrl}/api/attachments/filebrowser/files`);
     assert.equal(res.status, 401);
   });
 
   await t.test('GET /api/attachments/filebrowser/files returns file list for authenticated user with OIDC token', async () => {
     const res = await fetch(`${baseUrl}/api/attachments/filebrowser/files?path=/`, {
       headers: {
-        'x-test-user-id': userId,
+        cookie: await loginAs(userId),
         'Authorization': `Bearer ${sampleOidcToken}`
       }
     });
@@ -85,7 +82,7 @@ test('Issue #12 — Support event attachments using FileBrowser integration and 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': userId
+        cookie: await loginAs(userId)
       },
       body: JSON.stringify({})
     });
@@ -97,7 +94,7 @@ test('Issue #12 — Support event attachments using FileBrowser integration and 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': userId,
+        cookie: await loginAs(userId),
         'Authorization': `Bearer ${sampleOidcToken}`
       },
       body: JSON.stringify({

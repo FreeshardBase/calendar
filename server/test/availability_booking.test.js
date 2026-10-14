@@ -11,6 +11,7 @@ const assert = require('node:assert');
 const Db = require('../db');
 const { calculateFreeSlots } = require('../utils/availabilityBooking');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Availability Slots Booking Engine Suite', async (t) => {
   t.before(async () => {
@@ -35,14 +36,11 @@ test('Availability Slots Booking Engine Suite', async (t) => {
   let testSlug = 'testuser-consulting';
 
   await t.test('Initial setup - authenticate session cookie', async () => {
+    sessionCookie = await loginAs('testuser-id');
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'testuser-id' }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
-    const cookieHeader = res.headers.get('set-cookie');
-    if (cookieHeader) {
-      sessionCookie = cookieHeader.split(';')[0];
-    }
   });
 
   await t.test('calculateFreeSlots utility logic', () => {

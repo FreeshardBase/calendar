@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { generateCalendarPDF } = require('../utils/pdfExport');
 const { app, server: globalServer } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('PDF Print Engine & Vector Export Suite', async (t) => {
   let server = globalServer;
@@ -25,6 +26,8 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
       await new Promise((resolve) => server.close(resolve));
     }
   });
+
+  const testCookie = await loginAs('test', { username: 'testuser', email: 'testuser@example.com' });
 
 
   await t.test('generateCalendarPDF generates vector PDF buffer for Month view', () => {
@@ -95,7 +98,7 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
           headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(reqData),
-            'x-test-user-id': 'test'
+            cookie: testCookie
           }
         },
         (res) => {
@@ -135,7 +138,7 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
           headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(payload),
-            'x-test-user-id': 'test'
+            cookie: testCookie
           }
         },
         (res) => {

@@ -11,6 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Issue #244 — Node test suite enforcement of #234 ownership check', async (t) => {
   t.after(() => {
@@ -40,41 +41,41 @@ test('Issue #244 — Node test suite enforcement of #234 ownership check', async
   await Db.addUserShare(ownerCalId, shareeUserId, true);
 
   await t.test('Initial setup — authenticate session cookies', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    strangerCookie = await loginAs(strangerUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': strangerUserId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(res2.status, 200);
-    strangerCookie = res2.headers.get('set-cookie').split(';')[0];
 
+    shareeCookie = await loginAs(shareeUserId);
     const res3 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': shareeUserId }
+      headers: { cookie: shareeCookie }
     });
     assert.strictEqual(res3.status, 200);
-    shareeCookie = res3.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('Unauthenticated GET/POST/DELETE on /api/calendars/:id/shares-public returns 401', async () => {
     const getRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
+      headers: {}
     });
     assert.strictEqual(getRes.status, 401, 'Unauthenticated GET shares-public must return 401');
 
     const postRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user-id': 'unauthenticated' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: 'Unauthorized Link' })
     });
     assert.strictEqual(postRes.status, 401, 'Unauthenticated POST shares-public must return 401');
 
     const delRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public/dummytok`, {
       method: 'DELETE',
-      headers: { 'x-test-user-id': 'unauthenticated' }
+      headers: {}
     });
     assert.strictEqual(delRes.status, 401, 'Unauthenticated DELETE shares-public must return 401');
   });

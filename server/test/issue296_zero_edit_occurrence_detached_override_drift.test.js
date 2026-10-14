@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { isNoOpEventSave, parseICSToEvent, upsertOccurrenceOverride } = require('../caldav/parser');
 
 test('Issue #296 — Zero-Edit Occurrence Save & Detached Override Recurrence-ID Drift Prevention', async (t) => {
@@ -143,11 +144,11 @@ test('Issue #296 — Zero-Edit Occurrence Save & Detached Override Recurrence-ID
     const testUserId = 'user-issue-296';
     await Db.upsertUser(testUserId, 'user296@example.com');
 
+    const cookie = await loginAs(testUserId, { email: 'user296@example.com' });
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'series-296-berlin';

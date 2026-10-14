@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { isNoOpEventSave, parseICSToEvent } = require('../caldav/parser');
 
 test('Issue #242 — No-Op Whole-Series Save Detached Override Scope Isolation', async (t) => {
@@ -129,11 +130,11 @@ test('Issue #242 — No-Op Whole-Series Save Detached Override Scope Isolation',
     const testUserId = 'test-series-user-242';
     await Db.upsertUser(testUserId, 'series242@example.com');
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
 
     const uid = 'series-242-http';

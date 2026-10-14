@@ -19,19 +19,19 @@ test('Issue #77 — RSVP User Email Validation & Hardcoded Placeholder Removal',
 
   // Helper middleware for mocking sessions
   app.use((req, res, next) => {
-    if (req.headers['x-test-user-id']) {
-      req.session.userId = req.headers['x-test-user-id'];
-      req.session.username = req.headers['x-test-username'] || req.headers['x-test-user-id'];
-      if (req.headers['x-test-email']) {
-        req.session.userEmail = req.headers['x-test-email'];
-      } else if (req.headers['x-test-username'] && req.headers['x-test-username'].includes('@')) {
-        req.session.userEmail = req.headers['x-test-username'];
+    if (req.headers['x-mock-user-id']) {
+      req.session.userId = req.headers['x-mock-user-id'];
+      req.session.username = req.headers['x-mock-username'] || req.headers['x-mock-user-id'];
+      if (req.headers['x-mock-email']) {
+        req.session.userEmail = req.headers['x-mock-email'];
+      } else if (req.headers['x-mock-username'] && req.headers['x-mock-username'].includes('@')) {
+        req.session.userEmail = req.headers['x-mock-username'];
       }
       req.session.accounts = [
         {
           id: 'internal-caldav',
           url: 'http://localhost:3110/mock-dav',
-          username: req.headers['x-test-username'] || req.headers['x-test-user-id']
+          username: req.headers['x-mock-username'] || req.headers['x-mock-user-id']
         }
       ];
       if (req.headers['x-mock-account-username']) {
@@ -110,9 +110,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-alice-77',
-        'x-test-username': 'alice',
-        'x-test-email': 'alice@example.com'
+        'x-mock-user-id': 'user-alice-77',
+        'x-mock-username': 'alice',
+        'x-mock-email': 'alice@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-alice-77/personal/',
@@ -133,9 +133,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-bob-77',
-        'x-test-username': 'bob',
-        'x-test-email': 'bob@example.com',
+        'x-mock-user-id': 'user-bob-77',
+        'x-mock-username': 'bob',
+        'x-mock-email': 'bob@example.com',
         'x-mock-account-username': 'alice@example.com'
       },
       body: JSON.stringify({
@@ -156,7 +156,7 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-noemail-77'
+        'x-mock-user-id': 'user-noemail-77'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-noemail-77/personal/',
@@ -176,9 +176,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-alice-77',
-        'x-test-username': 'alice',
-        'x-test-email': 'alice@example.com'
+        'x-mock-user-id': 'user-alice-77',
+        'x-mock-username': 'alice',
+        'x-mock-email': 'alice@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-alice-77/personal/',
@@ -205,9 +205,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-alice-77',
-        'x-test-username': 'alice',
-        'x-test-email': 'alice@example.com'
+        'x-mock-user-id': 'user-alice-77',
+        'x-mock-username': 'alice',
+        'x-mock-email': 'alice@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-alice-77/personal/',
@@ -228,9 +228,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-stranger-77',
-        'x-test-username': 'stranger',
-        'x-test-email': 'stranger@example.com'
+        'x-mock-user-id': 'user-stranger-77',
+        'x-mock-username': 'stranger',
+        'x-mock-email': 'stranger@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-stranger-77/personal/',
@@ -250,9 +250,9 @@ END:VCALENDAR`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-test-user-id': 'user-stranger-77',
-        'x-test-username': 'stranger',
-        'x-test-email': 'stranger@example.com'
+        'x-mock-user-id': 'user-stranger-77',
+        'x-mock-username': 'stranger',
+        'x-mock-email': 'stranger@example.com'
       },
       body: JSON.stringify({
         calendarId: 'internal-caldav::/user-alice-77/personal/',
@@ -270,9 +270,9 @@ END:VCALENDAR`;
   await t.test('GET /api/events/invitations annotates userEmail based on user session identity', async () => {
     const res = await fetch(`${baseUrl}/api/events/invitations`, {
       headers: {
-        'x-test-user-id': 'user-alice-77',
-        'x-test-username': 'alice',
-        'x-test-email': 'alice@example.com'
+        'x-mock-user-id': 'user-alice-77',
+        'x-mock-username': 'alice',
+        'x-mock-email': 'alice@example.com'
       }
     });
 
