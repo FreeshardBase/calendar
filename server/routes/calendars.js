@@ -554,10 +554,12 @@ router.post('/', async (req, res) => {
 
     const client = await getClientForAccount(account);
 
-    const slug = name.toLowerCase()
+    let slug = name.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip diacritics
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
+    // #193: `google-` collections belong to the sync worker's Google pairs.
+    if (slug.startsWith('google-')) slug = `local-${slug}`;
     const calendarUrl = account.url.replace(/\/+$/, '') + '/' + slug + '/';
     const createdCalendarId = `${accountId}::${new URL(calendarUrl).pathname}`;
 

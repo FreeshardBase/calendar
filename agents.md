@@ -46,6 +46,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)
   and `radicale_custom_rights` (owner full access, others via `user_calendar_shares`).
 - `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (MS Graph / Outlook bidirectional sync worker).
+  Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
+  `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google
+  name as `displayname` (one-way; no metasync, which would push app renames to Google). A `google-<slug>`
+  collection from older worker versions is adopted only if that account's pair has vdirsyncer status for it.
+  The create route never puts app calendars under `google-` (#193).
 - `public/` — no-framework SPA: `js/app.js` (boot, views, sidebar, dialogs), `js/calendar.js`
   (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer & Kanban board), `js/eventModal.js`, `js/api.js` (fetch wrappers),
   `js/store.js` (pub/sub state), `js/accountModal.js`, `css/app.css`.
