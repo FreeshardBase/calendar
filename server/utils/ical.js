@@ -653,6 +653,17 @@ function normalizeRecurrenceRule(recurrence, dtstart, timeZone = null) {
   return recurrence;
 }
 
+const WEEKDAY_NAMES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+// The weekday of a FREQ=WEEKLY rule with exactly one plain BYDAY, else null.
+function _singleWeeklyByday(recurrence) {
+  if (!recurrence || typeof recurrence !== 'string') return null;
+  const clean = recurrence.replace(/^RRULE:/i, '').trim();
+  if (!/(?:^|;)FREQ=WEEKLY(?:;|$)/i.test(clean)) return null;
+  const m = clean.match(/(?:^|;)BYDAY=(SU|MO|TU|WE|TH|FR|SA)(?:;|$)/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
 // Weekday (SU..SA) of a UTC instant as DTSTART will be written: in `timeZone`
 // when eventToICS emits DTSTART;TZID=<timeZone>, otherwise in UTC.
 function weekdayOfInstant(iso, timeZone) {
@@ -1239,7 +1250,16 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   removeOverride(comp, recurrenceId);
 
   const overrideIcs = eventToICS({ ...eventData, uid: masterUid, recurrence: null });
-  const override = new ICAL.Component(ICAL.parse(overrideIcs)).getFirstSubcomponent('vevent');
+  const overrideComp = new ICAL.Component(ICAL.parse(overrideIcs));
+  const override = overrideComp.getFirstSubcomponent('vevent');
+
+  // Carry the override's VTIMEZONE blocks over, or its TZID params dangle (#238/#52).
+  for (const tz of overrideComp.getAllSubcomponents('vtimezone')) {
+    const tzid = tz.getFirstPropertyValue('tzid');
+    if (!comp.getAllSubcomponents('vtimezone').some(t => t.getFirstPropertyValue('tzid') === tzid)) {
+      comp.addSubcomponent(tz);
+    }
+  }
 
   const rid = new ICAL.Property('recurrence-id', override);
   const dtstartProp = master.getFirstProperty('dtstart');
@@ -1813,6 +1833,14 @@ function updateWholeSeries(existingIcs, eventData) {
   const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
   const origMasterEv = parseVEventToEvent(master);
   const exdateProps = master.getAllProperties('exdate');
+  // A stored weekly rule whose single BYDAY is not DTSTART's weekday (e.g. an
+  // imported series anchored off-pattern) does not track DTSTART, so it must
+  // not be re-derived from it (#238).
+  const origDtstartTime = master.getFirstPropertyValue('dtstart');
+  const origRrule = master.getFirstPropertyValue('rrule');
+  const origByday = origRrule ? _singleWeeklyByday(origRrule.toString()) : null;
+  const offPatternByday = !!(origByday && origDtstartTime
+    && origByday !== WEEKDAY_NAMES[origDtstartTime.dayOfWeek() - 1]);
 
   let masterEventData = {
     startTimeZone: origMasterEv?.startTimeZone,
@@ -1909,7 +1937,19 @@ function updateWholeSeries(existingIcs, eventData) {
     const dtstartTime = dtstartProp.getFirstValue();
     const currRruleVal = rruleProp.getFirstValue();
     const currRruleStr = currRruleVal ? currRruleVal.toString() : rruleProp.toICALString();
-    const normRrule = normalizeRecurrenceRule(currRruleStr, dtstartTime);
+    let normRrule = normalizeRecurrenceRule(currRruleStr, dtstartTime);
+    const baseRecurrence = (eventData && eventData.recurrence) || (origRrule ? origRrule.toString() : null);
+    const baseByday = _singleWeeklyByday(baseRecurrence);
+    if (offPatternByday && baseByday && _singleWeeklyByday(currRruleStr)) {
+      // Off-pattern rule: a BYDAY the client changed (the modal re-syncs it on a
+      // date move) is taken as given; the stored one is shifted only by as many
+      // weekdays as this save moved DTSTART.
+      const dayShift = (dtstartTime.dayOfWeek() - origDtstartTime.dayOfWeek() + 7) % 7;
+      const targetByday = baseByday === origByday
+        ? WEEKDAY_NAMES[(WEEKDAY_NAMES.indexOf(baseByday) + dayShift) % 7]
+        : baseByday;
+      normRrule = currRruleStr.replace(/(^|;)BYDAY=[^;]+/i, `$1BYDAY=${targetByday}`);
+    }
     if (normRrule && normRrule !== currRruleStr) {
       try {
         rruleProp.setValue(ICAL.Recur.fromString(normRrule.replace(/^RRULE:/i, '').trim()));

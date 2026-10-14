@@ -173,4 +173,163 @@ test('Issue #238 — No-Op Save on Recurring Event Preserves Stored Bytes, EXDAT
     assert.doesNotMatch(updatedIcs, /DTSTART;TZID=[^:]+:\d{8}T\d{6}Z/, 'Must not mix TZID with Z suffix on DTSTART');
     assert.doesNotMatch(updatedIcs, /DTEND;TZID=[^:]+:\d{8}T\d{6}Z/, 'Must not mix TZID with Z suffix on DTEND');
   });
+
+  // The issue's `man0` series, stored with UTC values and no VTIMEZONE.
+  const man0Ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//t//EN',
+    'BEGIN:VEVENT',
+    'UID:man0',
+    'SUMMARY:man0',
+    'DTSTART:20260813T100000Z',
+    'DTEND:20260813T110000Z',
+    'RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+  const man0TestUser = 'test-user-238-man0';
+  const man0Href = `/users/${man0TestUser}/calendars/personal/man0.ics`;
+  const man0Url = `http://localhost:1080${man0Href}`;
+  const man0CalendarId = `env-default::/users/${man0TestUser}/calendars/personal/`;
+  let man0Cookie;
+
+  // The chip the grid hands the modal for the 2026-08-24 occurrence.
+  const laterChip = () => {
+    const chip = parseAndExpandEvent(man0Ics, new Date('2026-08-01T00:00:00Z'), new Date('2026-09-30T00:00:00Z'))
+      .find(e => e.recurrenceId && e.recurrenceId.startsWith('2026-08-24'));
+    assert.ok(chip, 'expansion must yield the 2026-08-24 occurrence');
+    assert.equal(chip.start, '2026-08-24T10:00:00.000Z');
+    return chip;
+  };
+
+  const putMan0 = async (uid, body) => {
+    if (!man0Cookie) {
+      await Db.upsertUser(man0TestUser, 'testuser@example.com');
+      const authRes = await fetch(`http://localhost:${process.env.PORT}/api/accounts`, {
+        headers: { 'x-test-user-id': man0TestUser }
+      });
+      assert.equal(authRes.status, 200);
+      man0Cookie = authRes.headers.get('set-cookie').split(';')[0];
+    }
+    mockStore.set(man0Url, { ics: man0Ics, etag: '"man0-etag"' });
+    putCount = 0;
+    return fetch(`http://localhost:${process.env.PORT}/api/events/${encodeURIComponent(uid)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Cookie': man0Cookie },
+      body: JSON.stringify({ calendarId: man0CalendarId, href: man0Href, etag: 'man0-etag', ...body })
+    });
+  };
+
+  const chipPayload = (chip, overrides = {}) => ({
+    uid: chip.uid,
+    recurrenceId: chip.recurrenceId,
+    title: chip.title,
+    start: chip.start,
+    end: chip.end,
+    allDay: chip.allDay,
+    startTimeZone: 'UTC',
+    recurrence: chip.recurrence,
+    ...overrides
+  });
+
+  await t.test('zero-edit series save from a later occurrence leaves the stored series untouched (defect 2, #79)', async () => {
+    const chip = laterChip();
+    const res = await putMan0(chip.uid, { ...chipPayload(chip), scope: 'series' });
+    assert.equal(res.status, 200);
+    assert.equal(putCount, 0, 'zero-edit series save must not write to CalDAV');
+    assert.equal(mockStore.get(man0Url).ics, man0Ics, 'stored bytes must stay identical');
+  });
+
+  await t.test('series retitle from a later occurrence keeps master DTSTART and RRULE (defects 1+2)', async () => {
+    const chip = laterChip();
+    const res = await putMan0(chip.uid, { ...chipPayload(chip, { title: 'man0 retitled' }), scope: 'series' });
+    assert.equal(res.status, 200);
+    assert.equal(putCount, 1);
+    const stored = mockStore.get(man0Url).ics;
+    assert.match(stored, /SUMMARY:man0 retitled/);
+    assert.match(stored, /DTSTART(;TZID=UTC)?:20260813T100000Z?\r\n/, `master DTSTART must stay on 20260813, got:\n${stored}`);
+    assert.doesNotMatch(stored, /DTSTART[^\r\n]*:20260824/, 'master must not be re-anchored to the clicked occurrence');
+    assert.match(stored, /RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO/);
+  });
+
+  await t.test('series retitle sent with the master start (no recurrenceId) keeps the off-pattern BYDAY', async () => {
+    const master = parseICSToEvent(man0Ics);
+    assert.equal(master.start, '2026-08-13T10:00:00.000Z');
+    const res = await putMan0('man0', {
+      title: 'man0 retitled', start: master.start, end: master.end, allDay: false,
+      startTimeZone: 'UTC', recurrence: master.recurrence, scope: 'series'
+    });
+    assert.equal(res.status, 200);
+    const stored = mockStore.get(man0Url).ics;
+    assert.match(stored, /SUMMARY:man0 retitled/);
+    assert.match(stored, /RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO\r\n/, `BYDAY must not follow the Thursday DTSTART:\n${stored}`);
+  });
+
+  // The modal re-syncs BYDAY to the new weekday on a date move (BYDAY=TU); an
+  // API client may send the stored rule unchanged (BYDAY=MO). Both mean Tuesdays.
+  for (const sentRule of ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU', 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO']) {
+    await t.test(`moving the off-pattern series +1 day from a later occurrence (client sends ${sentRule}) recurs on Tuesdays`, async () => {
+      const chip = laterChip();
+      const res = await putMan0(chip.uid, {
+        ...chipPayload(chip, { start: '2026-08-25T10:00:00.000Z', end: '2026-08-25T11:00:00.000Z', recurrence: sentRule }),
+        scope: 'series'
+      });
+      assert.equal(res.status, 200);
+      const stored = mockStore.get(man0Url).ics;
+      assert.match(stored, /DTSTART(;TZID=UTC)?:20260814T100000Z?\r\n/, `master must shift by the delta:\n${stored}`);
+      assert.match(stored, /RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU\r\n/, `Monday occurrences moved +1 day recur on Tuesdays:\n${stored}`);
+    });
+  }
+
+  // Every TZID parameter must resolve to a VTIMEZONE in the same resource (RFC 5545 §3.2.19).
+  const danglingTzids = (ics) => {
+    const used = new Set([...ics.matchAll(/;TZID=([^;:]+)[;:]/g)].map(m => m[1]));
+    const defined = new Set([...ics.matchAll(/BEGIN:VTIMEZONE\r\nTZID:([^\r\n]+)/g)].map(m => m[1]));
+    return [...used].filter(tz => !defined.has(tz));
+  };
+
+  // Read stored bytes the way any other CalDAV client would: a fresh process
+  // with only the VTIMEZONE blocks the file itself carries.
+  const overrideStartFromFreshProcess = (ics) => {
+    const { execFileSync } = require('node:child_process');
+    const script = `
+      const ICAL = require('ical.js');
+      const comp = new ICAL.Component(ICAL.parse(require('fs').readFileSync(0, 'utf8')));
+      for (const tz of comp.getAllSubcomponents('vtimezone')) ICAL.TimezoneService.register(tz);
+      const ov = comp.getAllSubcomponents('vevent').find(v => v.getFirstProperty('recurrence-id'));
+      process.stdout.write(ov.getFirstPropertyValue('dtstart').toJSDate().toISOString());
+    `;
+    // A host zone unlike the TZIDs under test, so a floating read-back cannot pass by accident.
+    return execFileSync(process.execPath, ['-e', script], {
+      input: ics, cwd: __dirname, env: { ...process.env, TZ: 'America/New_York' }
+    }).toString();
+  };
+
+  for (const tz of ['Europe/Berlin', 'UTC']) {
+    await t.test(`occurrence save with startTimeZone=${tz} stores a VTIMEZONE for every TZID (defect 3, #52)`, async () => {
+      const chip = laterChip();
+      const res = await putMan0(chip.uid, {
+        ...chipPayload(chip, {
+          title: 'man0 (this one only)',
+          start: '2026-08-24T12:00:00.000Z',
+          end: '2026-08-24T13:00:00.000Z',
+          startTimeZone: tz
+        }),
+        scope: 'occurrence'
+      });
+      assert.equal(res.status, 200);
+      assert.equal(putCount, 1);
+      const stored = mockStore.get(man0Url).ics;
+      assert.match(stored, new RegExp(`DTSTART;TZID=${tz.replace('/', '\\/')}:`), `override must carry TZID=${tz}:\n${stored}`);
+      assert.match(stored, /RECURRENCE-ID[^\r\n]*:20260824T100000/);
+      assert.deepEqual(danglingTzids(stored), [], `no TZID may dangle without a VTIMEZONE:\n${stored}`);
+      assert.doesNotMatch(stored, /;TZID=[^:]+:\d{8}T\d{6}Z/, 'no TZID-qualified value may carry a Z suffix');
+      assert.equal(overrideStartFromFreshProcess(stored), '2026-08-24T12:00:00.000Z',
+        'override must read back at the intended instant off disk');
+      // Series itself is untouched by an occurrence save.
+      assert.match(stored, /DTSTART:20260813T100000Z\r\n/);
+      assert.match(stored, /RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO/);
+    });
+  }
 });
