@@ -43,7 +43,7 @@ function validateEncryptionKey(env = process.env, keyToValidate) {
   ).trim();
   const isWeak = isWeakEncryptionKey(rawKey, env);
 
-  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true' && env.E2E_TEST !== 'true') {
+  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_ENCRYPTION_KEY !== 'true') {
     throw new Error('ENCRYPTION_KEY must be explicitly configured with a secure, unique key per install in production environment.');
   }
 

@@ -119,7 +119,7 @@ function getUserId(req) {
   if (req.session && req.session.userId) {
     return req.session.userId;
   }
-  if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
+  if (process.env.NODE_ENV === 'test') {
     return (req.headers && req.headers['x-test-user-id']) || 'testuser-id';
   }
   return null;

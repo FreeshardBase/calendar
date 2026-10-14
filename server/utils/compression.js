@@ -45,10 +45,18 @@ function compressionMiddleware(options = {}) {
     let isCompressing = false;
     let bufferChunks = [];
     let bufferedLength = 0;
+    let flushingHeaders = false;
 
+    // Deferred headers go out through res.writeHead, not the captured original, so header hooks
+    // installed by later middleware still run — express-session sets its cookie there (#211).
     function flushHeadersIfNeeded() {
       if (!res.headersSent) {
-        originalWriteHead.call(res, res.statusCode || 200);
+        flushingHeaders = true;
+        try {
+          res.writeHead(res.statusCode || 200);
+        } finally {
+          flushingHeaders = false;
+        }
       }
     }
 
@@ -123,7 +131,7 @@ function compressionMiddleware(options = {}) {
         }
       }
 
-      if (statusCode === 304 || statusCode === 204 || statusCode < 200) {
+      if (flushingHeaders || statusCode === 304 || statusCode === 204 || statusCode < 200) {
         return originalWriteHead.call(res, res.statusCode, res.statusMessage);
       }
 
