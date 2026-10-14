@@ -46,7 +46,7 @@ test('Issue #243 — Series Preservation & Detached Override Orphaning Preventio
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const testUid = 'series-243-uid';
   const initialIcs = [

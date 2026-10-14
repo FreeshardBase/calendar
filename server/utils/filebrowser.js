@@ -35,58 +35,31 @@ async function fetchFileBrowserFiles(directoryPath = '/', oidcToken = null) {
   const baseUrl = getFileBrowserUrl();
   const targetPath = directoryPath.startsWith('/') ? directoryPath : `/${directoryPath}`;
 
-  try {
-    const headers = {
-      'Accept': 'application/json'
-    };
-    if (oidcToken) {
-      headers['Authorization'] = oidcToken.startsWith('Bearer ') ? oidcToken : `Bearer ${oidcToken}`;
-    }
-
-    const res = await fetch(`${baseUrl}/api/resources${targetPath}`, { headers });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        success: true,
-        path: targetPath,
-        items: (data.items || []).map(item => ({
-          name: item.name,
-          path: item.path || `${targetPath}/${item.name}`.replace(/\/\//g, '/'),
-          isDir: Boolean(item.isDir),
-          size: item.size || 0,
-          modified: item.modified || new Date().toISOString(),
-          mimeType: item.type || (item.name?.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
-          url: `${baseUrl}/files${item.path || `${targetPath}/${item.name}`}`
-        }))
-      };
-    }
-  } catch (err) {
-    // Ignore network error and return fallback list
+  const headers = {
+    'Accept': 'application/json'
+  };
+  if (oidcToken) {
+    headers['Authorization'] = oidcToken.startsWith('Bearer ') ? oidcToken : `Bearer ${oidcToken}`;
   }
 
+  // An unreachable or failing FileBrowser is an error the user sees, never a made-up listing (#343).
+  const res = await fetch(`${baseUrl}/api/resources${targetPath}`, { headers });
+  if (!res.ok) {
+    throw new Error(`FileBrowser listing of ${targetPath} failed (${res.status})`);
+  }
+  const data = await res.json();
   return {
     success: true,
     path: targetPath,
-    items: [
-      {
-        name: 'documents',
-        path: '/documents',
-        isDir: true,
-        size: 0,
-        modified: new Date().toISOString(),
-        mimeType: 'directory',
-        url: `${baseUrl}/files/documents`
-      },
-      {
-        name: 'sample_presentation.pdf',
-        path: '/sample_presentation.pdf',
-        isDir: false,
-        size: 1048576,
-        modified: new Date().toISOString(),
-        mimeType: 'application/pdf',
-        url: `${baseUrl}/files/sample_presentation.pdf`
-      }
-    ]
+    items: (data.items || []).map(item => ({
+      name: item.name,
+      path: item.path || `${targetPath}/${item.name}`.replace(/\/\//g, '/'),
+      isDir: Boolean(item.isDir),
+      size: item.size || 0,
+      modified: item.modified || new Date().toISOString(),
+      mimeType: item.type || (item.name?.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+      url: `${baseUrl}/files${item.path || `${targetPath}/${item.name}`}`
+    }))
   };
 }
 

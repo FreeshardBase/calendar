@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import shutil
 import sys
+from unittest.mock import MagicMock, patch
 
 SYNC_WORKER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../sync-worker"))
 if SYNC_WORKER_DIR not in sys.path:
@@ -75,8 +76,12 @@ class TestMSGraphWorker(unittest.TestCase):
         """, ("acc-1", "user-1", "common", "client-1", "mock-access-token", "mock-refresh-token", 9999999999999, "persoenlich"))
         conn.commit()
 
-        status, err = msgraph_worker.sync_msgraph_accounts("user-1", conn=conn)
-        self.assertTrue(status)
+        # An empty delta page from Graph: the sync succeeds without touching the local calendar.
+        graph_page = MagicMock()
+        graph_page.__enter__.return_value.read.return_value = b'{"value": []}'
+        with patch.object(msgraph_worker.urllib.request, "urlopen", return_value=graph_page):
+            status, err = msgraph_worker.sync_msgraph_accounts("user-1", conn=conn)
+        self.assertTrue(status, err)
 
         conn.close()
 

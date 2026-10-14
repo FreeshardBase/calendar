@@ -3,16 +3,24 @@
 /**
  * FreeShard WebCalendar — Delegate Permissions & Executive Assistant Management Frontend Engine
  */
+// The error message of a failed response: the JSON `error` field, or the status when the body is not
+// JSON. Only that parse error is handled; anything else propagates (#343).
+async function responseErrorMessage(res, fallback) {
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    if (data && data.error) return data.error;
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+  }
+  return `${fallback} (HTTP ${res.status})`;
+}
+
 const DelegatesModule = {
   async fetchDelegates() {
-    try {
-      const res = await fetch('/api/delegates');
-      if (!res.ok) throw new Error('Failed to load delegates');
-      return await res.json();
-    } catch (err) {
-      console.error('[DelegatesModule] fetchDelegates error:', err.message);
-      return { delegates: [], principals: [] };
-    }
+    const res = await fetch('/api/delegates');
+    if (!res.ok) throw new Error('Failed to load delegates');
+    return await res.json();
   },
 
   async grantDelegate({ delegateUserId, calendarId, role, canManageInvitations, canViewPrivate, canManageDelegates }) {
@@ -29,8 +37,7 @@ const DelegatesModule = {
       })
     });
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Failed to grant delegate permission');
+      throw new Error(await responseErrorMessage(res, 'Failed to grant delegate permission'));
     }
     return await res.json();
   },
@@ -48,8 +55,7 @@ const DelegatesModule = {
       body: JSON.stringify({ principalUserId, calendarId })
     });
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Failed to activate delegation context');
+      throw new Error(await responseErrorMessage(res, 'Failed to activate delegation context'));
     }
     return await res.json();
   },

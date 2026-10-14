@@ -46,7 +46,7 @@ test('Issue #242 — No-Op Whole-Series Save Detached Override Scope Isolation',
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   // Construct ICS where detached override VEVENT comes BEFORE master VEVENT
   const icsWithOverrideFirst = [

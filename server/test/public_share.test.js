@@ -19,7 +19,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let sessionCookie = '';

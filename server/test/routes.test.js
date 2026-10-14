@@ -27,7 +27,7 @@ test('HTTP Routes Integration Suite', async (t) => {
   });
 
   // Clean up database before running tests
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   let sessionCookie = '';
   let testCalendarId = '';

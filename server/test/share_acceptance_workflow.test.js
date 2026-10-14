@@ -19,7 +19,7 @@ test('Issue #2 — Notification & Share Acceptance Workflow for Shared Calendars
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

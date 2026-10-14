@@ -131,6 +131,7 @@ const ENCRYPTION_KEY = crypto.scryptSync(
 );
 
 // Initialize table and index
+let migrated;
 db.serialize(() => {
   // WAL: the DB file is shared with the Radicale plugins and the sync-worker;
   // a MEMORY journal would risk corruption on concurrent multi-process writes.
@@ -143,10 +144,6 @@ db.serialize(() => {
       username TEXT UNIQUE NOT NULL,
       email TEXT
     )
-  `);
-  db.run('ALTER TABLE users ADD COLUMN email TEXT', () => {});
-  db.run(`
-    INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('test', 'test', 'test@example.com'), ('testuser', 'testuser', 'testuser@example.com')
   `);
   db.run(`
     CREATE TABLE IF NOT EXISTS linked_accounts (
@@ -182,10 +179,6 @@ db.serialize(() => {
       detail TEXT NOT NULL DEFAULT 'busy'
     )
   `);
-  // #341: per-share detail level ('busy' | 'full'); existing shares become free/busy.
-  db.run(`ALTER TABLE calendar_shares ADD COLUMN detail TEXT NOT NULL DEFAULT 'busy'`, (err) => {
-    if (err && !/duplicate column name/i.test(err.message)) throw err;
-  });
   db.run(`
     CREATE TABLE IF NOT EXISTS sync_queue (
       id TEXT PRIMARY KEY,
@@ -201,10 +194,6 @@ db.serialize(() => {
       FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     )
   `);
-  db.run(`ALTER TABLE sync_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`, () => {});
-  db.run(`ALTER TABLE sync_queue ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3`, () => {});
-  db.run(`ALTER TABLE sync_queue ADD COLUMN next_retry_at INTEGER`, () => {});
-  db.run(`ALTER TABLE sync_queue ADD COLUMN retry_state TEXT NOT NULL DEFAULT 'IDLE'`, () => {});
   db.run(`
     CREATE TABLE IF NOT EXISTS user_calendar_shares (
       id TEXT PRIMARY KEY,
@@ -219,10 +208,6 @@ db.serialize(() => {
       UNIQUE(calendar_id, sharee_user_id)
     )
   `);
-  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN status TEXT NOT NULL DEFAULT 'PENDING'`, () => {});
-  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN role TEXT DEFAULT 'WRITE'`, () => {});
-  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN can_view_private INTEGER DEFAULT 0`, () => {});
-  db.run(`ALTER TABLE user_calendar_shares ADD COLUMN can_manage_shares INTEGER DEFAULT 0`, () => {});
   // #193: the sync worker pairs each Google calendar with an opaque local collection
   // (`google-<hex>`), never one derived from the display name. One row per Google
   // calendar per account; a local collection can belong to only one of them.
@@ -283,10 +268,6 @@ db.serialize(() => {
       owner_id TEXT
     )
   `);
-  // Pre-#339 rows keep owner_id NULL and can no longer be modified through the API.
-  db.run('ALTER TABLE resources ADD COLUMN owner_id TEXT', (err) => {
-    if (err && !/duplicate column name/i.test(err.message)) throw err;
-  });
   db.run(`
     CREATE TABLE IF NOT EXISTS web_push_subscriptions (
       id TEXT PRIMARY KEY,
@@ -442,13 +423,6 @@ db.serialize(() => {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_webcal_subscriptions_user ON webcal_subscriptions(user_id)`);
-  db.run(`ALTER TABLE webcal_subscriptions ADD COLUMN cached_events TEXT`, () => {});
-  // #342: the raw feed is cached and expanded per requested window; sync errors are kept.
-  for (const column of ['cached_ics TEXT', 'last_error TEXT', 'last_error_at INTEGER']) {
-    db.run(`ALTER TABLE webcal_subscriptions ADD COLUMN ${column}`, (err) => {
-      if (err && !/duplicate column name/i.test(err.message)) throw err;
-    });
-  }
   db.run(`
     CREATE TABLE IF NOT EXISTS event_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -464,23 +438,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_uid ON event_history(event_uid, created_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_event_history_cal ON event_history(calendar_id, created_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_linked_accounts_user_id ON linked_accounts(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_app_passwords_user_id ON app_passwords(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_calendar_shares_calendar_id ON calendar_shares(calendar_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_sync_queue_user_id ON sync_queue(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_sync_queue_status_retry ON sync_queue(status, next_retry_at)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_user_calendar_shares_sharee ON user_calendar_shares(sharee_user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_msgraph_accounts_user_id ON msgraph_accounts(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_msgraph_event_mappings_graph_id ON msgraph_event_mappings(graph_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_msgraph_event_mappings_account_id ON msgraph_event_mappings(account_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user_id ON web_push_subscriptions(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_resource_bookings_resource_id ON resource_bookings(resource_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_resource_bookings_user_id ON resource_bookings(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_availability_pages_user_id ON availability_pages(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_availability_pages_calendar_id ON availability_pages(calendar_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_slot_bookings_page_id ON slot_bookings(page_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_sync_conflicts_user_id ON sync_conflicts(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_delegate_permissions_delegate ON delegate_permissions(delegate_user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_cross_user_deletions_owner ON cross_user_deletions(owner_user_id)`);
+  // Indexes on columns added by migrations live in server/utils/migrations.js (004).
   // #333: one value encrypted with the install's key, checked on every boot.
   db.run(`
     CREATE TABLE IF NOT EXISTS encryption_key_check (
@@ -490,9 +448,10 @@ db.serialize(() => {
       created_at INTEGER NOT NULL
     )
   `);
-  runMigrations(db).catch((err) => {
-    console.error('[db] Error running schema migrations:', err);
-  });
+  // #343: the only place the schema changes after CREATE TABLE; server/index.js exits if it fails.
+  migrated = runMigrations(db).then(() => dbRun(db, `
+    INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('test', 'test', 'test@example.com'), ('testuser', 'testuser', 'testuser@example.com')
+  `));
 });
 
 function encrypt(text) {
@@ -602,9 +561,9 @@ async function verifyEncryptionKey(database, keyBytes, keyState) {
   }
 }
 
-// Resolves once the configured key is proven to match this database; server/index.js holds
-// every request until then and exits on rejection.
-const ready = verifyEncryptionKey(db, ENCRYPTION_KEY, ENCRYPTION_KEY_STATE);
+// Resolves once the schema migrations have run and the configured key is proven to match this
+// database; server/index.js does not listen before then and exits on rejection.
+const ready = migrated.then(() => verifyEncryptionKey(db, ENCRYPTION_KEY, ENCRYPTION_KEY_STATE));
 
 function encryptToken(token) {
   if (!token || typeof token !== 'string') return token;
@@ -887,30 +846,30 @@ const Db = {
 
   cleanUserTmpCredentials(userId) {
     if (!userId) return;
-    try {
-      const tmpDir = '/tmp';
-      if (fs.existsSync(tmpDir)) {
-        const files = fs.readdirSync(tmpDir);
-        for (const file of files) {
-          if (file.startsWith(`vdir_${userId}.ini`) ||
-              file.startsWith(`vdir_basic_${userId}.ini`) ||
-              file.startsWith(`google_token_${userId}_`)) {
-            try {
-              fs.unlinkSync(path.join(tmpDir, file));
-            } catch (e) {
-              // ignore single file error
-            }
-          }
+    const tmpDir = '/tmp';
+    if (!fs.existsSync(tmpDir)) return;
+    for (const file of fs.readdirSync(tmpDir)) {
+      if (file.startsWith(`vdir_${userId}.ini`) ||
+          file.startsWith(`vdir_basic_${userId}.ini`) ||
+          file.startsWith(`google_token_${userId}_`)) {
+        try {
+          fs.unlinkSync(path.join(tmpDir, file));
+        } catch (err) {
+          // Removed concurrently (e.g. by the sync worker): already gone. Any other failure leaves
+          // plaintext credentials behind and must stop the user deletion (#196, #343).
+          if (err.code !== 'ENOENT') throw err;
         }
       }
-    } catch (e) {
-      // ignore directory error
     }
   },
 
   deleteUser(userId) {
     if (!userId) return Promise.resolve();
-    this.cleanUserTmpCredentials(userId);
+    try {
+      this.cleanUserTmpCredentials(userId);
+    } catch (err) {
+      return Promise.reject(err);
+    }
     const calPattern = `%${userId}%`;
     return this.withTransaction(async (tx) => {
       await tx.run('DELETE FROM users WHERE user_id = ?', [userId]);

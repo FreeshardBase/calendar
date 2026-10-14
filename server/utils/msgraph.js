@@ -137,16 +137,11 @@ class MSGraphSyncEngine {
           this.account.refreshToken = newRefreshToken;
           this.account.expiresAt = expiresAt;
           return newAccessToken;
-        } else {
-          if (process.env.NODE_ENV !== 'test') {
-            throw new Error(`MS Graph token refresh failed (${res.status}): ${await res.text()}`);
-          }
         }
+        throw new Error(`MS Graph token refresh failed (${res.status}): ${await res.text()}`);
       } catch (err) {
         console.error('[MSGraphTokenRefreshError]', err.message);
-        if (process.env.NODE_ENV !== 'test') {
-          throw err;
-        }
+        throw err;
       }
     }
 
@@ -166,52 +161,42 @@ class MSGraphSyncEngine {
       return { events: [], deltaLink: endpoint };
     }
 
-    try {
-      let currentUrl = endpoint;
-      let allEvents = [];
-      let finalDeltaLink = endpoint;
+    let currentUrl = endpoint;
+    let allEvents = [];
+    let finalDeltaLink = endpoint;
 
-      while (currentUrl) {
-        const res = await this.fetch(currentUrl, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
-        });
-
-        if (!res.ok) {
-          if (process.env.NODE_ENV === 'test') {
-            return { events: [], deltaLink: endpoint };
-          }
-          throw new Error(`MS Graph API error (${res.status}): ${await res.text()}`);
+    while (currentUrl) {
+      const res = await this.fetch(currentUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
         }
+      });
 
-        const data = await res.json();
-        const rawEvents = data.value || [];
-        const pageEvents = rawEvents.map(e => {
-          if (e['@removed']) {
-            return { graphId: e.id, isDeleted: true };
-          }
-          const vevent = graphEventToVEVENT(e);
-          return { graphId: e.id, event: vevent, isDeleted: false };
-        });
-        allEvents = allEvents.concat(pageEvents);
-
-        if (data['@odata.nextLink']) {
-          currentUrl = data['@odata.nextLink'];
-        } else {
-          finalDeltaLink = data['@odata.deltaLink'] || currentUrl;
-          currentUrl = null;
-        }
+      if (!res.ok) {
+        throw new Error(`MS Graph API error (${res.status}): ${await res.text()}`);
       }
 
-      return { events: allEvents, deltaLink: finalDeltaLink };
-    } catch (err) {
-      if (process.env.NODE_ENV === 'test') {
-        return { events: [], deltaLink: endpoint };
+      const data = await res.json();
+      const rawEvents = data.value || [];
+      const pageEvents = rawEvents.map(e => {
+        if (e['@removed']) {
+          return { graphId: e.id, isDeleted: true };
+        }
+        const vevent = graphEventToVEVENT(e);
+        return { graphId: e.id, event: vevent, isDeleted: false };
+      });
+      allEvents = allEvents.concat(pageEvents);
+
+      if (data['@odata.nextLink']) {
+        currentUrl = data['@odata.nextLink'];
+      } else {
+        finalDeltaLink = data['@odata.deltaLink'] || currentUrl;
+        currentUrl = null;
       }
-      throw err;
     }
+
+    return { events: allEvents, deltaLink: finalDeltaLink };
   }
 
   /**
@@ -250,19 +235,20 @@ class MSGraphSyncEngine {
       throw new Error(`Failed to push event to MS Graph (${res.status}): ${await res.text()}`);
     }
 
+    // An empty body (204, or a PATCH answered without content) keeps the stored mapping; a body that is
+    // not JSON is a protocol error and fails the push (#343).
     let createdGraphEvent = {};
     if (res.status !== 204) {
-      try {
-        const text = await res.text();
-        if (text) {
-          createdGraphEvent = JSON.parse(text);
-        }
-      } catch (err) {
-        // Safe fallback for empty or non-JSON response bodies
+      const text = await res.text();
+      if (text) {
+        createdGraphEvent = JSON.parse(text);
       }
     }
 
-    const graphId = createdGraphEvent.id || (mapping && mapping.graphId) || `graph-${Date.now()}`;
+    const graphId = createdGraphEvent.id || (mapping && mapping.graphId);
+    if (!graphId) {
+      throw new Error(`MS Graph answered ${res.status} without an event id; the event mapping cannot be stored`);
+    }
     const eTag = createdGraphEvent['@odata.etag'] || (mapping && mapping.etag) || '';
 
     await Db.upsertMSGraphEventMapping(eventObj.uid, graphId, this.account.id, eTag);

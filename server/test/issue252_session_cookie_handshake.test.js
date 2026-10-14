@@ -19,7 +19,7 @@ test('Issue #252 — Non-Decorative Session-Cookie Handshake & Auth Enforcement'
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let sessionCookie = '';

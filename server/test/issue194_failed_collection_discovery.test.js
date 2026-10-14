@@ -54,6 +54,7 @@ try:
     conn = sqlite3.connect(db_path)
     conn.execute("CREATE TABLE linked_accounts (id INTEGER PRIMARY KEY, user_id TEXT, url TEXT, username TEXT, password_encrypted TEXT, iv TEXT, auth_type TEXT, access_token TEXT, expires_at INTEGER)")
     conn.execute("CREATE TABLE msgraph_accounts (id INTEGER PRIMARY KEY, user_id TEXT, tenant_id TEXT, client_id TEXT, account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT, target_calendar_id TEXT, created_at INTEGER, updated_at INTEGER)")
+    conn.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, calendar_id TEXT, owner_user_id TEXT, deleted_by TEXT, created_at INTEGER)")
 
     # Encrypt fake refresh token
     encrypted_tok, iv = sync_worker.encrypt("fake_refresh_token", sync_worker.KEY_BYTES)

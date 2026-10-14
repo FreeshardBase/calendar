@@ -49,7 +49,7 @@ function makeRequest(method, urlPath, body, extraHeaders = {}) {
 describe('Issue #158 — Satisfiable search-users assertions across internal and external accounts', () => {
   before(async () => {
     Db = require('../db');
-    await Db.clearAll().catch(() => {});
+    await Db.clearAll();
     await Db.upsertUser(TEST_USER, TEST_USER);
 
     const index = require('../index');
@@ -64,7 +64,7 @@ describe('Issue #158 — Satisfiable search-users assertions across internal and
   });
 
   after(async () => {
-    await Db.clearAll().catch(() => {});
+    await Db.clearAll();
     if (appServer && appServer.close) {
       await new Promise(resolve => appServer.close(resolve));
     }

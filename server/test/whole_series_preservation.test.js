@@ -52,7 +52,7 @@ test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   await t.test('updateWholeSeries is re-exported from server/caldav/parser.js', () => {
     assert.equal(typeof updateWholeSeries, 'function',

@@ -75,13 +75,11 @@ export function closeDialog(containerEl) {
     const item = activeModalStack[idx];
     activeModalStack.splice(idx, 1);
     if (item.previousFocus && typeof item.previousFocus.focus === 'function') {
-      try {
-        const inDoc = typeof document !== 'undefined' && document.body &&
-          (typeof document.body.contains === 'function' ? document.body.contains(item.previousFocus) : true);
-        if (inDoc) {
-          item.previousFocus.focus();
-        }
-      } catch (e) {}
+      const inDoc = typeof document !== 'undefined' && document.body &&
+        (typeof document.body.contains === 'function' ? document.body.contains(item.previousFocus) : true);
+      if (inDoc) {
+        item.previousFocus.focus();
+      }
     }
   }
 }
@@ -224,12 +222,10 @@ export function confirmDialog(message, title = 'Bestätigung') {
 
     // Playwright/test environment integration check:
     if (typeof window.confirm === 'function') {
-      try {
-        const testRes = window.confirm(message);
-        if (typeof testRes === 'boolean') {
-          cleanup(testRes);
-        }
-      } catch (e) {}
+      const testRes = window.confirm(message);
+      if (typeof testRes === 'boolean') {
+        cleanup(testRes);
+      }
     }
   });
 }

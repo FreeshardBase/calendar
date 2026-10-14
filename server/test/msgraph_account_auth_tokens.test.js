@@ -30,7 +30,7 @@ test('Issue #81 — MS Graph Account Authorization & Token Security Suite', asyn
   let accountA;
 
   t.beforeEach(async () => {
-    await Db.clearAll().catch(() => {});
+    await Db.clearAll();
     accountA = await Db.addMSGraphAccount({
       userId: userA,
       accountEmail: 'usera@example.com',
@@ -43,7 +43,7 @@ test('Issue #81 — MS Graph Account Authorization & Token Security Suite', asyn
 
   t.afterEach(async () => {
     if (accountA && accountA.id) {
-      await Db.deleteMSGraphAccount(accountA.id).catch(() => {});
+      await Db.deleteMSGraphAccount(accountA.id);
     }
   });
 

@@ -1650,6 +1650,7 @@ function _registerVTimezoneBlock(tzid, block) {
   } catch (e) {
     // Non-fatal: ICS output is still valid; ical.js will fall back to
     // floating if timezone resolution fails during parse.
+    console.warn(`[ical] Ignoring unusable VTIMEZONE ${tzid}: ${e.message}`);
   }
 }
 
@@ -1705,24 +1706,22 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   };
 
   if (!stored && targetRid) {
-    try {
-      const incStartMs = toUtcMs(incoming.start);
-      if (incStartMs) {
-        let ridMs = null;
-        if (!isNaN(new Date(targetRid).getTime())) {
-          ridMs = new Date(targetRid).getTime();
-        }
-        const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
-        const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
-        const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
-        const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
-        const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
-        const match = expanded.find(e => ridsMatch(e.recurrenceId, targetRid) || toUtcMs(e.start) === incStartMs);
-        if (match) {
-          stored = match;
-        }
+    const incStartMs = toUtcMs(incoming.start);
+    if (incStartMs) {
+      let ridMs = null;
+      if (!isNaN(new Date(targetRid).getTime())) {
+        ridMs = new Date(targetRid).getTime();
       }
-    } catch (_) {}
+      const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
+      const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
+      const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
+      const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
+      const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
+      const match = expanded.find(e => ridsMatch(e.recurrenceId, targetRid) || toUtcMs(e.start) === incStartMs);
+      if (match) {
+        stored = match;
+      }
+    }
   }
 
   if (!stored) return false;
@@ -1737,23 +1736,21 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   let expectedEndUtcMs   = toUtcMs(stored.end);
 
   if (targetRid && stored.recurrence) {
-    try {
-      const incStartMs = toUtcMs(incoming.start);
-        let ridMs = null;
-        if (!isNaN(new Date(targetRid).getTime())) {
-          ridMs = new Date(targetRid).getTime();
-        }
-        const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
-        const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
-        const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
-        const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
-        const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
-        const match = expanded.find(e => ridsMatch(e.recurrenceId, targetRid) || toUtcMs(e.start) === incStartMs);
-        if (match) {
-          expectedStartUtcMs = toUtcMs(match.start);
-          expectedEndUtcMs   = toUtcMs(match.end);
-        }
-    } catch (_) {}
+    const incStartMs = toUtcMs(incoming.start);
+    let ridMs = null;
+    if (!isNaN(new Date(targetRid).getTime())) {
+      ridMs = new Date(targetRid).getTime();
+    }
+    const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
+    const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
+    const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
+    const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
+    const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
+    const match = expanded.find(e => ridsMatch(e.recurrenceId, targetRid) || toUtcMs(e.start) === incStartMs);
+    if (match) {
+      expectedStartUtcMs = toUtcMs(match.start);
+      expectedEndUtcMs   = toUtcMs(match.end);
+    }
   }
 
   if (expectedStartUtcMs !== toUtcMs(incoming.start)) return false;
@@ -1985,71 +1982,67 @@ function updateWholeSeries(existingIcs, eventData) {
     }
   }
   if (targetRid && master.getFirstProperty('rrule')) {
-    try {
-      if (origMasterEv && origMasterEv.start) {
-        const incStartMs = new Date(eventData.start).getTime();
-        if (!isNaN(incStartMs)) {
-          let ridMs = null;
-          try {
-            const t = occurrenceTime(master, targetRid);
-            if (t) ridMs = t.toJSDate().getTime();
-          } catch (_) {}
-          if (!ridMs && !isNaN(new Date(targetRid).getTime())) {
-            ridMs = new Date(targetRid).getTime();
-          }
-          const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
-          const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
-          const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
-          const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
-          const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
-          let origOcc = expanded.find(e => ridsMatch(e.recurrenceId, targetRid));
-          if (!origOcc) {
-            origOcc = expanded.find(e => new Date(e.start).getTime() === incStartMs);
-          }
-          const origOccStartMs = origOcc && origOcc.start ? new Date(origOcc.start).getTime() : ridMs;
-          if (origOccStartMs !== null && !isNaN(origOccStartMs)) {
-            const timeDeltaMs = incStartMs - origOccStartMs;
-            if (Math.abs(timeDeltaMs) <= 1000) {
-              masterEventData = {
-                ...masterEventData,
-                uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
-                start: origMasterEv.start,
-                end: origMasterEv.end
-              };
-            } else {
-              const newMasterStartMs = new Date(origMasterEv.start).getTime() + timeDeltaMs;
-              const newMasterStartIso = new Date(newMasterStartMs).toISOString();
+    if (origMasterEv && origMasterEv.start) {
+      const incStartMs = new Date(eventData.start).getTime();
+      if (!isNaN(incStartMs)) {
+        let ridMs = null;
+        const t = occurrenceTime(master, targetRid);
+        if (t) ridMs = t.toJSDate().getTime();
+        if (!ridMs && !isNaN(new Date(targetRid).getTime())) {
+          ridMs = new Date(targetRid).getTime();
+        }
+        const minMs = ridMs ? Math.min(incStartMs, ridMs) : incStartMs;
+        const maxMs = ridMs ? Math.max(incStartMs, ridMs) : incStartMs;
+        const searchStart = new Date(minMs - 48 * 3600 * 1000).toISOString();
+        const searchEnd   = new Date(maxMs + 48 * 3600 * 1000).toISOString();
+        const expanded = parseAndExpandEvent(existingIcs, searchStart, searchEnd);
+        let origOcc = expanded.find(e => ridsMatch(e.recurrenceId, targetRid));
+        if (!origOcc) {
+          origOcc = expanded.find(e => new Date(e.start).getTime() === incStartMs);
+        }
+        const origOccStartMs = origOcc && origOcc.start ? new Date(origOcc.start).getTime() : ridMs;
+        if (origOccStartMs !== null && !isNaN(origOccStartMs)) {
+          const timeDeltaMs = incStartMs - origOccStartMs;
+          if (Math.abs(timeDeltaMs) <= 1000) {
+            masterEventData = {
+              ...masterEventData,
+              uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
+              start: origMasterEv.start,
+              end: origMasterEv.end
+            };
+          } else {
+            const newMasterStartMs = new Date(origMasterEv.start).getTime() + timeDeltaMs;
+            const newMasterStartIso = new Date(newMasterStartMs).toISOString();
 
-              let newMasterEndIso = null;
-              if (eventData.end && eventData.start) {
-                let durationMs = new Date(eventData.end).getTime() - incStartMs;
-                // The override's own length was echoed back, not chosen (#242).
-                if (override && override.start && override.end && origMasterEv.end
-                    && durationMs === new Date(override.end).getTime() - new Date(override.start).getTime()) {
-                  durationMs = new Date(origMasterEv.end).getTime() - new Date(origMasterEv.start).getTime();
-                }
-                newMasterEndIso = new Date(newMasterStartMs + durationMs).toISOString();
+            let newMasterEndIso = null;
+            if (eventData.end && eventData.start) {
+              let durationMs = new Date(eventData.end).getTime() - incStartMs;
+              // The override's own length was echoed back, not chosen (#242).
+              if (override && override.start && override.end && origMasterEv.end
+                  && durationMs === new Date(override.end).getTime() - new Date(override.start).getTime()) {
+                durationMs = new Date(origMasterEv.end).getTime() - new Date(origMasterEv.start).getTime();
               }
-
-              const shiftedRecurrence = normalizeRecurrenceRule(
-                eventData.recurrence || origMasterEv?.recurrence || masterEventData.recurrence,
-                newMasterStartIso,
-                masterEventData.allDay ? null : masterEventData.startTimeZone
-              );
-
-              masterEventData = {
-                ...masterEventData,
-                uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
-                start: newMasterStartIso,
-                end: newMasterEndIso || eventData.end,
-                ...(shiftedRecurrence ? { recurrence: shiftedRecurrence } : {})
-              };
+              newMasterEndIso = new Date(newMasterStartMs + durationMs).toISOString();
             }
-            delete masterEventData.recurrenceId;
+
+            const shiftedRecurrence = normalizeRecurrenceRule(
+              eventData.recurrence || origMasterEv?.recurrence || masterEventData.recurrence,
+              newMasterStartIso,
+              masterEventData.allDay ? null : masterEventData.startTimeZone
+            );
+
+            masterEventData = {
+              ...masterEventData,
+              uid: origMasterEv.uid || (eventData.uid ? eventData.uid.split('::')[0] : eventData.uid),
+              start: newMasterStartIso,
+              end: newMasterEndIso || eventData.end,
+              ...(shiftedRecurrence ? { recurrence: shiftedRecurrence } : {})
+            };
           }
+          delete masterEventData.recurrenceId;
         }
       }
-    } catch (_) {}
+    }
   }
 
   if (masterEventData.recurrence && masterEventData.start) {

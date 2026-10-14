@@ -29,7 +29,7 @@ test('Issue #65 — CalDAV Fetch Error Channel & Status Enforcement', async (t) 
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   let sessionCookie = '';
 

@@ -10,6 +10,25 @@
 const session = require('express-session');
 const Db = require('../db');
 
+// express-session's callback contract on top of a promise. Errors are never swallowed: with a
+// callback they are passed to it, without one the returned promise rejects (#343).
+function settle(promise, callback) {
+  if (typeof callback === 'function') {
+    promise.then((value) => callback(null, value), (err) => callback(err));
+  }
+  return promise;
+}
+
+function expiryOf(sessionData) {
+  if (sessionData.cookie && sessionData.cookie.expires) {
+    return new Date(sessionData.cookie.expires).getTime();
+  }
+  if (sessionData.cookie && sessionData.cookie.maxAge) {
+    return Date.now() + sessionData.cookie.maxAge;
+  }
+  return Date.now() + 7 * 24 * 60 * 60 * 1000;
+}
+
 class SqliteSessionStore extends session.Store {
   constructor(options = {}) {
     super(options);
@@ -17,154 +36,49 @@ class SqliteSessionStore extends session.Store {
   }
 
   get(sid, callback) {
-    const cb = typeof callback === 'function' ? callback : () => {};
-    const promise = this.db.getRawSession(sid).then((row) => {
-      if (!row) {
-        cb(null, null);
-        return null;
-      }
+    const promise = this.db.getRawSession(sid).then(async (row) => {
+      if (!row) return null;
       if (row.expired && row.expired < Date.now()) {
-        return this.db.deleteSession(sid).then(() => {
-          cb(null, null);
-          return null;
-        }).catch(() => {
-          cb(null, null);
-          return null;
-        });
-      }
-      try {
-        const sess = JSON.parse(row.sess);
-        cb(null, sess);
-        return sess;
-      } catch (err) {
-        cb(err);
+        await this.db.deleteSession(sid);
         return null;
       }
-    }).catch((err) => {
-      cb(err);
-      return null;
+      return JSON.parse(row.sess);
     });
-
-    if (typeof callback === 'function') {
-      promise.catch(() => {});
-    }
-    return promise;
+    return settle(promise, callback);
   }
 
   set(sid, sessionData, callback) {
-    const cb = typeof callback === 'function' ? callback : () => {};
     const userId = sessionData.userId || sessionData.user?.id || (sessionData.passport && sessionData.passport.user) || null;
-    let expired;
-    if (sessionData.cookie && sessionData.cookie.expires) {
-      expired = new Date(sessionData.cookie.expires).getTime();
-    } else if (sessionData.cookie && sessionData.cookie.maxAge) {
-      expired = Date.now() + sessionData.cookie.maxAge;
-    } else {
-      expired = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    }
-
-    const promise = this.db.saveSession(sid, userId, JSON.stringify(sessionData), expired)
-      .then(() => {
-        cb(null);
-        return true;
-      })
-      .catch((err) => {
-        cb(err);
-        return false;
-      });
-
-    if (typeof callback === 'function') {
-      promise.catch(() => {});
-    }
-    return promise;
+    const promise = this.db.saveSession(sid, userId, JSON.stringify(sessionData), expiryOf(sessionData))
+      .then(() => true);
+    return settle(promise, callback);
   }
 
   destroy(sid, callback) {
-    const cb = typeof callback === 'function' ? callback : () => {};
-    const promise = this.db.deleteSession(sid)
-      .then(() => {
-        cb(null);
-        return true;
-      })
-      .catch((err) => {
-        cb(err);
-        return false;
-      });
-
-    if (typeof callback === 'function') {
-      promise.catch(() => {});
-    }
-    return promise;
+    return settle(this.db.deleteSession(sid).then(() => true), callback);
   }
 
   touch(sid, sessionData, callback) {
-    const cb = typeof callback === 'function' ? callback : () => {};
-    let expired;
-    if (sessionData.cookie && sessionData.cookie.expires) {
-      expired = new Date(sessionData.cookie.expires).getTime();
-    } else if (sessionData.cookie && sessionData.cookie.maxAge) {
-      expired = Date.now() + sessionData.cookie.maxAge;
-    } else {
-      expired = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    }
-
-    const promise = this.db.touchSession(sid, expired)
-      .then(() => {
-        cb(null);
-        return true;
-      })
-      .catch((err) => {
-        cb(err);
-        return false;
-      });
-
-    if (typeof callback === 'function') {
-      promise.catch(() => {});
-    }
-    return promise;
+    return settle(this.db.touchSession(sid, expiryOf(sessionData)).then(() => true), callback);
   }
 
   destroyUserSessions(userId, callback) {
-    const cb = typeof callback === 'function' ? callback : () => {};
-    const promise = this.db.deleteSessionsForUser(userId)
-      .then((count) => {
-        cb(null, count);
-        return count;
-      })
-      .catch((err) => {
-        cb(err);
-        return 0;
-      });
-
-    if (typeof callback === 'function') {
-      promise.catch(() => {});
-    }
-    return promise;
+    return settle(this.db.deleteSessionsForUser(userId), callback);
   }
 
   getUserSessions(userId, callback) {
-    const cb = typeof callback === 'function' ? callback : () => {};
-    const promise = this.db.getSessionsForUser(userId)
-      .then((rows) => {
-        const sessions = (rows || []).map((r) => {
-          try {
-            return { sid: r.sid, expired: r.expired, data: JSON.parse(r.sess) };
-          } catch {
-            return { sid: r.sid, expired: r.expired, data: null };
-          }
-        });
-        cb(null, sessions);
-        return sessions;
-      })
-      .catch((err) => {
-        cb(err);
-        return [];
-      });
-
-    if (typeof callback === 'function') {
-      promise.catch(() => {});
-    }
-    return promise;
+    const promise = this.db.getSessionsForUser(userId).then((rows) => (rows || []).map((r) => {
+      let data;
+      try {
+        data = JSON.parse(r.sess);
+      } catch (err) {
+        // A corrupt row is still listed (without data) so that it can be destroyed.
+        if (!(err instanceof SyntaxError)) throw err;
+        data = null;
+      }
+      return { sid: r.sid, expired: r.expired, data };
+    }));
+    return settle(promise, callback);
   }
 }
 

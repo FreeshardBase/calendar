@@ -23,7 +23,7 @@ test('Issue #3 — Granular Permission Management for Shared Calendars', async (
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

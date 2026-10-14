@@ -101,7 +101,7 @@ describe('Issue #136 — un-decryptable linked_accounts row', () => {
     }
 
     // Seed the user so session middleware can upsertUser without error.
-    await Db.upsertUser(TEST_USER, TEST_USER).catch(() => {});
+    await Db.upsertUser(TEST_USER, TEST_USER);
     await Db.upsertUser(OTHER_USER, OTHER_USER);
   });
 

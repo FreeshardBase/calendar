@@ -83,7 +83,7 @@ async function get(path, userId) {
   const headers = { 'Content-Type': 'application/json' };
   if (userId) headers.cookie = await loginAs(userId);
   const res = await fetch(`${BASE}${path}`, { headers });
-  const body = await res.json().catch(() => ({}));
+  const body = await res.json();
   return { status: res.status, body };
 }
 

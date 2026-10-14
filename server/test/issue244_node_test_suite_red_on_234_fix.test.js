@@ -20,7 +20,7 @@ test('Issue #244 — Node test suite enforcement of #234 ownership check', async
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

@@ -46,7 +46,7 @@ test('Issue #238 — No-Op Save on Recurring Event Preserves Stored Bytes, EXDAT
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const recurringIcsWithAllFeatures = [
     'BEGIN:VCALENDAR',

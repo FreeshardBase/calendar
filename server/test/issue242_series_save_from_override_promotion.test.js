@@ -233,7 +233,7 @@ test('Issue #242 — series save from a detached override does not promote the o
       CalDAVClient.prototype.put = originalPut;
     });
 
-    await Db.clearAll().catch(() => {});
+    await Db.clearAll();
     const baseUrl = `http://localhost:${process.env.PORT}`;
     const testUserId = 'testuser-242';
     await Db.upsertUser(testUserId, 'testuser@example.com');

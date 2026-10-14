@@ -19,7 +19,7 @@ test('Issue #4 — Local Color Customization for Subscribed/Shared Calendars', a
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

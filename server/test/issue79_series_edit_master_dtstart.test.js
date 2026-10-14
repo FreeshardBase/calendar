@@ -48,7 +48,7 @@ test('Issue #79 — Editing a series from a later occurrence rewrites master DTS
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   await t.test('1. Frontend eventModal.js assigns recurrenceId on series scope saves', () => {
     const modalJsPath = path.resolve(__dirname, '../../public/js/eventModal.js');

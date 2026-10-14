@@ -299,6 +299,7 @@ async function loadTasks() {
 // ── Webcal Subscriptions State & Logic ────────────────────────────────────────
 let webcalSubscriptions = [];
 let webcalEvents = [];
+let lastWebcalEventsFailure = '';
 const hiddenWebcal = new Set();
 
 async function loadWebcalSubscriptions() {
@@ -311,14 +312,16 @@ async function loadWebcalSubscriptions() {
     webcalEvents = await loadWebcalEvents(start, end);
     mergeAndRenderEvents();
   } catch (err) {
-    console.warn('[webcal] Failed to load subscriptions:', err.message);
+    console.error('[webcal] Failed to load subscriptions:', err);
+    showToast('Abonnements konnten nicht geladen werden: ' + err.message, 'error');
   }
 }
 
 // #342: the server expands recurring feed events for the visible range.
 async function loadWebcalEvents(start, end) {
   const allEvents = [];
-  await Promise.allSettled(
+  const failed = [];
+  await Promise.all(
     webcalSubscriptions.map(async (sub) => {
       try {
         const evRes = await WebcalAPI.getEvents(sub.id, start.toISOString(), end.toISOString());
@@ -333,10 +336,19 @@ async function loadWebcalEvents(start, end) {
         }));
         allEvents.push(...evs);
       } catch (e) {
-        console.warn('[webcal] Failed to load events for subscription:', sub.id, e.message);
+        console.error('[webcal] Failed to load events for subscription:', sub.id, e);
+        failed.push(`${sub.name}: ${e.message}`);
       }
     })
   );
+  // Every navigation reloads the range; the same failure is reported once, not once per page turn.
+  const failure = failed.length > 0
+    ? 'Termine aus Abonnements konnten nicht geladen werden (' + failed.sort().join('; ') + ')'
+    : '';
+  if (failure && failure !== lastWebcalEventsFailure) {
+    showToast(failure, 'error');
+  }
+  lastWebcalEventsFailure = failure;
   return allEvents;
 }
 

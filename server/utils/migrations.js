@@ -4,7 +4,7 @@ function runSql(db, sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) {
-        // If column already exists (e.g. legacy databases), swallow duplicate column error gracefully
+        // The only expected error: CREATE TABLE in server/db.js already has the column on fresh databases.
         if (err.message && err.message.includes('duplicate column')) {
           return resolve(this);
         }
@@ -93,6 +93,41 @@ const MIGRATIONS = [
       // a UNIQUE index is equivalent and safe to apply to an existing table.
       await runSql(db, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_linked_accounts_unique_url_user ON linked_accounts(user_id, url, username)');
     }
+  },
+  // #343: columns that used to be added by unversioned ALTERs in server/db.js.
+  {
+    version: 6,
+    name: '006_users_email',
+    up: async (db) => {
+      await runSql(db, 'ALTER TABLE users ADD COLUMN email TEXT');
+    }
+  },
+  {
+    version: 7,
+    name: '007_calendar_shares_detail',
+    up: async (db) => {
+      // #341: per-share detail level ('busy' | 'full'); existing shares become free/busy.
+      await runSql(db, "ALTER TABLE calendar_shares ADD COLUMN detail TEXT NOT NULL DEFAULT 'busy'");
+    }
+  },
+  {
+    version: 8,
+    name: '008_resources_owner_id',
+    up: async (db) => {
+      // Pre-#339 rows keep owner_id NULL and can no longer be modified through the API.
+      await runSql(db, 'ALTER TABLE resources ADD COLUMN owner_id TEXT');
+    }
+  },
+  {
+    version: 9,
+    name: '009_webcal_subscriptions_cache_and_errors',
+    up: async (db) => {
+      // #342: the raw feed is cached and expanded per requested window; sync errors are kept.
+      await runSql(db, 'ALTER TABLE webcal_subscriptions ADD COLUMN cached_events TEXT');
+      await runSql(db, 'ALTER TABLE webcal_subscriptions ADD COLUMN cached_ics TEXT');
+      await runSql(db, 'ALTER TABLE webcal_subscriptions ADD COLUMN last_error TEXT');
+      await runSql(db, 'ALTER TABLE webcal_subscriptions ADD COLUMN last_error_at INTEGER');
+    }
   }
 ];
 
@@ -112,7 +147,11 @@ async function runMigrations(db, migrationList = MIGRATIONS) {
 
   for (const migration of pending) {
     if (typeof migration.up === 'function') {
-      await migration.up(db);
+      try {
+        await migration.up(db);
+      } catch (err) {
+        throw new Error(`Schema migration ${migration.name} failed: ${err.message}`, { cause: err });
+      }
     }
     await setSchemaVersion(db, migration.version);
     currentVersion = migration.version;

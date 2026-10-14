@@ -46,7 +46,7 @@ test('Issue #296 — Zero-Edit Occurrence Save & Detached Override Recurrence-ID
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   // Recurring series in Europe/Berlin starting at 12:00 local time (10:00 UTC in May CEST)
   const tzBerlinIcs = [

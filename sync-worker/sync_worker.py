@@ -17,6 +17,7 @@ import urllib.error
 import json
 import xml.etree.ElementTree as ET
 import signal
+import traceback
 import shutil
 import tempfile
 import uuid
@@ -40,28 +41,25 @@ active_job_db_path = None
 def purge_tmp_credential_files(user_id=None):
     """Purges plaintext INI configs and OAuth token JSON files from /tmp for user_id or all users on shutdown."""
     import glob
-    try:
-        if user_id:
-            patterns = [
-                f"/tmp/vdir_{user_id}.ini",
-                f"/tmp/vdir_basic_{user_id}.ini",
-                f"/tmp/google_token_{user_id}_*.json",
-            ]
-        else:
-            patterns = [
-                "/tmp/vdir_*.ini",
-                "/tmp/vdir_basic_*.ini",
-                "/tmp/google_token_*.json",
-            ]
-        for pat in patterns:
-            for filepath in glob.glob(pat):
-                try:
-                    if os.path.exists(filepath):
-                        os.remove(filepath)
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"[Sync-Worker] Error purging /tmp credential files: {e}")
+    if user_id:
+        patterns = [
+            f"/tmp/vdir_{user_id}.ini",
+            f"/tmp/vdir_basic_{user_id}.ini",
+            f"/tmp/google_token_{user_id}_*.json",
+        ]
+    else:
+        patterns = [
+            "/tmp/vdir_*.ini",
+            "/tmp/vdir_basic_*.ini",
+            "/tmp/google_token_*.json",
+        ]
+    for pat in patterns:
+        for filepath in glob.glob(pat):
+            try:
+                os.remove(filepath)
+            except FileNotFoundError:
+                # Removed concurrently between glob() and remove(): already purged.
+                continue
 
 def handle_shutdown_signal(signum, frame):
     global shutdown_requested, active_job_id, active_job_db_path
@@ -79,18 +77,16 @@ def handle_shutdown_signal(signum, frame):
             conn.commit()
             conn.close()
             print(f"[Sync-Worker] Reset active job {active_job_id} back to PENDING on shutdown signal.")
-        except Exception as e:
-            print(f"[Sync-Worker] Error resetting active job on shutdown signal: {e}")
+        except sqlite3.Error as e:
+            # Not fatal on shutdown: recover_stranded_jobs() resets the job on the next start.
+            print(f"[Sync-Worker] Error resetting active job on shutdown signal: {e}", file=sys.stderr)
         active_job_id = None
         active_job_db_path = None
     purge_tmp_credential_files()
     sys.exit(0)
 
-try:
-    signal.signal(signal.SIGTERM, handle_shutdown_signal)
-    signal.signal(signal.SIGINT, handle_shutdown_signal)
-except Exception:
-    pass
+signal.signal(signal.SIGTERM, handle_shutdown_signal)
+signal.signal(signal.SIGINT, handle_shutdown_signal)
 
 def recover_stranded_jobs(target_db=None):
     """Resets pre-existing stranded RUNNING jobs back to PENDING status on daemon startup."""
@@ -99,8 +95,8 @@ def recover_stranded_jobs(target_db=None):
     if not os.path.exists(db_path):
         return 0
 
+    conn = sqlite3.connect(db_path, timeout=30.0)
     try:
-        conn = sqlite3.connect(db_path, timeout=30.0)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 30000")
         cursor = conn.cursor()
@@ -111,13 +107,11 @@ def recover_stranded_jobs(target_db=None):
         )
         count = cursor.rowcount
         conn.commit()
+    finally:
         conn.close()
-        if count > 0:
-            print(f"[Sync-Worker] Recovered {count} stranded RUNNING jobs back to PENDING.")
-        return count
-    except Exception as err:
-        print(f"[Sync-Worker] Error recovering stranded jobs: {err}")
-        return 0
+    if count > 0:
+        print(f"[Sync-Worker] Recovered {count} stranded RUNNING jobs back to PENDING.")
+    return count
 
 def get_db_path():
     return os.environ.get("DATABASE_PATH", DB_PATH)
@@ -267,11 +261,7 @@ LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232
 SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-try:
-    from msgraph_worker import sync_msgraph_accounts
-except ImportError:
-    def sync_msgraph_accounts(user_id, conn=None):
-        return True, ""
+from msgraph_worker import sync_msgraph_accounts
 
 ENCRYPTION_SALT = os.environ.get("ENCRYPTION_SALT", "salt").encode('utf-8')
 
@@ -423,55 +413,63 @@ def fetch_external_event_ics(url, access_token, uid):
         raise
 
 def protect_cross_user_deletions(user_id, conn, accounts):
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, uid, calendar_id, deleted_by FROM cross_user_deletions WHERE owner_user_id = ?",
-            (user_id,)
-        )
-        records = cursor.fetchall()
-        if not records:
-            return
+    # #343: a record is only dropped once its event is restored (or gone upstream); a failed
+    # fetch or restore keeps it, so the next sync retries instead of silently losing the protection.
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, uid, calendar_id, deleted_by FROM cross_user_deletions WHERE owner_user_id = ?",
+        (user_id,)
+    )
+    records = cursor.fetchall()
+    if not records:
+        return
 
-        for rec in records:
-            rec_id = rec["id"]
-            uid = rec["uid"]
-            calendar_id = rec["calendar_id"]
-            
-            parts = calendar_id.split('::')
-            calendar_href = parts[1] if len(parts) > 1 else parts[0]
-            segments = [s for s in calendar_href.split('/') if s]
-            calendar_slug = segments[1] if len(segments) > 1 else "persoenlich"
+    for rec in records:
+        rec_id = rec["id"]
+        uid = rec["uid"]
+        calendar_id = rec["calendar_id"]
+        
+        parts = calendar_id.split('::')
+        calendar_href = parts[1] if len(parts) > 1 else parts[0]
+        segments = [s for s in calendar_href.split('/') if s]
+        calendar_slug = segments[1] if len(segments) > 1 else "persoenlich"
 
-            for acc in accounts:
-                access_token = acc["access_token"] if "access_token" in acc.keys() else None
-                url = acc["url"] if "url" in acc.keys() else None
-                if not access_token or not url:
-                    continue
+        restore_failed = False
+        for acc in accounts:
+            access_token = acc["access_token"] if "access_token" in acc.keys() else None
+            url = acc["url"] if "url" in acc.keys() else None
+            if not access_token or not url:
+                continue
 
-                event_ics = fetch_external_event_ics(url, access_token, uid)
-                if event_ics:
-                    local_put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_slug}/{uid}.ics"
-                    auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
-                    req = urllib.request.Request(
-                        local_put_url,
-                        data=event_ics.encode("utf-8"),
-                        headers={
-                            "Content-Type": "text/calendar; charset=utf-8",
-                            "Authorization": f"Basic {auth_str}"
-                        },
-                        method="PUT"
-                    )
-                    try:
-                        with urllib.request.urlopen(req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)) as res:
-                            print(f"[Sync-Worker] Protected & restored cross-user deleted event {uid} for owner {user_id}")
-                    except Exception as put_err:
-                        print(f"[Sync-Worker] Error restoring event {uid}: {put_err}")
+            try:
+                restore_cross_user_deleted_event(user_id, url, access_token, uid, calendar_slug)
+            except urllib.error.URLError as err:
+                restore_failed = True
+                print(f"[Sync-Worker] Restoring cross-user deleted event {uid} failed, retrying on the next sync: {err}",
+                      file=sys.stderr)
 
+        if not restore_failed:
             cursor.execute("DELETE FROM cross_user_deletions WHERE id = ?", (rec_id,))
-        conn.commit()
-    except Exception as e:
-        print(f"[Sync-Worker] Error in protect_cross_user_deletions: {e}")
+    conn.commit()
+
+
+def restore_cross_user_deleted_event(user_id, url, access_token, uid, calendar_slug):
+    event_ics = fetch_external_event_ics(url, access_token, uid)
+    if event_ics:
+        local_put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_slug}/{uid}.ics"
+        auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+        req = urllib.request.Request(
+            local_put_url,
+            data=event_ics.encode("utf-8"),
+            headers={
+                "Content-Type": "text/calendar; charset=utf-8",
+                "Authorization": f"Basic {auth_str}"
+            },
+            method="PUT"
+        )
+        with urllib.request.urlopen(req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)):
+            print(f"[Sync-Worker] Protected & restored cross-user deleted event {uid} for owner {user_id}")
+
 
 class SyncTimeout(Exception):
     """A vdirsyncer run exceeded VDIRSYNCER_TIMEOUT_SECONDS; the job is marked ERROR without retry."""
@@ -625,7 +623,7 @@ def sync_basic_caldav_accounts(user_id, conn):
     for idx, acc in enumerate(basic_accounts):
         try:
             password = decrypt(acc["password_encrypted"], acc["iv"], KEY_BYTES)
-        except Exception as de:
+        except (ValueError, TypeError) as de:
             return False, f"Basic-auth credential decryption failed for account {acc['id']}: {de}"
 
         pair_name    = f"basic_{idx}"
@@ -673,7 +671,8 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
         return True, ""
     except SyncTimeout:
         raise
-    except Exception as run_err:
+    # Reported as the sync job's error_message, which the user sees in the account status.
+    except Exception as run_err:  # noqa: BLE001
         return False, f"vdirsyncer basic runner exception: {run_err}"
     finally:
         shutil.rmtree(config_dir)
@@ -750,7 +749,7 @@ status_path = {ini_value(status_dir)}
             # Decrypt refresh token
             try:
                 refresh_token = decrypt(acc["password_encrypted"], acc["iv"], KEY_BYTES)
-            except Exception as decrypt_err:
+            except (ValueError, TypeError) as decrypt_err:
                 conn.close()
                 return False, f"Token decryption failed: {str(decrypt_err)}"
 
@@ -775,7 +774,8 @@ status_path = {ini_value(status_dir)}
                     expires_at = new_expires
                     expires_at_ms = new_expires
                     print("[Sync-Worker] Google token refreshed successfully.")
-                except Exception as refresh_err:
+                # Reported as the sync job's error_message, which the user sees in the account status.
+                except Exception as refresh_err:  # noqa: BLE001
                     conn.close()
                     return False, f"Google token refresh failed: {str(refresh_err)}"
 
@@ -797,7 +797,7 @@ status_path = {ini_value(status_dir)}
             try:
                 with os.fdopen(os.open(token_file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as tf:
                     json.dump(token_data, tf)
-            except Exception as write_err:
+            except OSError as write_err:
                 conn.close()
                 return False, f"Failed to write Google token file: {str(write_err)}"
 
@@ -805,7 +805,7 @@ status_path = {ini_value(status_dir)}
             # The display name reaches Radicale as `displayname`, never as the path.
             try:
                 google_collections = discover_google_collections(acc["url"], access_token)
-            except Exception as disc_err:
+            except RuntimeError as disc_err:
                 conn.close()
                 return False, f"Google collection discovery failed: {str(disc_err)}"
             items = []
@@ -813,7 +813,8 @@ status_path = {ini_value(status_dir)}
                 try:
                     local_collection = local_collection_for_google_calendar(
                         conn, user_id, acc_id, col, os.path.join(status_dir, pair_name))
-                except Exception as map_err:
+                # Reported as the sync job's error_message, which the user sees in the account status.
+                except Exception as map_err:  # noqa: BLE001
                     conn.close()
                     return False, f"Local collection for Google calendar {col['id']} failed: {map_err}"
                 items.append([local_collection, col["id"], local_collection])
@@ -880,7 +881,8 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
         return True, ""
     except SyncTimeout:
         raise
-    except Exception as run_err:
+    # Reported as the sync job's error_message, which the user sees in the account status.
+    except Exception as run_err:  # noqa: BLE001
         return False, f"vdirsyncer runner exception: {str(run_err)}"
     finally:
         shutil.rmtree(config_dir)
@@ -946,8 +948,9 @@ def process_next_job(db_path=None):
         print(f"[Sync-Worker] Sync for user {user_id} timed out: {exc}")
         timed_out = True
         error_msg = str(exc)
-    except Exception as exc:
-        print(f"[Sync-Worker] Unguarded exception during sync_user({user_id}): {exc}")
+    # Any failure of one job is recorded on that job (error_message) instead of stopping the queue.
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Sync-Worker] Unguarded exception during sync_user({user_id}): {exc}", file=sys.stderr)
         success = False
         error_msg = f"Unguarded exception: {str(exc)}"
 
@@ -985,8 +988,6 @@ def process_next_job(db_path=None):
                 )
         conn.commit()
         conn.close()
-    except Exception as db_err:
-        print(f"[Sync-Worker] Error updating sync job status in database: {db_err}")
     finally:
         active_job_id = None
         active_job_db_path = None
@@ -1016,8 +1017,11 @@ def main():
     while not shutdown_requested:
         try:
             process_next_job(DB_PATH)
-        except Exception as loop_err:
-            print(f"[Sync-Worker] Queue loop error: {str(loop_err)}")
+        # The daemon outlives a failing iteration (e.g. a locked database); the error is logged
+        # with its traceback and the next poll retries.
+        except Exception:  # noqa: BLE001
+            print("[Sync-Worker] Queue loop error:", file=sys.stderr)
+            traceback.print_exc()
             
         for _ in range(5):
             if shutdown_requested:

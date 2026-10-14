@@ -7,13 +7,27 @@ process.env.SSL_CERT_PATH = '';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('path');
+const http = require('node:http');
 const { fetchFileBrowserFiles, createFileBrowserShareLink, buildFileBrowserAttachment } = require('../utils/filebrowser');
 const { parseICSToEvent, eventToICS } = require('../utils/ical');
 
 test('Issue #12 — Support event attachments using FileBrowser integration and central OIDC/OAuth2 authentication Suite', async (t) => {
   const { app, server } = require('../index');
   const { loginAs } = require('./helpers/testSession');
+
+  // A local FileBrowser: the listing comes from it, never from a built-in fallback (#343).
+  const fileBrowser = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ items: [{ name: 'notes.pdf', path: '/notes.pdf', isDir: false, size: 42 }] }));
+  });
+  await new Promise((resolve) => fileBrowser.listen(0, '127.0.0.1', resolve));
+  const previousFileBrowserUrl = process.env.FILEBROWSER_URL;
+  process.env.FILEBROWSER_URL = `http://127.0.0.1:${fileBrowser.address().port}`;
+  t.after(() => {
+    fileBrowser.close();
+    if (previousFileBrowserUrl === undefined) delete process.env.FILEBROWSER_URL;
+    else process.env.FILEBROWSER_URL = previousFileBrowserUrl;
+  });
 
   if (server && !server.listening) {
     await new Promise((resolve) => server.listen(process.env.PORT || 3108, resolve));
@@ -55,8 +69,7 @@ test('Issue #12 — Support event attachments using FileBrowser integration and 
 
   await t.test('fetchFileBrowserFiles should list resources for given directory path', async () => {
     const res = await fetchFileBrowserFiles('/', sampleOidcToken);
-    assert.ok(Array.isArray(res.items), 'items must be an array');
-    assert.ok(res.items.length >= 0);
+    assert.deepEqual(res.items.map((item) => item.name), ['notes.pdf']);
   });
 
   await t.test('GET /api/attachments/filebrowser/files returns 401 when unauthenticated', async () => {
@@ -74,7 +87,7 @@ test('Issue #12 — Support event attachments using FileBrowser integration and 
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.ok(data.success);
-    assert.ok(Array.isArray(data.files));
+    assert.deepEqual(data.files.map((item) => item.name), ['notes.pdf']);
   });
 
   await t.test('POST /api/attachments/filebrowser/link without filePath returns 400', async () => {

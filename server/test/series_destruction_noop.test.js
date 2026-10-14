@@ -46,7 +46,7 @@ test('Issue #53 — Series Destruction & Recurrence Rule Preservation on No-Op E
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   await t.test('isNoOpEventSave is re-exported from server/caldav/parser.js', () => {
     assert.equal(typeof isNoOpEventSave, 'function',

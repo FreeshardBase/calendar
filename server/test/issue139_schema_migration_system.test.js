@@ -17,12 +17,8 @@ test('Issue #139 — Schema Migration System', async (t) => {
   const tmpDbPath = path.join(__dirname, `scratch_test_migration_${Date.now()}.db`);
 
   t.after(() => {
-    try {
-      if (fs.existsSync(tmpDbPath)) fs.unlinkSync(tmpDbPath);
-      if (fs.existsSync(`${tmpDbPath}-wal`)) fs.unlinkSync(`${tmpDbPath}-wal`);
-      if (fs.existsSync(`${tmpDbPath}-shm`)) fs.unlinkSync(`${tmpDbPath}-shm`);
-    } catch (e) {
-      // Cleanup fallback
+    for (const file of [tmpDbPath, `${tmpDbPath}-wal`, `${tmpDbPath}-shm`]) {
+      fs.rmSync(file, { force: true });
     }
   });
 

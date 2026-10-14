@@ -1,4 +1,5 @@
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
+import { responseErrorMessage } from './api.js';
 
 export const MSGraphAPI = {
   async listAccounts() {
@@ -15,8 +16,7 @@ export const MSGraphAPI = {
       body: JSON.stringify(accountData)
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Fehler beim Verbinden mit Office 365');
+      throw new Error(await responseErrorMessage(res, 'Fehler beim Verbinden mit Office 365'));
     }
     return await res.json();
   },
@@ -26,8 +26,7 @@ export const MSGraphAPI = {
       method: 'DELETE'
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Fehler beim Trennen des MS Graph Kontos');
+      throw new Error(await responseErrorMessage(res, 'Fehler beim Trennen des MS Graph Kontos'));
     }
     return await res.json();
   },
@@ -39,8 +38,7 @@ export const MSGraphAPI = {
       body: JSON.stringify({ localEvents })
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Fehler beim Synchronisieren des MS Graph Kontos');
+      throw new Error(await responseErrorMessage(res, 'Fehler beim Synchronisieren des MS Graph Kontos'));
     }
     return await res.json();
   }

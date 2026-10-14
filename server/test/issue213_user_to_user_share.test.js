@@ -21,7 +21,7 @@ test('Issue #213 — User-to-User Calendar Sharing & Sabotage Prevention Suite',
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   let ownerCookie = '';
   let inviteeCookie = '';
