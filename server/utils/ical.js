@@ -935,10 +935,15 @@ function eventToICS(event, existingIcs = null) {
         setEventDateProp('last-modified', new Date().toISOString(), false, null);
 
         // VTIMEZONE blocks
+        // Same guard as the fresh-build path below: an unresolvable TZID gets
+        // no VTIMEZONE at all (#203) — DTSTART/DTEND already fell back to UTC.
         const tzids = [];
         if (!event.allDay) {
-          if (event.startTimeZone && !tzids.includes(event.startTimeZone)) tzids.push(event.startTimeZone);
-          if (event.endTimeZone && !tzids.includes(event.endTimeZone)) tzids.push(event.endTimeZone);
+          for (const tz of [event.startTimeZone, event.endTimeZone]) {
+            if (!tz || tzids.includes(tz)) continue;
+            if (isValidTimezone(tz)) tzids.push(tz);
+            else console.warn(`[timezone] Invalid timezone "${tz}" omitted from ICS`);
+          }
         }
         for (const tzid of tzids) {
           const existingTzs = comp.getAllSubcomponents('vtimezone');
@@ -1567,16 +1572,7 @@ function _findExactTransitions(tzid, year = 2026) {
 function buildVTimezoneBlock(tzid) {
   if (!isValidTimezone(tzid)) {
     console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}"`);
-    return [
-      'BEGIN:VTIMEZONE',
-      `TZID:${tzid || 'UTC'}`,
-      'BEGIN:STANDARD',
-      'DTSTART:19700101T000000',
-      'TZOFFSETFROM:+0000',
-      'TZOFFSETTO:+0000',
-      'END:STANDARD',
-      'END:VTIMEZONE'
-    ].join('\r\n');
+    return null;
   }
 
   const transitions = _findExactTransitions(tzid, 2026);
