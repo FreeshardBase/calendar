@@ -1259,22 +1259,149 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
-  test('Issue #128 — events the server could not parse are reported in a toast, not silently missing', async ({ page }) => {
-    const report = encodeURIComponent(JSON.stringify({
-      count: 2,
-      resources: [{ calendarId: 'internal-caldav::/testuser/cal/', href: '/testuser/cal/broken.ics' }]
-    }));
-    await page.route('**/api/events?*', async (route) => {
-      const response = await route.fetch();
-      await route.fulfill({ response, headers: { ...response.headers(), 'x-caldav-unparseable': report } });
+  // These tests observe and stub /api requests on the page; once the service
+  // worker has claimed the page it would answer them out of Playwright's sight.
+  test.describe('with the service worker blocked', () => {
+    test.use({ serviceWorkers: 'block' });
+
+    test('Issue #128 — events the server could not parse are reported in a toast, not silently missing', async ({ page }) => {
+      const report = encodeURIComponent(JSON.stringify({
+        count: 2,
+        resources: [{ calendarId: 'internal-caldav::/testuser/cal/', href: '/testuser/cal/broken.ics' }]
+      }));
+      await page.route('**/api/events?*', async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, headers: { ...response.headers(), 'x-caldav-unparseable': report } });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#toast-container .toast.error', {
+        hasText: '2 gespeicherte Termine konnten nicht gelesen werden und werden nicht angezeigt.'
+      })).toBeVisible({ timeout: 10000 });
+      // The rest of the calendar still renders.
+      await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
     });
-    await page.goto('/');
-    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#toast-container .toast.error', {
-      hasText: '2 gespeicherte Termine konnten nicht gelesen werden und werden nicht angezeigt.'
-    })).toBeVisible({ timeout: 10000 });
-    // The rest of the calendar still renders.
-    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+    test('Issue #170 — revisiting a month is served from the cache after a delta-sync check; a change made elsewhere forces a refetch', async ({ page }) => {
+      const listRequests = [];
+      const deltaRequests = [];
+      let pending = 0;
+      const isTracked = r => {
+        const { pathname } = new URL(r.url());
+        return (r.method() === 'GET' && pathname === '/api/events') || (r.method() === 'POST' && pathname.endsWith('/delta-sync'));
+      };
+      page.on('request', r => {
+        if (!isTracked(r)) return;
+        pending++;
+        if (r.method() === 'GET') listRequests.push(r.url());
+        else deltaRequests.push(r.url());
+      });
+      const settle = r => { if (isTracked(r)) pending--; };
+      page.on('requestfinished', settle);
+      page.on('requestfailed', settle);
+
+      // Navigate and wait until that loadEvents() is done: its delta checks have
+      // answered and, if it refetches, the event list has arrived.
+      const navigate = async (button) => {
+        const deltaBefore = deltaRequests.length;
+        await page.click(button);
+        await expect.poll(() => deltaRequests.length > deltaBefore && pending === 0, { timeout: 15000 }).toBe(true);
+        // A refetch, if any, is issued right after the delta checks answer.
+        await page.waitForTimeout(500);
+        await expect.poll(() => pending, { timeout: 15000 }).toBe(0);
+      };
+
+      const firstList = page.waitForResponse(r => new URL(r.url()).pathname === '/api/events');
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+      expect((await firstList).ok()).toBeTruthy();
+      const calendarId = await page.locator('#calendar-list .calendar-item').first().getAttribute('data-cal-id');
+
+      // Cold month: fetched in full.
+      await navigate('#next-btn');
+      const listsAfterNext = listRequests.length;
+      expect(listsAfterNext).toBeGreaterThanOrEqual(2);
+
+      // Back to the month just visited: nothing changed on the server, so the
+      // delta check runs and no full event list is requested.
+      await navigate('#prev-btn');
+      expect(listRequests.length).toBe(listsAfterNext);
+
+      // A change made outside this tab (another device) is detected by the delta
+      // check: the cache is dropped and the month is fetched again.
+      const now = new Date();
+      const day = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 15, 10, 0, 0));
+      const title = `E2E Issue170 Delta ${Date.now()}`;
+      const created = await page.request.post('/api/events', {
+        data: { calendarId, title, start: day.toISOString(), end: new Date(day.getTime() + 3600 * 1000).toISOString() }
+      });
+      expect(created.status()).toBe(201);
+      const ev = await created.json();
+      try {
+        await navigate('#next-btn');
+        const listsBeforeBack = listRequests.length;
+        await navigate('#prev-btn');
+        expect(listRequests.length).toBeGreaterThan(listsBeforeBack);
+        await expect(page.locator('#calendar-container', { hasText: title })).toBeVisible({ timeout: 10000 });
+      } finally {
+        const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          data: { calendarId, href: ev.href, etag: ev.etag }
+        });
+        expect(del.ok()).toBeTruthy();
+      }
+
+      // A deletion made elsewhere is a change as well: the event disappears.
+      await navigate('#next-btn');
+      const listsBeforeReturn = listRequests.length;
+      await navigate('#prev-btn');
+      expect(listRequests.length).toBeGreaterThan(listsBeforeReturn);
+      await expect(page.locator('#calendar-container', { hasText: title })).toHaveCount(0);
+    });
+
+    test('Issue #170 — with no known calendars nothing is delta-checked, so a revisited month is fetched again', async ({ page }) => {
+      // The calendar list failed to load: events still arrive through
+      // /api/events, but no calendar can be checked for changes. The first
+      // month holds one event of that unknown calendar, every other month none.
+      let calendarListLoads = 0;
+      await page.route('**/api/calendars', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        calendarListLoads++;
+        await route.fulfill({ json: { calendars: [], errors: [] } });
+      });
+      let firstStart = null;
+      await page.route('**/api/events?*', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        const start = new Date(params.get('start'));
+        const end = new Date(params.get('end'));
+        if (firstStart === null) firstStart = params.get('start');
+        if (params.get('start') !== firstStart) return route.fulfill({ json: [] });
+        const evStart = new Date((start.getTime() + end.getTime()) / 2);
+        await route.fulfill({ json: [{
+          uid: 'e2e-issue170-unknown', title: 'E2E Issue170 Unknown Calendar',
+          calendarId: 'internal-caldav::/testuser/issue170-unknown/', accountId: 'internal-caldav',
+          start: evStart.toISOString(), end: new Date(evStart.getTime() + 3600 * 1000).toISOString(), allDay: false
+        }] });
+      });
+      const isList = r => new URL(r.url()).pathname === '/api/events' && r.request().method() === 'GET';
+      const firstList = page.waitForResponse(isList);
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect((await firstList).ok()).toBeTruthy();
+      // The event belongs to a calendar the client does not know, so the
+      // calendar list is loaded again to bring it under the delta check.
+      await expect.poll(() => calendarListLoads, { timeout: 10000 }).toBeGreaterThanOrEqual(2);
+
+      const nextList = page.waitForResponse(isList);
+      await page.click('#next-btn');
+      expect((await nextList).ok()).toBeTruthy();
+
+      // The first month's cache entry is still there, but with no calendar
+      // to check it cannot be trusted.
+      const backList = page.waitForResponse(isList, { timeout: 10000 });
+      await page.click('#prev-btn');
+      expect((await backList).ok()).toBeTruthy();
+    });
   });
 
   test('Issue #338 — imported ICS with ATTACH:javascript: renders no script link, safe attachment stays clickable', async ({ page }) => {
