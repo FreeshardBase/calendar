@@ -76,7 +76,9 @@ describe('Issue #224 — First request account error handling & onboarding guard
       assert.strictEqual(res.status, 500, 'Response status must be 500 when account loading failed');
       const json = await res.json();
       assert.ok(json.error, 'Response JSON must contain error property');
-      assert.ok(json.error.includes('Database disk I/O error'), 'Error message must describe root failure');
+      // #160: the root cause is logged by server/index.js, never sent to the client.
+      assert.strictEqual(json.error, 'Fehler beim Laden der Kontodaten.');
+      assert.ok(!json.error.includes('Database disk I/O error'), 'Root cause must not reach the client');
     } finally {
       await new Promise(resolve => server.close(resolve));
     }

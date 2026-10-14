@@ -1,4 +1,5 @@
 'use strict';
+const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -30,7 +31,7 @@ router.get('/accounts', async (req, res) => {
     const sanitized = accounts.map(({ accessToken, refreshToken, ...rest }) => rest);
     res.json({ success: true, accounts: sanitized });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -66,7 +67,7 @@ router.post('/accounts', async (req, res) => {
     const { accessToken: _, refreshToken: __, ...sanitizedAccount } = account;
     res.status(201).json({ success: true, account: sanitizedAccount });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -91,7 +92,7 @@ router.delete('/accounts/:id', async (req, res) => {
     await Db.deleteMSGraphAccount(id);
     res.json({ success: true, message: 'MS Graph Konto erfolgreich entfernt' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -122,7 +123,7 @@ router.post('/accounts/:id/sync', async (req, res) => {
 
     res.json({ success: true, syncResult });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 

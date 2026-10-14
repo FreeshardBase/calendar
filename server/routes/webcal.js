@@ -10,6 +10,9 @@ const {
 } = require('../utils/webcalSubscription');
 const { assertPublicUrl } = require('../utils/outboundFetch');
 
+// #160: the refresh error itself (English, upstream detail) is logged, not sent.
+const FEED_FETCH_FAILED = 'Der Kalender-Feed konnte nicht abgerufen werden.';
+
 function getUserId(req) {
   if (req.session && req.session.userId) {
     return req.session.userId;
@@ -80,7 +83,8 @@ router.post('/subscriptions', async (req, res, next) => {
       return res.status(400).json({ error: 'Diese Adresse ist nicht erlaubt: interne oder private Netzwerkziele können nicht abonniert werden.' });
     }
     if (err.message.includes('Unsupported subscription URL protocol') || err.message.includes('Invalid URL format')) {
-      return res.status(400).json({ error: err.message });
+      console.warn('[Webcal] Rejected subscription URL:', err.message);
+      return res.status(400).json({ error: 'Ungültige Abonnement-Adresse. Erlaubt sind http(s)- und webcal-Adressen.' });
     }
     next(err);
   }
@@ -165,7 +169,8 @@ router.get('/subscriptions/:id/events', async (req, res, next) => {
         cachedIcs = await Db.getCachedWebcalIcs(req.params.id, userId);
       } catch (err) {
         // #342: the failure is recorded on the subscription; keep serving the last good copy.
-        refreshError = err.message;
+        console.warn(`[Webcal] Refresh failed for subscription ${req.params.id}:`, err.message);
+        refreshError = FEED_FETCH_FAILED;
       }
     }
 
@@ -200,8 +205,9 @@ router.post('/subscriptions/:id/sync', async (req, res, next) => {
       ({ eventCount } = await refreshWebcalFeed(subscription));
     } catch (err) {
       // #342: recorded as last_error; the cached feed is unchanged.
+      console.warn(`[Webcal] Refresh failed for subscription ${req.params.id}:`, err.message);
       const failedSub = await Db.getWebcalSubscription(req.params.id, userId);
-      return res.status(502).json({ success: false, error: err.message, subscription: failedSub });
+      return res.status(502).json({ success: false, error: FEED_FETCH_FAILED, subscription: failedSub });
     }
     const updatedSub = await Db.getWebcalSubscription(req.params.id, userId);
 

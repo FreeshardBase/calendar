@@ -22,7 +22,7 @@ const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
-const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
+const { sendError, describeError } = require('../utils/errorSanitizer');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
 const { assertValidAlarms } = require('../utils/ical');
 
@@ -154,8 +154,7 @@ router.get('/invitations', async (req, res) => {
 
     res.json(invitations);
   } catch (err) {
-    console.error('[invitations GET]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[invitations GET]');
   }
 });
 
@@ -249,13 +248,15 @@ router.get('/', async (req, res) => {
                 successfulCalendars++;
               } catch (eventErr) {
                 console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
-                errors.push({ accountId: account.id, calendarId: cal.id, error: eventErr.message });
+                const { status, message } = describeError(eventErr);
+                errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
               }
             })
           );
         } catch (accountErr) {
           console.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
-          errors.push({ accountId: account.id, error: accountErr.message });
+          const { status, message } = describeError(accountErr);
+          errors.push({ accountId: account.id, status, error: message });
         }
       })
     );
@@ -278,10 +279,10 @@ router.get('/', async (req, res) => {
     const allAccountsFailed = activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0;
 
     if (specificCalendarFailed || allAccountsFailed) {
-      return res.status(502).json({
-        error: 'Failed to fetch events from CalDAV server',
-        errors
-      });
+      // The client prefixes "Fehler beim Laden der Termine: "; send the cause
+      // under its mapped status (an upstream 403 stays a 403).
+      const failure = errors.find(e => calendarId && e.calendarId === calendarId) || errors[0];
+      return res.status(failure.status).json({ error: failure.error, errors });
     }
 
     let filteredEvents = allEvents;
@@ -294,8 +295,7 @@ router.get('/', async (req, res) => {
 
     res.json(filteredEvents);
   } catch (err) {
-    console.error('[events GET]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[events GET]');
   }
 });
 
@@ -353,9 +353,7 @@ router.post('/', async (req, res) => {
       calendarId
     });
   } catch (err) {
-    console.error('[events POST]', err.message);
-    if (err.message === 'ETAG_CONFLICT') return res.status(409).json({ error: 'Conflict.' });
-    res.status(500).json({ error: sanitizeErrorMessage(err.message) });
+    return sendError(res, err, '[events POST]');
   }
 });
 
@@ -500,13 +498,7 @@ router.put('/:uid', async (req, res) => {
       calendarId
     });
   } catch (err) {
-    console.error('[events PUT]', err.message);
-    if (err.message === 'ETAG_CONFLICT') {
-      return res.status(409).json({
-        error: 'This event was modified by another client. Please refresh.'
-      });
-    }
-    res.status(500).json({ error: sanitizeErrorMessage(err.message) });
+    return sendError(res, err, '[events PUT]');
   }
 });
 
@@ -587,13 +579,7 @@ router.delete('/:uid', async (req, res) => {
 
     res.json({ message: 'Event deleted.' });
   } catch (err) {
-    console.error('[events DELETE]', err.message);
-    if (err.message === 'ETAG_CONFLICT') {
-      return res.status(409).json({
-        error: 'Event was modified externally. Please refresh before deleting.'
-      });
-    }
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[events DELETE]');
   }
 });
 
@@ -696,8 +682,7 @@ router.post('/:uid/rsvp', async (req, res) => {
       itipReply
     });
   } catch (err) {
-    console.error('[events RSVP]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[events RSVP]');
   }
 });
 
@@ -719,8 +704,7 @@ router.get('/:uid/history', async (req, res) => {
     const history = await Db.getEventHistory(req.params.uid);
     res.json(history);
   } catch (err) {
-    console.error('[events HISTORY]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[events HISTORY]');
   }
 });
 

@@ -1,4 +1,5 @@
 'use strict';
+const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -37,7 +38,8 @@ router.get('/presets', (req, res) => {
 // GET /api/accounts — list accounts (passwords redacted)
 router.get('/', async (req, res) => {
   if (req.accountLoadError) {
-    return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${req.accountLoadError}` });
+    // The cause is logged where it happened (server/index.js); it stays out of the response.
+    return res.status(500).json({ error: 'Fehler beim Laden der Kontodaten.' });
   }
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -49,7 +51,8 @@ router.get('/', async (req, res) => {
   try {
     unreadable = await Db.getUnreadableAccounts(req.session.userId);
   } catch (err) {
-    return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${err.message}` });
+    console.error('[accounts GET] Failed to load unreadable accounts:', err.message);
+    return res.status(500).json({ error: 'Fehler beim Laden der Kontodaten.' });
   }
   const accounts = req.session?.accounts || [];
   res.json([
@@ -159,7 +162,7 @@ router.post('/', async (req, res) => {
     await Db.addSyncJob(userId).catch(err => console.error('[sync-queue] Failed to add sync job after account creation:', err.message));
     res.status(201).json({ id, displayName: finalDisplayName, message: 'Account added.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -178,7 +181,7 @@ router.post('/:id/sync', async (req, res) => {
     const job = await Db.addSyncJob(req.session.userId);
     res.json({ message: 'Synchronisation gestartet.', jobId: job.id, accountId: account.id });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -200,7 +203,7 @@ router.patch('/:id', async (req, res) => {
     }
     res.json({ message: 'Updated.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -225,8 +228,7 @@ router.delete('/:id', async (req, res) => {
     try {
       owner = await Db.getAccountOwner(req.params.id);
     } catch (err) {
-      console.error('[accounts] getAccountOwner failed during DELETE fallback:', err.message);
-      return res.status(500).json({ error: err.message });
+      return sendError(res, err, '[accounts] getAccountOwner failed during DELETE fallback:');
     }
     if (owner && owner.userId === req.session.userId) {
       account = owner; // minimal object — only id/userId needed to authorise the DELETE
@@ -239,7 +241,7 @@ router.delete('/:id', async (req, res) => {
     await Db.deleteAccount(req.params.id);
     res.json({ message: 'Account removed.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -255,7 +257,7 @@ router.delete('/', async (req, res) => {
     req.session.userId = null;
     res.json({ message: 'All accounts removed.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -269,7 +271,7 @@ router.get('/oauth-token-status', async (req, res) => {
     const accounts = await Db.getOAuthTokenStatus(req.session.userId);
     res.json({ accounts });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -282,7 +284,7 @@ router.get('/sync-status', async (req, res) => {
     const jobs = await Db.getSyncJobs(req.session.userId);
     res.json({ jobs });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -298,7 +300,7 @@ router.get('/sync-jobs/:id', async (req, res) => {
     }
     res.json(job);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -314,7 +316,7 @@ router.get('/app-passwords', async (req, res) => {
     const list = await Db.getAppPasswords(req.session.userId);
     res.json(list);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -332,7 +334,7 @@ router.post('/app-passwords', async (req, res) => {
     const result = await Db.addAppPassword(req.session.userId, label.trim());
     res.status(201).json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -348,7 +350,7 @@ router.delete('/app-passwords/:id', async (req, res) => {
     }
     res.json({ message: 'Passwort entfernt.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 

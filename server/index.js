@@ -1,5 +1,6 @@
 'use strict';
 require('dotenv').config();
+const { sendError, describeError } = require('./utils/errorSanitizer');
 // Issue #57 fix: NODE_TLS_REJECT_UNAUTHORIZED is no longer set process-wide.
 // Per-request TLS bypass for the internal self-signed Radicale server is handled
 // exclusively in server/utils/tlsDispatcher.js via a scoped undici Agent.
@@ -509,8 +510,7 @@ app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) =>
     console.log(`[webhook] Cleaned up all user data for deleted user: ${user_id}`);
     res.json({ message: `Successfully deleted user ${user_id}` });
   } catch (err) {
-    console.error(`[webhook] Error deleting accounts for user ${user_id}:`, err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, `[webhook] Error deleting accounts for user ${user_id}:`);
   }
 });
 
@@ -521,8 +521,7 @@ app.post('/internal/db/quiesce', requireInternal, async (req, res) => {
     console.log(`[internal] Database WAL quiesce executed (mode=${mode}):`, result);
     res.json({ success: true, message: 'Database WAL quiesced', details: result });
   } catch (err) {
-    console.error('[internal] Error quiescing database WAL:', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[internal] Error quiescing database WAL:');
   }
 });
 
@@ -532,7 +531,8 @@ const healthHandler = async (req, res) => {
     await Db.checkHealth();
     res.json({ status: 'ok', database: 'connected' });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: err?.message || 'Database query failed' });
+    console.error('[health] Database check failed:', err?.message);
+    res.status(500).json({ status: 'error', error: 'Database query failed' });
   }
 };
 app.get('/health', healthHandler);
@@ -576,7 +576,13 @@ app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
   }
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  // Client errors raised by middleware (body-parser: malformed JSON, oversized body).
+  if (err.expose && Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+    const message = err.status === 413 ? 'Die Anfrage ist zu groß.' : 'Die Anfrage ist ungültig.';
+    return res.status(err.status).json({ error: message });
+  }
+  const { status, message } = describeError(err);
+  res.status(status).json({ error: message });
 });
 
 const http = require('http');

@@ -18,7 +18,7 @@ router.post('/parse', (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[quick-add parse]', err.message);
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Der Text konnte nicht als Termin erkannt werden.' });
   }
 });
 

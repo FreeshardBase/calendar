@@ -1,4 +1,5 @@
 'use strict';
+const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -21,7 +22,7 @@ router.get('/', async (req, res) => {
     const principals = await getPrincipalsForDelegate(userId);
     res.json({ userId, delegates, principals });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -50,7 +51,7 @@ router.post('/', async (req, res) => {
 
     res.json(permission);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -67,7 +68,7 @@ router.delete('/:id', async (req, res) => {
     const result = await revokeDelegatePermission(id);
     res.json({ message: 'Delegate permission revoked', ...result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -81,7 +82,7 @@ router.get('/principals', async (req, res) => {
     const principals = await getPrincipalsForDelegate(userId);
     res.json({ userId, principals });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -122,7 +123,7 @@ router.post('/act-as', async (req, res) => {
       role: access.role
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 

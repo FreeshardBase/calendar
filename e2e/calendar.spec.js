@@ -1621,9 +1621,24 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const feedUrl = `http://127.0.0.1:${feedServer.address().port}/timetable.ics`;
     const chips = page.locator('.event-chip, .event-block, [data-event-uid]').filter({ hasText: eventTitle });
     const subItem = page.locator('#webcal-list .calendar-item', { hasText: feedName }).first();
+    // Subscriptions left by earlier runs repeat on the same Mondays and push this
+    // feed's chips into the month cell's overflow, so remove them via the API.
+    const deleteTimetableSubscriptions = async (onlyName) => {
+      const list = await page.request.get('/api/webcal/subscriptions');
+      expect(list.ok()).toBeTruthy();
+      const { subscriptions } = await list.json();
+      for (const sub of subscriptions || []) {
+        if (onlyName ? sub.name !== onlyName : !String(sub.name || '').startsWith('E2E Timetable ')) continue;
+        const del = await page.request.delete(`/api/webcal/subscriptions/${encodeURIComponent(sub.id)}`);
+        expect(del.ok()).toBeTruthy();
+      }
+    };
 
     try {
       await page.goto('/?date=2028-12-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await deleteTimetableSubscriptions();
+      await page.reload();
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -1659,13 +1674,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       // January view: 1 Jan – 11 Feb 2029 → 1/8/15/22/29 Jan, 5 Feb.
       await expect(chips).toHaveCount(6, { timeout: 5000 });
     } finally {
-      const delBtn = page.locator('#webcal-list .calendar-item', { hasText: feedName }).locator('[data-delete-webcal]').first();
-      if (await delBtn.isVisible()) {
-        await delBtn.click();
-        const confirmBtn = page.locator('#confirm-dialog-ok');
-        if (await confirmBtn.isVisible()) await confirmBtn.click();
+      try {
+        await deleteTimetableSubscriptions(feedName);
+      } finally {
+        await new Promise(resolve => feedServer.close(resolve));
       }
-      await new Promise(resolve => feedServer.close(resolve));
     }
   });
 

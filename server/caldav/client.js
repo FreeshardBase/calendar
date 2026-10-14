@@ -665,6 +665,7 @@ class CalDAVClient {
     if (type === 'none') {
       const err = new Error('Sharing is not supported by this CalDAV server');
       err.status = 501;
+      err.code = 'SHARING_NOT_SUPPORTED';
       throw err;
     }
 

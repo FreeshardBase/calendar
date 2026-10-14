@@ -1,4 +1,5 @@
 'use strict';
+const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -21,8 +22,7 @@ router.get('/', async (req, res) => {
     });
     res.json({ resources });
   } catch (err) {
-    console.error('[resources get]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources get]');
   }
 });
 
@@ -36,8 +36,7 @@ router.post('/', async (req, res) => {
     const resource = await Db.addResource({ name, type, capacity, location, status, ownerId: req.session.userId });
     res.status(201).json({ success: true, resource });
   } catch (err) {
-    console.error('[resources create]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources create]');
   }
 });
 
@@ -50,8 +49,7 @@ router.get('/:id', async (req, res) => {
     }
     res.json({ resource });
   } catch (err) {
-    console.error('[resources get id]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources get id]');
   }
 });
 
@@ -72,8 +70,7 @@ router.patch('/:id', async (req, res) => {
     const resource = await Db.updateResource(req.params.id, req.body);
     res.json({ success: true, resource });
   } catch (err) {
-    console.error('[resources update]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources update]');
   }
 });
 
@@ -86,8 +83,7 @@ router.delete('/:id', async (req, res) => {
     await Db.deleteResource(req.params.id);
     res.json({ success: true });
   } catch (err) {
-    console.error('[resources delete]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources delete]');
   }
 });
 
@@ -101,8 +97,7 @@ router.post('/check-availability', async (req, res) => {
     const result = await checkResourceAvailability(resourceId, startTime, endTime, excludeBookingId);
     res.json(result);
   } catch (err) {
-    console.error('[resources check-availability]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources check-availability]');
   }
 });
 
@@ -116,8 +111,7 @@ router.post('/suggest', async (req, res) => {
     const suggestions = await suggestAvailableResources({ startTime, endTime, minCapacity, type });
     res.json({ suggestions });
   } catch (err) {
-    console.error('[resources suggest]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources suggest]');
   }
 });
 
@@ -142,8 +136,7 @@ router.get('/bookings', async (req, res) => {
     const bookings = await Db.getResourceBookings({ resourceId, userId, startTime, endTime });
     res.json({ bookings });
   } catch (err) {
-    console.error('[resources get bookings]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources get bookings]');
   }
 });
 
@@ -164,10 +157,10 @@ router.post('/bookings', async (req, res) => {
     res.status(201).json({ success: true, booking });
   } catch (err) {
     if (err.message.includes('RESOURCE_BUSY') || err.message.includes('belegt')) {
-      return res.status(409).json({ error: err.message });
+      console.error('[resources book]', err.message);
+      return res.status(409).json({ error: 'Der Raum/die Ressource ist im gewählten Zeitraum bereits belegt.' });
     }
-    console.error('[resources book]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources book]');
   }
 });
 
@@ -181,8 +174,7 @@ router.delete('/bookings/:id', async (req, res) => {
     await cancelResourceBooking(req.params.id, userId);
     res.json({ success: true });
   } catch (err) {
-    console.error('[resources cancel booking]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[resources cancel booking]');
   }
 });
 
