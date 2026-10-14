@@ -47,7 +47,9 @@ function evaluateUpcomingAlarms(events, options = {}) {
     for (const alarm of ev.alarms) {
       const triggerStr = alarm.trigger || alarm.TRIGGER;
       if (!triggerStr) continue;
-      const alarmTime = calculateAlarmTime(ev.start, triggerStr);
+      // A RELATED=END trigger counts from the event's end (RFC 5545 §3.8.6.3).
+      const anchor = String(alarm.related || '').toUpperCase() === 'END' && ev.end ? ev.end : ev.start;
+      const alarmTime = calculateAlarmTime(anchor, triggerStr);
       if (alarmTime === null || isNaN(alarmTime)) continue;
 
       // Trigger if alarm falls within [graceStartMs, windowEndMs]

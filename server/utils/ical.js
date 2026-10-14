@@ -74,28 +74,124 @@ function calculateAlarmTime(startIso, trigger) {
 }
 
 /**
+ * Absolute TRIGGER value as a UTC ICAL.Time. RFC 5545 requires UTC; a value
+ * from a non-conformant client is read in its own TZID, else in the event's
+ * DTSTART zone (UTC if that is floating too), so it can be written back legally.
+ */
+function absoluteTriggerToUtc(val, trigProp, vevent) {
+  if (val.zone === ICAL.Timezone.utcTimezone) return val;
+  if (val.zone && val.zone !== ICAL.Timezone.localTimezone) {
+    return val.convertToZone(ICAL.Timezone.utcTimezone);
+  }
+  const dtstart = vevent.getFirstProperty('dtstart');
+  const tzid = trigProp.getParameter('tzid') || (dtstart ? dtstart.getParameter('tzid') : null);
+  const pad = (n) => String(n).padStart(2, '0');
+  const utc = getUtcDate(`${val.year}-${pad(val.month)}-${pad(val.day)}`, `${pad(val.hour)}:${pad(val.minute)}`, tzid);
+  utc.setUTCSeconds(val.second);
+  return ICAL.Time.fromJSDate(utc, true);
+}
+
+/**
+ * One VALARM component as { action, trigger, description[, related] }.
+ */
+function valarmToAlarm(valarm, vevent) {
+  const action = (valarm.getFirstPropertyValue('action') || 'DISPLAY').toString().toUpperCase();
+  const trigProp = valarm.getFirstProperty('trigger');
+  let trigger = null;
+  let related = null;
+  if (trigProp) {
+    let val = trigProp.getFirstValue();
+    if (trigProp.type === 'date-time' && val) val = absoluteTriggerToUtc(val, trigProp, vevent);
+    trigger = typeof val === 'object' && val !== null ? val.toString() : String(val);
+    // RELATED only applies to a duration trigger (RFC 5545 §3.8.6.3); START is the default.
+    if (trigProp.type !== 'date-time' && String(trigProp.getParameter('related') || '').toUpperCase() === 'END') {
+      related = 'END';
+    }
+  }
+  const alarm = {
+    action,
+    trigger: trigger || '-PT15M',
+    description: valarm.getFirstPropertyValue('description') || null
+  };
+  if (related) alarm.related = related;
+  return alarm;
+}
+
+// Two alarms with the same identity are the same reminder; used to keep a
+// stored VALARM (REPEAT, ATTACH, X- properties …) when it is saved back unchanged.
+function alarmIdentity(alarm) {
+  return [
+    String(alarm.action || 'DISPLAY').toUpperCase(),
+    String(alarm.related || 'START').toUpperCase(),
+    String(alarm.trigger || '-PT15M').trim(),
+    alarm.description || ''
+  ].join('|');
+}
+
+/**
  * Extract all VALARM blocks from a VEVENT ICAL component.
  */
 function parseValarms(vevent) {
-  const alarms = [];
-  if (!vevent || typeof vevent.getAllSubcomponents !== 'function') return alarms;
+  if (!vevent || typeof vevent.getAllSubcomponents !== 'function') return [];
+  return vevent.getAllSubcomponents('valarm').map(valarm => valarmToAlarm(valarm, vevent));
+}
 
-  for (const valarm of vevent.getAllSubcomponents('valarm')) {
-    const action = (valarm.getFirstPropertyValue('action') || 'DISPLAY').toString().toUpperCase();
-    const trigProp = valarm.getFirstProperty('trigger');
-    let trigger = null;
-    if (trigProp) {
-      const val = trigProp.getFirstValue();
-      trigger = typeof val === 'object' && val !== null ? val.toString() : String(val);
-    }
-    const description = valarm.getFirstPropertyValue('description') || null;
-    alarms.push({
-      action,
-      trigger: trigger || '-PT15M',
-      description
-    });
+// RFC 5545 §3.3.6 dur-value.
+const TRIGGER_DURATION_RE = /^[+-]?P(?=\d|T\d)(?:\d+W|(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+S)?)?)$/;
+// An absolute trigger must be a UTC DATE-TIME (RFC 5545 §3.8.6.3). Accepts the
+// extended form parseValarms produces and the basic iCalendar form.
+const TRIGGER_ABSOLUTE_RE = /^(\d{4})-?(\d{2})-?(\d{2})T(\d{2}):?(\d{2}):?(\d{2})(?:\.\d+)?Z$/;
+
+/**
+ * Validate one alarm and return its TRIGGER content line. Throws on anything a
+ * CalDAV server would reject or misread, so a bad trigger is never written.
+ */
+function alarmTriggerLine(alarm) {
+  if (!alarm || typeof alarm !== 'object' || Array.isArray(alarm)) {
+    throw new Error('Invalid alarm: each alarm must be an object with a trigger');
   }
-  return alarms;
+  const trigger = alarm.trigger === undefined || alarm.trigger === null || alarm.trigger === ''
+    ? '-PT15M'
+    : alarm.trigger;
+  if (typeof trigger !== 'string') {
+    throw new Error('Invalid alarm trigger: must be a string');
+  }
+  const related = alarm.related === undefined || alarm.related === null || alarm.related === ''
+    ? null
+    : String(alarm.related).toUpperCase();
+  if (related !== null && related !== 'START' && related !== 'END') {
+    throw new Error(`Invalid alarm RELATED value "${alarm.related}": must be START or END`);
+  }
+
+  if (TRIGGER_DURATION_RE.test(trigger)) {
+    return related === 'END' ? `TRIGGER;RELATED=END:${trigger}` : `TRIGGER:${trigger}`;
+  }
+
+  const abs = trigger.match(TRIGGER_ABSOLUTE_RE);
+  if (abs) {
+    if (related !== null) {
+      throw new Error('Invalid alarm: RELATED is only allowed on a duration trigger, not on an absolute DATE-TIME');
+    }
+    const [, y, mo, d, h, mi, s] = abs;
+    const date = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s));
+    if (date.getUTCMonth() !== +mo - 1 || date.getUTCDate() !== +d || +h > 23 || +mi > 59 || +s > 60) {
+      throw new Error(`Invalid alarm trigger "${trigger}": not a real date-time`);
+    }
+    return `TRIGGER;VALUE=DATE-TIME:${y}${mo}${d}T${h}${mi}${s}Z`;
+  }
+
+  throw new Error(`Invalid alarm trigger "${trigger}": expected an RFC 5545 duration (e.g. -PT15M) or a UTC date-time (e.g. 20260809T200000Z)`);
+}
+
+/**
+ * Throw if `alarms` (when present) is not an array of valid alarms.
+ */
+function assertValidAlarms(alarms) {
+  if (alarms === undefined || alarms === null) return;
+  if (!Array.isArray(alarms)) {
+    throw new Error('Invalid alarms: must be an array');
+  }
+  for (const alarm of alarms) alarmTriggerLine(alarm);
 }
 
 function icalTimeToISO(icalTime) {
@@ -542,6 +638,7 @@ function eventToICS(event, existingIcs = null) {
     const url = att && (typeof att === 'string' ? att : att.url);
     if (url) assertSafeAttachmentUrl(url);
   }
+  assertValidAlarms(event.alarms);
   const baseIcs = existingIcs || event.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
@@ -783,12 +880,19 @@ function eventToICS(event, existingIcs = null) {
 
         // Alarms
         if ('alarms' in event && event.alarms !== undefined) {
+          const stored = master.getAllSubcomponents('valarm')
+            .map(comp => ({ comp, key: alarmIdentity(valarmToAlarm(comp, master)) }));
           master.removeAllSubcomponents('valarm');
           const alarms = Array.isArray(event.alarms) ? event.alarms : [];
           for (const alarm of alarms) {
+            const keep = stored.findIndex(st => st.key === alarmIdentity(alarm));
+            if (keep !== -1) {
+              master.addSubcomponent(stored.splice(keep, 1)[0].comp);
+              continue;
+            }
             const alarmComp = new ICAL.Component('valarm', master);
             alarmComp.addPropertyWithValue('action', (alarm.action || 'DISPLAY').toUpperCase());
-            alarmComp.addPropertyWithValue('trigger', alarm.trigger || '-PT15M');
+            alarmComp.addProperty(ICAL.Property.fromString(alarmTriggerLine(alarm)));
             if (alarm.description) alarmComp.addPropertyWithValue('description', alarm.description);
             master.addSubcomponent(alarmComp);
           }
@@ -935,7 +1039,7 @@ function eventToICS(event, existingIcs = null) {
   for (const alarm of alarms) {
     lines.push('BEGIN:VALARM');
     lines.push(`ACTION:${String(alarm.action || 'DISPLAY').replace(/[\r\n]/g, '')}`);
-    lines.push(`TRIGGER:${String(alarm.trigger || '-PT15M').replace(/[\r\n]/g, '')}`);
+    lines.push(alarmTriggerLine(alarm));
     if (alarm.description) {
       lines.push(`DESCRIPTION:${escIcal(alarm.description)}`);
     }
@@ -1635,7 +1739,7 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   if (sortedAttendees(stored.attendees) !== sortedAttendees(incoming.attendees)) return false;
 
   // ── Alarms (VALARM) ──────────────────────────────────────────────────────
-  const alarmKey = (a) => `${(a.action || '').toUpperCase()}:${(a.trigger || '').trim()}`;
+  const alarmKey = (a) => `${(a.action || '').toUpperCase()}:${String(a.related || 'START').toUpperCase()}:${(a.trigger || '').trim()}`;
   const sortedAlarms = (arr) =>
     (arr || []).map(alarmKey).sort().join('|');
   if (sortedAlarms(stored.alarms) !== sortedAlarms(incoming.alarms)) return false;
@@ -1812,6 +1916,8 @@ module.exports = {
   parseTriggerOffsetMs,
   calculateAlarmTime,
   parseValarms,
+  alarmTriggerLine,
+  assertValidAlarms,
   parseVEventToEvent,
   parseICSToEvent,
   parseAndExpandEvent,

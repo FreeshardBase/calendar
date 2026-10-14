@@ -101,10 +101,15 @@ export function checkAndTriggerAlarms() {
 
     for (const alarm of ev.alarms) {
       if (!alarm.trigger) continue;
-      const offsetMs = parseTriggerOffsetMs(alarm.trigger, ev.start);
+      // A RELATED=END trigger counts from the event's end (RFC 5545 §3.8.6.3).
+      const relatedEnd = String(alarm.related || '').toUpperCase() === 'END' && ev.end;
+      const anchorIso = relatedEnd ? ev.end : ev.start;
+      const anchorMs = relatedEnd ? new Date(ev.end).getTime() : startMs;
+      if (isNaN(anchorMs)) continue;
+      const offsetMs = parseTriggerOffsetMs(alarm.trigger, anchorIso);
       if (offsetMs === null || isNaN(offsetMs)) continue;
-      const alarmTime = startMs + offsetMs;
-      const alarmKey = `${ev.uid || ev.id}::${alarm.trigger}::${ev.start}`;
+      const alarmTime = anchorMs + offsetMs;
+      const alarmKey = `${ev.uid || ev.id}::${relatedEnd ? 'END:' : ''}${alarm.trigger}::${ev.start}`;
 
       // Trigger if alarmTime has arrived (lookback up to 24 hours for missed alarms) and not yet notified
       if (now >= alarmTime && now <= alarmTime + 24 * 60 * 60 * 1000 && !notifiedAlarms.has(alarmKey)) {

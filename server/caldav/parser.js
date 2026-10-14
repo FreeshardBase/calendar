@@ -198,8 +198,10 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
  * @param {string} calendarId
  * @param {string} accountId
  * @param {string} calendarUrl
+ * @param {Array} [parseErrors] receives { href, error } for every resource that
+ *   could not be parsed; such resources are left out of the returned list.
  */
-function parseEventList(xml, calendarId, accountId, calendarUrl, rangeStart, rangeEnd) {
+function parseEventList(xml, calendarId, accountId, calendarUrl, rangeStart, rangeEnd, parseErrors = null) {
   let doc;
   try {
     doc = xmlParser.parseFromString(xml, 'text/xml');
@@ -241,6 +243,7 @@ function parseEventList(xml, calendarId, accountId, calendarUrl, rangeStart, ran
       events.push(...instances);
     } catch (e) {
       console.warn(`[parser] Failed to parse/expand event ${href}:`, e.message);
+      if (parseErrors) parseErrors.push({ href, error: e.message });
     }
   }
 

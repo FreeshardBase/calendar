@@ -12,6 +12,12 @@ let _onSaved  = null;
 let _onDeleted = null;
 let _currentEvent = null; // null = create mode, object = edit mode
 let _recurrenceTouched = false;
+// Issue #128: the reminder select edits only the first alarm. The original
+// first alarm (for an option the presets cannot express) and every further
+// alarm are kept here so a save writes them back unchanged.
+const ORIGINAL_ALARM_VALUE = '__original__';
+let _originalFirstAlarm = null;
+let _extraAlarms = [];
 
 // ── DOM refs (lazily grabbed) ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -36,12 +42,26 @@ const COMMON_TIMEZONES = [
   'UTC'
 ];
 
-export function formatAlarmTriggerLabel(trigger) {
+export function formatAlarmTriggerLabel(trigger, related = null) {
   if (!trigger) return 'Keine Erinnerung';
   let str = String(trigger).trim();
   if (str.toUpperCase().startsWith('TRIGGER:')) {
     str = str.substring(8).trim();
   }
+
+  const abs = str.match(/^(\d{4})-?(\d{2})-?(\d{2})T(\d{2}):?(\d{2}):?(\d{2})(?:\.\d+)?Z$/);
+  if (abs) {
+    const [, y, mo, d, h, mi, sec] = abs;
+    const when = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec));
+    return `Am ${when.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}`;
+  }
+
+  if (String(related || '').toUpperCase() === 'END') {
+    const label = formatAlarmTriggerLabel(str);
+    if (label === 'Zum Zeitpunkt des Termins') return 'Zum Ende des Termins';
+    return label.replace(/ vorher$/, ' vor Ende').replace(/ nachher$/, ' nach Ende');
+  }
+
   if (str === 'PT0S' || str === 'PT0M' || str === '0') return 'Zum Zeitpunkt des Termins';
 
   const presets = {
@@ -300,28 +320,32 @@ export function openEditModal(event, callbacks) {
   populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
   updateRecurrenceOptions(true);
 
-  // Alarms
-  const firstAlarm = (event.alarms && event.alarms.length > 0) ? event.alarms[0] : null;
+  // Alarms: a first alarm the presets cannot express exactly (other duration,
+  // RELATED=END, absolute time) gets its own option that keeps it as is.
+  const eventAlarms = Array.isArray(event.alarms) ? event.alarms : [];
+  _originalFirstAlarm = eventAlarms[0] || null;
+  _extraAlarms = eventAlarms.slice(1);
   const alarmSelect = $('ev-alarm');
   if (alarmSelect) {
-    Array.from(alarmSelect.options).forEach(opt => {
-      if (opt.dataset && opt.dataset.customAlarm === 'true') {
-        opt.remove();
-      }
-    });
-    const triggerVal = firstAlarm ? (firstAlarm.trigger || '') : '';
-    if (triggerVal) {
-      let optionExists = Array.from(alarmSelect.options).some(opt => opt.value === triggerVal);
-      if (!optionExists) {
+    removeCustomAlarmOptions();
+    let selected = '';
+    if (_originalFirstAlarm) {
+      const trigger = _originalFirstAlarm.trigger || '';
+      const startRelated = String(_originalFirstAlarm.related || 'START').toUpperCase() === 'START';
+      if (startRelated && Array.from(alarmSelect.options).some(opt => opt.value && opt.value === trigger)) {
+        selected = trigger;
+      } else {
         const opt = document.createElement('option');
-        opt.value = triggerVal;
-        opt.textContent = formatAlarmTriggerLabel(triggerVal);
+        opt.value = ORIGINAL_ALARM_VALUE;
+        opt.textContent = formatAlarmTriggerLabel(trigger, _originalFirstAlarm.related);
         opt.dataset.customAlarm = 'true';
         alarmSelect.appendChild(opt);
+        selected = ORIGINAL_ALARM_VALUE;
       }
     }
-    alarmSelect.value = triggerVal;
+    alarmSelect.value = selected;
   }
+  updateExtraAlarmsHint();
 
 
   // Attachments
@@ -412,6 +436,24 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
   $('recur-end-section').classList.toggle('hidden', freq === '');
 }
 
+function removeCustomAlarmOptions() {
+  Array.from($('ev-alarm').options).forEach(opt => {
+    if (opt.dataset && opt.dataset.customAlarm === 'true') {
+      opt.remove();
+    }
+  });
+}
+
+function updateExtraAlarmsHint() {
+  const hint = $('ev-alarm-extra');
+  if (!hint) return;
+  const n = _extraAlarms.length;
+  hint.textContent = n === 1
+    ? '1 weitere Erinnerung dieses Termins bleibt unverändert erhalten.'
+    : `${n} weitere Erinnerungen dieses Termins bleiben unverändert erhalten.`;
+  hint.classList.toggle('hidden', n === 0);
+}
+
 function resetForm() {
   _recurrenceTouched = false;
   form().reset();
@@ -419,14 +461,13 @@ function resetForm() {
   $('ev-href').value = '';
   $('ev-etag').value = '';
   $('ev-recurrence').value = '';
+  _originalFirstAlarm = null;
+  _extraAlarms = [];
   if ($('ev-alarm')) {
-    Array.from($('ev-alarm').options).forEach(opt => {
-      if (opt.dataset && opt.dataset.customAlarm === 'true') {
-        opt.remove();
-      }
-    });
+    removeCustomAlarmOptions();
     $('ev-alarm').value = '';
   }
+  updateExtraAlarmsHint();
 
   if ($('ev-attachment-url')) $('ev-attachment-url').value = '';
   if ($('ev-attachment-name')) $('ev-attachment-name').value = '';
@@ -688,8 +729,17 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     }
   }
 
-  const alarmTrigger = $('ev-alarm') ? $('ev-alarm').value : '';
-  const alarms = alarmTrigger ? [{ action: 'DISPLAY', trigger: alarmTrigger, description: $('ev-title').value.trim() || 'Erinnerung' }] : [];
+  const alarmChoice = $('ev-alarm') ? $('ev-alarm').value : '';
+  const alarms = [];
+  const originalIsPreset = _originalFirstAlarm
+    && String(_originalFirstAlarm.related || 'START').toUpperCase() === 'START'
+    && _originalFirstAlarm.trigger === alarmChoice;
+  if (alarmChoice === ORIGINAL_ALARM_VALUE || (alarmChoice && originalIsPreset)) {
+    alarms.push(_originalFirstAlarm);
+  } else if (alarmChoice) {
+    alarms.push({ action: 'DISPLAY', trigger: alarmChoice, description: $('ev-title').value.trim() || 'Erinnerung' });
+  }
+  alarms.push(..._extraAlarms);
 
   const attachUrl = $('ev-attachment-url') ? $('ev-attachment-url').value.trim() : '';
   const attachName = $('ev-attachment-name') ? $('ev-attachment-name').value.trim() : '';

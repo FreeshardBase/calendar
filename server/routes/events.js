@@ -24,6 +24,7 @@ const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } =
 const { logEventChange } = require('../utils/eventHistory');
 const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
+const { assertValidAlarms } = require('../utils/ical');
 
 // Issue #338: attachment URLs are rendered as links — reject non-link schemes up front.
 function hasUnsafeAttachment(attachments) {
@@ -35,6 +36,19 @@ function hasUnsafeAttachment(attachments) {
   });
 }
 const UNSAFE_ATTACHMENT_ERROR = 'Unsafe attachment URL rejected: only http, https and mailto URLs are allowed';
+
+const UNPARSEABLE_REPORT_LIMIT = 5;
+
+// Issue #128: a malformed TRIGGER is rejected by the CalDAV server (or, on a
+// lenient one, stored and then unreadable) — refuse it before it is serialised.
+function invalidAlarmsError(alarms) {
+  try {
+    assertValidAlarms(alarms);
+    return null;
+  } catch (e) {
+    return e.message;
+  }
+}
 
 function isValidEmail(email) {
   if (!email || typeof email !== 'string') return false;
@@ -175,6 +189,7 @@ router.get('/', async (req, res) => {
     const accounts = req.session.accounts || [];
     const allEvents = [];
     const errors = [];
+    const unparseable = [];
     let successfulCalendars = 0;
 
     // Only query events from local/non-oauth accounts to avoid duplication,
@@ -227,8 +242,10 @@ router.get('/', async (req, res) => {
             calendars.map(async (cal) => {
               try {
                 const eventsXml = await client.getEvents(cal.url, startDate, endDate);
-                const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
+                const parseErrors = [];
+                const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate, parseErrors);
                 allEvents.push(...events);
+                for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
                 successfulCalendars++;
               } catch (eventErr) {
                 console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
@@ -245,6 +262,16 @@ router.get('/', async (req, res) => {
 
     if (errors.length > 0) {
       res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
+    }
+    // Resources the server returned but that could not be parsed are left out of
+    // the list; name them so the loss is visible rather than silent (#128).
+    // Percent-encoded so any href or message stays a legal header value; the
+    // list is capped, the count is not (the parser logs every failure).
+    if (unparseable.length > 0) {
+      res.setHeader('X-CalDAV-Unparseable', encodeURIComponent(JSON.stringify({
+        count: unparseable.length,
+        resources: unparseable.slice(0, UNPARSEABLE_REPORT_LIMIT).map(u => ({ calendarId: u.calendarId, href: u.href }))
+      })));
     }
 
     const specificCalendarFailed = calendarId && errors.some(e => e.calendarId === calendarId);
@@ -283,6 +310,8 @@ router.post('/', async (req, res) => {
     if (hasUnsafeAttachment(eventData.attachments)) {
       return res.status(400).json({ error: UNSAFE_ATTACHMENT_ERROR });
     }
+    const alarmError = invalidAlarmsError(eventData.alarms);
+    if (alarmError) return res.status(400).json({ error: alarmError });
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
@@ -340,6 +369,8 @@ router.put('/:uid', async (req, res) => {
     if (hasUnsafeAttachment(eventData.attachments)) {
       return res.status(400).json({ error: UNSAFE_ATTACHMENT_ERROR });
     }
+    const alarmError = invalidAlarmsError(eventData.alarms);
+    if (alarmError) return res.status(400).json({ error: alarmError });
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
