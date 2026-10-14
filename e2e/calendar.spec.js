@@ -1110,6 +1110,173 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       .filter(href => /^\s*(javascript|data|vbscript):/i.test(href.replace(/[\t\n\r]/g, ''))));
   }
 
+  async function storedTriggers(page, calendarId, title) {
+    const res = await page.request.get(`/api/calendars/${encodeURIComponent(calendarId)}/export`);
+    expect(res.status()).toBe(200);
+    const ics = (await res.text()).replace(/\r?\n[ \t]/g, '');
+    const block = ics.split('BEGIN:VEVENT').find(b => b.includes(`SUMMARY:${title}`));
+    expect(block, 'event is stored in the calendar').toBeTruthy();
+    return block.split(/\r?\n/).filter(l => l.startsWith('TRIGGER'));
+  }
+
+  test('Issue #128 — open and save keeps RELATED=END, an absolute trigger and every further alarm', async ({ page }) => {
+    const testDate = '2036-04-16';
+    const title = `E2E Issue128 Alarms ${Date.now()}`;
+    const alarm = (trigger) => ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder', trigger, 'END:VALARM'];
+    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+      ...alarm('TRIGGER;RELATED=END:-PT15M'),
+      ...alarm('TRIGGER;VALUE=DATE-TIME:20360415T180000Z'),
+      ...alarm('TRIGGER:-PT1H')
+    ]);
+
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    // RELATED=END is not the "15 Minuten vorher" preset: it gets its own, selected option.
+    await expect(page.locator('#ev-alarm option:checked')).toHaveText('15 Minuten vor Ende');
+    await expect(page.locator('#ev-alarm-extra')).toBeVisible();
+    await expect(page.locator('#ev-alarm-extra')).toHaveText('2 weitere Erinnerungen dieses Termins bleiben unverändert erhalten.');
+
+    const firstSave = page.waitForRequest(r => r.method() === 'PUT' && r.url().includes('/api/events/'));
+    await page.click('#event-save-btn');
+    const sent = (await firstSave).postDataJSON();
+    expect(sent.alarms.map(a => [a.trigger, a.related || null])).toEqual([
+      ['-PT15M', 'END'],
+      ['2036-04-15T18:00:00Z', null],
+      ['-PT1H', null]
+    ]);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    expect(await storedTriggers(page, sent.calendarId, title)).toEqual([
+      'TRIGGER;RELATED=END:-PT15M',
+      'TRIGGER;VALUE=DATE-TIME:20360415T180000Z',
+      'TRIGGER:-PT1H'
+    ]);
+
+    // Choosing a preset replaces only the first alarm; the others stay.
+    await chip.click();
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await page.selectOption('#ev-alarm', '-PT5M');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    await expect.poll(() => storedTriggers(page, sent.calendarId, title)).toEqual([
+      'TRIGGER:-PT5M',
+      'TRIGGER;VALUE=DATE-TIME:20360415T180000Z',
+      'TRIGGER:-PT1H'
+    ]);
+
+    await chip.click();
+    await expect(page.locator('#popover-delete-btn')).toBeVisible({ timeout: 5000 });
+    await deleteViaPopover(page, chip);
+  });
+
+  test('Issue #128 — an absolute first alarm is shown as its date and saved without a server error', async ({ page }) => {
+    const testDate = '2036-04-23';
+    const title = `E2E Issue128 Absolute ${Date.now()}`;
+    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder', 'TRIGGER;VALUE=DATE-TIME:20360422T180000Z', 'END:VALARM'
+    ]);
+
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-alarm option:checked')).toHaveText(/^Am 22\.04\.2036/);
+    await expect(page.locator('#ev-alarm-extra')).toBeHidden();
+
+    const save = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/api/events/'));
+    await page.click('#event-save-btn');
+    const res = await save;
+    expect(res.status()).toBe(200);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    const calendarId = res.request().postDataJSON().calendarId;
+    expect(await storedTriggers(page, calendarId, title)).toEqual(['TRIGGER;VALUE=DATE-TIME:20360422T180000Z']);
+
+    await chip.click();
+    await expect(page.locator('#popover-delete-btn')).toBeVisible({ timeout: 5000 });
+    await deleteViaPopover(page, chip);
+  });
+
+  test('Issue #128 — an AUDIO alarm with REPEAT keeps its action and properties across open and save', async ({ page }) => {
+    const testDate = '2036-04-30';
+    const title = `E2E Issue128 Audio ${Date.now()}`;
+    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+      'BEGIN:VALARM', 'ACTION:AUDIO', 'TRIGGER:-PT15M', 'REPEAT:2', 'DURATION:PT5M', 'END:VALARM'
+    ]);
+
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-alarm')).toHaveValue('-PT15M');
+    const save = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/api/events/'));
+    await page.click('#event-save-btn');
+    const res = await save;
+    expect(res.status()).toBe(200);
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+
+    const exported = await page.request.get(`/api/calendars/${encodeURIComponent(res.request().postDataJSON().calendarId)}/export`);
+    const block = (await exported.text()).split('BEGIN:VEVENT').find(b => b.includes(`SUMMARY:${title}`));
+    const valarm = block.slice(block.indexOf('BEGIN:VALARM'), block.indexOf('END:VALARM'));
+    expect(valarm).toContain('ACTION:AUDIO');
+    expect(valarm).toContain('REPEAT:2');
+    expect(valarm).toContain('DURATION:PT5M');
+
+    await chip.click();
+    await expect(page.locator('#popover-delete-btn')).toBeVisible({ timeout: 5000 });
+    await deleteViaPopover(page, chip);
+  });
+
+  test('Issue #128 — a RELATED=END reminder fires relative to the event end in the browser', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    await page.click('#new-event-btn');
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calendarId = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    await page.keyboard.press('Escape');
+
+    // Ends in 5 minutes, started 26 hours ago: "15 minutes before the end" is
+    // due now, "15 minutes before the start" lies outside the 24 h lookback.
+    const now = Date.now();
+    const title = `E2E Issue128 End Reminder ${now}`;
+    const created = await page.request.post('/api/events', {
+      data: {
+        calendarId, title,
+        start: new Date(now - 26 * 3600 * 1000).toISOString(),
+        end: new Date(now + 5 * 60 * 1000).toISOString(),
+        alarms: [{ action: 'DISPLAY', trigger: '-PT15M', related: 'END', description: 'Reminder' }]
+      }
+    });
+    expect(created.status()).toBe(201);
+    const ev = await created.json();
+
+    try {
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.evaluate(() => window.__checkAndTriggerAlarms && window.__checkAndTriggerAlarms());
+      await expect(page.locator('#toast-container .toast', { hasText: title })).toBeVisible({ timeout: 10000 });
+    } finally {
+      const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+        data: { calendarId, href: ev.href, etag: ev.etag }
+      });
+      expect(del.ok()).toBeTruthy();
+    }
+  });
+
+  test('Issue #128 — events the server could not parse are reported in a toast, not silently missing', async ({ page }) => {
+    const report = encodeURIComponent(JSON.stringify({
+      count: 2,
+      resources: [{ calendarId: 'internal-caldav::/testuser/cal/', href: '/testuser/cal/broken.ics' }]
+    }));
+    await page.route('**/api/events?*', async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, headers: { ...response.headers(), 'x-caldav-unparseable': report } });
+    });
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#toast-container .toast.error', {
+      hasText: '2 gespeicherte Termine konnten nicht gelesen werden und werden nicht angezeigt.'
+    })).toBeVisible({ timeout: 10000 });
+    // The rest of the calendar still renders.
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+  });
+
   test('Issue #338 — imported ICS with ATTACH:javascript: renders no script link, safe attachment stays clickable', async ({ page }) => {
     const testDate = '2036-03-12';
     const title = `E2E Issue338 Import ${Date.now()}`;

@@ -170,6 +170,20 @@ async function syncCalendarDelta(calendarId) {
 }
 
 let loadEventsSeq = 0;
+let lastUnparseableNotice = '';
+
+// Events the server could not parse are missing from the view — say so once
+// per distinct set instead of on every reload (#128).
+function reportUnparseableEvents(info) {
+  const key = JSON.stringify(info);
+  if (key === lastUnparseableNotice) return;
+  lastUnparseableNotice = key;
+  const n = info.count;
+  showToast(n === 1
+    ? '1 gespeicherter Termin konnte nicht gelesen werden und wird nicht angezeigt.'
+    : `${n} gespeicherte Termine konnten nicht gelesen werden und werden nicht angezeigt.`, 'error');
+  console.error('[loadEvents] Unparseable CalDAV resources:', info.resources);
+}
 
 async function loadEvents() {
   const seq = ++loadEventsSeq;
@@ -190,9 +204,11 @@ async function loadEvents() {
 
   try {
     const webcalPromise = loadWebcalEvents(start, end);
-    const events = await EventsAPI.list(start.toISOString(), end.toISOString());
+    let unparseable = null;
+    const events = await EventsAPI.list(start.toISOString(), end.toISOString(), info => { unparseable = info; });
     const rangeWebcalEvents = await webcalPromise;
     if (seq !== loadEventsSeq) return;
+    if (unparseable) reportUnparseableEvents(unparseable);
     webcalEvents = rangeWebcalEvents;
     cacheEvents(cacheKey, events);
     const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));

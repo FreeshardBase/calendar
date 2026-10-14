@@ -4,7 +4,7 @@
 
 const BASE = '';
 
-async function request(method, path, body) {
+async function request(method, path, body, onResponse) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -12,6 +12,7 @@ async function request(method, path, body) {
   if (body !== undefined) opts.body = JSON.stringify(body);
 
   const res = await fetch(BASE + path, opts);
+  if (onResponse) onResponse(res);
 
   if (!res.ok) {
     let msg;
@@ -81,9 +82,14 @@ export const CalendarsAPI = {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 export const EventsAPI = {
-  list: async (start, end) => {
+  // onUnparseable({ count, resources }) is called when the server could not
+  // read some stored events and left them out of the list (#128).
+  list: async (start, end, onUnparseable) => {
     try {
-      const events = await request('GET', `/api/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+      const events = await request('GET', `/api/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, undefined, (res) => {
+        const header = res.headers.get('x-caldav-unparseable');
+        if (header && onUnparseable) onUnparseable(JSON.parse(decodeURIComponent(header)));
+      });
       if (typeof window !== 'undefined' && window.OfflineCache && Array.isArray(events)) {
         events.forEach(ev => {
           if (ev.calendarId) window.OfflineCache.saveEvents(ev.calendarId, events);
