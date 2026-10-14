@@ -131,6 +131,9 @@ router.post('/', async (req, res) => {
     if (e.code === 'OUTBOUND_URL_BLOCKED') {
       return res.status(400).json({ error: BLOCKED_TARGET_ERROR });
     }
+    if (e.message === 'NOT_CALDAV_RESPONSE') {
+      return res.status(400).json({ error: 'Der Server antwortet nicht wie ein CalDAV-Server. Bitte prüfe die URL.' });
+    }
     return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
   }
 

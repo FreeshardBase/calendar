@@ -18,6 +18,24 @@ function escapeXML(str) {
 }
 
 /**
+ * True if `xml` is a WebDAV multistatus document (root element `multistatus`
+ * in the `DAV:` namespace). A 2xx status alone cannot tell a CalDAV server from
+ * a captive portal, webmail landing page or misconfigured vhost that answers
+ * every request with `200 text/html` (#157).
+ */
+function isDavMultistatus(xml) {
+  // Skip a BOM (matched by \s), XML declaration / processing instructions and comments; the
+  // first element must be the multistatus root.
+  const body = xml.replace(/^\s*(?:(?:<\?[\s\S]*?\?>|<!--[\s\S]*?-->)\s*)*/, '');
+  const m = /^<(?:([\w.-]+):)?multistatus(?=[\s/>])([^>]*)>/.exec(body);
+  if (!m) return false;
+  // The root element can only take its namespace from its own attributes.
+  const nsAttr = m[1] ? `xmlns:${m[1]}` : 'xmlns';
+  const ns = new RegExp(`\\s${nsAttr.replace(/\./g, '\\.')}\\s*=\\s*["']DAV:["']`);
+  return ns.test(m[2]);
+}
+
+/**
  * CalDAVClient
  * Low-level HTTP client for CalDAV (RFC 4791 / WebDAV RFC 4918).
  * Uses Node.js 20 native fetch — no external HTTP dependency.
@@ -306,7 +324,10 @@ class CalDAVClient {
       
       if (res.status === 401) throw new Error('UNAUTHORIZED');
       if (!res.ok && res.status !== 207) return null;
-      return { text: await res.text(), url: res.url || url };
+      const text = await res.text();
+      // #157: a 200 HTML page is not a CalDAV answer — treat it as a failed probe.
+      if (!isDavMultistatus(text)) return null;
+      return { text, url: res.url || url };
     };
 
     const extractTagValue = (xml, tagName) => {
@@ -408,8 +429,10 @@ class CalDAVClient {
 
     if (res.status === 401) throw new Error('UNAUTHORIZED');
     if (res.status === 404) throw new Error('NOT_FOUND');
-    if (res.status === 207 || res.ok) return true;
-    throw new Error(`HTTP_${res.status}`);
+    if (!res.ok && res.status !== 207) throw new Error(`HTTP_${res.status}`);
+    // #157: require a DAV multistatus body, not merely a 2xx status.
+    if (!isDavMultistatus(await res.text())) throw new Error('NOT_CALDAV_RESPONSE');
+    return true;
   }
 
   /** List all calendar collections under the base URL. */
