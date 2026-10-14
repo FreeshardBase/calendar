@@ -396,9 +396,8 @@ router.put('/:uid', async (req, res) => {
     if (targetRecurrenceId) {
       event.recurrenceId = targetRecurrenceId;
     }
-    if (event.recurrence && event.start) {
-      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start, event.allDay ? null : event.startTimeZone);
-    }
+    // BYDAY is re-derived by updateWholeSeries against the stored master; doing
+    // it here against the clicked occurrence would rewrite off-pattern rules (#238).
     const eventUrl  = buildAbsoluteUrl(account.url, href);
 
     let ics;
