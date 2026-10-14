@@ -14,7 +14,7 @@ const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
-const { sanitizeErrorMessage } = require('../utils/errorSanitizer');
+const { sendError, describeError, userError, MESSAGES } = require('../utils/errorSanitizer');
 const { sanitizePublicIcs, isValidDetail, DEFAULT_DETAIL } = require('../utils/publicIcs');
 
 const SHARE_NS = 'http://freeshard.de/ns/';
@@ -208,8 +208,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     res.setHeader('X-Cache', 'MISS');
     res.send(publicIcs);
   } catch (err) {
-    console.error('[Public Share Export Error]', err.message);
-    res.status(err.status || 500).json({ error: sanitizeErrorMessage(err, 'Fehler beim Erstellen des Kalenderexports.') });
+    return sendError(res, err, '[Public Share Export Error]');
   }
 });
 
@@ -217,8 +216,8 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
  * Fetch a whole calendar collection as one ICS document. Tries a collection
  * GET first (Radicale native, Nextcloud via ?export), falls back to a
  * calendar-query REPORT re-assembled from the raw event payloads.
- * Throws (status 502) when both fail — an empty calendar would make
- * subscribers delete every event (#341).
+ * Throws (status 502, German message; the cause is logged) when both fail —
+ * an empty calendar would make subscribers delete every event (#341).
  */
 async function fetchCalendarICS(client, calendarUrl) {
   const exportUrl = calendarUrl.endsWith('/') ? (calendarUrl + '?export') : (calendarUrl + '/?export');
@@ -253,9 +252,7 @@ CALSCALE:GREGORIAN\r\n`;
     return ics;
   } catch (err) {
     console.error('[fetchCalendarICS fallback error]', err.message);
-    const failure = new Error(`Calendar backend unavailable: ${err.message}`);
-    failure.status = 502;
-    throw failure;
+    throw userError(MESSAGES.UPSTREAM_DOWN, 502);
   }
 }
 
@@ -302,8 +299,7 @@ router.get('/share-invitations', async (req, res) => {
     const invitations = await Db.getPendingShareInvitationsForUser(userUuid);
     res.json({ invitations });
   } catch (err) {
-    console.error('[share-invitations GET]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[share-invitations GET]');
   }
 });
 
@@ -328,8 +324,7 @@ router.post('/share-invitations/:id/accept', async (req, res) => {
     await Db.updateShareStatus(invite.id, 'ACCEPTED');
     res.json({ message: 'Share invitation accepted', invitationId: invite.id, status: 'ACCEPTED' });
   } catch (err) {
-    console.error('[share-invitations accept]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[share-invitations accept]');
   }
 });
 
@@ -354,8 +349,7 @@ router.post('/share-invitations/:id/decline', async (req, res) => {
     await Db.updateShareStatus(invite.id, 'DECLINED');
     res.json({ message: 'Share invitation declined', invitationId: invite.id, status: 'DECLINED' });
   } catch (err) {
-    console.error('[share-invitations decline]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[share-invitations decline]');
   }
 });
 
@@ -400,7 +394,8 @@ router.get('/', async (req, res) => {
   ).then(async (results) => {
     await Promise.all(results.map(async (r, i) => {
       if (r.status === 'rejected') {
-        errors.push({ accountId: accounts[i].id, error: r.reason.message });
+        const { status, message } = describeError(r.reason);
+        errors.push({ accountId: accounts[i].id, status, error: message });
         console.error(`[calendars] Account ${accounts[i].id}:`, r.reason.message);
         if (process.env.DISABLE_INTERNAL_CALDAV === '1' && req.session?.userId) {
           const canonicalUser = (await Db.getUsernameByUserId(req.session.userId)) || req.session.userId;
@@ -529,8 +524,9 @@ router.get('/', async (req, res) => {
 
   const allAccountsFailed = accounts.length > 0 && errors.length >= accounts.length && allCalendars.length === 0;
   if (allAccountsFailed) {
-    return res.status(502).json({
-      error: 'Failed to fetch calendars from CalDAV server',
+    return res.status(errors[0].status).json({
+      // The client prefixes "Kalender konnten nicht geladen werden: "; send the cause.
+      error: errors[0].error,
       calendars: [],
       errors
     });
@@ -578,8 +574,7 @@ router.post('/', async (req, res) => {
       id: `${accountId}::${new URL(calendarUrl).pathname}`
     });
   } catch (err) {
-    console.error('[calendars POST]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars POST]');
   }
 });
 
@@ -670,8 +665,7 @@ router.patch('/:id', async (req, res) => {
 
     res.json({ message: 'Calendar updated', calendarId, name, color });
   } catch (err) {
-    console.error('[calendars PATCH]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars PATCH]');
   }
 });
 
@@ -690,8 +684,7 @@ router.delete('/:id/color-override', async (req, res) => {
     await Db.deleteUserCalendarColorOverride(req.session.userId, calendarId);
     res.json({ message: 'Calendar color override removed', calendarId });
   } catch (err) {
-    console.error('[calendars DELETE color-override]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars DELETE color-override]');
   }
 });
 
@@ -718,8 +711,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ message: 'Calendar deleted', calendarId });
   } catch (err) {
-    console.error('[calendars DELETE]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars DELETE]');
   }
 });
 
@@ -743,8 +735,7 @@ router.get('/:id/export', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${slug}.ics"`);
     res.send(ics);
   } catch (err) {
-    console.error('[calendars export]', err.message);
-    res.status(err.status || 500).json({ error: sanitizeErrorMessage(err, 'Fehler beim Exportieren des Kalenders.') });
+    return sendError(res, err, '[calendars export]');
   }
 });
 
@@ -775,8 +766,7 @@ router.post('/export/pdf', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(pdfBuffer);
   } catch (err) {
-    console.error('[calendars export pdf]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars export pdf]');
   }
 });
 
@@ -816,8 +806,7 @@ router.post('/:id/import/detect', async (req, res) => {
 
     res.json({ success: true, ...result });
   } catch (err) {
-    console.error('[calendars import detect]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars import detect]');
   }
 });
 
@@ -842,7 +831,8 @@ router.post('/:id/import', async (req, res) => {
     try {
       comp = new ICAL.Component(ICAL.parse(ics));
     } catch (parseErr) {
-      return res.status(400).json({ error: 'Ungültige ICS-Datei: ' + parseErr.message });
+      console.warn('[calendars import] ICS parse failed:', parseErr.message);
+      return res.status(400).json({ error: 'Ungültige ICS-Datei. Die Datei konnte nicht gelesen werden.' });
     }
 
     const vevents = comp.getAllSubcomponents('vevent');
@@ -919,8 +909,7 @@ router.post('/:id/import', async (req, res) => {
 
     res.json({ imported, skipped, failed, total: byUid.size });
   } catch (err) {
-    console.error('[calendars import]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[calendars import]');
   }
 });
 
@@ -937,8 +926,7 @@ router.get('/:id/sync/conflicts', async (req, res) => {
     const conflicts = await Db.getPendingSyncConflicts(userId, calendarId);
     res.json({ success: true, conflicts });
   } catch (err) {
-    console.error('[sync conflicts get]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[sync conflicts get]');
   }
 });
 
@@ -979,8 +967,7 @@ router.post('/:id/sync/resolve-conflict', async (req, res) => {
 
     res.json({ success: true, strategy, resolvedIcs });
   } catch (err) {
-    console.error('[sync resolve-conflict post]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[sync resolve-conflict post]');
   }
 });
 
@@ -1013,8 +1000,7 @@ router.get('/search-users', async (req, res) => {
     console.log('[search-users] CalDAV results found:', users);
     res.json(users);
   } catch (err) {
-    console.error('[search-users ERROR]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[search-users ERROR]');
   }
 });
 
@@ -1040,8 +1026,7 @@ router.get('/:id/shares', async (req, res) => {
     const shares = await client.getCalendarShares(calendarUrl);
     res.json({ shares });
   } catch (err) {
-    console.error('[shares GET]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[shares GET]');
   }
 });
 
@@ -1084,9 +1069,7 @@ router.post('/:id/shares', async (req, res) => {
     await client.updateCalendarShares(calendarUrl, { href: sharee, readWrite: !!readWrite });
     res.json({ message: 'Share invite sent.' });
   } catch (err) {
-    console.error('[shares POST]', err.message);
-    const status = err.status || (err.message.includes('405') ? 405 : err.message.includes('501') || err.message.includes('not supported') ? 501 : 500);
-    res.status(status).json({ error: err.message });
+    return sendError(res, err, '[shares POST]');
   }
 });
 
@@ -1122,9 +1105,7 @@ router.put('/:id/shares/:shareeId', async (req, res) => {
     await client.updateCalendarShares(calendarUrl, { href: shareeUserId, readWrite: role === 'WRITE' || !!readWrite });
     res.json({ message: 'Share permissions updated.', sharee: shareeUserId });
   } catch (err) {
-    console.error('[shares PUT]', err.message);
-    const status = err.status || (err.message.includes('405') ? 405 : err.message.includes('501') || err.message.includes('not supported') ? 501 : 500);
-    res.status(status).json({ error: err.message });
+    return sendError(res, err, '[shares PUT]');
   }
 });
 
@@ -1166,9 +1147,7 @@ router.delete('/:id/shares', async (req, res) => {
     await client.updateCalendarShares(calendarUrl, { href: sharee, remove: true });
     res.json({ message: 'Share removed.' });
   } catch (err) {
-    console.error('[shares DELETE]', err.message);
-    const status = err.status || (err.message.includes('405') ? 405 : err.message.includes('501') || err.message.includes('not supported') ? 501 : 500);
-    res.status(status).json({ error: err.message });
+    return sendError(res, err, '[shares DELETE]');
   }
 });
 
@@ -1205,8 +1184,7 @@ router.get('/:id/public-link', async (req, res) => {
       detail
     });
   } catch (err) {
-    console.error('[public-link GET]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[public-link GET]');
   }
 });
 
@@ -1241,8 +1219,7 @@ router.post('/:id/public-link', async (req, res) => {
       detail
     });
   } catch (err) {
-    console.error('[public-link POST]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[public-link POST]');
   }
 });
 
@@ -1262,8 +1239,7 @@ router.delete('/:id/public-link', async (req, res) => {
     await client.setCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail', null);
     res.json({ enabled: false, message: 'Public share link disabled.' });
   } catch (err) {
-    console.error('[public-link DELETE]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[public-link DELETE]');
   }
 });
 
@@ -1285,11 +1261,10 @@ router.put('/:id/public-link', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const saved = await client.setCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail', detail);
-    if (!saved) throw new Error('Detailstufe konnte nicht gespeichert werden.');
+    if (!saved) throw userError('Detailstufe konnte nicht gespeichert werden.', 502);
     res.json({ detail });
   } catch (err) {
-    console.error('[public-link PUT]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[public-link PUT]');
   }
 });
 
@@ -1313,7 +1288,7 @@ router.get('/:id/shares-public', async (req, res) => {
       url: getPublicShareUrl(req, s.token)
     })));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -1342,7 +1317,7 @@ router.post('/:id/shares-public', async (req, res) => {
       url: getPublicShareUrl(req, share.token)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -1363,7 +1338,7 @@ router.delete('/:id/shares-public/:token', async (req, res) => {
     await Db.deleteCalendarShare(req.params.token, calendarId);
     res.json({ message: 'Freigabe-Link widerrufen.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -1446,8 +1421,7 @@ router.post('/:id/delta-sync', async (req, res) => {
       fallbackPerformed
     });
   } catch (err) {
-    console.error('[delta-sync] Error executing delta sync:', err.message);
-    res.status(500).json({ error: 'Delta-Sync fehlgeschlagen: ' + err.message });
+    return sendError(res, err, '[delta-sync] Error executing delta sync:');
   }
 });
 
@@ -1464,7 +1438,7 @@ router.post('/:id/sync-queue', async (req, res) => {
     await queueSyncForCalendar(calendarId, userId);
     res.status(201).json({ success: true, job });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -1478,7 +1452,7 @@ router.get('/sync-queue/status', async (req, res) => {
     const status = await getSyncQueueStatus(req.session.userId);
     res.json(status);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -1492,7 +1466,7 @@ router.post('/sync-queue/retry', async (req, res) => {
     const job = await resetSyncJobRetries(req.session.userId);
     res.status(201).json({ success: true, job });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 

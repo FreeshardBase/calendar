@@ -1,4 +1,5 @@
 'use strict';
+const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -50,7 +51,7 @@ router.post('/query', async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -77,7 +78,7 @@ router.post('/find-slots', async (req, res) => {
 
     res.json({ slots, totalSlots: slots.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -108,7 +109,7 @@ router.get('/vfreebusy', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="freebusy.ics"`);
     res.send(icsContent);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 

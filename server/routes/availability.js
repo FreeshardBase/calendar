@@ -1,4 +1,5 @@
 'use strict';
+const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -28,7 +29,7 @@ router.get('/availability-slots', async (req, res) => {
     const pages = await Db.getAvailabilityPages(userId);
     res.json(pages);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -71,7 +72,7 @@ router.post('/availability-slots', async (req, res) => {
 
     res.status(201).json(page);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -86,7 +87,7 @@ router.delete('/availability-slots/:id', async (req, res) => {
     await Db.deleteAvailabilityPage(req.params.id, userId);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -113,7 +114,7 @@ router.get('/public/availability/:slug', async (req, res) => {
       availableSlots
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 
@@ -163,7 +164,7 @@ router.post('/public/availability/:slug/book', async (req, res) => {
       booking
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return sendError(res, err);
   }
 });
 

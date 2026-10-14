@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { fetchFileBrowserFiles, createFileBrowserShareLink, buildFileBrowserAttachment } = require('../utils/filebrowser');
+const { sendError } = require('../utils/errorSanitizer');
 
 function extractOidcToken(req) {
   const authHeader = req.headers.authorization;
@@ -23,7 +24,7 @@ router.get('/filebrowser/files', async (req, res) => {
       files: result.items
     });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to fetch FileBrowser resources' });
+    return sendError(res, err, '[filebrowser files]');
   }
 });
 
@@ -46,7 +47,7 @@ router.post('/filebrowser/link', async (req, res) => {
       attachment
     });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to create FileBrowser attachment link' });
+    return sendError(res, err, '[filebrowser link]');
   }
 });
 

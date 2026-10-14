@@ -1,4 +1,5 @@
 'use strict';
+const { sendError, describeError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -69,13 +70,15 @@ router.get('/', async (req, res) => {
                 successfulCalendars++;
               } catch (taskErr) {
                 console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
-                errors.push({ accountId: account.id, calendarId: cal.id, error: taskErr.message });
+                const { status, message } = describeError(taskErr);
+                errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
               }
             })
           );
         } catch (accountErr) {
           console.error(`[tasks GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
-          errors.push({ accountId: account.id, error: accountErr.message });
+          const { status, message } = describeError(accountErr);
+          errors.push({ accountId: account.id, status, error: message });
         }
       })
     );
@@ -88,10 +91,8 @@ router.get('/', async (req, res) => {
     const allAccountsFailed = activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0;
 
     if (specificCalendarFailed || allAccountsFailed) {
-      return res.status(502).json({
-        error: 'Failed to fetch tasks from CalDAV server',
-        errors
-      });
+      const failure = errors.find(e => req.query.calendarId && e.calendarId === req.query.calendarId) || errors[0];
+      return res.status(failure.status).json({ error: failure.error, errors });
     }
 
     let filteredTasks = allTasks;
@@ -104,8 +105,7 @@ router.get('/', async (req, res) => {
 
     res.json(filteredTasks);
   } catch (err) {
-    console.error('[tasks GET]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[tasks GET]');
   }
 });
 
@@ -221,9 +221,7 @@ router.post('/', async (req, res) => {
       calendarId
     });
   } catch (err) {
-    console.error('[tasks POST]', err.message);
-    if (err.message === 'ETAG_CONFLICT') return res.status(409).json({ error: 'Conflict.' });
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[tasks POST]');
   }
 });
 
@@ -391,11 +389,7 @@ router.put('/:uid', async (req, res) => {
       calendarId
     });
   } catch (err) {
-    console.error('[tasks PUT]', err.message);
-    if (err.message === 'ETAG_CONFLICT') {
-      return res.status(409).json({ error: 'Task modified by another client.' });
-    }
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[tasks PUT]');
   }
 });
 
@@ -434,8 +428,7 @@ router.delete('/:uid', async (req, res) => {
 
     res.json({ message: 'Task deleted.' });
   } catch (err) {
-    console.error('[tasks DELETE]', err.message);
-    res.status(500).json({ error: err.message });
+    return sendError(res, err, '[tasks DELETE]');
   }
 });
 
