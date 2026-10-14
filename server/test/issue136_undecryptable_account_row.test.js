@@ -14,6 +14,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const TEST_USER = 'user-136-test';
+const OTHER_USER = 'user-136-other';
 let Db;
 let app;
 let server;
@@ -97,16 +98,21 @@ describe('Issue #136 — un-decryptable linked_accounts row', () => {
 
     // Seed the user so session middleware can upsertUser without error.
     await Db.upsertUser(TEST_USER, TEST_USER).catch(() => {});
+    await Db.upsertUser(OTHER_USER, OTHER_USER);
   });
 
   after(async () => {
     await deleteAllForUser(TEST_USER);
+    await deleteAllForUser(OTHER_USER);
     if (server && server.close) {
       await new Promise(resolve => server.close(resolve));
     }
   });
 
-  afterEach(() => deleteAllForUser(TEST_USER));
+  afterEach(async () => {
+    await deleteAllForUser(TEST_USER);
+    await deleteAllForUser(OTHER_USER);
+  });
 
   // ── 1. Db.getAccounts skips corrupted row, keeps healthy rows ────────────────
   it('getAccounts skips undecryptable row and returns healthy rows', async () => {
@@ -143,6 +149,42 @@ describe('Issue #136 — un-decryptable linked_accounts row', () => {
       'A broken linked_accounts row must NOT cause a global 401 on /api/calendars');
   });
 
+  // ── 2b. GET /api/accounts surfaces the broken row so the UI can offer deletion ──
+  it('GET /api/accounts lists an undecryptable account flagged credentialsUnreadable, without secrets', async () => {
+    const goodId = await insertGoodAccount(TEST_USER, 'Good Account');
+    const brokenId = await insertBrokenAccount(TEST_USER, 'Broken Account');
+    const otherBrokenId = await insertBrokenAccount(OTHER_USER, 'Other User Broken');
+
+    const { status, body } = await makeRequest('GET', '/api/accounts');
+    assert.equal(body.find?.(a => a.id === otherBrokenId), undefined,
+      'another user\'s unreadable account must never be listed');
+    assert.equal(status, 200, `expected 200, got ${status}: ${JSON.stringify(body)}`);
+
+    const broken = body.find(a => a.id === brokenId);
+    assert.ok(broken, `broken account must be listed so it can be deleted; got ${JSON.stringify(body)}`);
+    assert.equal(broken.credentialsUnreadable, true);
+    assert.equal(broken.displayName, 'Broken Account');
+    assert.equal(broken.username, 'brokenuser');
+    assert.equal(broken.url, 'https://caldav.example.com/');
+    assert.ok(!('password' in broken), 'degraded row must never carry a password field');
+
+    const good = body.find(a => a.id === goodId);
+    assert.ok(good, 'healthy account must be listed');
+    assert.notEqual(good.credentialsUnreadable, true, 'healthy account must not be flagged');
+    assert.ok(!('password' in good));
+  });
+
+  // ── 2c. The broken row never reaches the session (CalDAV consumers) ──────────
+  it('undecryptable account is not handed to CalDAV consumers via the session', async () => {
+    const brokenId = await insertBrokenAccount(TEST_USER, 'Broken Account');
+    await insertBrokenAccount(OTHER_USER, 'Other User Broken');
+    const accounts = await Db.getAccounts(TEST_USER);
+    assert.equal(accounts.find(a => a.id === brokenId), undefined);
+    const unreadable = await Db.getUnreadableAccounts(TEST_USER);
+    assert.deepEqual(unreadable.map(a => a.id), [brokenId]);
+    assert.ok(!('password' in unreadable[0]));
+  });
+
   // ── 4. DELETE /api/accounts/:id removes a broken row absent from session ─────
   it('DELETE /api/accounts/:id removes an undecryptable account not in session', async () => {
     const brokenId = await insertBrokenAccount(TEST_USER, 'Broken');
@@ -159,5 +201,19 @@ describe('Issue #136 — un-decryptable linked_accounts row', () => {
       (err, r) => err ? rej(err) : res(r)
     ));
     assert.equal(row, undefined, 'row must be deleted from DB');
+  });
+
+  // ── 5. A broken account of another user can neither be deleted nor probed ───
+  it('DELETE /api/accounts/:id refuses another user\'s undecryptable account', async () => {
+    const otherBrokenId = await insertBrokenAccount(OTHER_USER, 'Other User Broken');
+
+    const { status } = await makeRequest('DELETE', `/api/accounts/${otherBrokenId}`);
+    assert.equal(status, 404);
+
+    const row = await new Promise((res, rej) => Db.db.get(
+      `SELECT id FROM linked_accounts WHERE id = ?`, [otherBrokenId],
+      (err, r) => err ? rej(err) : res(r)
+    ));
+    assert.ok(row, 'another user\'s row must survive');
   });
 });

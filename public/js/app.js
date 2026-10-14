@@ -1479,6 +1479,30 @@ function renderSettingsAccounts() {
   const errors = store.get('accountErrors') || [];
 
   list.innerHTML = accounts.map(a => {
+    // Issue #136: credentials could not be decrypted (e.g. ENCRYPTION_KEY changed after a restore).
+    // The account is unusable; offer only deletion so the user can reconnect it.
+    if (a.credentialsUnreadable) {
+      return `
+      <div class="settings-item">
+        <div style="display:flex; flex-direction:column; min-width:0; flex:1;">
+          <div class="settings-item-info">
+            <div class="account-dot" style="width:8px; height:8px; border-radius:50%; background:var(--danger, #ef4444); flex-shrink:0"></div>
+            <span class="settings-item-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
+          </div>
+          <div style="color:var(--danger, #ef4444); font-size:0.68rem; margin-top:2px;">Zugangsdaten nicht lesbar — Konto neu verbinden</div>
+        </div>
+        <div class="settings-item-actions">
+          <button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+              <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>`;
+    }
     const isEnvDefault = a.id === 'env-default';
     const errObj = errors.find(e => e.accountId === a.id);
     const hasError = !!errObj;
@@ -1675,7 +1699,7 @@ function openAddCalendarDialog() {
   // Remove any existing dialog first
   document.getElementById('add-cal-dialog-backdrop')?.remove();
 
-  const accounts = store.get('accounts');
+  const accounts = store.get('accounts').filter(a => !a.credentialsUnreadable);
   if (!accounts.length) {
     showToast('Bitte zuerst einen Account hinzufügen.', 'error');
     return;
