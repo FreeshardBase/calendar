@@ -464,30 +464,53 @@ function expandVEventGroup(vevents, rangeStart, rangeEnd, meta = {}) {
   const startJsDate = icalEvent.startDate ? icalEvent.startDate.toJSDate() : null;
 
   if (!hasCount && startJsDate && limitStart > startJsDate) {
+    const rruleUpper = rruleStr.toUpperCase();
     const durationMs = icalEvent.duration ? (icalEvent.duration.toSeconds() * 1000) : (24 * 60 * 60 * 1000);
-    const lookbackMs = Math.max(durationMs, 24 * 60 * 60 * 1000 * 2);
+    // MINUTELY/SECONDLY walk every step of the lookback, so a two-day lookback
+    // at INTERVAL=1 would exhaust maxIterations before reaching the window.
+    // Two hours covers the wall-clock vs. elapsed-time skew across DST.
+    const subDaily = /FREQ=(MINUTELY|SECONDLY)/.test(rruleUpper);
+    const lookbackMs = durationMs + (subDaily ? 2 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000 * 2);
     const fastForwardDate = new Date(limitStart.getTime() - lookbackMs);
 
     if (fastForwardDate > startJsDate) {
       iterStart = icalEvent.startDate.clone();
-      const rruleUpper = rruleStr.toUpperCase();
-      
+
       const match = rruleUpper.match(/INTERVAL=(\d+)/);
       const interval = match ? parseInt(match[1], 10) : 1;
 
       if (rruleUpper.includes('FREQ=YEARLY')) {
         const deltaYears = fastForwardDate.getUTCFullYear() - startJsDate.getUTCFullYear();
-        const intervalsPassed = Math.floor(deltaYears / interval);
-        iterStart.year += intervalsPassed * interval;
+        // ical.js emits an invalid BYMONTHDAY date (Feb 29 outside leap years)
+        // normalised to Mar 1, and whether it does depends on where the anchor
+        // year sits in the leap cycle. Advance in steps of lcm(INTERVAL, 4) years
+        // so the seed keeps DTSTART's leap-cycle phase, and stop one step short
+        // so the anchor year's own normalised date lies before the window.
+        const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
+        const step = (interval * 4) / gcd(interval, 4);
+        let stepsPassed = Math.floor(deltaYears / step) - 1;
+        while (stepsPassed > 0 &&
+               ICAL.Time.daysInMonth(iterStart.month, iterStart.year + (stepsPassed * step)) < iterStart.day) {
+          stepsPassed--;
+        }
+        iterStart.year += Math.max(stepsPassed, 0) * step;
       } else if (rruleUpper.includes('FREQ=MONTHLY')) {
         const deltaMonths = (fastForwardDate.getUTCFullYear() - startJsDate.getUTCFullYear()) * 12 
                           + (fastForwardDate.getUTCMonth() - startJsDate.getUTCMonth());
-        const intervalsPassed = Math.floor(deltaMonths / interval);
-        iterStart.month += intervalsPassed * interval;
-        if (iterStart.month > 12) {
-           iterStart.year += Math.floor((iterStart.month - 1) / 12);
-           iterStart.month = ((iterStart.month - 1) % 12) + 1;
+        let intervalsPassed = Math.floor(deltaMonths / interval);
+        // The seed must keep DTSTART's day-of-month: if the target month is too
+        // short for it (e.g. the 31st in April), ICAL.Time would normalise the
+        // seed into the next month and re-phase the series. Step back whole
+        // INTERVALs until the month can hold the day; k=0 (DTSTART) always can.
+        const startMonthIndex = (iterStart.year * 12) + (iterStart.month - 1);
+        const monthHoldsDay = (index) =>
+          ICAL.Time.daysInMonth((index % 12) + 1, Math.floor(index / 12)) >= iterStart.day;
+        while (intervalsPassed > 0 && !monthHoldsDay(startMonthIndex + (intervalsPassed * interval))) {
+          intervalsPassed--;
         }
+        const targetIndex = startMonthIndex + (intervalsPassed * interval);
+        iterStart.year = Math.floor(targetIndex / 12);
+        iterStart.month = (targetIndex % 12) + 1;
       } else if (rruleUpper.includes('FREQ=WEEKLY')) {
         const deltaMs = fastForwardDate.getTime() - startJsDate.getTime();
         const deltaWeeks = deltaMs / (7 * 24 * 60 * 60 * 1000);
@@ -503,6 +526,16 @@ function expandVEventGroup(vevents, rangeStart, rangeEnd, meta = {}) {
         const deltaHours = deltaMs / (60 * 60 * 1000);
         const intervalsPassed = Math.floor(deltaHours / interval);
         iterStart.adjust(0, intervalsPassed * interval, 0, 0);
+      } else if (rruleUpper.includes('FREQ=MINUTELY')) {
+        const deltaMs = fastForwardDate.getTime() - startJsDate.getTime();
+        const deltaMinutes = deltaMs / (60 * 1000);
+        const intervalsPassed = Math.floor(deltaMinutes / interval);
+        iterStart.adjust(0, 0, intervalsPassed * interval, 0);
+      } else if (rruleUpper.includes('FREQ=SECONDLY')) {
+        const deltaMs = fastForwardDate.getTime() - startJsDate.getTime();
+        const deltaSeconds = deltaMs / 1000;
+        const intervalsPassed = Math.floor(deltaSeconds / interval);
+        iterStart.adjust(0, 0, 0, intervalsPassed * interval);
       }
     }
   }
