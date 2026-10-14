@@ -833,6 +833,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#task-description', 'Testing VTODO Kanban and RRULE advancement');
     await page.selectOption('#task-priority', '1');
     await page.selectOption('#task-recurrence', 'FREQ=WEEKLY');
+    await page.fill('#task-due', '2036-08-11T09:00');
 
     // Save task
     await page.click('#task-save-btn');
@@ -861,6 +862,24 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await cardInProcess.locator('.btn-complete').click();
     const cardResetted = page.locator('#kanban-cards-todo .kanban-card', { hasText: taskTitle });
     await expect(cardResetted).toBeVisible({ timeout: 10000 });
+
+    // Issue #95: the server rolls the master forward one week and stores the
+    // finished occurrence as its own RECURRENCE-ID + STATUS:COMPLETED VTODO.
+    const stored = await page.evaluate(async (title) => {
+      const res = await fetch('/api/tasks');
+      const body = await res.json();
+      const list = Array.isArray(body) ? body : body.tasks;
+      const t = list.find(x => x.title === title);
+      return t ? { due: t.due, status: t.status, rawIcs: t.rawIcs } : null;
+    }, taskTitle);
+    expect(stored).not.toBeNull();
+    expect(stored.status).toBe('NEEDS-ACTION');
+    expect(stored.due).toBe(new Date(2036, 7, 18, 9, 0).toISOString());
+    const unfolded = stored.rawIcs.replace(/\r?\n[ \t]/g, '');
+    expect(unfolded.match(/BEGIN:VTODO/g)).toHaveLength(2);
+    const instance = unfolded.split('BEGIN:VTODO').find(c => /RECURRENCE-ID/.test(c));
+    expect(instance).toMatch(new RegExp(`RECURRENCE-ID:${new Date(2036, 7, 11, 9, 0).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}`));
+    expect(instance).toMatch(/STATUS:COMPLETED/);
 
     // Clean up: delete task
     page.on('dialog', dialog => dialog.accept());

@@ -669,6 +669,7 @@ function taskToICS(rawTask, existingIcs = null) {
   const baseIcs = existingIcs || task.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
+    let updated = null;
     try {
       const jcal = ICAL.parse(baseIcs);
       const comp = new ICAL.Component(jcal);
@@ -849,10 +850,16 @@ function taskToICS(rawTask, existingIcs = null) {
 
         setDateProp('last-modified', new Date().toISOString());
 
-        return comp.toString();
+        updated = { comp, vtodo, uid };
       }
     } catch (e) {
       console.warn('[taskToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
+    }
+    if (updated) {
+      // Outside the fallback above: a failure here must surface, not rebuild
+      // the resource from scratch and drop earlier instances (#95).
+      if (task.completedInstance) addCompletedInstance(updated.comp, updated.vtodo, updated.uid, task.completedInstance);
+      return updated.comp.toString();
     }
   }
 
@@ -963,7 +970,85 @@ function taskToICS(rawTask, existingIcs = null) {
   lines.push('END:VTODO');
   lines.push('END:VCALENDAR');
 
-  return foldLines(lines.join('\n')) + '\r\n';
+  const scratchIcs = foldLines(lines.join('\n')) + '\r\n';
+  if (!task.completedInstance) return scratchIcs;
+  const comp = new ICAL.Component(ICAL.parse(scratchIcs));
+  addCompletedInstance(comp, comp.getFirstSubcomponent('vtodo'), uid, task.completedInstance);
+  return comp.toString();
+}
+
+function isoToIcalTime(iso, isDate) {
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) throw new Error(`Invalid date for completed instance: ${iso}`);
+  if (isDate) {
+    return new ICAL.Time({ year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate(), isDate: true });
+  }
+  return ICAL.Time.fromJSDate(dt, true);
+}
+
+// RFC 5545 §3.8.4.4 / RFC 5546: a finished occurrence of a recurring VTODO is
+// recorded as its own VTODO (same UID, RECURRENCE-ID, STATUS:COMPLETED). The
+// master has already been rolled forward past that occurrence, so the
+// occurrence is added back to the recurrence set as an RDATE; otherwise the
+// override would be an orphan that conformant clients discard.
+function addCompletedInstance(comp, master, uid, instance) {
+  // Value types follow the stored master, not the request payload, so the
+  // RECURRENCE-ID/RDATE match DTSTART's type (RFC 5545 §3.8.4.4).
+  const storedIsDate = (name, fallback) => {
+    const val = master.getFirstPropertyValue(name);
+    return val ? Boolean(val.isDate) : Boolean(fallback);
+  };
+  const dtstartIsDate = storedIsDate('dtstart', instance.dtstartIsDate);
+  const dueIsDate = storedIsDate('due', instance.dueIsDate);
+  const recurrenceId = isoToIcalTime(instance.recurrenceId, instance.dtstart ? dtstartIsDate : dueIsDate);
+  const sameOccurrence = (v) => Boolean(v) && typeof v.toUnixTime === 'function' &&
+    (recurrenceId.isDate ? v.toICALString().slice(0, 8) === recurrenceId.toICALString() : v.toUnixTime() === recurrenceId.toUnixTime());
+
+  for (const existing of comp.getAllSubcomponents('vtodo')) {
+    if (sameOccurrence(existing.getFirstPropertyValue('recurrence-id'))) comp.removeSubcomponent(existing);
+  }
+
+  const hasRdate = master.getAllProperties('rdate').some(p => p.getValues().some(sameOccurrence));
+  if (!hasRdate) master.addPropertyWithValue('rdate', recurrenceId);
+
+  const vtodo = new ICAL.Component('vtodo');
+  vtodo.addPropertyWithValue('uid', uid);
+  vtodo.addPropertyWithValue('dtstamp', ICAL.Time.fromJSDate(new Date(), true));
+  vtodo.addPropertyWithValue('recurrence-id', recurrenceId);
+  vtodo.addPropertyWithValue('summary', instance.title || 'Untitled');
+  // The instance inherits the master's visibility; public-share sanitizing
+  // judges each component by its own CLASS.
+  const cls = master.getFirstPropertyValue('class');
+  if (cls) vtodo.addPropertyWithValue('class', cls);
+  if (instance.dtstart) vtodo.addPropertyWithValue('dtstart', isoToIcalTime(instance.dtstart, dtstartIsDate));
+  if (instance.due) {
+    vtodo.addPropertyWithValue('due', isoToIcalTime(instance.due, dueIsDate));
+  } else if (instance.dtstart && instance.duration) {
+    vtodo.addPropertyWithValue('duration', ICAL.Duration.fromString(instance.duration));
+  }
+  vtodo.addPropertyWithValue('status', 'COMPLETED');
+  vtodo.addPropertyWithValue('completed', isoToIcalTime(instance.completed, false));
+  vtodo.addPropertyWithValue('percent-complete', 100);
+  comp.addSubcomponent(vtodo);
+}
+
+// Describes the occurrence being finished, identified by the master's current
+// DTSTART (or DUE when the task has no DTSTART). Null when neither exists:
+// such an occurrence has no identity a RECURRENCE-ID could name.
+function completedInstanceOf(task, completionTime) {
+  const hasDtstart = Boolean(task.dtstart) && !isNaN(new Date(task.dtstart).getTime());
+  const hasDue = Boolean(task.due) && !isNaN(new Date(task.due).getTime());
+  if (!hasDtstart && !hasDue) return null;
+  return {
+    recurrenceId: hasDtstart ? task.dtstart : task.due,
+    title: task.title,
+    dtstart: hasDtstart ? task.dtstart : null,
+    dtstartIsDate: Boolean(task.dtstartIsDate),
+    due: hasDue ? task.due : null,
+    dueIsDate: Boolean(task.dueIsDate),
+    duration: (task.duration && /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.test(String(task.duration).trim())) ? String(task.duration).trim() : null,
+    completed: completionTime
+  };
 }
 
 function advanceRecurringTask(task) {
@@ -990,6 +1075,7 @@ function advanceRecurringTask(task) {
     ? (new Date(task.completed).toISOString())
     : new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
   const completedHistory = [...currentHistory, completionTime];
+  const completedInstance = completedInstanceOf(task, completionTime);
 
   const countMatch = rruleStr.match(/\bCOUNT=(\d+)\b/i);
   const currentCount = countMatch ? parseInt(countMatch[1], 10) : null;
@@ -1043,7 +1129,8 @@ function advanceRecurringTask(task) {
           status: 'NEEDS-ACTION',
           completed: null,
           percentComplete: 0,
-          completedHistory
+          completedHistory,
+          completedInstance
         };
       }
     }
@@ -1093,7 +1180,8 @@ function advanceRecurringTask(task) {
     status: 'NEEDS-ACTION',
     completed: null,
     percentComplete: 0,
-    completedHistory
+    completedHistory,
+    completedInstance
   };
 }
 

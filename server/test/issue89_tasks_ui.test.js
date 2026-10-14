@@ -6,6 +6,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { advanceRecurringTask } = require('../caldav/parser');
 
 function createMockDomEnvironment() {
   const elements = new Map();
@@ -297,7 +298,8 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     const TasksAPI = {
       update: async (uid, payload) => {
         updatedPayload = payload;
-        return payload;
+        // Stand-in for PUT /api/tasks/:uid, which owns the roll-forward (#95).
+        return advanceRecurringTask(payload) || { ...payload, status: 'COMPLETED' };
       }
     };
 
@@ -349,6 +351,8 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     assert.strictEqual(env.alerts.length, 0, 'No alert() must be called');
     assert.strictEqual(env.toasts.length, 1, 'Exactly one toast must be emitted');
     assert.strictEqual(env.toasts[0].type, 'success');
+    assert.strictEqual(updatedPayload.status, 'COMPLETED', 'client hands completion to the server instead of advancing locally');
+    assert.strictEqual(updatedPayload.percentComplete, 100);
     assert.strictEqual(
       env.toasts[0].msg,
       'Aufgabe auf 21.8.2026 verschoben.',
@@ -363,7 +367,8 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     const TasksAPI = {
       update: async (uid, payload) => {
         updatedPayload = payload;
-        return payload;
+        // Stand-in for PUT /api/tasks/:uid, which owns the roll-forward (#95).
+        return advanceRecurringTask(payload) || { ...payload, status: 'COMPLETED' };
       }
     };
 
@@ -414,6 +419,8 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     assert.ok(updatedPayload, 'TasksAPI.update should have been called');
     assert.strictEqual(env.toasts.length, 1, 'Exactly one toast must be emitted');
     assert.strictEqual(env.toasts[0].type, 'success');
+    assert.strictEqual(updatedPayload.status, 'COMPLETED', 'client hands completion to the server instead of advancing locally');
+    assert.strictEqual(updatedPayload.percentComplete, 100);
     assert.strictEqual(
       env.toasts[0].msg,
       'Aufgabe auf 21.8.2026 verschoben.',
@@ -428,7 +435,8 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     const TasksAPI = {
       update: async (uid, payload) => {
         updatedPayload = payload;
-        return payload;
+        // Stand-in for PUT /api/tasks/:uid, which owns the roll-forward (#95).
+        return advanceRecurringTask(payload) || { ...payload, status: 'COMPLETED' };
       }
     };
 
@@ -483,6 +491,8 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     assert.ok(updatedPayload, 'TasksAPI.update should have been called');
     assert.strictEqual(env.toasts.length, 1, 'Exactly one toast must be emitted');
     assert.strictEqual(env.toasts[0].type, 'success');
+    assert.strictEqual(updatedPayload.status, 'COMPLETED', 'client hands completion to the server instead of advancing locally');
+    assert.strictEqual(updatedPayload.percentComplete, 100);
     assert.strictEqual(
       env.toasts[0].msg,
       'Aufgabe auf 21.8.2026 verschoben.',

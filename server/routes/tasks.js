@@ -179,7 +179,8 @@ function validateTaskInput(taskData) {
 // ── POST /api/tasks — create a task ──────────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const { calendarId, ...taskData } = req.body;
+    // completedInstance is derived server-side by advanceRecurringTask only (#95).
+    const { calendarId, completedInstance: _clientInstance, ...taskData } = req.body;
 
     if (!calendarId) {
       return res.status(400).json({ error: 'calendarId is required' });
@@ -229,7 +230,8 @@ router.post('/', async (req, res) => {
 // ── PUT /api/tasks/:uid — update an existing task ─────────────────────────────
 router.put('/:uid', async (req, res) => {
   try {
-    const { calendarId, etag, href, ...taskData } = req.body;
+    // completedInstance is derived server-side by advanceRecurringTask only (#95).
+    const { calendarId, etag, href, completedInstance: _clientInstance, ...taskData } = req.body;
 
     if (!href) return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
@@ -358,9 +360,10 @@ router.put('/:uid', async (req, res) => {
     // Issue #261: skip the CalDAV PUT entirely when no meaningful field changed.
     // This prevents the scratch ICS builder from stripping RRULE and other
     // properties that were not echoed back by the frontend.
+    const { completedInstance: _writtenInstance, ...taskResponse } = task;
     if (isNoOpTaskSave(existingIcs, taskData)) {
       return res.json({
-        ...task,
+        ...taskResponse,
         href,
         etag: (current && current.etag) ? current.etag : etag,
         calendarId
@@ -382,7 +385,7 @@ router.put('/:uid', async (req, res) => {
     }
 
     res.json({
-      ...task,
+      ...taskResponse,
       href,
       etag: (result && result.etag) ? result.etag : etag,
       calendarId

@@ -25,6 +25,14 @@ export function formatRecurrenceLabel(recurrence) {
   return recurrence;
 }
 
+// Completing a task is decided server-side: for a recurring task the server
+// rolls the master forward and stores the finished occurrence (#95).
+// percentComplete must be 100, otherwise reconcileTaskStatus downgrades the
+// COMPLETED status back to NEEDS-ACTION.
+function completionPayload(task) {
+  return { ...task, status: 'COMPLETED', percentComplete: 100 };
+}
+
 export function getTaskCompletionToast(task, payload) {
   if (task && task.recurrence && payload && payload.status !== 'COMPLETED') {
     const isDate = Boolean(
@@ -444,7 +452,7 @@ function createKanbanCard(task, callbacks) {
   card.querySelector('.btn-status-next')?.addEventListener('click', async () => {
     const nextStatus = task.status === 'NEEDS-ACTION' ? 'IN-PROCESS' : 'COMPLETED';
     try {
-      const payload = (nextStatus === 'COMPLETED' && task.recurrence) ? advanceRecurringTaskJS(task) : { ...task, status: nextStatus };
+      const payload = nextStatus === 'COMPLETED' ? completionPayload(task) : { ...task, status: nextStatus };
       const updated = await TasksAPI.update(task.uid, payload);
       if (nextStatus === 'COMPLETED') {
         notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
@@ -459,7 +467,7 @@ function createKanbanCard(task, callbacks) {
 
   card.querySelector('.btn-complete')?.addEventListener('click', async () => {
     try {
-      const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
+      const payload = completionPayload(task);
       const updated = await TasksAPI.update(task.uid, payload);
       notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
@@ -479,151 +487,6 @@ function createKanbanCard(task, callbacks) {
   });
 
   return card;
-}
-
-export function advanceRecurringTaskJS(task) {
-  if (!task || !task.recurrence) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
-
-  const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
-  const countMatch = rruleStr.match(/\bCOUNT=(\d+)\b/i);
-  const currentCount = countMatch ? parseInt(countMatch[1], 10) : null;
-  if (currentCount !== null && currentCount <= 1) {
-    return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
-  }
-
-  const baseDue = task.due ? new Date(task.due) : new Date();
-  if (isNaN(baseDue.getTime())) return { ...task, status: 'COMPLETED', completed: new Date().toISOString(), percentComplete: 100 };
-
-  const currentHistory = Array.isArray(task.completedHistory) ? [...task.completedHistory] : [];
-  const completionTime = task.completed
-    ? (new Date(task.completed).toISOString())
-    : new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
-  const completedHistory = [...currentHistory, completionTime];
-
-  let icalRecur = null;
-  let icalTimeClass = null;
-  if (typeof window !== 'undefined' && window.ICAL && window.ICAL.Recur) {
-    icalRecur = window.ICAL.Recur;
-    icalTimeClass = window.ICAL.Time;
-  } else {
-    try {
-      const ICAL = require('ical.js');
-      if (ICAL && ICAL.Recur) {
-        icalRecur = ICAL.Recur;
-        icalTimeClass = ICAL.Time;
-      }
-    } catch (_) {}
-  }
-
-  if (icalRecur && icalTimeClass) {
-    let recur;
-    try {
-      recur = icalRecur.fromString(rruleStr);
-    } catch (_) {
-      recur = null;
-    }
-    if (recur) {
-      const dtStartMs = task.dtstart ? new Date(task.dtstart).getTime() : baseDue.getTime();
-      const dtStart = isNaN(dtStartMs) ? baseDue : new Date(dtStartMs);
-      const icalStart = icalTimeClass.fromJSDate(dtStart, true);
-      const iterator = recur.iterator(icalStart);
-      const dueMs = baseDue.getTime();
-      let steps = 0;
-      let next;
-      while (steps < 50000) {
-        next = iterator.next();
-        steps++;
-        if (!next) {
-          return { ...task, status: 'COMPLETED', completed: completionTime, percentComplete: 100 };
-        }
-        const nextMs = next.toJSDate().getTime();
-        if (nextMs > dueMs) {
-          const timeDeltaMs = nextMs - dueMs;
-          let newDtstart = null;
-          if (task.dtstart) {
-            const origDtstartMs = new Date(task.dtstart).getTime();
-            if (!isNaN(origDtstartMs)) {
-              newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
-            }
-          }
-          let newRrule = task.recurrence;
-          if (currentCount !== null) {
-            newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
-          }
-          return {
-            ...task,
-            dtstart: newDtstart,
-            due: next.toJSDate().toISOString(),
-            recurrence: newRrule,
-            status: 'NEEDS-ACTION',
-            completed: null,
-            percentComplete: 0,
-            completedHistory
-          };
-        }
-      }
-      return { ...task, status: 'COMPLETED', completed: completionTime, percentComplete: 100 };
-    }
-  }
-
-  const rruleUpper = rruleStr.toUpperCase();
-  const untilMatch = rruleUpper.match(/UNTIL=([0-9TJSZ]+)/);
-  if (untilMatch) {
-    const uStr = untilMatch[1];
-    let untilDate;
-    if (uStr.length === 8) {
-      untilDate = new Date(Date.UTC(parseInt(uStr.slice(0,4),10), parseInt(uStr.slice(4,6),10)-1, parseInt(uStr.slice(6,8),10), 23, 59, 59));
-    } else {
-      untilDate = new Date(uStr.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z'));
-    }
-    if (!isNaN(untilDate.getTime()) && baseDue.getTime() >= untilDate.getTime()) {
-      return { ...task, status: 'COMPLETED', completed: completionTime, percentComplete: 100 };
-    }
-  }
-
-  let interval = 1;
-  const matchInterval = rruleUpper.match(/INTERVAL=(\d+)/);
-  if (matchInterval) {
-    interval = parseInt(matchInterval[1], 10) || 1;
-  }
-
-  const nextDate = new Date(baseDue.getTime());
-  if (rruleUpper.includes('FREQ=DAILY')) {
-    nextDate.setUTCDate(nextDate.getUTCDate() + interval);
-  } else if (rruleUpper.includes('FREQ=WEEKLY')) {
-    nextDate.setUTCDate(nextDate.getUTCDate() + 7 * interval);
-  } else if (rruleUpper.includes('FREQ=MONTHLY')) {
-    nextDate.setUTCMonth(nextDate.getUTCMonth() + interval);
-  } else if (rruleUpper.includes('FREQ=YEARLY')) {
-    nextDate.setUTCFullYear(nextDate.getUTCFullYear() + interval);
-  } else {
-    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-  }
-
-  const timeDeltaMs = nextDate.getTime() - baseDue.getTime();
-  let newDtstart = null;
-  if (task.dtstart) {
-    const origDtstartMs = new Date(task.dtstart).getTime();
-    if (!isNaN(origDtstartMs)) {
-      newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
-    }
-  }
-
-  let newRrule = task.recurrence;
-  if (currentCount !== null) {
-    newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
-  }
-
-  return {
-    ...task,
-    dtstart: newDtstart,
-    due: nextDate.toISOString(),
-    recurrence: newRrule,
-    status: 'NEEDS-ACTION',
-    completed: null,
-    percentComplete: 0,
-    completedHistory
-  };
 }
 
 export function renderSidebarTasks(container, countBadge, tasks, callbacks = {}, options = {}) {
@@ -678,7 +541,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
     item.querySelector('.sidebar-task-checkbox').addEventListener('change', async (e) => {
       e.stopPropagation();
       try {
-        const payload = task.recurrence ? advanceRecurringTaskJS(task) : { ...task, status: 'COMPLETED' };
+        const payload = completionPayload(task);
         const updated = await TasksAPI.update(task.uid, payload);
         notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();

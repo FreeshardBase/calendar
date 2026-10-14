@@ -10,6 +10,7 @@ require('dotenv').config();
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Db = require('../db');
+const ICAL = require('ical.js');
 const { parseICSToTask, taskToICS, advanceRecurringTask } = require('../caldav/parser');
 
 test.describe('Issue #264 — Recurring Task Completion & Server Coherence', () => {
@@ -61,7 +62,9 @@ END:VCALENDAR`;
     const updatedIcs = taskToICS(advanced, existingIcs);
     assert.ok(updatedIcs.includes('STATUS:NEEDS-ACTION'));
     assert.ok(updatedIcs.includes('X-COMPLETED-DATES:2026-09-01T09:15:00.000Z'));
-    assert.ok(!updatedIcs.includes('COMPLETED:'));
+    // The finished occurrence lives in its own RECURRENCE-ID VTODO (#95); the master stays open.
+    const master = new ICAL.Component(ICAL.parse(updatedIcs)).getAllSubcomponents('vtodo').find(v => !v.getFirstProperty('recurrence-id'));
+    assert.strictEqual(master.getFirstProperty('completed'), null);
 
     const reParsed = parseICSToTask(updatedIcs);
     assert.ok(reParsed);
