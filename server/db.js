@@ -223,6 +223,21 @@ db.serialize(() => {
   db.run(`ALTER TABLE user_calendar_shares ADD COLUMN role TEXT DEFAULT 'WRITE'`, () => {});
   db.run(`ALTER TABLE user_calendar_shares ADD COLUMN can_view_private INTEGER DEFAULT 0`, () => {});
   db.run(`ALTER TABLE user_calendar_shares ADD COLUMN can_manage_shares INTEGER DEFAULT 0`, () => {});
+  // #193: the sync worker pairs each Google calendar with an opaque local collection
+  // (`google-<hex>`), never one derived from the display name. One row per Google
+  // calendar per account; a local collection can belong to only one of them.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS google_calendar_collections (
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      google_calendar_id TEXT NOT NULL,
+      local_collection TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, google_calendar_id),
+      UNIQUE (user_id, local_collection),
+      FOREIGN KEY (account_id) REFERENCES linked_accounts(id) ON DELETE CASCADE
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS calendar_sync_cache (
       calendar_id TEXT PRIMARY KEY,

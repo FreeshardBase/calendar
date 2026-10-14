@@ -19,6 +19,9 @@ import xml.etree.ElementTree as ET
 import signal
 import shutil
 import tempfile
+import uuid
+import unicodedata
+from xml.sax.saxutils import escape as xml_escape
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -484,6 +487,82 @@ def ini_value(value):
     return json.dumps(value, ensure_ascii=True)
 
 
+def legacy_google_collection_name(display_name):
+    """Collection name earlier worker versions derived from the Google display name."""
+    slug = unicodedata.normalize('NFKD', display_name).encode('ascii', 'ignore').decode('ascii').lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug).strip('-') or "calendar"
+    return slug if slug.startswith("google-") else f"google-{slug}"
+
+
+def create_local_collection(user_id, collection, display_name):
+    """MKCALENDAR the paired collection in the user's Radicale principal, named by the Google calendar.
+
+    The worker creates it rather than vdirsyncer so that the display name is set once, Google -> local;
+    vdirsyncer metasync would also push renames made in the app back to Google.
+    """
+    url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{collection}/"
+    body = f"""<?xml version="1.0" encoding="utf-8"?>
+<c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:set>
+    <d:prop>
+      <d:displayname>{xml_escape(display_name)}</d:displayname>
+    </d:prop>
+  </d:set>
+</c:mkcalendar>"""
+    auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+    req = urllib.request.Request(
+        url,
+        data=body.encode("utf-8"),
+        headers={
+            "Content-Type": "application/xml; charset=utf-8",
+            "Authorization": f"Basic {auth_str}",
+            "Accept-Encoding": "identity",
+        },
+        method="MKCALENDAR",
+    )
+    with urllib.request.urlopen(req, context=ssl_context_for(url, LOCAL_CALDAV_URL), timeout=30) as res:
+        if res.status != 201:
+            raise RuntimeError(f"MKCALENDAR {url} returned {res.status}")
+
+
+def local_collection_for_google_calendar(conn, user_id, account_id, google_calendar, pair_status_dir):
+    """Local Radicale collection paired with one Google calendar (Issue #193).
+
+    The name is opaque (`google-<uuid hex>`) and persisted per (account, Google calendar id), so it
+    never collides with an app calendar or another account's calendar of the same display name, and
+    a rename on either side keeps the pair pointing at the same collection.
+
+    A collection an earlier worker version synced under the display-name-derived name is adopted
+    instead of downloading the calendar a second time, but only if this account's pair has vdirsyncer
+    status for it (<status>/<pair>/<collection>.items) and no other Google calendar of the user owns it.
+    """
+    google_calendar_id = google_calendar["id"]
+    row = conn.execute(
+        "SELECT local_collection FROM google_calendar_collections WHERE account_id = ? AND google_calendar_id = ?",
+        (account_id, google_calendar_id),
+    ).fetchone()
+    if row:
+        return row[0]
+
+    legacy = legacy_google_collection_name(google_calendar["name"])
+    legacy_owned = conn.execute(
+        "SELECT 1 FROM google_calendar_collections WHERE user_id = ? AND local_collection = ?",
+        (user_id, legacy),
+    ).fetchone()
+    if not legacy_owned and os.path.exists(os.path.join(pair_status_dir, f"{legacy}.items")):
+        local_collection = legacy
+    else:
+        local_collection = f"google-{uuid.uuid4().hex}"
+        create_local_collection(user_id, local_collection, google_calendar["name"])
+    conn.execute(
+        "INSERT INTO google_calendar_collections"
+        " (account_id, user_id, google_calendar_id, local_collection, created_at) VALUES (?, ?, ?, ?, ?)",
+        (account_id, user_id, google_calendar_id, local_collection, int(time.time() * 1000)),
+    )
+    conn.commit()
+    return local_collection
+
+
 def create_private_config_dir():
     """Unpredictable per-run directory (mode 0700) for vdirsyncer config and token files."""
     return tempfile.mkdtemp(prefix=CONFIG_DIR_PREFIX)
@@ -611,7 +690,7 @@ def sync_user(user_id):
     # 1. Fetch all linked accounts for the user (both oauth2 and basic)
     cursor.execute(
         "SELECT id, url, username, password_encrypted, iv, auth_type, access_token, expires_at"
-        " FROM linked_accounts WHERE user_id = ?",
+        " FROM linked_accounts WHERE user_id = ? ORDER BY rowid",
         (user_id,)
     )
     all_accounts = cursor.fetchall()
@@ -664,6 +743,7 @@ status_path = {ini_value(status_dir)}
 """
 
     config_dir = create_private_config_dir()
+    pairs_written = 0
     try:
         for idx, acc in enumerate(oauth2_accounts):
             acc_id = acc["id"]
@@ -721,48 +801,35 @@ status_path = {ini_value(status_dir)}
                 conn.close()
                 return False, f"Failed to write Google token file: {str(write_err)}"
 
-            # Discover Google collections to create friendly mapped slugs
+            # Discover Google collections and pair each with its persisted opaque local collection.
+            # The display name reaches Radicale as `displayname`, never as the path.
             try:
                 google_collections = discover_google_collections(acc["url"], access_token)
             except Exception as disc_err:
                 conn.close()
                 return False, f"Google collection discovery failed: {str(disc_err)}"
-            collections_mapped = []
-            if google_collections:
-                for col in google_collections:
-                    google_id = col["id"]
-                    friendly_name = col["name"]
-                    
-                    # Slugify the display name
-                    import re
-                    import unicodedata
-                    slug = unicodedata.normalize('NFKD', friendly_name).encode('ascii', 'ignore').decode('ascii')
-                    slug = slug.lower()
-                    slug = re.sub(r'[^a-z0-9]+', '-', slug)
-                    slug = slug.strip('-')
-                    
-                    if not slug:
-                        slug = "calendar"
-                    
-                    if not slug.startswith("google-"):
-                        slug = f"google-{slug}"
-                    
-                    # Deduplicate slugs
-                    base_slug = slug
-                    collision_idx = 1
-                    while any(c[1] == slug for c in collections_mapped):
-                        slug = f"{base_slug}-{collision_idx}"
-                        collision_idx += 1
-                        
-                    collections_mapped.append([google_id, slug])
+            items = []
+            for col in google_collections or []:
+                try:
+                    local_collection = local_collection_for_google_calendar(
+                        conn, user_id, acc_id, col, os.path.join(status_dir, pair_name))
+                except Exception as map_err:
+                    conn.close()
+                    return False, f"Local collection for Google calendar {col['id']} failed: {map_err}"
+                items.append([local_collection, col["id"], local_collection])
 
-            if collections_mapped:
-                items = []
-                for item in collections_mapped:
-                    items.append([item[1], item[0], item[1]])
-                collections_toml = f"collections = {ini_value(items)}"
-            else:
-                collections_toml = 'collections = ["from a"]'
+            if not items:
+                # "from a" would let vdirsyncer name local collections itself, unmapped.
+                mapped = conn.execute(
+                    "SELECT 1 FROM google_calendar_collections WHERE account_id = ?", (acc_id,)
+                ).fetchone()
+                if mapped:
+                    conn.close()
+                    return False, f"Google discovery returned no calendars for account {acc_id}, which has synced calendars"
+                print(f"[Sync-Worker] No Google calendars discovered for account {acc_id}. Skipping.")
+                continue
+            collections_toml = f"collections = {ini_value(items)}"
+            pairs_written += 1
 
             # Determine SSL verification for local CalDAV server
             cert_path = "/etc/ssl/certs/local/cert.pem"
@@ -792,6 +859,9 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
 """
 
         conn.close()
+
+        if not pairs_written:
+            return True, ""
 
         config_path = write_private_config(config_dir, config_content)
 
