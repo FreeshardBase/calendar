@@ -10,15 +10,19 @@ process.env.CALDAV_PASSWORD = 'password';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
-const vm = require('node:vm');
 const ICAL = require('ical.js');
 const { parseICSToTask, parseVTodoToTask, taskToICS, advanceRecurringTask } = require('../caldav/parser');
 const { app, server } = require('../index');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 const testUserId = 'test-issue95-user';
+
+function splitVtodos(ics) {
+  const vtodos = new ICAL.Component(ICAL.parse(ics)).getAllSubcomponents('vtodo');
+  const masters = vtodos.filter(v => !v.getFirstProperty('recurrence-id'));
+  assert.equal(masters.length, 1, 'exactly one master VTODO');
+  return { master: masters[0], instances: vtodos.filter(v => v.getFirstProperty('recurrence-id')) };
+}
 const authHeaders = {
   'Content-Type': 'application/json',
   'x-test-user-id': testUserId
@@ -163,7 +167,7 @@ END:VCALENDAR`;
 
     const ics = taskToICS(advanced);
     assert.ok(ics.includes('STATUS:NEEDS-ACTION'), 'Master VTODO must have STATUS:NEEDS-ACTION');
-    assert.ok(!ics.includes('COMPLETED:'), 'Active master task must not have COMPLETED: timestamp');
+    assert.equal(splitVtodos(ics).master.getFirstProperty('completed'), null, 'Active master task must not have COMPLETED: timestamp');
     assert.ok(ics.includes('X-COMPLETED-DATES:'), 'ICS must record completion in X-COMPLETED-DATES');
     assert.ok(ics.includes('DTSTART:20260814T090000Z'), 'ICS must serialize advanced DTSTART');
     assert.ok(ics.includes('DUE:20260817T090000Z'), 'ICS must serialize advanced DUE');
@@ -179,71 +183,110 @@ END:VCALENDAR`;
     assert.ok(Array.isArray(reparsed.completedHistory) && reparsed.completedHistory.length === 1);
   });
 
-  test('advanceRecurringTaskJS in public/js/tasks.js advances DTSTART alongside DUE and decrements COUNT', () => {
-    const tasksJsPath = path.resolve(__dirname, '../../public/js/tasks.js');
-    const rawTasksJs = fs.readFileSync(tasksJsPath, 'utf8');
-    const cjsTasksJs = rawTasksJs
-      .replace(/^import\s+.*?;/gm, '')
-      .replace(/^export\s+/gm, '');
-
-    const context = {
-      console,
-      window: { ICAL },
-      ICAL,
-      require,
-      Date,
-      String,
-      parseInt,
-      isNaN,
-      Array,
-      Set,
-      escapeHtml: (s) => s,
-      TasksAPI: {},
-      notifyToast: () => {},
-      closeTaskModal: () => {},
-      openTaskModal: () => {},
-      confirmDialog: () => true,
-      taskCallbacks: {},
-      exports: {},
-      module: { exports: {} }
-    };
-    vm.createContext(context);
-    vm.runInContext(cjsTasksJs, context);
-
-    assert.equal(typeof context.advanceRecurringTaskJS, 'function');
-
+  test('taskToICS writes a RECURRENCE-ID + STATUS:COMPLETED VTODO for the finished instance, kept in the master recurrence set', () => {
     const task = {
-      uid: 'task-js-advance-test',
-      title: 'Weekly Standup JS',
+      uid: 'task-vtodo-rid-2',
+      title: 'Weekly Status Report',
       dtstart: '2026-08-07T09:00:00.000Z',
       due: '2026-08-10T09:00:00.000Z',
       recurrence: 'FREQ=WEEKLY;BYDAY=MO;COUNT=4',
-      status: 'NEEDS-ACTION'
+      status: 'COMPLETED',
+      completed: '2026-08-10T12:00:00.000Z'
     };
 
-    const cycle1 = context.advanceRecurringTaskJS(task);
-    assert.ok(cycle1);
-    assert.equal(cycle1.due, '2026-08-17T09:00:00.000Z');
-    assert.equal(cycle1.dtstart, '2026-08-14T09:00:00.000Z');
-    assert.ok(cycle1.recurrence.includes('COUNT=3') && cycle1.recurrence.includes('FREQ=WEEKLY') && cycle1.recurrence.includes('BYDAY=MO'));
-    assert.equal(cycle1.status, 'NEEDS-ACTION');
-    assert.ok(Array.isArray(cycle1.completedHistory) && cycle1.completedHistory.length === 1);
+    const ics = taskToICS(advanceRecurringTask(task));
+    const comp = new ICAL.Component(ICAL.parse(ics));
+    const vtodos = comp.getAllSubcomponents('vtodo');
+    assert.equal(vtodos.length, 2, 'master + one completed instance');
 
-    const cycle2 = context.advanceRecurringTaskJS(cycle1);
-    assert.equal(cycle2.due, '2026-08-24T09:00:00.000Z');
-    assert.equal(cycle2.dtstart, '2026-08-21T09:00:00.000Z');
-    assert.ok(cycle2.recurrence.includes('COUNT=2') && cycle2.recurrence.includes('FREQ=WEEKLY') && cycle2.recurrence.includes('BYDAY=MO'));
-    assert.equal(cycle2.completedHistory.length, 2);
+    const master = vtodos.find(v => !v.getFirstProperty('recurrence-id'));
+    const instance = vtodos.find(v => v.getFirstProperty('recurrence-id'));
+    assert.ok(master && instance);
+    assert.equal(instance.getFirstPropertyValue('uid'), 'task-vtodo-rid-2');
+    assert.equal(instance.getFirstPropertyValue('recurrence-id').toICALString(), '20260807T090000Z');
+    assert.equal(instance.getFirstPropertyValue('status'), 'COMPLETED');
+    assert.equal(instance.getFirstPropertyValue('completed').toICALString(), '20260810T120000Z');
+    assert.equal(instance.getFirstPropertyValue('percent-complete'), 100);
+    assert.equal(instance.getFirstPropertyValue('dtstart').toICALString(), '20260807T090000Z');
+    assert.equal(instance.getFirstPropertyValue('due').toICALString(), '20260810T090000Z');
+    assert.equal(instance.getFirstPropertyValue('summary'), 'Weekly Status Report');
+    assert.ok(!instance.getFirstProperty('rrule'), 'an instance must not carry its own RRULE');
 
-    const cycle3 = context.advanceRecurringTaskJS(cycle2);
-    assert.equal(cycle3.due, '2026-08-31T09:00:00.000Z');
-    assert.equal(cycle3.dtstart, '2026-08-28T09:00:00.000Z');
-    assert.ok(cycle3.recurrence.includes('COUNT=1') && cycle3.recurrence.includes('FREQ=WEEKLY') && cycle3.recurrence.includes('BYDAY=MO'));
-    assert.equal(cycle3.completedHistory.length, 3);
+    assert.equal(master.getFirstPropertyValue('status'), 'NEEDS-ACTION');
+    assert.equal(master.getFirstPropertyValue('dtstart').toICALString(), '20260814T090000Z');
 
-    const cycle4 = context.advanceRecurringTaskJS(cycle3);
-    assert.equal(cycle4.status, 'COMPLETED');
-    assert.equal(cycle4.percentComplete, 100);
+    // A conformant client expands the master (DTSTART + RRULE + RDATE): the
+    // completed instance must still be a member of the set, otherwise its
+    // RECURRENCE-ID override is an orphan that clients drop.
+    const expansion = new ICAL.RecurExpansion({ component: master, dtstart: master.getFirstPropertyValue('dtstart') });
+    const occurrences = [];
+    let next;
+    while ((next = expansion.next()) && occurrences.length < 10) occurrences.push(next.toICALString());
+    assert.ok(occurrences.includes('20260807T090000Z'), `completed instance must stay in the recurrence set, got ${occurrences}`);
+
+    // The app keeps reading the master, never the instance.
+    const reparsed = parseICSToTask(ics);
+    assert.equal(reparsed.status, 'NEEDS-ACTION');
+    assert.equal(reparsed.due, '2026-08-17T09:00:00.000Z');
+  });
+
+  test('all-day recurring VTODO without DTSTART: RECURRENCE-ID is the DATE-valued DUE of the finished instance', () => {
+    const task = {
+      uid: 'task-vtodo-rid-date',
+      title: 'Daily Chore',
+      due: '2026-08-10T00:00:00.000Z',
+      dueIsDate: true,
+      recurrence: 'FREQ=DAILY',
+      status: 'COMPLETED',
+      completed: '2026-08-10T12:00:00.000Z'
+    };
+    const ics = taskToICS(advanceRecurringTask(task));
+    const vtodos = new ICAL.Component(ICAL.parse(ics)).getAllSubcomponents('vtodo');
+    assert.equal(vtodos.length, 2);
+    const instance = vtodos.find(v => v.getFirstProperty('recurrence-id'));
+    const rid = instance.getFirstPropertyValue('recurrence-id');
+    assert.equal(rid.isDate, true);
+    assert.equal(rid.toICALString(), '20260810');
+    const master = vtodos.find(v => !v.getFirstProperty('recurrence-id'));
+    assert.equal(master.getFirstPropertyValue('due').toICALString(), '20260811');
+  });
+
+  test('completed instance inherits CLASS and the stored master value types, and is not duplicated per occurrence', () => {
+    const stored = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//EN',
+      'BEGIN:VTODO',
+      'UID:task-vtodo-rid-class',
+      'DTSTAMP:20260801T000000Z',
+      'SUMMARY:Private chore',
+      'CLASS:PRIVATE',
+      'DUE;VALUE=DATE:20260810',
+      'RRULE:FREQ=DAILY',
+      'STATUS:NEEDS-ACTION',
+      'END:VTODO',
+      'BEGIN:VTODO',
+      'UID:task-vtodo-rid-class',
+      'DTSTAMP:20260801T000000Z',
+      'RECURRENCE-ID;VALUE=DATE:20260810',
+      'SUMMARY:Private chore',
+      'STATUS:NEEDS-ACTION',
+      'END:VTODO',
+      'END:VCALENDAR'
+    ].join('\r\n');
+    const current = parseICSToTask(stored);
+    // API payload that names DUE without saying it is all-day.
+    const { dueIsDate, ...payload } = current;
+    const advanced = advanceRecurringTask({ ...payload, status: 'COMPLETED', completed: '2026-08-10T12:00:00.000Z' });
+    const ics = taskToICS(advanced, stored);
+    const vtodos = new ICAL.Component(ICAL.parse(ics)).getAllSubcomponents('vtodo');
+    const instances = vtodos.filter(v => v.getFirstProperty('recurrence-id'));
+    assert.equal(instances.length, 1, 'the existing override for the same occurrence is replaced, not duplicated');
+    const instance = instances[0];
+    assert.equal(instance.getFirstPropertyValue('class'), 'PRIVATE');
+    assert.equal(instance.getFirstPropertyValue('status'), 'COMPLETED');
+    const rid = instance.getFirstPropertyValue('recurrence-id');
+    assert.equal(rid.isDate, true, 'RECURRENCE-ID must match the stored DATE type');
+    assert.equal(rid.toICALString(), '20260810');
+    assert.equal(instance.getFirstPropertyValue('due').isDate, true);
   });
 
   test('live PUT /api/tasks/:uid advances recurring task, writes X-COMPLETED-DATES to CalDAV, and terminates upon series exhaustion', async () => {
@@ -298,10 +341,47 @@ END:VCALENDAR`;
     assert.equal(rawIcsRes1.status, 200);
     const rawIcs1 = await rawIcsRes1.text();
     assert.ok(rawIcs1.includes('X-COMPLETED-DATES:'), 'CalDAV ICS must contain X-COMPLETED-DATES');
-    assert.ok(!rawIcs1.includes('COMPLETED:'), 'Active master task must not have COMPLETED: timestamp');
-    assert.ok(rawIcs1.includes('STATUS:NEEDS-ACTION'), 'CalDAV ICS must have active master VTODO');
-    assert.ok(rawIcs1.includes('DTSTART:20260814T090000Z'), 'CalDAV ICS must store advanced DTSTART');
-    assert.ok(rawIcs1.includes('DUE:20260817T090000Z'), 'CalDAV ICS must store advanced DUE');
+    const stored1 = splitVtodos(rawIcs1);
+    assert.equal(stored1.instances.length, 1, 'one completed instance VTODO stored');
+    assert.equal(stored1.master.getFirstPropertyValue('status'), 'NEEDS-ACTION');
+    assert.equal(stored1.master.getFirstProperty('completed'), null, 'Active master task must not have COMPLETED: timestamp');
+    assert.equal(stored1.master.getFirstPropertyValue('dtstart').toICALString(), '20260814T090000Z');
+    assert.equal(stored1.master.getFirstPropertyValue('due').toICALString(), '20260817T090000Z');
+    assert.equal(stored1.instances[0].getFirstPropertyValue('status'), 'COMPLETED');
+    assert.equal(stored1.instances[0].getFirstPropertyValue('uid'), createdTask.uid);
+
+    assert.equal(updated1.completedInstance, undefined, 'internal instance data must not leak into the API');
+
+    // A client cannot forge a completion instance through the request body.
+    const forgeRes = await fetch(`${baseUrl}/api/tasks/${createdTask.uid}`, {
+      method: 'PUT',
+      headers: authHeaders,
+      body: JSON.stringify({
+        calendarId: targetCalendarId,
+        href: updated1.href,
+        etag: updated1.etag,
+        description: 'forged',
+        completedInstance: { recurrenceId: '2030-01-01T00:00:00.000Z', title: 'forged', completed: '2030-01-01T00:00:00.000Z' }
+      })
+    });
+    assert.equal(forgeRes.status, 200);
+    const forged = await forgeRes.json();
+    const storedForge = splitVtodos(await (await fetch(updated1.href)).text());
+    assert.equal(storedForge.instances.length, 1, 'a body-supplied completedInstance must be ignored');
+    assert.equal(storedForge.master.getFirstPropertyValue('description'), 'forged');
+
+    // An ordinary edit that echoes the whole task back must not add another instance.
+    const editRes = await fetch(`${baseUrl}/api/tasks/${createdTask.uid}`, {
+      method: 'PUT',
+      headers: authHeaders,
+      body: JSON.stringify({ ...forged, calendarId: targetCalendarId, title: 'Live Weekly Standup Task (renamed)' })
+    });
+    assert.equal(editRes.status, 200);
+    const edited = await editRes.json();
+    assert.equal(edited.completedInstance, undefined, 'internal instance data must not leak into the API');
+    const storedEdit = splitVtodos(await (await fetch(updated1.href)).text());
+    assert.equal(storedEdit.instances.length, 1, 'a plain edit must not write a completion instance');
+    assert.equal(storedEdit.master.getFirstPropertyValue('summary'), 'Live Weekly Standup Task (renamed)');
 
     // 4. Cycle 2: Complete next occurrence
     const putRes2 = await fetch(`${baseUrl}/api/tasks/${createdTask.uid}`, {
@@ -309,8 +389,8 @@ END:VCALENDAR`;
       headers: authHeaders,
       body: JSON.stringify({
         calendarId: targetCalendarId,
-        href: updated1.href,
-        etag: updated1.etag,
+        href: edited.href,
+        etag: edited.etag,
         status: 'COMPLETED'
       })
     });
@@ -341,6 +421,14 @@ END:VCALENDAR`;
     assert.ok(updated3.recurrence.includes('COUNT=1') && updated3.recurrence.includes('FREQ=WEEKLY') && updated3.recurrence.includes('BYDAY=MO'), 'recurrence must decrement COUNT to 1');
     assert.equal(updated3.completedHistory.length, 3);
 
+    const stored3 = splitVtodos(await (await fetch(updated3.href)).text());
+    assert.deepEqual(
+      stored3.instances.map(v => v.getFirstPropertyValue('recurrence-id').toICALString()).sort(),
+      ['20260807T090000Z', '20260814T090000Z', '20260821T090000Z'],
+      'each finished occurrence gets its own RECURRENCE-ID VTODO'
+    );
+    assert.ok(stored3.instances.every(v => v.getFirstPropertyValue('status') === 'COMPLETED'));
+
     // 6. Cycle 4: Complete final occurrence -> series exhausted
     const putRes4 = await fetch(`${baseUrl}/api/tasks/${createdTask.uid}`, {
       method: 'PUT',
@@ -356,6 +444,9 @@ END:VCALENDAR`;
     const updated4 = await putRes4.json();
     assert.equal(updated4.status, 'COMPLETED', 'Exhausted series must remain COMPLETED');
     assert.equal(updated4.percentComplete, 100);
+    const stored4 = splitVtodos(await (await fetch(updated4.href)).text());
+    assert.equal(stored4.master.getFirstPropertyValue('status'), 'COMPLETED');
+    assert.equal(stored4.instances.length, 3, 'earlier instances survive the final completion');
   });
 
 });
