@@ -247,10 +247,9 @@ function renderMonth(container, events, currentDate, cb) {
     cell.className = `month-day${isCurrentMonth ? '' : ' other-month'}${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}`;
     cell.dataset.date = date.toISOString();
     cell.setAttribute('role', 'gridcell');
-
-    const dateFormatted = date.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const eventSummary = dayEvents.length === 0 ? '' : (dayEvents.length === 1 ? ', 1 Termin' : `, ${dayEvents.length} Termine`);
-    cell.setAttribute('aria-label', `${dateFormatted}${eventSummary}`);
+    cell.setAttribute('aria-label', dayCellLabel(date, dayEvents.length));
+    if (isToday) cell.setAttribute('aria-current', 'date');
+    if (isSelected) cell.setAttribute('aria-selected', 'true');
 
     let chipsHtml = dayEvents.slice(0, MAX_VISIBLE).map(ev => chipHtml(ev)).join('');
     if (overflow > 0) {
@@ -274,7 +273,6 @@ function renderMonth(container, events, currentDate, cb) {
     }
 
     // Click on chip → show event
-    cell.querySelectorAll && cell.innerHTML && true; // placeholder
     cell.addEventListener('click', e => {
       const chip = e.target.closest('[data-event-uid]');
       if (chip) { e.stopPropagation(); cb.onEventClick(chip.dataset.eventUid, e); }
@@ -391,19 +389,24 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);
   const secAbbr = getTimezoneAbbrClient(secondaryTz, currentDate);
 
+  // The hour axis is a visual aid only: every event block names its own times.
+  // Hiding it keeps the grid to one column per day under its column header.
   const gutterHtml = showSecondary
-    ? `<div class="week-time-gutter dual-tz-gutter" title="${primaryTz} / ${secondaryTz}">
+    ? `<div class="week-time-gutter dual-tz-gutter" aria-hidden="true" title="${primaryTz} / ${secondaryTz}">
          <span class="tz-badge pri">${priAbbr}</span>
          <span class="tz-badge sec">${secAbbr}</span>
        </div>`
-    : `<div class="week-time-gutter"></div>`;
+    : `<div class="week-time-gutter" aria-hidden="true"></div>`;
 
   const wrap = document.createElement('div');
   wrap.className = 'week-view';
+  wrap.setAttribute('role', 'grid');
+  wrap.setAttribute('aria-label', isWorkWeek ? 'Arbeitswochenansicht' : 'Wochenansicht');
 
   // Header row
   const header = document.createElement('div');
   header.className = 'week-header-row';
+  header.setAttribute('role', 'row');
   header.style.gridTemplateColumns = `${gutterW} repeat(${numDays}, 1fr)`;
   header.innerHTML = gutterHtml;
   days.forEach(d => {
@@ -413,7 +416,8 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
       ? `<div class="all-day-events">${allDayEvs.map(ev => chipHtml(ev)).join('')}</div>`
       : '';
     header.innerHTML += `
-      <div class="week-day-header${isToday ? ' today' : ''}" data-date="${d.toISOString()}">
+      <div class="week-day-header${isToday ? ' today' : ''}" data-date="${d.toISOString()}"
+           role="columnheader" aria-label="${dayHeaderLabel(d, allDayEvs.length)}"${isToday ? ' aria-current="date"' : ''}>
         <div class="week-day-label">${DAYS[d.getDay()]}</div>
         <div class="week-day-num">${d.getDate()}</div>
         ${allDayHtml}
@@ -424,11 +428,13 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   // Body
   const body = document.createElement('div');
   body.className = 'week-grid-body';
+  body.setAttribute('role', 'row');
   body.style.gridTemplateColumns = `${gutterW} repeat(${numDays}, 1fr)`;
 
   // Time column
   const timeCol = document.createElement('div');
   timeCol.className = `week-time-col${showSecondary ? ' dual-tz' : ''}`;
+  timeCol.setAttribute('aria-hidden', 'true');
   for (let h = 0; h <= TOTAL_HOURS; h++) {
     if (showSecondary && h > 0 && h < TOTAL_HOURS) {
       const { priStr, secStr } = getDualHourLabelClient(h, currentDate, primaryTz, secondaryTz);
@@ -445,6 +451,7 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   // Day columns
   const cols = document.createElement('div');
   cols.className = 'week-columns';
+  cols.setAttribute('role', 'none');
   cols.style.height = `${TOTAL_HOURS * HOUR_H}px`;
   cols.style.position = 'relative';
   cols.style.gridColumn = `2 / span ${numDays}`;
@@ -488,6 +495,8 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
 function renderDay(container, events, currentDate, cb) {
   const wrap = document.createElement('div');
   wrap.className = 'day-view';
+  wrap.setAttribute('role', 'grid');
+  wrap.setAttribute('aria-label', 'Tagesansicht');
   const today = new Date(); today.setHours(0,0,0,0);
   const isToday = sameDay(currentDate, today);
 
@@ -501,11 +510,11 @@ function renderDay(container, events, currentDate, cb) {
   const secAbbr = getTimezoneAbbrClient(secondaryTz, currentDate);
 
   const gutterHtml = showSecondary
-    ? `<div class="day-time-gutter dual-tz-gutter" title="${primaryTz} / ${secondaryTz}">
+    ? `<div class="day-time-gutter dual-tz-gutter" aria-hidden="true" title="${primaryTz} / ${secondaryTz}">
          <span class="tz-badge pri">${priAbbr}</span>
          <span class="tz-badge sec">${secAbbr}</span>
        </div>`
-    : `<div class="day-time-gutter"></div>`;
+    : `<div class="day-time-gutter" aria-hidden="true"></div>`;
 
   const allDayEvs = eventsForDay(events, currentDate).filter(e => Boolean(e.allDay));
   const allDayHtml = allDayEvs.length > 0
@@ -514,10 +523,12 @@ function renderDay(container, events, currentDate, cb) {
 
   const header = document.createElement('div');
   header.className = 'day-header-row';
+  header.setAttribute('role', 'row');
   header.style.gridTemplateColumns = `${gutterW} 1fr`;
   header.innerHTML = `
     ${gutterHtml}
-    <div class="week-day-header${isToday ? ' today' : ''}" data-date="${currentDate.toISOString()}">
+    <div class="week-day-header${isToday ? ' today' : ''}" data-date="${currentDate.toISOString()}"
+         role="columnheader" aria-label="${dayHeaderLabel(currentDate, allDayEvs.length)}"${isToday ? ' aria-current="date"' : ''}>
       <div class="week-day-label">${DAYS[currentDate.getDay()]}</div>
       <div class="week-day-num">${currentDate.getDate()}</div>
       ${allDayHtml}
@@ -526,10 +537,12 @@ function renderDay(container, events, currentDate, cb) {
 
   const body = document.createElement('div');
   body.className = 'day-grid-body';
+  body.setAttribute('role', 'row');
   body.style.gridTemplateColumns = `${gutterW} 1fr`;
 
   const timeCol = document.createElement('div');
   timeCol.className = `day-time-col${showSecondary ? ' dual-tz' : ''}`;
+  timeCol.setAttribute('aria-hidden', 'true');
   for (let h = 0; h <= TOTAL_HOURS; h++) {
     if (showSecondary && h > 0 && h < TOTAL_HOURS) {
       const { priStr, secStr } = getDualHourLabelClient(h, currentDate, primaryTz, secondaryTz);
@@ -545,6 +558,7 @@ function renderDay(container, events, currentDate, cb) {
 
   const cols = document.createElement('div');
   cols.className = 'day-columns';
+  cols.setAttribute('role', 'none');
   cols.style.height = `${TOTAL_HOURS * HOUR_H}px`;
   cols.style.position = 'relative';
 
@@ -618,6 +632,11 @@ function createTimeCol(allEvents, date, cb) {
   // Event blocks
   const dayEvs = eventsForDay(allEvents, date).filter(e => !e.allDay);
   const laid   = layoutEvents(dayEvs);
+
+  // All-day events sit in the column header, so the cell counts only its own.
+  col.setAttribute('role', 'gridcell');
+  col.setAttribute('aria-label', dayCellLabel(date, dayEvs.length));
+  if (sameDay(date, new Date())) col.setAttribute('aria-current', 'date');
 
   for (const { ev, col: evCol, totalCols } of laid) {
     const block = createEventBlock(ev, evCol, totalCols, cb);
@@ -937,6 +956,23 @@ function eventsForDay(events, date) {
     return s <= dEnd && e >= d;
   });
   return sortEvents(filtered);
+}
+
+// Accessible names for the grid views (#183): "Donnerstag, 13. August 2026"
+// and, for a cell, the number of events it holds.
+function longDateLabel(date) {
+  return date.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function dayCellLabel(date, eventCount) {
+  if (eventCount === 0) return longDateLabel(date);
+  return `${longDateLabel(date)}, ${eventCount === 1 ? '1 Termin' : `${eventCount} Termine`}`;
+}
+
+// Week/day column header, which also holds the day's all-day events.
+function dayHeaderLabel(date, allDayCount) {
+  if (allDayCount === 0) return longDateLabel(date);
+  return `${longDateLabel(date)}, ${allDayCount === 1 ? '1 ganztägiger Termin' : `${allDayCount} ganztägige Termine`}`;
 }
 
 function sameDay(a, b) {
