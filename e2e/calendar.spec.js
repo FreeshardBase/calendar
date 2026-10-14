@@ -1018,6 +1018,163 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #183 — calendar grids reach the accessibility tree as grids', () => {
+    // Fixed events so the counts in the accessible names are known; page.route
+    // needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+    const calendarId = 'internal-caldav::/test/personal/';
+    const fixedEvents = [
+      { uid: 'e2e-issue183-a', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
+      { uid: 'e2e-issue183-b', title: 'Review', calendarId, start: '2037-05-14T14:00:00+02:00', end: '2037-05-14T15:00:00+02:00', allDay: false },
+      { uid: 'e2e-issue183-c', title: 'Feiertag', calendarId, start: '2037-05-14', end: '2037-05-15', allDay: true },
+    ];
+
+    test.beforeEach(async ({ page }) => {
+      await page.route('**/api/events?**', route => route.fulfill({ json: fixedEvents }));
+      await page.goto('/?date=2037-05-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('.month-grid .event-chip', { hasText: 'Standup' })).toBeVisible({ timeout: 10000 });
+    });
+
+    // Chromium's own accessibility tree, the layer a screen reader reads.
+    // Ignored nodes (plain divs, display: contents wrappers that Chromium
+    // drops) are skipped, so `parent` is the nearest node a screen reader sees.
+    async function axTree(page) {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Accessibility.enable');
+      const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+      await cdp.detach();
+      const byId = new Map(nodes.map(n => [n.nodeId, n]));
+      const visibleParent = n => {
+        let p = byId.get(n.parentId);
+        while (p && p.ignored) p = byId.get(p.parentId);
+        return p;
+      };
+      const simple = n => ({
+        role: n.role && n.role.value,
+        name: n.name ? n.name.value : '',
+        props: Object.fromEntries((n.properties || []).map(p => [p.name, p.value && p.value.value])),
+        node: n,
+      });
+      const all = nodes.filter(n => !n.ignored).map(simple);
+      const parentOf = s => { const p = visibleParent(s.node); return p ? simple(p) : null; };
+      const within = (s, ancestor) => {
+        for (let p = visibleParent(s.node); p; p = visibleParent(p)) if (p === ancestor.node) return true;
+        return false;
+      };
+      const childrenOf = s => all.filter(c => visibleParent(c.node) === s.node);
+      return { all, parentOf, within, childrenOf };
+    }
+
+    async function expectGrid(page, { name, headers, cells }) {
+      const tree = await axTree(page);
+      const grids = tree.all.filter(n => n.role === 'grid' && n.name === name);
+      expect(grids).toHaveLength(1);
+      const grid = grids[0];
+      const inGrid = role => tree.all.filter(n => n.role === role && tree.within(n, grid));
+
+      expect(inGrid('columnheader').map(n => n.name)).toEqual(headers);
+      const gridcells = inGrid('gridcell');
+      expect(gridcells.map(n => n.name)).toEqual(cells);
+      // Every header and cell sits in a row of this grid, so a screen reader
+      // can announce "row N, column <weekday>".
+      for (const n of [...inGrid('columnheader'), ...gridcells]) {
+        expect(tree.parentOf(n).role).toBe('row');
+      }
+      // ...and a row holds nothing else, e.g. no run of hour-axis labels.
+      for (const row of inGrid('row')) {
+        for (const c of tree.childrenOf(row)) expect(['columnheader', 'gridcell']).toContain(c.role);
+      }
+      return { tree, grid, gridcells };
+    }
+
+    const fullDate = (weekday, day) => `${weekday}, ${day}. Mai 2037`;
+
+    test('month view: 7 weekday column headers, 6 rows of 7 named gridcells, selected day marked', async ({ page }) => {
+      const weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+      const { tree, grid, gridcells } = await expectGrid(page, {
+        name: 'Monatsansicht',
+        headers: weekdays,
+        cells: Array.from({ length: 42 }, (_, i) => {
+          const d = new Date(2037, 3, 27 + i); // grid starts Monday 27 April 2037
+          const label = d.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          return d.getDate() === 14 && d.getMonth() === 4 ? `${label}, 3 Termine` : label;
+        }),
+      });
+      const rows = tree.all.filter(n => n.role === 'row' && tree.within(n, grid));
+      expect(rows).toHaveLength(7);
+
+      const selected = gridcells.filter(n => n.props.selected === true);
+      expect(selected.map(n => n.name)).toEqual([fullDate('Donnerstag', 14) + ', 3 Termine']);
+
+      const chip = tree.all.find(n => n.role === 'button' && n.name === '09:00 Standup');
+      expect(chip && tree.within(chip, selected[0])).toBe(true);
+    });
+
+    test('today is marked with aria-current="date" in month, week and day view, not by colour alone', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('.month-grid')).toBeVisible({ timeout: 10000 });
+      // "Today" in the browser's time zone, which is what the app renders.
+      const today = await page.evaluate(() => new Date().toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+      const current = page.locator('.month-grid [role="gridcell"][aria-current="date"]');
+      await expect(current).toHaveCount(1);
+      await expect(current).toHaveAttribute('aria-label', new RegExp(`^${today}`));
+      await expect(current).toHaveClass(/\btoday\b/);
+
+      for (const [button, view] of [['#view-week', '.week-view'], ['#view-day', '.day-view']]) {
+        await page.click(button);
+        await expect(page.locator(view)).toBeVisible({ timeout: 10000 });
+        // Both the column header and the cell a screen reader moves through.
+        for (const role of ['columnheader', 'gridcell']) {
+          const marked = page.locator(`${view} [role="${role}"][aria-current="date"]`);
+          await expect(marked).toHaveCount(1);
+          await expect(marked).toHaveAttribute('aria-label', new RegExp(`^${today}`));
+        }
+      }
+    });
+
+    test('week view: full-date column headers and one named gridcell per day holding its events', async ({ page }) => {
+      await page.click('#view-week');
+      await expect(page.locator('.week-view .event-block', { hasText: 'Review' })).toBeVisible({ timeout: 10000 });
+      const weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+      const dates = weekdays.map((w, i) => fullDate(w, 11 + i));
+      const { tree, gridcells } = await expectGrid(page, {
+        name: 'Wochenansicht',
+        // The all-day event sits in the column header, the timed ones in the cell.
+        headers: dates.map(h => h.startsWith('Donnerstag') ? `${h}, 1 ganztägiger Termin` : h),
+        cells: dates.map(h => h.startsWith('Donnerstag') ? `${h}, 2 Termine` : h),
+      });
+      const thursday = gridcells[3];
+      const blocks = tree.all.filter(n => n.role === 'button' && /Standup|Review/.test(n.name));
+      expect(blocks.map(n => n.name)).toEqual(['09:00 Standup', '14:00 – 15:00 Review']);
+      for (const b of blocks) expect(tree.within(b, thursday)).toBe(true);
+    });
+
+    test('workweek view: five full-date column headers and gridcells', async ({ page }) => {
+      await page.click('#view-workweek');
+      await expect(page.locator('.week-view .event-block', { hasText: 'Review' })).toBeVisible({ timeout: 10000 });
+      const dates = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'].map((w, i) => fullDate(w, 11 + i));
+      await expectGrid(page, {
+        name: 'Arbeitswochenansicht',
+        headers: dates.map(h => h.startsWith('Donnerstag') ? `${h}, 1 ganztägiger Termin` : h),
+        cells: dates.map(h => h.startsWith('Donnerstag') ? `${h}, 2 Termine` : h),
+      });
+    });
+
+    test('day view: a full-date column header and one gridcell holding the events', async ({ page }) => {
+      await page.click('#view-day');
+      await expect(page.locator('.day-view .event-block', { hasText: 'Review' })).toBeVisible({ timeout: 10000 });
+      const { tree, gridcells } = await expectGrid(page, {
+        name: 'Tagesansicht',
+        headers: [`${fullDate('Donnerstag', 14)}, 1 ganztägiger Termin`],
+        cells: [`${fullDate('Donnerstag', 14)}, 2 Termine`],
+      });
+      const blocks = tree.all.filter(n => n.role === 'button' && /Standup|Review/.test(n.name));
+      expect(blocks).toHaveLength(2);
+      for (const b of blocks) expect(tree.within(b, gridcells[0])).toBe(true);
+    });
+  });
+
   test('should open invitations modal and inspect iTIP/RSVP inbox', async ({ page }) => {
     const invRespPromise = page.waitForResponse(resp => resp.url().includes('/api/events/invitations'));
     await page.goto('/');
