@@ -1819,6 +1819,114 @@ const SERIES_FIELD_KEYS = {
   attachments:   _listKey(a => String(a.url || '').trim())
 };
 
+function _floatingCopy(t) {
+  return ICAL.Time.fromData({
+    year: t.year, month: t.month, day: t.day,
+    hour: t.hour, minute: t.minute, second: t.second, isDate: t.isDate
+  });
+}
+
+const SERIES_INSTANT_MAX_ITERATIONS = 50000;
+
+// Unix times of every instance the master's DTSTART, RDATEs and RRULEs
+// (EXDATE ignored) produce up to `untilUnix`. Throws rather than guessing when
+// a rule is too dense to walk that far.
+function _seriesInstants(master, untilUnix) {
+  const dtstart = master.getFirstPropertyValue('dtstart');
+  const out = new Set([dtstart.toUnixTime()]);
+  for (const p of master.getAllProperties('rdate')) {
+    for (const v of p.getValues()) {
+      if (v instanceof ICAL.Time) out.add(v.toUnixTime());
+    }
+  }
+  for (const rrule of master.getAllProperties('rrule').map(p => p.getFirstValue())) {
+    const it = rrule.iterator(dtstart);
+    let iterations = 0;
+    let next;
+    while ((next = it.next())) {
+      const t = next.toUnixTime();
+      if (t > untilUnix) break;
+      out.add(t);
+      if (++iterations >= SERIES_INSTANT_MAX_ITERATIONS) {
+        throw new Error('Recurrence rule too dense to verify the series exceptions; save refused');
+      }
+    }
+  }
+  return out;
+}
+
+// After a series save, EXDATE values and RECURRENCE-ID overrides still name
+// instants of the old DTSTART/RRULE. Each one is kept if the new rule still
+// generates it, else moved by DTSTART's wall-clock delta if that lands on a
+// generated instant, else dropped — so the stored file never holds an
+// exception the expander silently ignores (#243).
+function _reconcileSeriesExceptions(comp, oldMaster, newMaster) {
+  const recurs = (v) => v.hasProperty('rrule') || v.hasProperty('rdate');
+  if (!recurs(oldMaster) && !recurs(newMaster)) return;
+  const origDtstart = oldMaster.getFirstPropertyValue('dtstart');
+  const newDtstart = newMaster.getFirstPropertyValue('dtstart');
+  if (!newDtstart) return;
+  const uid = newMaster.getFirstPropertyValue('uid');
+
+  let delta = null;
+  if (origDtstart && origDtstart.isDate === newDtstart.isDate) {
+    const d = _floatingCopy(newDtstart).subtractDate(_floatingCopy(origDtstart));
+    if (d.toSeconds() !== 0) delta = d;
+  }
+  const shifted = (t) => {
+    if (!delta) return t;
+    const c = t.clone();
+    c.addDuration(delta);
+    return c;
+  };
+
+  const exdateProps = newMaster.getAllProperties('exdate');
+  const overrides = comp.getAllSubcomponents('vevent')
+    .filter(v => v.hasProperty('recurrence-id') && v.getFirstPropertyValue('uid') === uid);
+  const candidates = [
+    ...exdateProps.flatMap(p => p.getValues()),
+    ...overrides.map(v => v.getFirstPropertyValue('recurrence-id'))
+  ];
+  if (candidates.length === 0) return;
+  const until = Math.max(...candidates.flatMap(t => [t.toUnixTime(), shifted(t).toUnixTime()]));
+  const generated = _seriesInstants(newMaster, until);
+  const resolve = (t) => {
+    if (generated.has(t.toUnixTime())) return t;
+    const s = shifted(t);
+    return s !== t && generated.has(s.toUnixTime()) ? s : null;
+  };
+
+  for (const prop of exdateProps) {
+    const kept = prop.getValues().map(resolve).filter(Boolean);
+    if (kept.length === 0) {
+      newMaster.removeProperty(prop);
+    } else {
+      prop.setValues(kept);
+    }
+  }
+
+  for (const ovr of overrides) {
+    const ridProp = ovr.getFirstProperty('recurrence-id');
+    const oldRid = ridProp.getFirstValue();
+    const newRid = resolve(oldRid);
+    if (!newRid) {
+      comp.removeSubcomponent(ovr);
+      continue;
+    }
+    if (newRid === oldRid) continue;
+    // An override still sitting at its own slot was not moved by the user,
+    // so it follows the series; one moved elsewhere keeps its time.
+    const ovStart = ovr.getFirstPropertyValue('dtstart');
+    if (ovStart && ovStart.toUnixTime() === oldRid.toUnixTime()) {
+      for (const name of ['dtstart', 'dtend']) {
+        const p = ovr.getFirstProperty(name);
+        if (p) p.setValue(shifted(p.getFirstValue()));
+      }
+    }
+    ridProp.setValue(newRid);
+  }
+}
+
 /**
  * Update a whole event series while preserving any existing EXDATE properties
  * on the master VEVENT and any detached override VEVENT subcomponents.
@@ -1827,6 +1935,7 @@ const SERIES_FIELD_KEYS = {
  * @param {Object}      eventData   - Updated event properties for the master VEVENT
  * @returns {string}                - Updated raw ICS string
  */
+
 function updateWholeSeries(existingIcs, eventData) {
   if (!existingIcs || typeof existingIcs !== 'string' || !existingIcs.trim()) {
     return eventToICS(eventData);
@@ -1999,6 +2108,7 @@ function updateWholeSeries(existingIcs, eventData) {
   }
 
   comp.removeSubcomponent(master);
+  _reconcileSeriesExceptions(comp, master, newMaster);
   comp.addSubcomponent(newMaster);
 
   const newTzs = newMasterComp.getAllSubcomponents('vtimezone');
