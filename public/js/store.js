@@ -45,7 +45,7 @@ today.setHours(0, 0, 0, 0);
 
 export const store = createStore({
   // Auth / accounts
-  accounts:        [],   // [{ id, url, username, displayName }]
+  accounts:        [],   // [{ id, url, username, displayName, credentialsUnreadable? }]
 
   // Calendar data
   calendars:       [],   // [{ id, accountId, name, color, href, url, ... }]

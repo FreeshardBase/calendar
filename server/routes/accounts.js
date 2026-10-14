@@ -35,20 +35,38 @@ router.get('/presets', (req, res) => {
 });
 
 // GET /api/accounts — list accounts (passwords redacted)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   if (req.accountLoadError) {
     return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${req.accountLoadError}` });
   }
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
+  // Issue #136: accounts whose credentials cannot be decrypted are not in the
+  // session (no CalDAV consumer may use them), but they must be listed so the
+  // user can see and delete them from the UI.
+  let unreadable;
+  try {
+    unreadable = await Db.getUnreadableAccounts(req.session.userId);
+  } catch (err) {
+    return res.status(500).json({ error: `Fehler beim Laden der Kontodaten: ${err.message}` });
+  }
   const accounts = req.session?.accounts || [];
-  res.json(accounts.map(a => ({
-    id:          a.id,
-    url:         a.url,
-    username:    a.username,
-    displayName: a.displayName
-  })));
+  res.json([
+    ...accounts.map(a => ({
+      id:          a.id,
+      url:         a.url,
+      username:    a.username,
+      displayName: a.displayName
+    })),
+    ...unreadable.map(a => ({
+      id:                    a.id,
+      url:                   a.url,
+      username:              a.username,
+      displayName:           a.displayName,
+      credentialsUnreadable: true
+    }))
+  ]);
 });
 
 // POST /api/accounts — add a new CalDAV account
@@ -200,13 +218,15 @@ router.delete('/:id', async (req, res) => {
   // mismatch).  Fall back to a raw ownership lookup (no decryption) so the user can
   // still remove the broken row from the UI.
   if (!account) {
+    let owner;
     try {
-      const owner = await Db.getAccountOwner(req.params.id);
-      if (owner && owner.userId === req.session.userId) {
-        account = owner; // minimal object — only id/userId needed to authorise the DELETE
-      }
+      owner = await Db.getAccountOwner(req.params.id);
     } catch (err) {
       console.error('[accounts] getAccountOwner failed during DELETE fallback:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+    if (owner && owner.userId === req.session.userId) {
+      account = owner; // minimal object — only id/userId needed to authorise the DELETE
     }
   }
 

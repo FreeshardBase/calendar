@@ -1445,6 +1445,72 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
   });
 
+  test('Issue #136 — an account with unreadable credentials is shown in settings and can be deleted from the UI', async ({ page, request }) => {
+    const path = require('path');
+    const sqlite3 = require('sqlite3');
+    const { randomUUID } = require('crypto');
+    // The webServer runs with NODE_ENV=production and no DATABASE_PATH, so db.js uses <repo>/webcalendar.db,
+    // and E2E_TEST=true logs the browser in as CALDAV_USERNAME || 'test'.
+    const dbFile = process.env.DATABASE_PATH || path.join(__dirname, '..', 'webcalendar.db');
+    const userId = process.env.CALDAV_USERNAME || 'test';
+    const brokenId = randomUUID();
+    const brokenName = `Nextcloud kaputt ${Date.now()}`;
+
+    const removeSeededRows = async () => {
+      const cleanupDb = new sqlite3.Database(dbFile);
+      await new Promise((resolve, reject) => cleanupDb.run(
+        "DELETE FROM linked_accounts WHERE user_id = ? AND display_name LIKE 'Nextcloud kaputt %'", [userId],
+        err => err ? reject(err) : resolve()
+      ));
+      await new Promise(resolve => cleanupDb.close(resolve));
+    };
+    await removeSeededRows(); // leftovers of an aborted earlier run
+
+    // Ciphertext that does not decrypt under the server's key — a restore onto a shard with a different ENCRYPTION_KEY.
+    const db = new sqlite3.Database(dbFile);
+    await new Promise((resolve, reject) => db.run(
+      `INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name)
+       VALUES (?,?,?,?,?,?,?)`,
+      [brokenId, userId, 'https://caldav.example.com/remote.php/dav/', 'testuser', 'deadbeef',
+       '00000000000000000000000000000000', brokenName],
+      err => err ? reject(err) : resolve()
+    ));
+    await new Promise(resolve => db.close(resolve));
+
+    try {
+      page.on('dialog', d => d.accept());
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      // The broken account must not be offered as a target for new calendars.
+      await page.click('#add-calendar-btn');
+      await expect(page.locator('#add-cal-account option')).not.toHaveCount(0);
+      await expect(page.locator('#add-cal-account option', { hasText: brokenName })).toHaveCount(0);
+      await page.click('#add-cal-cancel');
+      await expect(page.locator('#add-cal-dialog-backdrop')).toHaveCount(0);
+
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+
+      const row = page.locator('#settings-account-list .settings-item', { hasText: brokenName });
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText('Zugangsdaten nicht lesbar — Konto neu verbinden');
+      const deleteBtn = row.locator(`[data-delete-acc="${brokenId}"]`);
+      await expect(deleteBtn).toBeEnabled();
+
+      await deleteBtn.click();
+      await expect(row).toHaveCount(0, { timeout: 10000 });
+
+      const res = await request.get('/api/accounts');
+      expect(res.status()).toBe(200);
+      const accounts = await res.json();
+      expect(accounts.find(a => a.id === brokenId)).toBeUndefined();
+    } finally {
+      // Remove the seeded row even if an assertion failed, so it cannot leak into later tests.
+      await removeSeededRows();
+    }
+  });
+
   test('should subscribe to a webcal feed, display overlay events, toggle visibility, and show read-only details (Issue #24)', async ({ page }) => {
     const http = require('http');
     const timestamp = Date.now();

@@ -612,32 +612,57 @@ function decryptToken(token) {
 
 const Db = {
   getAccounts(userId) {
+    return Db._loadAccountRows(userId).then(({ readable }) => readable);
+  },
+
+  /**
+   * Issue #136: linked_accounts rows whose credentials cannot be decrypted (wrong
+   * ENCRYPTION_KEY after a restore, corrupted ciphertext). Returned in a degraded
+   * shape without any secret so GET /api/accounts can list them and the user can
+   * delete them from the UI. They are never part of getAccounts().
+   */
+  getUnreadableAccounts(userId) {
+    return Db._loadAccountRows(userId).then(({ unreadable }) => unreadable);
+  },
+
+  _loadAccountRows(userId) {
     return new Promise((resolve, reject) => {
       db.all(
         'SELECT * FROM linked_accounts WHERE user_id = ?',
         [userId],
         (err, rows) => {
           if (err) return reject(err);
-          const mapped = [];
+          const readable = [];
+          const unreadable = [];
           for (const row of rows) {
+            let password;
             try {
-              mapped.push({
+              password = decrypt(row.password_encrypted, row.iv); // decrypts either password or refresh_token
+            } catch (decryptionError) {
+              // Issue #136: one undecryptable row is a broken account, not a broken app.
+              console.error(`[db] Skipping undecryptable linked_accounts row id=${row.id}:`, decryptionError.message);
+              unreadable.push({
                 id: row.id,
                 url: row.url,
                 username: row.username,
-                password: decrypt(row.password_encrypted, row.iv), // decrypts either password or refresh_token
                 displayName: row.display_name,
                 authType: row.auth_type || 'basic',
-                accessToken: row.access_token,
-                expiresAt: row.expires_at
+                credentialsUnreadable: true
               });
-            } catch (decryptionError) {
-              // Issue #136: skip undecryptable rows (wrong key, corrupted ciphertext, etc.)
-              // rather than rejecting the whole promise and 401-ing every API route.
-              console.error(`[db] Skipping undecryptable linked_accounts row id=${row.id}:`, decryptionError.message);
+              continue;
             }
+            readable.push({
+              id: row.id,
+              url: row.url,
+              username: row.username,
+              password,
+              displayName: row.display_name,
+              authType: row.auth_type || 'basic',
+              accessToken: row.access_token,
+              expiresAt: row.expires_at
+            });
           }
-          resolve(mapped);
+          resolve({ readable, unreadable });
         }
       );
     });
