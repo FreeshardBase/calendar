@@ -1,4 +1,17 @@
 const { test, expect } = require('@playwright/test');
+const sqlite3 = require('sqlite3');
+const { webServer } = require('../playwright.config.js');
+
+// The webServer's own database (#211), never the developer's webcalendar.db.
+const E2E_DATABASE_PATH = webServer.env.DATABASE_PATH;
+
+function runSql(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(E2E_DATABASE_PATH);
+    db.configure('busyTimeout', 5000); // the webServer writes the same file concurrently
+    db.run(sql, params, err => db.close(() => (err ? reject(err) : resolve())));
+  });
+}
 
 test.describe('FreeShard WebCalendar E2E Suite', () => {
 
@@ -38,27 +51,25 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       { method: 'post', path: '/api/freebusy/query', data: { timeMin: '2026-07-01T00:00:00Z', timeMax: '2026-07-02T00:00:00Z' } }
     ];
 
+    // `request` carries no session cookie; the server runs the shipping auth configuration (#211).
     for (const ep of endpoints) {
-      const response = await request[ep.method](ep.path, {
-        headers: {
-          'x-test-user-id': 'unauthenticated'
-        },
-        data: ep.data
-      });
+      const response = await request[ep.method](ep.path, { data: ep.data });
       expect(response.status()).toBe(401);
       const body = await response.json();
       expect(body.error).toBe('Authentication required');
     }
   });
 
-  test('Issue #71 / E2E-1 — browser displays authentication error toast when unauthenticated', async ({ page }) => {
-    await page.setExtraHTTPHeaders({
-      'x-test-user-id': 'unauthenticated'
-    });
+  test('Issue #71 / E2E-1 — browser displays authentication error toast when unauthenticated', async ({ page, context }) => {
     await page.goto('/');
-    const toast = page.locator('.toast.error, #toast-container .toast');
-    await expect(toast).toBeVisible({ timeout: 10000 });
-    await expect(toast).toContainText('Authentication required');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    const authToast = page.locator('#toast-container .toast', { hasText: 'Authentication required' });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich');
+    await expect(authToast).toHaveCount(0);
+    // The session is lost (expired / cleared); the next data fetch must surface the 401.
+    await context.clearCookies();
+    await page.click('#next-btn');
+    await expect(authToast.first()).toBeVisible({ timeout: 10000 });
   });
 
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {
@@ -437,6 +448,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
     page.on('console', msg => console.log('PAGE LOG:', msg.text()));
     page.on('pageerror', err => console.error('PAGE ERROR:', err.message));
+
+    // The share target is a second shard member; the server seeds no users itself (#211).
+    await runSql(
+      "INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('testuser-id', 'testuser@example.com', 'testuser@example.com')"
+    );
 
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
@@ -1860,37 +1876,25 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
   });
 
-  test('Issue #136 — an account with unreadable credentials is shown in settings and can be deleted from the UI', async ({ page, request }) => {
-    const path = require('path');
-    const sqlite3 = require('sqlite3');
+  test('Issue #136 — an account with unreadable credentials is shown in settings and can be deleted from the UI', async ({ page }) => {
     const { randomUUID } = require('crypto');
-    // The webServer runs with NODE_ENV=production and no DATABASE_PATH, so db.js uses <repo>/webcalendar.db,
-    // and E2E_TEST=true logs the browser in as CALDAV_USERNAME || 'test'.
-    const dbFile = process.env.DATABASE_PATH || path.join(__dirname, '..', 'webcalendar.db');
+    // Env auth signs the browser in as CALDAV_USERNAME || 'test'; rows go into the webServer's DATABASE_PATH.
     const userId = process.env.CALDAV_USERNAME || 'test';
     const brokenId = randomUUID();
     const brokenName = `Nextcloud kaputt ${Date.now()}`;
 
-    const removeSeededRows = async () => {
-      const cleanupDb = new sqlite3.Database(dbFile);
-      await new Promise((resolve, reject) => cleanupDb.run(
-        "DELETE FROM linked_accounts WHERE user_id = ? AND display_name LIKE 'Nextcloud kaputt %'", [userId],
-        err => err ? reject(err) : resolve()
-      ));
-      await new Promise(resolve => cleanupDb.close(resolve));
-    };
+    const removeSeededRows = () => runSql(
+      "DELETE FROM linked_accounts WHERE user_id = ? AND display_name LIKE 'Nextcloud kaputt %'", [userId]
+    );
     await removeSeededRows(); // leftovers of an aborted earlier run
 
     // Ciphertext that does not decrypt under the server's key — a restore onto a shard with a different ENCRYPTION_KEY.
-    const db = new sqlite3.Database(dbFile);
-    await new Promise((resolve, reject) => db.run(
+    await runSql(
       `INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name)
        VALUES (?,?,?,?,?,?,?)`,
       [brokenId, userId, 'https://caldav.example.com/remote.php/dav/', 'testuser', 'deadbeef',
-       '00000000000000000000000000000000', brokenName],
-      err => err ? reject(err) : resolve()
-    ));
-    await new Promise(resolve => db.close(resolve));
+       '00000000000000000000000000000000', brokenName]
+    );
 
     try {
       page.on('dialog', d => d.accept());
@@ -1916,7 +1920,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await deleteBtn.click();
       await expect(row).toHaveCount(0, { timeout: 10000 });
 
-      const res = await request.get('/api/accounts');
+      const res = await page.request.get('/api/accounts');
       expect(res.status()).toBe(200);
       const accounts = await res.json();
       expect(accounts.find(a => a.id === brokenId)).toBeUndefined();

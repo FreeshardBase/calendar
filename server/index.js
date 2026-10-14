@@ -35,7 +35,7 @@ function validateSystemSyncSecret(env = process.env) {
   const portalId = (env && env.PORTAL_ID) || process.env.PORTAL_ID;
   if (portalId && rawSecret === portalId.trim()) isWeak = true;
 
-  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_SYSTEM_SYNC_SECRET !== 'true' && env.E2E_TEST !== 'true') {
+  if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_SYSTEM_SYNC_SECRET !== 'true') {
     const msg = 'SYSTEM_SYNC_SECRET must be explicitly configured with a secure value in production environment.';
     if (env.EXIT_ON_INVALID_SECRETS === 'true' || require.main === module) {
       console.error(msg);
@@ -101,7 +101,7 @@ app.use(express.urlencoded({ extended: true }));
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
   const authMethod = process.env.AUTH_METHOD || 'env';
-  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true';
+  const isTestEnv = process.env.NODE_ENV === 'test';
   let newUserId = req.session.userId;
   if (isTestEnv && (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none')) {
     if (req.session.userId !== undefined) {
@@ -135,7 +135,7 @@ app.use(async (req, res, next) => {
         req.session.userEmail = String(headerUser).trim().toLowerCase();
       }
     }
-  } else if (!newUserId && authMethod === 'env' && (req.path === '/' || req.path === '/index.html' || req.path === '/api/auth/session' || process.env.E2E_TEST === 'true')) {
+  } else if (!newUserId && authMethod === 'env' && (req.path === '/' || req.path === '/index.html' || req.path === '/api/auth/session')) {
     newUserId = process.env.CALDAV_USERNAME || 'test';
     if (process.env.CALDAV_EMAIL) {
       req.session.userEmail = process.env.CALDAV_EMAIL.trim().toLowerCase();
@@ -157,7 +157,7 @@ app.use(async (req, res, next) => {
       }
       if (req.session.userUpserted !== userId) {
         await Db.upsertUser(userId, (req.session && req.session.username) || userId, req.session.userEmail || null);
-        if (process.env.NODE_ENV === 'test' || process.env.E2E_TEST === 'true') {
+        if (process.env.NODE_ENV === 'test') {
           await Db.upsertUser('testuser-id', 'testuser@example.com', 'testuser@example.com');
         }
         req.session.userUpserted = userId;
