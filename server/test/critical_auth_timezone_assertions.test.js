@@ -50,7 +50,7 @@ test('Issue #218 — Critical Auth & Timezone Test Assertions Suite', async (t) 
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PART 1: CRITICAL AUTHENTICATION & ACCESS CONTROL ASSERTIONS
@@ -154,7 +154,7 @@ test('Issue #218 — Critical Auth & Timezone Test Assertions Suite', async (t) 
 
       const res = await fetch(`${baseUrl}${ep.path}`, opts);
       assert.equal(res.status, 401, `${ep.method} ${ep.path} must return 401 Unauthorized without session cookie`);
-      const body = await res.json().catch(() => ({}));
+      const body = await res.json();
       assert.ok(body.error, `${ep.method} ${ep.path} response body must contain an explicit error string`);
     }
   });

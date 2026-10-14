@@ -159,7 +159,7 @@ router.post('/', async (req, res) => {
       password,
       displayName
     });
-    await Db.addSyncJob(userId).catch(err => console.error('[sync-queue] Failed to add sync job after account creation:', err.message));
+    await Db.addSyncJob(userId);
     res.status(201).json({ id, displayName: finalDisplayName, message: 'Account added.' });
   } catch (err) {
     return sendError(res, err);

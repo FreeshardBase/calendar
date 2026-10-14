@@ -25,7 +25,7 @@ test('Calendar Ownership & Session Authentication Verification Suite (Issue #51)
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

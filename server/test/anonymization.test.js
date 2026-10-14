@@ -28,8 +28,9 @@ function isBinaryFile(fullPath) {
         return true;
       }
     }
-  } catch (_) {
-    // If opening or reading fails, skip or let caller handle
+  } catch (err) {
+    // A file removed between listing and reading is skipped; anything else is a real failure.
+    if (err.code !== 'ENOENT') throw err;
   }
   return false;
 }
@@ -49,7 +50,10 @@ function walkDir(currentDir, rootDir) {
         files.push(path.relative(rootDir, full));
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    // Directories the test user cannot read (e.g. container volumes) are not part of the repo.
+    if (err.code !== 'EACCES') throw err;
+  }
   return files;
 }
 

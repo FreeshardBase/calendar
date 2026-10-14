@@ -74,4 +74,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - No build step, no bundler; plain CommonJS server-side, plain script tags client-side.
 - Do not add METHOD to CalDAV VCALENDAR objects (RFC 4791 §4.1) — see `eventToICS`.
 - Multi-process SQLite: node app, Radicale plugins, and sync-worker all open the same DB file —
-  keep writes short-lived; schema changes must be additive (silent `ALTER TABLE` migrations in db.js).
+  keep writes short-lived; schema changes must be additive and go into a new numbered entry in
+  `server/utils/migrations.js` (never an ad-hoc `ALTER TABLE` in db.js). The server listens only after
+  `Db.ready` (migrations + encryption-key check) resolved; a failed migration exits with status 1 (#343).
+- Fail fast (#343): no empty or comment-only `catch {}`, no `.catch(() => {})` / `.catch(() => [])` /
+  `.catch(noop)` (ESLint errors) and no `except Exception: pass`
+  or blind `except Exception` (ruff S110/BLE001). Catch only the specific expected error, or let it reach
+  the user (HTTP error, toast, sync job `error_message`); a deliberate catch-all at a job/loop boundary
+  carries `# noqa: BLE001` and a comment saying where the error goes.

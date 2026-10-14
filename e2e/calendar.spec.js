@@ -21,21 +21,21 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // The one-time welcome modal (shown when only the internal calendar account
     // exists) would intercept clicks — mark it as already dismissed.
     await page.addInitScript(() => {
-      try {
-        window.localStorage.setItem('welcome-popup-closed', 'true');
-        window.localStorage.setItem('activeView', 'month');
-      } catch (e) {}
+      // Also runs in opaque-origin frames (about:blank), which have no localStorage.
+      if (window.origin === 'null') return;
+      window.localStorage.setItem('welcome-popup-closed', 'true');
+      window.localStorage.setItem('activeView', 'month');
     });
   });
 
   test.afterEach(async ({ page }) => {
-    try {
-      await page.evaluate(() => {
-        const modalBackdrops = document.querySelectorAll('.modal-backdrop, [id$="-backdrop"]');
-        modalBackdrops.forEach(el => el.classList.add('hidden'));
-        window.localStorage.removeItem('activeView');
-      });
-    } catch (e) {}
+    // Pages that never navigated to the app (API-only tests) have nothing to reset.
+    if (page.isClosed() || !page.url().startsWith('http')) return;
+    await page.evaluate(() => {
+      const modalBackdrops = document.querySelectorAll('.modal-backdrop, [id$="-backdrop"]');
+      modalBackdrops.forEach(el => el.classList.add('hidden'));
+      window.localStorage.removeItem('activeView');
+    });
   });
 
   test('Issue #71 / E2E-1 — protected API endpoints strictly reject unauthenticated requests with 401 and Authentication required', async ({ request }) => {
@@ -1833,6 +1833,59 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#settings-drawer')).toHaveClass(/hidden/);
   });
 
+  test.describe('Issue #343 — load failures are shown, not swallowed', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    test('working hours that fail to load show an error and cannot be overwritten with the defaults', async ({ page }) => {
+      await page.route('**/api/working-hours', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#wh-save-status')).toHaveText('Arbeitszeiten konnten nicht geladen werden.');
+      await expect(page.locator('#wh-save-btn')).toBeDisabled();
+    });
+
+    test('webcal subscriptions that fail to load raise an error toast', async ({ page }) => {
+      await page.route('**/api/webcal/subscriptions', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Abonnements konnten nicht geladen werden' })).toBeVisible({ timeout: 10000 });
+    });
+
+    test('a subscription whose events fail to load raises an error toast naming it', async ({ page }) => {
+      await page.route('**/api/webcal/subscriptions', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ json: { subscriptions: [{ id: 'e2e-343-sub', name: 'E2E Feed 343', color: '#3b82f6' }] } });
+      });
+      await page.route('**/api/webcal/subscriptions/e2e-343-sub/events?**', route =>
+        route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'Feed nicht erreichbar' }) }));
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      const feedToast = page.locator('#toast-container .toast.error', { hasText: 'E2E Feed 343' });
+      await expect(feedToast).toBeVisible({ timeout: 10000 });
+
+      // Paging reloads the feed and fails again; the unchanged failure is not reported once per page turn.
+      // The toast decision follows the logged failure within the same task (promise microtasks);
+      // after the log line and one macrotask, a second toast would already be in the DOM.
+      const reloadFailed = page.waitForEvent('console', msg => msg.text().includes('[webcal] Failed to load events for subscription'));
+      await page.click('#next-btn');
+      await reloadFailed;
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+      await expect(feedToast).toHaveCount(1);
+    });
+  });
+
   test('should manage focus inside modal dialog and close modal on Escape key press', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
@@ -2001,12 +2054,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     } finally {
       try {
         const delBtn = page.locator('#webcal-list .calendar-item', { hasText: feedName }).locator('[data-delete-webcal]').first();
-        if (await delBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (await delBtn.isVisible()) {
           page.once('dialog', d => d.accept());
           await delBtn.click();
         }
-      } catch (e) {}
-      await new Promise(resolve => feedServer.close(resolve));
+      } finally {
+        await new Promise(resolve => feedServer.close(resolve));
+      }
     }
   });
 

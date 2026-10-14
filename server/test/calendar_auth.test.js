@@ -8,7 +8,7 @@ const Db = require('../db');
 const { checkCalendarAccess } = require('../utils/calendarAuth');
 
 test('Calendar Authorization & Access Control Suite (Issue #50)', async (t) => {
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const ownerUserId = 'user-owner-uuid';
   const strangerUserId = 'user-stranger-uuid';

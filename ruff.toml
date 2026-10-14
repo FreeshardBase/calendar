@@ -1,4 +1,7 @@
 [lint]
+# #343 (CLAUDE.md 3.1): no try/except/pass or /continue (S110, S112) and no blind `except Exception` (BLE001);
+# a deliberate catch-all at a job or loop boundary carries a `# noqa: BLE001` and says where the error goes.
+extend-select = ["S110", "S112", "BLE001"]
 # E402: workers and their tests extend sys.path before importing sibling modules
 ignore = ["E402"]
 

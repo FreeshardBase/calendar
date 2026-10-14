@@ -92,8 +92,9 @@ describe('Issue #314 — iCalendar Property Escaping & ATTENDEE Injection Guard'
     try {
       const jcal = ICAL.parse(ics);
       comp = new ICAL.Component(jcal);
-    } catch (_) {
-      // Failure to parse invalid RRULE frequency is expected and safe
+    } catch (err) {
+      // The forged line was folded into the RRULE value, which ical.js then rejects as a frequency.
+      assert.match(err.message, /invalid frequency/);
     }
     if (comp) {
       const vevent = comp.getFirstSubcomponent('vevent');

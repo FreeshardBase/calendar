@@ -31,6 +31,7 @@ try:
     conn = sqlite3.connect(db_path)
     conn.execute("CREATE TABLE linked_accounts (id INTEGER PRIMARY KEY, user_id TEXT, url TEXT, username TEXT, password_encrypted TEXT, iv TEXT, auth_type TEXT, access_token TEXT, expires_at INTEGER)")
     conn.execute("CREATE TABLE msgraph_accounts (id INTEGER PRIMARY KEY, user_id TEXT, tenant_id TEXT, client_id TEXT, account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT, target_calendar_id TEXT, created_at INTEGER, updated_at INTEGER)")
+    conn.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, calendar_id TEXT, owner_user_id TEXT, deleted_by TEXT, created_at INTEGER)")
 
     # Encrypt fake refresh token
     encrypted_tok, iv = sync_worker.encrypt("secret_refresh_token_196", sync_worker.KEY_BYTES)
@@ -98,6 +99,7 @@ os.close(db_fd)
 conn = sqlite3.connect(db_path)
 conn.execute("CREATE TABLE linked_accounts (id INTEGER PRIMARY KEY, user_id TEXT, url TEXT, username TEXT, password_encrypted TEXT, iv TEXT, auth_type TEXT, access_token TEXT, expires_at INTEGER)")
 conn.execute("CREATE TABLE msgraph_accounts (id INTEGER PRIMARY KEY, user_id TEXT, tenant_id TEXT, client_id TEXT, account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT, target_calendar_id TEXT, created_at INTEGER, updated_at INTEGER)")
+conn.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, calendar_id TEXT, owner_user_id TEXT, deleted_by TEXT, created_at INTEGER)")
 enc, iv = sync_worker.encrypt("secret_refresh_token_196", sync_worker.KEY_BYTES)
 conn.execute("INSERT INTO linked_accounts (user_id, url, username, password_encrypted, iv, auth_type, access_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ("testuser196b", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser@example.com", enc, iv, "oauth2", "fake_access_token", 10000000000000))

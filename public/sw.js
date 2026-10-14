@@ -85,7 +85,10 @@ self.addEventListener('fetch', (event) => {
           if (networkResponse && networkResponse.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
           }
-        }).catch(() => {/* Ignore network errors offline */});
+        }).catch((err) => {
+          // Offline: fetch rejects with a TypeError and the cached response is served.
+          if (!(err instanceof TypeError)) throw err;
+        });
 
         return cachedResponse;
       }

@@ -157,9 +157,7 @@ class CalDAVClient {
       }
 
       if (!res.url || res.url !== currentUrl) {
-        try {
-          Object.defineProperty(res, 'url', { value: currentUrl, writable: false, configurable: true });
-        } catch (_) {}
+        Object.defineProperty(res, 'url', { value: currentUrl, writable: false, configurable: true });
       }
 
       return res;

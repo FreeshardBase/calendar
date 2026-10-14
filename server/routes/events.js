@@ -67,16 +67,14 @@ async function getUserEmailsForSession(req) {
     if (isValidEmail(req.session.userId)) {
       emails.add(req.session.userId.toLowerCase().trim());
     }
-    try {
-      const dbEmail = await Db.getUserEmailByUserId(req.session.userId);
-      if (dbEmail && isValidEmail(dbEmail)) {
-        emails.add(dbEmail.toLowerCase().trim());
-      }
-      const dbUsername = await Db.getUsernameByUserId(req.session.userId);
-      if (dbUsername && isValidEmail(dbUsername)) {
-        emails.add(dbUsername.toLowerCase().trim());
-      }
-    } catch (_) {}
+    const dbEmail = await Db.getUserEmailByUserId(req.session.userId);
+    if (dbEmail && isValidEmail(dbEmail)) {
+      emails.add(dbEmail.toLowerCase().trim());
+    }
+    const dbUsername = await Db.getUsernameByUserId(req.session.userId);
+    if (dbUsername && isValidEmail(dbUsername)) {
+      emails.add(dbUsername.toLowerCase().trim());
+    }
   }
 
   return Array.from(emails);
@@ -90,9 +88,7 @@ router.get('/invitations', async (req, res) => {
     }
     let accounts = req.session.accounts || [];
     if (accounts.length === 0 && req.session?.userId) {
-      try {
-        accounts = await Db.getAccounts(req.session.userId);
-      } catch (_) {}
+      accounts = await Db.getAccounts(req.session.userId);
     }
     const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
     const invitations = [];
@@ -423,8 +419,9 @@ router.put('/:uid', async (req, res) => {
       let current = null;
       try {
         current = await client.get(eventUrl);
-      } catch (_) {
-        current = null;
+      } catch (err) {
+        // A new resource has nothing to merge with; any other failure must not become an overwrite (#343).
+        if (!/^GET (404|410):/.test(err.message)) throw err;
       }
       existingIcs = current ? current.ics : null;
 
@@ -432,13 +429,11 @@ router.put('/:uid', async (req, res) => {
         queueSyncForCalendar(calendarId, req.session.userId);
         const { recurrenceId: _ignored, ...cleanMasterEvent } = event;
         if (scope === 'series') {
-          try {
-            const parsed = parseICSToEvent(current.ics);
-            if (parsed && parsed.start) {
-              cleanMasterEvent.start = parsed.start;
-              cleanMasterEvent.end = parsed.end;
-            }
-          } catch (_) {}
+          const parsed = parseICSToEvent(current.ics);
+          if (parsed && parsed.start) {
+            cleanMasterEvent.start = parsed.start;
+            cleanMasterEvent.end = parsed.end;
+          }
         }
         return res.json({
           ...(scope === 'series' ? cleanMasterEvent : event),
@@ -470,13 +465,11 @@ router.put('/:uid', async (req, res) => {
     if (scope === 'series') {
       const { recurrenceId: _ignored, ...cleanMasterEvent } = event;
       if (ics) {
-        try {
-          const parsed = parseICSToEvent(ics);
-          if (parsed && parsed.start) {
-            cleanMasterEvent.start = parsed.start;
-            cleanMasterEvent.end = parsed.end;
-          }
-        } catch (_) {}
+        const parsed = parseICSToEvent(ics);
+        if (parsed && parsed.start) {
+          cleanMasterEvent.start = parsed.start;
+          cleanMasterEvent.end = parsed.end;
+        }
       }
       responseEvent = cleanMasterEvent;
     }
@@ -544,26 +537,33 @@ router.delete('/:uid', async (req, res) => {
 
     const ifMatch  = etag ? formatIfMatch(etag) : null;
 
-    try {
-      await client.delete(eventUrl, ifMatch);
-    } catch (delErr) {
-      if (delErr.message === 'ETAG_CONFLICT') {
-        await client.delete(eventUrl, null);
-      } else {
-        throw delErr;
-      }
-    }
-    
-    // Check if actor is different from owner of the calendar
+    // A sharee deleting the owner's event: the record lets the sync worker restore it upstream.
+    // It is written first, so a failure aborts the delete instead of losing the protection (#343).
+    // If the delete itself then fails, the record is withdrawn again, so the worker never restores
+    // an upstream copy over an event that was not deleted.
+    let crossUserDeletion = null;
     const calParts = calendarId.split('::');
     if (calParts[0] === 'internal-caldav' && calParts[1]) {
       const calSegments = calParts[1].split('/').filter(Boolean);
       const ownerUserId = calSegments[0];
       if (ownerUserId && req.session && req.session.userId && req.session.userId !== ownerUserId) {
-        await Db.recordCrossUserDeletion(req.params.uid, calendarId, ownerUserId, req.session.userId).catch(err => {
-          console.error('[events DELETE] Failed to record cross-user deletion:', err.message);
-        });
+        crossUserDeletion = await Db.recordCrossUserDeletion(req.params.uid, calendarId, ownerUserId, req.session.userId);
       }
+    }
+
+    try {
+      try {
+        await client.delete(eventUrl, ifMatch);
+      } catch (delErr) {
+        if (delErr.message === 'ETAG_CONFLICT') {
+          await client.delete(eventUrl, null);
+        } else {
+          throw delErr;
+        }
+      }
+    } catch (delErr) {
+      if (crossUserDeletion) await Db.clearCrossUserDeletion(crossUserDeletion.id);
+      throw delErr;
     }
 
     queueSyncForCalendar(calendarId, req.session.userId);
@@ -714,10 +714,8 @@ async function resolveAccount(req, calendarId) {
   const accountId = calendarId.split('::')[0];
   let account = (req.session.accounts || []).find(a => a.id === accountId);
   if (!account && req.session?.userId) {
-    try {
-      const dbAccounts = await Db.getAccounts(req.session.userId);
-      account = dbAccounts.find(a => a.id === accountId);
-    } catch (_) {}
+    const dbAccounts = await Db.getAccounts(req.session.userId);
+    account = dbAccounts.find(a => a.id === accountId);
   }
   if (!account) return { account: null, client: null };
 

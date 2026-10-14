@@ -4,10 +4,8 @@ const { sendError, describeError } = require('./utils/errorSanitizer');
 // Issue #57 fix: NODE_TLS_REJECT_UNAUTHORIZED is no longer set process-wide.
 // Per-request TLS bypass for the internal self-signed Radicale server is handled
 // exclusively in server/utils/tlsDispatcher.js via a scoped undici Agent.
-try {
-  const { setGlobalDispatcher, Agent } = require('undici');
-  setGlobalDispatcher(new Agent({ keepAliveTimeout: 10, keepAliveMaxTimeout: 10 }));
-} catch {}
+const { setGlobalDispatcher, Agent } = require('undici');
+setGlobalDispatcher(new Agent({ keepAliveTimeout: 10, keepAliveMaxTimeout: 10 }));
 
 // Prevent single async error from killing the process (Express 4 limitation)
 process.on('unhandledRejection', (err) => {
@@ -80,12 +78,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', getTrustProxySetting());
-
-// Issue #333: never run with an encryption key that does not belong to the database.
-Db.ready.catch((err) => {
-  console.error(`[startup] ${err.message}`);
-  process.exit(1);
-});
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 // No request is served before the encryption key has been verified against the database.
@@ -576,49 +568,41 @@ let server;
 const keyPath = process.env.SSL_KEY_PATH === '' ? '' : (process.env.SSL_KEY_PATH || path.join(__dirname, '../ssl/key.pem'));
 const certPath = process.env.SSL_CERT_PATH === '' ? '' : (process.env.SSL_CERT_PATH || path.join(__dirname, '../ssl/cert.pem'));
 
-const shouldListen = require.main === module || (process.env.NODE_ENV === 'test' && !process.env.PREVENT_AUTO_LISTEN);
+const runAsMain = require.main === module;
+// Embedded in the test suites: they talk to the exported server right after require().
+const listenWhenEmbedded = !runAsMain && process.env.NODE_ENV === 'test' && !process.env.PREVENT_AUTO_LISTEN;
 
+let scheme = 'http';
 if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-  try {
-    const options = {
-      key: fs.readFileSync(keyPath),
-      cert: fs.readFileSync(certPath)
-    };
-    server = https.createServer(options, app);
-    if (shouldListen) {
-      server.listen(PORT, () => {
-        console.log(`🗓  FreeShard WebCalendar running securely on https://localhost:${PORT}`);
-        if (process.env.CALDAVURL) {
-          console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
-        }
-      });
-    }
-  } catch (sslErr) {
-    console.error('[SSL Startup Error]', sslErr.message);
-    server = http.createServer(app);
-    if (shouldListen) {
-      server.listen(PORT, () => {
-        console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT} (fallback)`);
-      });
-    }
-  }
+  // An unreadable certificate is fatal; it never downgrades the server to plain HTTP.
+  server = https.createServer({ key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }, app);
+  scheme = 'https';
 } else {
   server = http.createServer(app);
-  if (shouldListen) {
-    server.listen(PORT, () => {
-      console.log(`🗓  FreeShard WebCalendar running on http://localhost:${PORT}`);
-      if (process.env.CALDAVURL) {
-        console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
-      }
-    });
-  }
 }
 
-let webcalWorker = null;
-if (shouldListen) {
-  webcalWorker = startWebcalSyncWorker();
+function listen() {
+  server.listen(PORT, () => {
+    console.log(`🗓  FreeShard WebCalendar running on ${scheme}://localhost:${PORT}`);
+    if (process.env.CALDAVURL) {
+      console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
+    }
+  });
 }
 
-module.exports = { app, server, webcalWorker, validateSystemSyncSecret };
+// Issue #333 / #343: the server process binds its port only after the schema migrations have run
+// and the encryption key is proven to belong to the database (Db.ready); if either fails, it exits.
+// An embedded server may bind earlier, but the Db.ready middleware above holds every request.
+// The webcal worker reads migrated columns, so it never starts before Db.ready.
+if (listenWhenEmbedded) listen();
+Db.ready.then(() => {
+  if (runAsMain) listen();
+  if (runAsMain || listenWhenEmbedded) module.exports.webcalWorker = startWebcalSyncWorker();
+}).catch((err) => {
+  console.error(`[startup] ${err.message}`);
+  process.exit(1);
+});
+
+module.exports = { app, server, webcalWorker: null, validateSystemSyncSecret };
 
 

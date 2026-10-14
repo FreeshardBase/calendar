@@ -43,7 +43,10 @@ test('Issue #88 — Invitations Inbox Deduplication and PARTSTAT Filtering', asy
         username: testEmail,
         password: 'password'
       });
-    } catch (_) {}
+    } catch (err) {
+      // Left over from an earlier run against the same test database.
+      if (!/UNIQUE constraint failed/.test(err.message)) throw err;
+    }
 
     const now = new Date();
     const dtstart = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';

@@ -61,15 +61,23 @@ async function withStack(fn) {
 }
 
 async function create(base, name) {
+  const queuedBefore = new Set((await dbAll('SELECT id FROM sync_queue')).map(r => r.id));
   const res = await fetch(`${base}/api/calendars`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ accountId: 'acc', name })
   });
-  // The route queues a sync job without awaiting it; let that transaction finish
-  // before the next create opens its own.
-  await new Promise(resolve => setTimeout(resolve, 20));
-  while (Db._inTx) await new Promise(resolve => setTimeout(resolve, 5));
+  // The route queues a sync job without awaiting it; wait until that job's transaction has
+  // committed before the next create opens its own. A fixed sleep loses this race under load.
+  if (res.status === 201) {
+    const deadline = Date.now() + 10000;
+    for (;;) {
+      const rows = await dbAll('SELECT id FROM sync_queue WHERE user_id = ?', ['testuser']);
+      if (rows.some(r => !queuedBefore.has(r.id)) && !Db._inTx) break;
+      assert.ok(Date.now() < deadline, 'the sync job queued by POST /api/calendars never committed');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+  }
   return res;
 }
 

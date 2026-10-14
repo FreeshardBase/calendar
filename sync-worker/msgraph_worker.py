@@ -13,6 +13,7 @@ import json
 import base64
 import urllib.request
 import urllib.parse
+import urllib.error
 from tls_context import ssl_context_for
 
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
@@ -53,29 +54,31 @@ def decrypt_token(token):
     parts = token.split(":", 1)
     if len(parts[0]) != 32:
         return token
-    try:
-        import sync_worker
-        return sync_worker.decrypt(parts[1], parts[0], sync_worker.KEY_BYTES)
-    except Exception:
-        return token
+    # #343: a token that does not decrypt is an error, never sent on as a bearer token.
+    import sync_worker
+    return sync_worker.decrypt(parts[1], parts[0], sync_worker.KEY_BYTES)
 
 def encrypt_token(token):
     if not token:
         return token
     if ":" in token and len(token.split(":", 1)[0]) == 32:
         return token
-    try:
-        import sync_worker
-        return sync_worker.encrypt_token(token, sync_worker.KEY_BYTES)
-    except Exception:
-        return token
+    # #343: a failed encryption is an error, never a fallback to storing the plaintext token.
+    import sync_worker
+    return sync_worker.encrypt_token(token, sync_worker.KEY_BYTES)
 
 def sync_msgraph_accounts(user_id, conn=None):
-    close_conn = False
-    if conn is None:
-        conn = get_db()
-        close_conn = True
+    """Returns (ok, error_message); the message becomes the sync job's error_message."""
+    if conn is not None:
+        return _sync_msgraph_accounts(user_id, conn)
+    conn = get_db()
+    try:
+        return _sync_msgraph_accounts(user_id, conn)
+    finally:
+        conn.close()
 
+
+def _sync_msgraph_accounts(user_id, conn):
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id"
@@ -85,8 +88,6 @@ def sync_msgraph_accounts(user_id, conn=None):
     accounts = cursor.fetchall()
     
     if not accounts:
-        if close_conn:
-            conn.close()
         return True, ""
 
     now_ms = int(time.time() * 1000)
@@ -111,8 +112,8 @@ def sync_msgraph_accounts(user_id, conn=None):
                         (enc_access, expires_at, now_ms, acc_id)
                     )
                     conn.commit()
-                except Exception as te:
-                    print(f"[MSGraph-Worker] Token refresh warning for account {acc_id}: {te}")
+                except (urllib.error.URLError, ValueError, KeyError) as te:
+                    return False, f"Microsoft token refresh failed for account {acc_id}: {te}"
 
         endpoint = delta_link or "https://graph.microsoft.com/v1.0/me/events"
         headers = {
@@ -120,17 +121,21 @@ def sync_msgraph_accounts(user_id, conn=None):
             "Accept": "application/json"
         }
 
-        events = []
-        new_delta_link = endpoint
         try:
             req = urllib.request.Request(endpoint, headers=headers, method="GET")
             with urllib.request.urlopen(req, context=ssl_context_for(endpoint, LOCAL_CALDAV_URL)) as res:
-                if res.status == 200:
-                    resp_data = json.loads(res.read().decode("utf-8"))
-                    events = resp_data.get("value", [])
-                    new_delta_link = resp_data.get("@odata.deltaLink") or resp_data.get("@odata.nextLink") or endpoint
-        except Exception as fe:
-            print(f"[MSGraph-Worker] Fetch error (account {acc_id}): {fe}")
+                resp_data = json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as fe:
+            if fe.code == 410 and delta_link:
+                # syncStateNotFound: the delta link expired; the next sync starts a full delta round.
+                cursor.execute("UPDATE msgraph_accounts SET delta_link = NULL, updated_at = ? WHERE id = ?", (now_ms, acc_id))
+                conn.commit()
+            return False, f"Microsoft Graph fetch failed for account {acc_id}: {fe}"
+        except (urllib.error.URLError, ValueError) as fe:
+            # The delta link is not advanced, so the next sync fetches the same changes again.
+            return False, f"Microsoft Graph fetch failed for account {acc_id}: {fe}"
+        events = resp_data.get("value", [])
+        new_delta_link = resp_data.get("@odata.deltaLink") or resp_data.get("@odata.nextLink") or endpoint
 
         for item in events:
             graph_id = item.get("id")
@@ -148,8 +153,10 @@ def sync_msgraph_accounts(user_id, conn=None):
                     try:
                         with urllib.request.urlopen(del_req, context=ssl_context_for(del_url, LOCAL_CALDAV_URL)):
                             pass
-                    except Exception as del_err:
-                        print(f"[MSGraph-Worker] Error deleting event from local CalDAV: {del_err}")
+                    except urllib.error.HTTPError as del_err:
+                        # Already gone locally; any other failure propagates and fails the sync job.
+                        if del_err.code not in (404, 410):
+                            raise
                     cursor.execute("DELETE FROM msgraph_event_mappings WHERE graph_id = ?", (graph_id,))
             else:
                 local_uid = f"msgraph-event-{graph_id}"
@@ -198,11 +205,9 @@ def sync_msgraph_accounts(user_id, conn=None):
                     },
                     method="PUT"
                 )
-                try:
-                    with urllib.request.urlopen(put_req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)):
-                        pass
-                except Exception as put_err:
-                    print(f"[MSGraph-Worker] Error putting event to local CalDAV: {put_err}")
+                # A failed PUT propagates (the sync job fails) before the mapping is recorded.
+                with urllib.request.urlopen(put_req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)):
+                    pass
 
                 cursor.execute(
                     "INSERT OR REPLACE INTO msgraph_event_mappings (local_uid, graph_id, account_id, last_synced_at, e_tag)"
@@ -216,8 +221,6 @@ def sync_msgraph_accounts(user_id, conn=None):
         )
 
     conn.commit()
-    if close_conn:
-        conn.close()
     return True, ""
 
 if __name__ == "__main__":

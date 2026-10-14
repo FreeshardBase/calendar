@@ -4,6 +4,21 @@
 
 const BASE = '';
 
+/**
+ * The error message of a failed response: the JSON `error` field, or the status line when the body is
+ * not JSON (e.g. a proxy error page). Only that parse error is handled; anything else propagates.
+ */
+export async function responseErrorMessage(res, fallback) {
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    if (data && data.error) return data.error;
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+  }
+  return fallback ? `${fallback} (HTTP ${res.status})` : (res.statusText || `HTTP ${res.status}`);
+}
+
 async function request(method, path, body, onResponse) {
   const opts = {
     method,
@@ -15,9 +30,7 @@ async function request(method, path, body, onResponse) {
   if (onResponse) onResponse(res);
 
   if (!res.ok) {
-    let msg;
-    try { msg = (await res.json()).error; } catch { msg = res.statusText; }
-    const err = new Error(msg || `HTTP ${res.status}`);
+    const err = new Error(await responseErrorMessage(res));
     err.status = res.status;
     throw err;
   }

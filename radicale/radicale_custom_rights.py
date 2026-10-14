@@ -2,6 +2,7 @@ from radicale.rights import BaseRights
 from radicale import pathutils
 import sqlite3
 import os
+from contextlib import closing
 
 class Rights(BaseRights):
     def authorization(self, user, path):
@@ -44,28 +45,24 @@ class Rights(BaseRights):
         if not os.path.exists(db_path):
             return ""
 
-        try:
-            conn = sqlite3.connect(db_path)
+        # #343: database errors propagate; Radicale logs them and answers 500 instead of
+        # pretending the share does not exist.
+        with closing(sqlite3.connect(db_path)) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
-            cursor = conn.cursor()
-            cursor.execute(
+            row = conn.execute(
                 "SELECT read_write, role, status FROM user_calendar_shares WHERE LOWER(calendar_id) = LOWER(?) AND LOWER(sharee_user_id) = LOWER(?)",
                 (calendar_id, user)
-            )
-            row = cursor.fetchone()
-            conn.close()
+            ).fetchone()
 
-            if row is not None:
-                rw_flag, role, status = row[0], row[1], row[2]
-                if status and status != 'ACCEPTED':
-                    return ""
-                has_write = bool(rw_flag) or role in ('WRITE', 'ADMIN')
-                if role in ('READ', 'FREE_BUSY'):
-                    has_write = False
-                # "d" denies deleting the collection itself (Radicale checks it
-                # against the collection path), so only the owner can delete it.
-                return "rwd" if has_write else "rd"
+        if row is not None:
+            rw_flag, role, status = row[0], row[1], row[2]
+            if status and status != 'ACCEPTED':
+                return ""
+            has_write = bool(rw_flag) or role in ('WRITE', 'ADMIN')
+            if role in ('READ', 'FREE_BUSY'):
+                has_write = False
+            # "d" denies deleting the collection itself (Radicale checks it
+            # against the collection path), so only the owner can delete it.
+            return "rwd" if has_write else "rd"
 
-            return ""
-        except Exception:
-            return ""
+        return ""

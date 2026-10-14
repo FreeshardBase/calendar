@@ -37,17 +37,13 @@ const keyPath = process.env.DATABASE_PATH
 if (process.env.SHARE_SECRET_KEY) {
   secretKey = crypto.createHash('sha256').update(process.env.SHARE_SECRET_KEY).digest();
 } else {
-  try {
-    if (fs.existsSync(keyPath)) {
-      secretKey = fs.readFileSync(keyPath);
-    } else {
-      secretKey = crypto.randomBytes(32);
-      fs.writeFileSync(keyPath, secretKey);
-    }
-  } catch (keyErr) {
-    console.error('[keyPath Error]', keyErr.message);
-    // Fallback to in-memory key to prevent crash (invalidates links on restart but stays online)
+  // #343: an unreadable or unwritable key file is fatal; an in-memory key would silently
+  // invalidate every public share link on the next restart.
+  if (fs.existsSync(keyPath)) {
+    secretKey = fs.readFileSync(keyPath);
+  } else {
     secretKey = crypto.randomBytes(32);
+    fs.writeFileSync(keyPath, secretKey);
   }
 }
 
@@ -80,15 +76,10 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
   const token = req.params.token;
   try {
     // ── Rate-limit check (before any DB share lookup) ───────────────────────
-    try {
-      const hitCount = await Db.getIcsFetchCount(token, ICS_RATE_LIMIT_WINDOW_SECONDS);
-      if (hitCount >= ICS_RATE_LIMIT_MAX) {
-        res.setHeader('Retry-After', String(ICS_RATE_LIMIT_WINDOW_SECONDS));
-        return res.status(429).json({ error: 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.' });
-      }
-    } catch (rlErr) {
-      console.warn('[ICS rate-limit check error]', rlErr.message);
-      // Non-fatal: fall through and serve the request.
+    const hitCount = await Db.getIcsFetchCount(token, ICS_RATE_LIMIT_WINDOW_SECONDS);
+    if (hitCount >= ICS_RATE_LIMIT_MAX) {
+      res.setHeader('Retry-After', String(ICS_RATE_LIMIT_WINDOW_SECONDS));
+      return res.status(429).json({ error: 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.' });
     }
 
     let payload = null;
@@ -96,31 +87,27 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     let detail = DEFAULT_DETAIL;
 
     // 1. Try DB-based share lookup
-    try {
-      const shareRecord = await Db.getCalendarShareByToken(token);
+    const shareRecord = await Db.getCalendarShareByToken(token);
 
-      if (shareRecord) {
-        const calendarId = shareRecord.calendar_id;
-        const sepIdx = calendarId.indexOf('::');
-        if (sepIdx !== -1) {
-          const accountId = calendarId.substring(0, sepIdx);
-          const calendarHref = calendarId.substring(sepIdx + 2);
-          const account = await resolveShareAccount(accountId, calendarHref);
-          if (account) {
-            payload = {
-              id: account.id,
-              url: resolveUrl(account.url, calendarHref),
-              username: account.username,
-              password: account.password,
-              authType: account.authType
-            };
-            isDbShare = true;
-            detail = shareRecord.detail;
-          }
+    if (shareRecord) {
+      const calendarId = shareRecord.calendar_id;
+      const sepIdx = calendarId.indexOf('::');
+      if (sepIdx !== -1) {
+        const accountId = calendarId.substring(0, sepIdx);
+        const calendarHref = calendarId.substring(sepIdx + 2);
+        const account = await resolveShareAccount(accountId, calendarHref);
+        if (account) {
+          payload = {
+            id: account.id,
+            url: resolveUrl(account.url, calendarHref),
+            username: account.username,
+            password: account.password,
+            authType: account.authType
+          };
+          isDbShare = true;
+          detail = shareRecord.detail;
         }
       }
-    } catch (dbErr) {
-      console.error('[share lookup error]', dbErr.message);
     }
 
     // 2. Fallback to token decryption
@@ -142,7 +129,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     }
 
     if (!payload) {
-      await Db.deleteIcsCache(token).catch(() => {});
+      await Db.deleteIcsCache(token);
       return res.status(404).json({ error: 'Kalenderfreigabe nicht gefunden oder Token ungültig.' });
     }
 
@@ -161,11 +148,11 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
         activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
       } catch (propErr) {
         console.warn('[share token check warning]', propErr);
-        await Db.deleteIcsCache(token).catch(() => {});
+        await Db.deleteIcsCache(token);
         return res.status(404).json({ error: 'Diese öffentliche Kalenderfreigabe ist nicht mehr gültig.' });
       }
       if (!activeTokenId || activeTokenId !== payload.publicShareId) {
-        await Db.deleteIcsCache(token).catch(() => {});
+        await Db.deleteIcsCache(token);
         return res.status(404).json({ error: 'Diese öffentliche Kalenderfreigabe wurde deaktiviert oder neu erstellt.' });
       }
       detail = (await client.getCustomProperty(payload.url, SHARE_NS, 'public-share-detail')) || DEFAULT_DETAIL;
@@ -175,33 +162,21 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     // on every response so a level change takes effect immediately (#341).
 
     // ── Cache-first serve (after authorization verification) ────────────────
-    try {
-      const cached = await Db.getIcsCache(token);
-      if (cached) {
-        await Db.recordIcsFetch(token);
-        res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
-        res.setHeader('X-Cache', 'HIT');
-        return res.send(sanitizePublicIcs(cached.body, detail));
-      }
-    } catch (cacheErr) {
-      console.warn('[ICS cache read error]', cacheErr.message);
+    const cached = await Db.getIcsCache(token);
+    if (cached) {
+      await Db.recordIcsFetch(token);
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+      res.setHeader('X-Cache', 'HIT');
+      return res.send(sanitizePublicIcs(cached.body, detail));
     }
 
     const ics = await fetchCalendarICS(client, payload.url);
     const publicIcs = sanitizePublicIcs(ics, detail);
 
     // ── Populate cache + record fetch ───────────────────────────────────────
-    try {
-      await Db.upsertIcsCache(token, ics, ICS_CACHE_TTL_SECONDS);
-    } catch (cacheWriteErr) {
-      console.warn('[ICS cache write error]', cacheWriteErr.message);
-    }
-    try {
-      await Db.recordIcsFetch(token);
-    } catch (rlWriteErr) {
-      console.warn('[ICS rate-limit record error]', rlWriteErr.message);
-    }
+    await Db.upsertIcsCache(token, ics, ICS_CACHE_TTL_SECONDS);
+    await Db.recordIcsFetch(token);
 
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"`);
@@ -961,9 +936,7 @@ router.post('/:id/sync/resolve-conflict', async (req, res) => {
       const { client, calendarUrl } = await resolveCalendar(req, calendarId);
       if (client && calendarUrl) {
         const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
-        await client.put(resourceUrl, resolvedIcs, null).catch(err => {
-          console.warn('[sync resolve-conflict put warning]:', err.message);
-        });
+        await client.put(resourceUrl, resolvedIcs, null);
       }
     }
 

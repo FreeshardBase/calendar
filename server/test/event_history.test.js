@@ -34,7 +34,7 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let userCookie = '';

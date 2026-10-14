@@ -19,7 +19,7 @@ test('Strict ACL Enforcement on Calendar & Event Routes (Issue #56)', async (t) 
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

@@ -35,7 +35,7 @@ test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   await t.test('Protected API endpoints strictly reject unauthenticated requests with 401', async () => {
     const endpoints = [

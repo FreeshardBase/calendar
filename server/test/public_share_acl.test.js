@@ -19,7 +19,7 @@ test('Public Share Link Handlers Session Identity & Ownership Suite (Issue #234)
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
   let ownerCookie = '';

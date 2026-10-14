@@ -265,8 +265,9 @@ router.put('/:uid', async (req, res) => {
     let current = null;
     try {
       current = await client.get(taskUrl);
-    } catch (_) {
-      current = null;
+    } catch (err) {
+      // A new resource has nothing to merge with; any other failure must not become an overwrite (#343).
+      if (!/^GET (404|410):/.test(err.message)) throw err;
     }
 
     const existingIcs = current ? current.ics : null;

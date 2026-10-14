@@ -26,7 +26,7 @@ test('Issue #246 — requireAuth 401 Branch Reachability under AUTH_METHOD=env a
     }
   });
 
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
 

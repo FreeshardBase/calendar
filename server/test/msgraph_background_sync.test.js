@@ -16,7 +16,7 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
   const { app, server } = require('../index');
   const { loginAs } = require('./helpers/testSession');
   await new Promise(r => setTimeout(r, 100));
-  await Db.clearAll().catch(() => {});
+  await Db.clearAll();
 
   t.after(() => {
     delete process.env.PORT;
@@ -66,16 +66,37 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
       refreshToken: 'refresh-999'
     });
 
-    const res = await fetch(`${baseUrl}/api/msgraph/accounts/${account.id}/sync`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: userCookie
-      },
-      body: JSON.stringify({ localEvents: [] })
-    });
+    // Microsoft is stubbed: an unreachable Graph API is a sync error (#343), not an empty sync.
+    const realFetch = globalThis.fetch;
+    const graphCalls = [];
+    globalThis.fetch = async (url, opts) => {
+      const href = String(url);
+      if (href.startsWith('https://login.microsoftonline.com/')) {
+        graphCalls.push(href);
+        return new Response(JSON.stringify({ access_token: 'token-1000', expires_in: 3600 }), { status: 200 });
+      }
+      if (href.startsWith('https://graph.microsoft.com/')) {
+        graphCalls.push(href);
+        return new Response(JSON.stringify({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/events/delta?token=1' }), { status: 200 });
+      }
+      return realFetch(url, opts);
+    };
+    let res;
+    try {
+      res = await fetch(`${baseUrl}/api/msgraph/accounts/${account.id}/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: userCookie
+        },
+        body: JSON.stringify({ localEvents: [] })
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
 
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.ok(graphCalls.some((u) => u.startsWith('https://graph.microsoft.com/')), 'the sync engine must query Graph');
     const data = await res.json();
     assert.ok(data.success);
 
@@ -96,9 +117,22 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
 
     const scriptDir = path.join(__dirname, '../../sync-worker');
     const dbPath = process.env.DATABASE_PATH || (Db.getDbPath && Db.getDbPath()) || path.resolve(__dirname, '../../webcalendar.db');
-    const pyCmd = `python3 -c "import sys, os, sqlite3; sys.path.insert(0, '${scriptDir}'); from sync_worker import sync_user; conn = sqlite3.connect('${dbPath}'); conn.row_factory = sqlite3.Row; res, err = sync_user('py-msgraph-user'); print(f'SUCCESS:{res},ERR:{err}')"`;
+    // Graph answers with an empty delta page; an unreachable Graph API fails the sync (#343).
+    const code = [
+      'import sys',
+      `sys.path.insert(0, ${JSON.stringify(scriptDir)})`,
+      'from unittest.mock import MagicMock, patch',
+      'import msgraph_worker',
+      'from sync_worker import sync_user',
+      'page = MagicMock()',
+      "page.__enter__.return_value.read.return_value = b'{\"value\": []}'",
+      "with patch.object(msgraph_worker.urllib.request, 'urlopen', return_value=page):",
+      "    res, err = sync_user('py-msgraph-user')",
+      "print(f'SUCCESS:{res},ERR:{err}')"
+    ].join('\n');
 
-    const out = execSync(pyCmd, {
+    const out = execSync('python3', {
+      input: code,
       env: { ...process.env, ...sharedTestDbKeyEnv, DATABASE_PATH:dbPath },
       encoding: 'utf8'
     });

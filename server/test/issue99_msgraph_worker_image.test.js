@@ -77,6 +77,11 @@ test.describe('Issue #99 — sync-worker/msgraph_worker.py Container Packaging &
         "cursor.execute(\"INSERT INTO msgraph_accounts VALUES ('acc1', 'u99', 'common', 'cid', 'test@example.com', 'tok', 'ref', 9999999999999, NULL, 'persoenlich', 0)\")",
         'conn.commit()',
         'conn.close()',
+        // Graph answers with an empty delta page; an unreachable Graph API fails the sync (#343).
+        'from unittest.mock import MagicMock, patch',
+        'page = MagicMock()',
+        "page.__enter__.return_value.read.return_value = b'{\"value\": []}'",
+        "patch.object(msgraph_worker.urllib.request, 'urlopen', return_value=page).start()",
         "res, err = sync_worker.sync_user('u99')",
         'print(f"RES:{res},ERR:{err}")'
       ].join('\n');

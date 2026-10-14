@@ -24,9 +24,10 @@ window.WorkingHoursModule = {
   },
 
   async loadPolicy() {
+    const saveBtn = document.getElementById('wh-save-btn');
     try {
       const res = await fetch('/api/working-hours');
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const policy = await res.json();
       this.policy = policy;
       if (window.__appStore) {
@@ -61,8 +62,16 @@ window.WorkingHoursModule = {
           cb.checked = activeDays.includes(String(day));
         }
       }
+      if (saveBtn) saveBtn.disabled = false;
     } catch (e) {
+      // #343: the form still shows defaults; saving them would overwrite the stored policy.
       console.error('[WorkingHours] Failed to load policy:', e);
+      if (saveBtn) saveBtn.disabled = true;
+      const statusEl = document.getElementById('wh-save-status');
+      if (statusEl) {
+        statusEl.textContent = 'Arbeitszeiten konnten nicht geladen werden.';
+        statusEl.style.color = '#ef4444';
+      }
     }
   },
 

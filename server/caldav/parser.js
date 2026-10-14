@@ -463,12 +463,15 @@ function parseICSToTask(icsString, meta = {}) {
     const comp = new ICAL.Component(jcal);
     const vtimezones = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtimezone') : [];
     for (const vtz of vtimezones) {
-      try {
-        const tzid = vtz.getFirstPropertyValue('tzid');
-        if (tzid && !ICAL.TimezoneService.has(tzid)) {
+      const tzid = vtz.getFirstPropertyValue('tzid');
+      if (tzid && !ICAL.TimezoneService.has(tzid)) {
+        // A malformed VTIMEZONE from an external server costs its timezone, not the whole task.
+        try {
           ICAL.TimezoneService.register(vtz);
+        } catch (err) {
+          console.warn(`[parser] Ignoring unusable VTIMEZONE ${tzid}: ${err.message}`);
         }
-      } catch (_) {}
+      }
     }
     const vtodos = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtodo') : [];
     if (vtodos.length === 0) return null;
@@ -547,23 +550,21 @@ function parseVTodoToTask(vtodo, meta = {}) {
   }
 
   if (!due && dtstart && durationProp) {
-    try {
-      const startVal = dtstartProp ? dtstartProp.getFirstValue() : null;
-      const durVal = durationProp.getFirstValue();
-      if (startVal && durVal) {
-        const calculated = startVal.clone();
-        calculated.addDuration(durVal);
-        dueIsDate = !!calculated.isDate;
-        if (calculated.isDate) {
-          const y = String(calculated.year).padStart(4, '0');
-          const m = String(calculated.month).padStart(2, '0');
-          const d = String(calculated.day).padStart(2, '0');
-          due = `${y}-${m}-${d}T00:00:00.000Z`;
-        } else {
-          due = calculated.toJSDate().toISOString();
-        }
+    const startVal = dtstartProp ? dtstartProp.getFirstValue() : null;
+    const durVal = durationProp.getFirstValue();
+    if (startVal && durVal) {
+      const calculated = startVal.clone();
+      calculated.addDuration(durVal);
+      dueIsDate = !!calculated.isDate;
+      if (calculated.isDate) {
+        const y = String(calculated.year).padStart(4, '0');
+        const m = String(calculated.month).padStart(2, '0');
+        const d = String(calculated.day).padStart(2, '0');
+        due = `${y}-${m}-${d}T00:00:00.000Z`;
+      } else {
+        due = calculated.toJSDate().toISOString();
       }
-    } catch (_) {}
+    }
   }
 
   let recurrence = null;
@@ -699,27 +700,25 @@ function taskToICS(rawTask, existingIcs = null) {
             vtodo.removeAllProperties(name);
           } else {
             let timeVal;
-            try {
-              const existingProp = vtodo.getFirstProperty(name);
-              const existingIsDate = existingProp && existingProp.getFirstValue() ? existingProp.getFirstValue().isDate : false;
-              const isDate = forceIsDate === false
-                ? false
-                : (Boolean(forceIsDate) || existingIsDate || (typeof isoVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoVal)));
+            const existingProp = vtodo.getFirstProperty(name);
+            const existingIsDate = existingProp && existingProp.getFirstValue() ? existingProp.getFirstValue().isDate : false;
+            const isDate = forceIsDate === false
+              ? false
+              : (Boolean(forceIsDate) || existingIsDate || (typeof isoVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoVal)));
 
-              const dt = new Date(isoVal);
-              if (!isNaN(dt.getTime())) {
-                if (isDate) {
-                  timeVal = new ICAL.Time({
-                    year: dt.getUTCFullYear(),
-                    month: dt.getUTCMonth() + 1,
-                    day: dt.getUTCDate(),
-                    isDate: true
-                  });
-                } else {
-                  timeVal = ICAL.Time.fromJSDate(dt, true);
-                }
+            const dt = new Date(isoVal);
+            if (!isNaN(dt.getTime())) {
+              if (isDate) {
+                timeVal = new ICAL.Time({
+                  year: dt.getUTCFullYear(),
+                  month: dt.getUTCMonth() + 1,
+                  day: dt.getUTCDate(),
+                  isDate: true
+                });
+              } else {
+                timeVal = ICAL.Time.fromJSDate(dt, true);
               }
-            } catch (_) {}
+            }
 
             if (timeVal) {
               const prop = vtodo.getFirstProperty(name);
@@ -964,8 +963,10 @@ function taskToICS(rawTask, existingIcs = null) {
         if (recur && recur.freq) {
           lines.push(`RRULE:${rruleClean}`);
         }
-      } catch (_) {
-        // Omit invalid RRULE to prevent property injection
+      } catch (err) {
+        // The task routes reject an invalid RRULE with 400 before this point; anything else that
+        // reaches here is dropped rather than serialised, so it can never inject a property.
+        console.warn(`[parser] Omitting invalid task RRULE for ${task.uid || 'new task'}: ${err.message}`);
       }
     }
   }
@@ -1227,14 +1228,11 @@ function updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId =
       if (!rid) return false;
       const ridStr = rid.toString();
       if (ridStr === targetRid) return true;
-      try {
-        const iso1 = /^\d{8}T\d{6}Z?$/.test(ridStr) ? ridStr.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z') : ridStr;
-        const iso2 = /^\d{8}T\d{6}Z?$/.test(targetRid) ? targetRid.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z') : targetRid;
-        const t1 = new Date(iso1).getTime();
-        const t2 = new Date(iso2).getTime();
-        if (!isNaN(t1) && t1 === t2) return true;
-      } catch (e) {}
-      return false;
+      const iso1 = /^\d{8}T\d{6}Z?$/.test(ridStr) ? ridStr.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z') : ridStr;
+      const iso2 = /^\d{8}T\d{6}Z?$/.test(targetRid) ? targetRid.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z') : targetRid;
+      const t1 = new Date(iso1).getTime();
+      const t2 = new Date(iso2).getTime();
+      return !isNaN(t1) && t1 === t2;
     });
 
     if (!targetVevent) {

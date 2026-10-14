@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const Db = require('../db');
+const { sendError } = require('../utils/errorSanitizer');
 const { getOidcClient } = require('../utils/oidcClient');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
 
@@ -12,19 +13,21 @@ router.get('/session', async (req, res) => {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ authenticated: false, error: 'Authentication required' });
   }
-  let email = req.session.userEmail || null;
-  if (!email && req.session.userId) {
-    try {
+  try {
+    let email = req.session.userEmail || null;
+    if (!email && req.session.userId) {
       email = await Db.getUserEmailByUserId(req.session.userId);
       if (email) req.session.userEmail = email;
-    } catch (_) {}
+    }
+    res.json({
+      authenticated: true,
+      userId: req.session.userId,
+      username: req.session.username || req.session.userId,
+      email: email || null
+    });
+  } catch (err) {
+    return sendError(res, err, '[auth SESSION]');
   }
-  res.json({
-    authenticated: true,
-    userId: req.session.userId,
-    username: req.session.username || req.session.userId,
-    email: email || null
-  });
 });
 
 // GET /api/auth/login — Redirect user to OIDC identity provider login page
