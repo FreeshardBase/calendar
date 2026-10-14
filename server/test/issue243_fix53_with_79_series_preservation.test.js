@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { isNoOpEventSave, updateWholeSeries, parseAndExpandEvent, parseICSToEvent } = require('../caldav/parser');
 
 test('Issue #243 — Series Preservation & Detached Override Orphaning Prevention (Fix #53 + #79 Coherence)', async (t) => {
@@ -115,11 +116,11 @@ test('Issue #243 — Series Preservation & Detached Override Orphaning Preventio
     const testUserId = 'test-user-243';
     await Db.upsertUser(testUserId, 'user243@example.com');
 
+    const cookie = await loginAs(testUserId);
     const authRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie }
     });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
     const calendarId = `env-default::/users/${testUserId}/calendars/personal/`;
     const eventUrl = `http://localhost:1080/users/${testUserId}/calendars/personal/${testUid}.ics`;
 

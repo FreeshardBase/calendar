@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Public Share Link Handlers Session Identity & Ownership Suite (Issue #234)', async (t) => {
   t.after(() => {
@@ -39,36 +40,34 @@ test('Public Share Link Handlers Session Identity & Ownership Suite (Issue #234)
   await Db.addUserShare(ownerCalId, readonlyUserId, false);
 
   await t.test('Authenticate sessions', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    strangerCookie = await loginAs(strangerUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': strangerUserId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(res2.status, 200);
-    strangerCookie = res2.headers.get('set-cookie').split(';')[0];
 
+    readonlyUserCookie = await loginAs(readonlyUserId);
     const res3 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': readonlyUserId }
+      headers: { cookie: readonlyUserCookie }
     });
     assert.strictEqual(res3.status, 200);
-    readonlyUserCookie = res3.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('Unauthenticated GET /api/calendars/:id/shares-public should return 401', async () => {
-    const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public`);
     assert.strictEqual(res.status, 401);
   });
 
   await t.test('Unauthenticated POST /api/calendars/:id/shares-public should return 401', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user-id': 'unauthenticated' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: 'Public Link' })
     });
     assert.strictEqual(res.status, 401);
@@ -76,8 +75,7 @@ test('Public Share Link Handlers Session Identity & Ownership Suite (Issue #234)
 
   await t.test('Unauthenticated DELETE /api/calendars/:id/shares-public/:token should return 401', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(ownerCalId)}/shares-public/token123`, {
-      method: 'DELETE',
-      headers: { 'x-test-user-id': 'unauthenticated' }
+      method: 'DELETE'
     });
     assert.strictEqual(res.status, 401);
   });

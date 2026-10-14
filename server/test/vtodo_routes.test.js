@@ -13,12 +13,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 const testUserId = 'test-vtodo-routes-user';
 const authHeaders = {
-  'Content-Type': 'application/json',
-  'x-test-user-id': testUserId
+  'Content-Type': 'application/json'
 };
 
 test.describe('VTODO / Tasks API Routes Integration Suite', () => {
@@ -32,6 +32,7 @@ test.describe('VTODO / Tasks API Routes Integration Suite', () => {
         });
       });
     }
+    authHeaders.cookie = await loginAs(testUserId);
   });
 
   test.after(() => {
@@ -94,7 +95,7 @@ test.describe('VTODO / Tasks API Routes Integration Suite', () => {
   test('POST, GET, PUT, and DELETE /api/tasks lifecycle with CalDAV synchronization', async () => {
     // 1. Initialize user session accounts via /api/accounts
     const accRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': testUserId }
+      headers: { cookie: authHeaders.cookie }
     });
     assert.equal(accRes.status, 200);
 

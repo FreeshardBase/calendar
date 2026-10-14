@@ -12,7 +12,7 @@ process.env.SSL_CERT_PATH = '';
  * per-account OAuth expiry state so the frontend can display a warning banner.
  *
  * Contract:
- *   - 401 when session has no userId (x-test-user-id: unauthenticated)
+ *   - 401 when the request carries no session
  *   - 200 { accounts: [] }  when user has no oauth2 accounts
  *   - expired: true  when expiresAt is null/missing
  *   - expired: true  when expiresAt is in the past
@@ -28,6 +28,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { server: appServer } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const PORT = process.env.PORT || 3106;
 const BASE = `http://localhost:${PORT}`;
@@ -80,7 +81,7 @@ async function cleanupUser(userId) {
 
 async function get(path, userId) {
   const headers = { 'Content-Type': 'application/json' };
-  if (userId) headers['x-test-user-id'] = userId;
+  if (userId) headers.cookie = await loginAs(userId);
   const res = await fetch(`${BASE}${path}`, { headers });
   const body = await res.json().catch(() => ({}));
   return { status: res.status, body };
@@ -102,8 +103,8 @@ describe('Issue #7 — OAuth Token Expiry Warning', () => {
     await cleanupUser(TEST_USER);
   });
 
-  test('401 when unauthenticated (x-test-user-id: unauthenticated)', async () => {
-    const { status, body } = await get('/api/accounts/oauth-token-status', 'unauthenticated');
+  test('401 when unauthenticated (no session cookie)', async () => {
+    const { status, body } = await get('/api/accounts/oauth-token-status', null);
     assert.strictEqual(status, 401, 'should return 401');
     assert.ok(body.error, 'should include error field');
   });

@@ -11,6 +11,7 @@ const { protectedRouter: calendarsRouter } = require('../routes/calendars');
 test('Issue #155 — Prevent path-traversal authorization bypass on POST /api/calendars/:id/shares', async (t) => {
   let server;
   let baseUrl;
+  let actingUser = null;
 
   t.before(async () => {
     // Register users in DB for tests
@@ -27,11 +28,10 @@ test('Issue #155 — Prevent path-traversal authorization bypass on POST /api/ca
       saveUninitialized: true
     }));
 
-    // Test auth middleware helper
+    // Harness-only identity: set from the test via actingUser, never from the request (#50/#245).
     app.use((req, res, next) => {
-      const authUser = req.headers['x-test-user'];
-      if (authUser) {
-        req.session.userId = authUser;
+      if (actingUser) {
+        req.session.userId = actingUser;
       }
       next();
     });
@@ -64,11 +64,11 @@ test('Issue #155 — Prevent path-traversal authorization bypass on POST /api/ca
 
   await t.test('POST /api/calendars/:id/shares returns 403 when attacker attempts path traversal to self-grant access', async () => {
     const traversalCalId = encodeURIComponent('internal-caldav::/attacker_user_155/../victim_user_155/personal/');
+    actingUser = 'attacker_user_155';
     const res = await fetch(`${baseUrl}/api/calendars/${traversalCalId}/shares`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-test-user': 'attacker_user_155'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         sharee: 'attacker_user_155',
@@ -83,11 +83,11 @@ test('Issue #155 — Prevent path-traversal authorization bypass on POST /api/ca
 
   await t.test('POST /api/calendars/:id/shares allows legitimate owner to add share', async () => {
     const ownerCalId = encodeURIComponent('internal-caldav::/owner_user_155/personal/');
+    actingUser = 'owner_user_155';
     const res = await fetch(`${baseUrl}/api/calendars/${ownerCalId}/shares`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-test-user': 'owner_user_155'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         sharee: 'sharee_user_155',

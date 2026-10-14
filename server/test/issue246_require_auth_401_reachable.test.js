@@ -11,6 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Issue #246 — requireAuth 401 Branch Reachability under AUTH_METHOD=env and NODE_ENV=test', async (t) => {
   t.before(async () => {
@@ -70,13 +71,32 @@ test('Issue #246 — requireAuth 401 Branch Reachability under AUTH_METHOD=env a
     assert.strictEqual(resAuthApi.status, 200, 'API call with initialized session cookie must succeed (200)');
   });
 
-  await t.test('4. Explicit x-test-user-id: unauthenticated returns 401', async () => {
-    const resUnauth = await fetch(`${baseUrl}/api/calendars`, {
+  await t.test('4. Request without a session cannot authenticate via an x-test-user-id header (#245/#50)', async () => {
+    const resForged = await fetch(`${baseUrl}/api/calendars`, {
       headers: {
-        'x-test-user-id': 'unauthenticated'
+        'x-test-user-id': 'testuser-id',
+        'x-test-username': 'testuser',
+        'x-test-email': 'testuser@example.com'
       }
     });
 
-    assert.strictEqual(resUnauth.status, 401, 'Explicit unauthenticated header must return 401');
+    assert.strictEqual(resForged.status, 401, 'Identity header without a session must be ignored and return 401');
+  });
+
+  await t.test('5. An x-test-user-id header does not override or clear an existing session identity', async () => {
+    const cookie = await loginAs('testuser-id', { username: 'testuser', email: 'testuser@example.com' });
+
+    const resUnauthHeader = await fetch(`${baseUrl}/api/calendars`, {
+      headers: { cookie, 'x-test-user-id': 'unauthenticated' }
+    });
+    assert.strictEqual(resUnauthHeader.status, 200, "x-test-user-id: 'unauthenticated' must not drop a real session");
+
+    const resSess = await fetch(`${baseUrl}/api/auth/session`, {
+      headers: { cookie, 'x-test-user-id': 'other-user-id', 'x-test-email': 'other@example.com' }
+    });
+    assert.strictEqual(resSess.status, 200);
+    const body = await resSess.json();
+    assert.strictEqual(body.userId, 'testuser-id', 'Session identity must not be replaced by the header');
+    assert.strictEqual(body.email, 'testuser@example.com', 'Session email must not be replaced by the header');
   });
 });

@@ -147,8 +147,7 @@ test('Issue #218 — Critical Auth & Timezone Test Assertions Suite', async (t) 
       const opts = {
         method: ep.method,
         headers: {
-          'Content-Type': 'application/json',
-          'x-test-user-id': 'unauthenticated'
+          'Content-Type': 'application/json'
         }
       };
       if (ep.body) opts.body = JSON.stringify(ep.body);

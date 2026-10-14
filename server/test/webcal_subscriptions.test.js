@@ -23,6 +23,7 @@ const {
 
 test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
   const { app, server } = require('../index');
+  const { loginAs } = require('./helpers/testSession');
 
   t.before(async () => {
     if (!server.listening) {
@@ -147,16 +148,17 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
     for (const s of existing) await Db.deleteWebcalSubscription(s.id, userId);
 
     // 1. Unauthenticated request returns 401
-    const unauthRes = await fetch(`${baseUrl}/api/webcal/subscriptions`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const unauthRes = await fetch(`${baseUrl}/api/webcal/subscriptions`);
     assert.equal(unauthRes.status, 401);
+
+    const userCookie = await loginAs(userId, { username: userId, email: userId });
+    const otherCookie = await loginAs(otherUserId, { username: otherUserId, email: otherUserId });
 
     // 2. Create subscription via POST
     const createRes = await fetch(`${baseUrl}/api/webcal/subscriptions`, {
       method: 'POST',
       headers: {
-        'x-test-user-id': userId,
+        cookie: userCookie,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -173,7 +175,7 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
 
     // 3. List subscriptions via GET
     const listRes = await fetch(`${baseUrl}/api/webcal/subscriptions`, {
-      headers: { 'x-test-user-id': userId }
+      headers: { cookie: userCookie }
     });
     assert.equal(listRes.status, 200);
     const listBody = await listRes.json();
@@ -183,7 +185,7 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
     const patchRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${createdSub.id}`, {
       method: 'PATCH',
       headers: {
-        'x-test-user-id': userId,
+        cookie: userCookie,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ name: 'Tech Conference 2026' })
@@ -194,14 +196,14 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
 
     // 5. Access control: other user gets 404
     const otherUserRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${createdSub.id}`, {
-      headers: { 'x-test-user-id': otherUserId }
+      headers: { cookie: otherCookie }
     });
     assert.equal(otherUserRes.status, 404);
 
     // 6. Delete subscription via DELETE
     const delRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${createdSub.id}`, {
       method: 'DELETE',
-      headers: { 'x-test-user-id': userId }
+      headers: { cookie: userCookie }
     });
     assert.equal(delRes.status, 200);
   });
@@ -257,8 +259,9 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
       assert.equal(cached[0].readOnly, true);
 
       // 3. GET /api/webcal/subscriptions/:id/events serves from DB cache without new network request
+      const feedUserCookie = await loginAs(userId, { username: userId, email: userId });
       const getEventsRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${sub.id}/events?start=2026-10-01T00:00:00.000Z&end=2026-10-31T00:00:00.000Z`, {
-        headers: { 'x-test-user-id': userId }
+        headers: { cookie: feedUserCookie }
       });
       assert.equal(getEventsRes.status, 200);
       const getEventsData = await getEventsRes.json();
@@ -269,7 +272,7 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
       // 4. Force sync via POST /api/webcal/subscriptions/:id/sync refreshes the cache
       const syncRes = await fetch(`${baseUrl}/api/webcal/subscriptions/${sub.id}/sync`, {
         method: 'POST',
-        headers: { 'x-test-user-id': userId }
+        headers: { cookie: feedUserCookie }
       });
       assert.equal(syncRes.status, 200);
       const syncData = await syncRes.json();

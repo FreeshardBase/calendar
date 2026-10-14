@@ -25,6 +25,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Db = require('../db');
 const { server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 const baseUrl = `http://localhost:${process.env.PORT}`;
@@ -70,11 +71,11 @@ test.describe('Issue #262 — Docker Volume Lifecycles & Recreated Calendar Shar
     await Db.upsertUser(staleSharee, 'stranger262@example.com');
 
     // Authenticate session for owner and fetch accounts
+    const sessionCookie = await loginAs(ownerUserId);
     const accRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(accRes.status, 200);
-    const sessionCookie = accRes.headers.get('set-cookie').split(';')[0];
     const accData = await accRes.json();
     const account = accData[0];
 

@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Public Share & ICS Export Engine Suite', async (t) => {
   t.after(() => {
@@ -25,14 +26,11 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
   const testCalendarId = 'internal-caldav::/testuser/personal/';
 
   await t.test('Initial setup - fetch account session cookie', async () => {
+    sessionCookie = await loginAs('testuser');
     const res = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'testuser' }
+      headers: { cookie: sessionCookie }
     });
     assert.strictEqual(res.status, 200);
-    const cookieHeader = res.headers.get('set-cookie');
-    if (cookieHeader) {
-      sessionCookie = cookieHeader.split(';')[0];
-    }
   });
 
   await t.test('GET /api/public/calendars/share/invalidtoken.ics should return 404', async () => {
@@ -46,8 +44,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       },
       body: JSON.stringify({ label: 'Test Public Feed' })
     });
@@ -60,8 +57,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
     // 2. Fetch public shares list
     const listRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares-public`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       }
     });
     assert.strictEqual(listRes.status, 200);
@@ -75,8 +71,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
     const deleteRes = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares-public/${shareData.token}`, {
       method: 'DELETE',
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       }
     });
     assert.strictEqual(deleteRes.status, 200);
@@ -84,8 +79,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
     // 4. Verify token is gone from list
     const listRes2 = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(testCalendarId)}/shares-public`, {
       headers: {
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       }
     });
     const listData2 = await listRes2.json();
@@ -97,8 +91,7 @@ test('Public Share & ICS Export Engine Suite', async (t) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        cookie: sessionCookie,
-        'x-test-user-id': 'testuser'
+        cookie: sessionCookie
       },
       body: JSON.stringify({ label: '  ' })
     });

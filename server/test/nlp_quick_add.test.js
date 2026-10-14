@@ -112,6 +112,7 @@ test('NLP Quick-Add REST API Suite', async (t) => {
   let app;
   let server;
   let baseUrl;
+  let sessionCookie;
 
   t.before(async () => {
     app = express();
@@ -122,12 +123,12 @@ test('NLP Quick-Add REST API Suite', async (t) => {
       saveUninitialized: true
     }));
 
-    app.use((req, res, next) => {
-      if (req.headers['x-test-user-id'] !== 'unauthenticated') {
-        req.session.userId = 'testuser-id';
-        req.session.accounts = [{ id: 'internal-caldav', username: 'testuser-id' }];
-      }
-      next();
+    // Stand-in for the real login flow: identity comes only from a session
+    // established here, never from a request header (#245).
+    app.post('/login', (req, res) => {
+      req.session.userId = 'testuser-id';
+      req.session.accounts = [{ id: 'internal-caldav', username: 'testuser-id' }];
+      res.status(204).end();
     });
 
     app.use('/api/quick-add', (req, res, next) => {
@@ -138,8 +139,15 @@ test('NLP Quick-Add REST API Suite', async (t) => {
     }, quickAddRouter);
 
     server = app.listen(0);
+    await new Promise((resolve) => server.once('listening', resolve));
     const address = server.address();
     baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const loginRes = await fetch(`${baseUrl}/login`, { method: 'POST' });
+    assert.equal(loginRes.status, 204);
+    const setCookie = loginRes.headers.get('set-cookie');
+    assert.ok(setCookie, 'login must establish a session cookie');
+    sessionCookie = setCookie.split(';')[0];
   });
 
   t.after(() => {
@@ -150,8 +158,7 @@ test('NLP Quick-Add REST API Suite', async (t) => {
     const res = await fetch(`${baseUrl}/api/quick-add/parse`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-test-user-id': 'unauthenticated'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ text: 'Meeting tomorrow' })
     });
@@ -161,7 +168,7 @@ test('NLP Quick-Add REST API Suite', async (t) => {
   await t.test('POST /api/quick-add/parse returns 400 when text is missing', async () => {
     const res = await fetch(`${baseUrl}/api/quick-add/parse`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', cookie: sessionCookie },
       body: JSON.stringify({})
     });
     assert.equal(res.status, 400);
@@ -170,7 +177,7 @@ test('NLP Quick-Add REST API Suite', async (t) => {
   await t.test('POST /api/quick-add/parse returns parsed event object', async () => {
     const res = await fetch(`${baseUrl}/api/quick-add/parse`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', cookie: sessionCookie },
       body: JSON.stringify({ text: 'Design Review tomorrow at 15:00 at Room 2' })
     });
     assert.equal(res.status, 200);

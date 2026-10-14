@@ -41,13 +41,7 @@ test('Issue #121 — Generic OIDC & Multi-User Shard Identity', async (t) => {
       const authMethod = process.env.AUTH_METHOD || 'oidc';
       let userId = req.session.userId;
 
-      if (req.headers['x-test-user-id'] === 'unauthenticated' || req.headers['x-test-user-id'] === 'none') {
-        delete req.session.userId;
-        userId = null;
-      } else if (req.headers['x-test-user-id']) {
-        userId = req.headers['x-test-user-id'];
-        req.session.userId = userId;
-      } else if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
+      if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
         const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'];
         if (headerUser) {
           userId = String(headerUser).trim();

@@ -31,7 +31,7 @@ test('Issue #201 — Prevent Unauthenticated & Sharee Permanent Calendar Deletio
     }));
 
     app.use((req, res, next) => {
-      const authUser = req.headers['x-test-user'];
+      const authUser = req.headers['x-mock-user'];
       if (authUser) {
         req.session.userId = authUser;
         req.session.accounts = [{
@@ -160,7 +160,7 @@ finally:
     const res = await fetch(`${baseUrl}/api/calendars/${calId}`, {
       method: 'DELETE',
       headers: {
-        'x-test-user': 'attacker_201'
+        'x-mock-user': 'attacker_201'
       }
     });
 
@@ -182,7 +182,7 @@ finally:
 
       const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(rawId)}`, {
         method: 'DELETE',
-        headers: { 'x-test-user': 'sharee_201' }
+        headers: { 'x-mock-user': 'sharee_201' }
       });
       assert.equal(res.status, 403, `A ${label} must get 403 on calendar DELETE`);
 
@@ -214,7 +214,7 @@ finally:
 
     const res = await fetch(`${baseUrl}/api/calendars/${encodeURIComponent(victimCal)}/shares`, {
       method: 'POST',
-      headers: { 'x-test-user': 'attacker_201', 'content-type': 'application/json' },
+      headers: { 'x-mock-user': 'attacker_201', 'content-type': 'application/json' },
       body: JSON.stringify({ sharee: 'attacker_201', readWrite: true })
     });
     assert.equal(res.status, 403, 'Self-granting a share on the victim\'s calendar must be rejected');

@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const http = require('http');
 const Db = require('../db');
 const { app, server: appServer } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const {
   calculateBackoff,
   scheduleSyncFailure,
@@ -196,10 +197,7 @@ describe('Issue #6 — Automatic Retry Queue for Synchronization Failures Suite'
       hostname: '127.0.0.1',
       port,
       path: '/api/calendars/sync-queue/status',
-      method: 'GET',
-      headers: {
-        'x-test-user-id': 'unauthenticated'
-      }
+      method: 'GET'
     });
 
     assert.equal(res.status, 401);
@@ -215,7 +213,7 @@ describe('Issue #6 — Automatic Retry Queue for Synchronization Failures Suite'
       path: '/api/calendars/sync-queue/status',
       method: 'GET',
       headers: {
-        'x-test-user-id': testUser
+        cookie: await loginAs(testUser)
       }
     });
 
@@ -236,7 +234,7 @@ describe('Issue #6 — Automatic Retry Queue for Synchronization Failures Suite'
       path: '/api/calendars/sync-queue/retry',
       method: 'POST',
       headers: {
-        'x-test-user-id': testUser,
+        cookie: await loginAs(testUser),
         'Content-Type': 'application/json'
       }
     });

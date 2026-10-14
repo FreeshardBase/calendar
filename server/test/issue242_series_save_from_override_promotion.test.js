@@ -16,6 +16,7 @@ const ICAL = require('ical.js');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 const { updateWholeSeries, parseAndExpandEvent } = require('../utils/ical');
 
 const UID = 'series-242-promo';
@@ -236,9 +237,9 @@ test('Issue #242 — series save from a detached override does not promote the o
     const baseUrl = `http://localhost:${process.env.PORT}`;
     const testUserId = 'testuser-242';
     await Db.upsertUser(testUserId, 'testuser@example.com');
-    const authRes = await fetch(`${baseUrl}/api/accounts`, { headers: { 'x-test-user-id': testUserId } });
+    const cookie = await loginAs(testUserId);
+    const authRes = await fetch(`${baseUrl}/api/accounts`, { headers: { cookie } });
     assert.equal(authRes.status, 200);
-    const cookie = authRes.headers.get('set-cookie').split(';')[0];
 
     const href = `/users/${testUserId}/calendars/personal/${UID}.ics`;
     const eventUrl = `http://localhost:1080${href}`;

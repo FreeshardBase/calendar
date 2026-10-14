@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
@@ -38,23 +39,23 @@ test('Issue #213 — User-to-User Calendar Sharing & Sabotage Prevention Suite',
   const timeQuery = '&start=2026-01-01T00:00:00Z&end=2026-12-31T23:59:59Z';
 
   await t.test('1. Authenticate user sessions for owner, invitee, and stranger', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    inviteeCookie = await loginAs(inviteeUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': inviteeUserId }
+      headers: { cookie: inviteeCookie }
     });
     assert.strictEqual(res2.status, 200);
-    inviteeCookie = res2.headers.get('set-cookie').split(';')[0];
 
+    strangerCookie = await loginAs(strangerUserId);
     const res3 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': strangerUserId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(res3.status, 200);
-    strangerCookie = res3.headers.get('set-cookie').split(';')[0];
   });
 
   let invitationId = '';

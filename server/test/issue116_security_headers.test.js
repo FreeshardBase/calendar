@@ -13,6 +13,7 @@ const express = require('express');
 
 const securityHeaders = require('../utils/securityHeaders');
 const { server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;
 
@@ -89,7 +90,7 @@ test('Issue #116 — Security Headers & Content Security Policy (CSP)', async (t
 
   await t.test('API routes also set security headers', async () => {
     const res = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'x-test-user-id': 'test-user-headers' }
+      headers: { cookie: await loginAs('test-user-headers') }
     });
     assert.ok(res.headers.get('content-security-policy'), 'API route must include Content-Security-Policy');
     assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff', 'API route must include X-Content-Type-Options');

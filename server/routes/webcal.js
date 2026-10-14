@@ -17,12 +17,6 @@ function getUserId(req) {
   if (req.session && req.session.userId) {
     return req.session.userId;
   }
-  if (process.env.NODE_ENV === 'test') {
-    const headerUser = req.headers ? req.headers['x-test-user-id'] : null;
-    if (headerUser && headerUser !== 'unauthenticated' && headerUser !== 'none') {
-      return headerUser;
-    }
-  }
   return null;
 }
 

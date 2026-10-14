@@ -12,6 +12,7 @@ const http = require('node:http');
 const Db = require('../db');
 const { SqliteSessionStore } = require('../utils/sessionStore');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 describe('Issue #172 — Prevent SQLite write & fsync on static files, 304s, 404s, and unchanged sessions', () => {
   after(() => {
@@ -117,10 +118,12 @@ describe('Issue #172 — Prevent SQLite write & fsync on static files, 304s, 404
   });
 
   test('Subsequent authenticated GET request with unchanged session does not trigger Db.upsertUser or sessionStore.set', async () => {
+    const cookie = await loginAs('test-fsync-user');
+    // First request settles the session (user upsert, accounts) so the next one is unchanged.
     const initRes = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': 'test-fsync-user' }
+      headers: { cookie }
     });
-    const cookie = initRes.headers.get('set-cookie');
+    assert.strictEqual(initRes.status, 200);
 
     let upsertCount = 0;
     let sessionSetCount = 0;
@@ -140,8 +143,7 @@ describe('Issue #172 — Prevent SQLite write & fsync on static files, 304s, 404
     try {
       const res = await fetch(`${baseUrl}/api/accounts`, {
         headers: {
-          'x-test-user-id': 'test-fsync-user',
-          'Cookie': cookie ? cookie.split(';')[0] : ''
+          cookie
         }
       });
 

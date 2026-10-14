@@ -11,6 +11,7 @@ const Db = require('../db');
 
 test('Issue #81 — MS Graph Account Authorization & Token Security Suite', async (t) => {
   const { app, server } = require('../index');
+  const { loginAs } = require('./helpers/testSession');
   if (server && !server.listening) {
     await new Promise((resolve) => server.listen(process.env.PORT || 3286, resolve));
   }
@@ -55,7 +56,7 @@ test('Issue #81 — MS Graph Account Authorization & Token Security Suite', asyn
 
   await t.test('GET /api/msgraph/accounts must NOT return access_token or refresh_token', async () => {
     const res = await fetch(`${baseUrl}/api/msgraph/accounts`, {
-      headers: { 'x-test-user-id': userA }
+      headers: { cookie: await loginAs(userA) }
     });
     assert.equal(res.status, 200);
     const data = await res.json();
@@ -84,7 +85,7 @@ test('Issue #81 — MS Graph Account Authorization & Token Security Suite', asyn
   await t.test('DELETE /api/msgraph/accounts/:id must reject requests from unauthorized user (403)', async () => {
     const res = await fetch(`${baseUrl}/api/msgraph/accounts/${accountA.id}`, {
       method: 'DELETE',
-      headers: { 'x-test-user-id': userB }
+      headers: { cookie: await loginAs(userB) }
     });
     assert.equal(res.status, 403);
 
@@ -96,7 +97,7 @@ test('Issue #81 — MS Graph Account Authorization & Token Security Suite', asyn
   await t.test('DELETE /api/msgraph/accounts/:id allowed for owner (200)', async () => {
     const res = await fetch(`${baseUrl}/api/msgraph/accounts/${accountA.id}`, {
       method: 'DELETE',
-      headers: { 'x-test-user-id': userA }
+      headers: { cookie: await loginAs(userA) }
     });
     assert.equal(res.status, 200);
 

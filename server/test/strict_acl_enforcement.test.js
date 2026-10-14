@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Strict ACL Enforcement on Calendar & Event Routes (Issue #56)', async (t) => {
   t.after(() => {
@@ -40,36 +41,34 @@ test('Strict ACL Enforcement on Calendar & Event Routes (Issue #56)', async (t) 
   await Db.addUserShare(ownerCalId, readonlyUserId, false);
 
   await t.test('Authenticate sessions', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    strangerCookie = await loginAs(strangerUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': strangerUserId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(res2.status, 200);
-    strangerCookie = res2.headers.get('set-cookie').split(';')[0];
 
+    readonlyUserCookie = await loginAs(readonlyUserId);
     const res3 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': readonlyUserId }
+      headers: { cookie: readonlyUserCookie }
     });
     assert.strictEqual(res3.status, 200);
-    readonlyUserCookie = res3.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('Unauthenticated GET /api/calendars/search-users should return 401', async () => {
-    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=test`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const res = await fetch(`${baseUrl}/api/calendars/search-users?q=test`);
     assert.strictEqual(res.status, 401);
   });
 
   await t.test('Unauthenticated POST /api/calendars/export/pdf should return 401', async () => {
     const res = await fetch(`${baseUrl}/api/calendars/export/pdf`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user-id': 'unauthenticated' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ view: 'month' })
     });
     assert.strictEqual(res.status, 401);

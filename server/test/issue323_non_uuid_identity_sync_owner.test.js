@@ -21,6 +21,7 @@ const http = require('http');
 const Db = require('../db');
 const { server: appServer } = require('../index');
 const { queueSyncForCalendar } = require('../utils/calendarAuth');
+const { loginAs } = require('./helpers/testSession');
 
 const CALLER = 'testuser-i323';
 const VICTIMS = [
@@ -100,7 +101,7 @@ describe('Issue #323 — non-UUID session identity cannot enqueue a victim sync'
     const res = await request(port, {
       path: `/api/calendars/${encodeURIComponent(calendarId)}`,
       method: 'PATCH',
-      headers: { 'x-test-user-id': CALLER, 'Content-Type': 'application/json' },
+      headers: { cookie: await loginAs(CALLER), 'Content-Type': 'application/json' },
     }, { name: 'attacker-rename' });
     assert.equal(res.status, 200, res.raw);
 

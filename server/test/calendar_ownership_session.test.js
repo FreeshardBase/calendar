@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+const { loginAs } = require('./helpers/testSession');
 
 test('Calendar Ownership & Session Authentication Verification Suite (Issue #51)', async (t) => {
   t.before(async () => {
@@ -39,53 +40,45 @@ test('Calendar Ownership & Session Authentication Verification Suite (Issue #51)
   const ownerCalId = `internal-caldav::/${ownerUserId}/personal/`;
 
   await t.test('Authenticate owner and stranger sessions', async () => {
+    ownerCookie = await loginAs(ownerUserId);
     const res1 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': ownerUserId }
+      headers: { cookie: ownerCookie }
     });
     assert.strictEqual(res1.status, 200);
-    ownerCookie = res1.headers.get('set-cookie').split(';')[0];
 
+    strangerCookie = await loginAs(strangerUserId);
     const res2 = await fetch(`${baseUrl}/api/accounts`, {
-      headers: { 'x-test-user-id': strangerUserId }
+      headers: { cookie: strangerCookie }
     });
     assert.strictEqual(res2.status, 200);
-    strangerCookie = res2.headers.get('set-cookie').split(';')[0];
   });
 
   await t.test('Unauthenticated GET /api/calendars should return 401', async () => {
-    const res = await fetch(`${baseUrl}/api/calendars`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const res = await fetch(`${baseUrl}/api/calendars`);
     assert.strictEqual(res.status, 401);
   });
 
   await t.test('Unauthenticated POST /api/calendars should return 401', async () => {
     const res = await fetch(`${baseUrl}/api/calendars`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user-id': 'unauthenticated' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId: 'internal-caldav', name: 'New Cal' })
     });
     assert.strictEqual(res.status, 401);
   });
 
   await t.test('Unauthenticated GET /api/events should return 401', async () => {
-    const res = await fetch(`${baseUrl}/api/events?start=2026-01-01T00:00:00Z&end=2026-12-31T23:59:59Z`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const res = await fetch(`${baseUrl}/api/events?start=2026-01-01T00:00:00Z&end=2026-12-31T23:59:59Z`);
     assert.strictEqual(res.status, 401);
   });
 
   await t.test('Unauthenticated GET /api/events/invitations should return 401', async () => {
-    const res = await fetch(`${baseUrl}/api/events/invitations`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const res = await fetch(`${baseUrl}/api/events/invitations`);
     assert.strictEqual(res.status, 401);
   });
 
   await t.test('Unauthenticated GET /api/tasks should return 401', async () => {
-    const res = await fetch(`${baseUrl}/api/tasks`, {
-      headers: { 'x-test-user-id': 'unauthenticated' }
-    });
+    const res = await fetch(`${baseUrl}/api/tasks`);
     assert.strictEqual(res.status, 401);
   });
 
