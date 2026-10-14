@@ -189,6 +189,112 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(movedChip).toHaveCount(0, { timeout: 10000 });
   });
 
+  // Issue #91: the weekday must be resolved in the event's time zone. Monday
+  // 00:30 in Berlin is Sunday 22:30 UTC, so a UTC-based server rewrote BYDAY=MO to SU.
+  const berlinWeekday = iso => new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Berlin', weekday: 'short' }).format(new Date(iso));
+
+  async function seriesInstances(page, title) {
+    const res = await page.request.get('/api/events?start=2036-08-01T00:00:00Z&end=2036-10-01T00:00:00Z');
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).filter(e => e.title === title).sort((a, b) => a.start.localeCompare(b.start));
+  }
+
+  async function deleteSeries(page, title) {
+    const chips = page.locator('.event-chip').filter({ hasText: title });
+    await chips.first().click();
+    await page.click('#popover-delete-btn');
+    await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#scope-series-btn');
+    await expect(chips).toHaveCount(0, { timeout: 10000 });
+  }
+
+  test('Issue #91 — new weekly series at Monday 00:30 Berlin recurs on Mondays', async ({ page }) => {
+    await page.goto('/?date=2036-08-11');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calVal = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    await page.selectOption('#ev-calendar', calVal);
+    const title = `E2E Issue91 TZ ${Date.now()}`;
+    await page.fill('#ev-title', title);
+    await page.fill('#ev-start-date', '2036-08-11');
+    await page.dispatchEvent('#ev-start-date', 'change');
+    await page.fill('#ev-start-time', '00:30');
+    await page.fill('#ev-end-date', '2036-08-11');
+    await page.fill('#ev-end-time', '01:30');
+    await page.selectOption('#ev-start-tz', 'Europe/Berlin');
+    await page.selectOption('#ev-recurrence', 'WEEKLY');
+    await expect(page.locator('.recur-byday:checked')).toHaveCount(1);
+    await expect(page.locator('.recur-byday:checked')).toHaveValue('MO');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+
+    const instances = await seriesInstances(page, title);
+    expect(instances.length).toBeGreaterThanOrEqual(3);
+    expect(instances[0].recurrence).toMatch(/BYDAY=MO/);
+    expect(instances[0].start).toBe('2036-08-10T22:30:00.000Z');
+    expect([...new Set(instances.map(e => berlinWeekday(e.start)))]).toEqual(['Mon']);
+
+    await deleteSeries(page, title);
+  });
+
+  test('Issue #91 — moving a bi-weekly series to Monday via the edit dialog keeps INTERVAL and lands on Mondays', async ({ page }) => {
+    await page.goto('/?date=2036-08-13');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    const title = `E2E Issue91 Biweekly ${Date.now()}`;
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//Issue91//EN',
+      'BEGIN:VEVENT',
+      `UID:e2e-issue91-${Date.now()}`,
+      'DTSTART;TZID=Europe/Berlin:20360813T003000',
+      'DTEND;TZID=Europe/Berlin:20360813T013000',
+      'RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=WE',
+      `SUMMARY:${title}`,
+      'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n');
+    await page.evaluate((icsText) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([icsText], 'invite.ics', { type: 'text/calendar' }));
+      document.querySelector('.sidebar').dispatchEvent(
+        new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
+      );
+    }, ics);
+    await expect(page.locator('#import-dialog-backdrop')).toBeVisible();
+    await page.click('#import-confirm');
+    await expect(page.locator('#import-dialog-backdrop')).toBeHidden({ timeout: 20000 });
+
+    const chip = page.locator('.event-chip').filter({ hasText: title }).first();
+    await expect(chip).toBeVisible({ timeout: 15000 });
+    await chip.click();
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('.recur-byday:checked')).toHaveValue('WE');
+    await page.fill('#ev-start-date', '2036-08-11');
+    await page.dispatchEvent('#ev-start-date', 'change');
+    await page.fill('#ev-end-date', '2036-08-11');
+    await expect(page.locator('.recur-byday:checked')).toHaveCount(1);
+    await expect(page.locator('.recur-byday:checked')).toHaveValue('MO');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#scope-series-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+
+    const instances = await seriesInstances(page, title);
+    expect(instances.length).toBeGreaterThanOrEqual(3);
+    expect(instances[0].recurrence).toMatch(/BYDAY=MO/);
+    expect(instances[0].recurrence).toMatch(/INTERVAL=2/);
+    expect(instances[0].start).toBe('2036-08-10T22:30:00.000Z');
+    expect([...new Set(instances.map(e => berlinWeekday(e.start)))]).toEqual(['Mon']);
+    const gapsDays = instances.slice(1).map((e, i) => (new Date(e.start) - new Date(instances[i].start)) / 86400000);
+    expect([...new Set(gapsDays)]).toEqual([14]);
+
+    await deleteSeries(page, title);
+  });
+
   test('should import a dropped ICS file and export a calendar as download', async ({ page }) => {
     await page.goto('/?date=2027-07-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });

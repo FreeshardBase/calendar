@@ -465,9 +465,13 @@ function expandVEventGroup(vevents, rangeStart, rangeEnd, meta = {}) {
  *
  * @param {string|null} recurrence - The RRULE string
  * @param {Date|ICAL.Time|string|null} dtstart - The start date/time of the event
+ * @param {string|null} [timeZone] - The event's startTimeZone. A UTC instant is
+ *   resolved to its weekday in this zone, because that is the zone DTSTART is
+ *   written in (eventToICS). Without it the instant's UTC weekday is used.
+ *   Pass null for all-day events: their DTSTART;VALUE=DATE is the UTC date.
  * @returns {string|null} - The normalised RRULE string
  */
-function normalizeRecurrenceRule(recurrence, dtstart) {
+function normalizeRecurrenceRule(recurrence, dtstart, timeZone = null) {
   if (!recurrence || typeof recurrence !== 'string') return recurrence;
   if (!dtstart) return recurrence;
 
@@ -496,7 +500,7 @@ function normalizeRecurrenceRule(recurrence, dtstart) {
   if (typeof dtstart.dayOfWeek === 'function') {
     targetWeekday = dayNames[dtstart.dayOfWeek() - 1];
   } else if (dtstart instanceof Date) {
-    targetWeekday = isNaN(dtstart.getTime()) ? null : dayNames[dtstart.getUTCDay()];
+    targetWeekday = isNaN(dtstart.getTime()) ? null : weekdayOfInstant(dtstart.toISOString(), timeZone);
   } else if (typeof dtstart === 'string') {
     const s = dtstart.trim().replace(/^.*:/, '');
     const clean = s.split('T')[0];
@@ -508,7 +512,7 @@ function normalizeRecurrenceRule(recurrence, dtstart) {
       targetWeekday = dayNames[new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()];
     } else {
       const d = new Date(dtstart);
-      targetWeekday = isNaN(d.getTime()) ? null : dayNames[d.getUTCDay()];
+      targetWeekday = isNaN(d.getTime()) ? null : weekdayOfInstant(d.toISOString(), timeZone);
     }
   }
 
@@ -518,6 +522,18 @@ function normalizeRecurrenceRule(recurrence, dtstart) {
   }
 
   return recurrence;
+}
+
+// Weekday (SU..SA) of a UTC instant as DTSTART will be written: in `timeZone`
+// when eventToICS emits DTSTART;TZID=<timeZone>, otherwise in UTC.
+function weekdayOfInstant(iso, timeZone) {
+  const dayNames = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  if (timeZone && isValidTimezone(timeZone) && !isTzidLossy(iso, timeZone)) {
+    const local = fmtDateTimeTzid(iso, timeZone);
+    const y = Number(local.slice(0, 4)), m = Number(local.slice(4, 6)), d = Number(local.slice(6, 8));
+    return dayNames[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  }
+  return dayNames[new Date(iso).getUTCDay()];
 }
 
 function eventToICS(event, existingIcs = null) {
@@ -634,7 +650,7 @@ function eventToICS(event, existingIcs = null) {
           if (event.recurrence) {
             const dtstartProp = master.getFirstProperty('dtstart');
             const dtstartTime = dtstartProp ? dtstartProp.getFirstValue() : null;
-            const normRecur = normalizeRecurrenceRule(event.recurrence, dtstartTime || event.start);
+            const normRecur = normalizeRecurrenceRule(event.recurrence, dtstartTime || event.start, event.allDay ? null : event.startTimeZone);
             const rruleClean = String(normRecur).replace(/^RRULE:/i, '').trim();
             try {
               const recur = ICAL.Recur.fromString(rruleClean);
@@ -657,7 +673,7 @@ function eventToICS(event, existingIcs = null) {
             const dtstartTime = dtstartProp.getFirstValue();
             const currRruleVal = rruleProp.getFirstValue();
             const currRruleStr = currRruleVal ? currRruleVal.toString() : rruleProp.toICALString();
-            const normRrule = normalizeRecurrenceRule(currRruleStr, dtstartTime || event.start);
+            const normRrule = normalizeRecurrenceRule(currRruleStr, dtstartTime || event.start, event.allDay ? null : event.startTimeZone);
             if (normRrule && normRrule !== currRruleStr) {
               try {
                 rruleProp.setValue(ICAL.Recur.fromString(normRrule.replace(/^RRULE:/i, '').trim()));
@@ -911,7 +927,7 @@ function eventToICS(event, existingIcs = null) {
   }
 
   if (event.recurrence) {
-    const normRecur = normalizeRecurrenceRule(event.recurrence, event.start);
+    const normRecur = normalizeRecurrenceRule(event.recurrence, event.start, event.allDay ? null : event.startTimeZone);
     lines.push(`RRULE:${String(normRecur).replace(/^RRULE:/i, '').replace(/[\r\n]/g, '')}`);
   }
 
@@ -1715,7 +1731,8 @@ function updateWholeSeries(existingIcs, eventData) {
 
               const shiftedRecurrence = normalizeRecurrenceRule(
                 eventData.recurrence || origMasterEv?.recurrence || masterEventData.recurrence,
-                newMasterStartIso
+                newMasterStartIso,
+                masterEventData.allDay ? null : masterEventData.startTimeZone
               );
 
               masterEventData = {
@@ -1734,9 +1751,9 @@ function updateWholeSeries(existingIcs, eventData) {
   }
 
   if (masterEventData.recurrence && masterEventData.start) {
-    masterEventData.recurrence = normalizeRecurrenceRule(masterEventData.recurrence, masterEventData.start);
+    masterEventData.recurrence = normalizeRecurrenceRule(masterEventData.recurrence, masterEventData.start, masterEventData.allDay ? null : masterEventData.startTimeZone);
   } else if (!masterEventData.recurrence && origMasterEv?.recurrence && masterEventData.start) {
-    masterEventData.recurrence = normalizeRecurrenceRule(origMasterEv.recurrence, masterEventData.start);
+    masterEventData.recurrence = normalizeRecurrenceRule(origMasterEv.recurrence, masterEventData.start, masterEventData.allDay ? null : masterEventData.startTimeZone);
   }
 
   const newMasterIcs = eventToICS(masterEventData, existingIcs);

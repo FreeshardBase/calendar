@@ -295,7 +295,7 @@ router.post('/', async (req, res) => {
     const uid = uuidv4();
     const event = { ...eventData, uid };
     if (event.recurrence && event.start) {
-      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start);
+      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start, event.allDay ? null : event.startTimeZone);
     }
     const ics = eventToICS(event);
 
@@ -368,7 +368,7 @@ router.put('/:uid', async (req, res) => {
       event.recurrenceId = targetRecurrenceId;
     }
     if (event.recurrence && event.start) {
-      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start);
+      event.recurrence = normalizeRecurrenceRule(event.recurrence, event.start, event.allDay ? null : event.startTimeZone);
     }
     const eventUrl  = buildAbsoluteUrl(account.url, href);
 
