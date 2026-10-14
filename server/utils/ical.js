@@ -1140,9 +1140,7 @@ function occurrenceTime(master, recurrenceId) {
     const y = cleanStr.slice(0, 4);
     const m = cleanStr.slice(4, 6);
     const d = cleanStr.slice(6, 8);
-    const time = ICAL.Time.fromDateTimeString(`${y}-${m}-${d}`);
-    time.isDate = true;
-    return time;
+    return ICAL.Time.fromDateString(`${y}-${m}-${d}`);
   }
 
   const isUtcStr = recStr.endsWith('Z') || recStr.includes('+') || (recStr.includes('T') && recStr.includes('-') && recStr.indexOf('-') > recStr.indexOf('T'));
@@ -1803,6 +1801,24 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   return true;
 }
 
+// Comparison keys for the per-occurrence content fields of an event, used to
+// tell an edited field from one the modal merely echoed back (#242).
+const _textKey = (v) => (v == null ? '' : String(v).trim());
+const _listKey = (fn) => (arr) => (Array.isArray(arr) ? arr : []).map(fn).sort().join('|');
+const SERIES_FIELD_KEYS = {
+  title:         _textKey,
+  location:      _textKey,
+  description:   _textKey,
+  status:        _textKey,
+  startTimeZone: _textKey,
+  endTimeZone:   _textKey,
+  allDay:        (v) => String(!!v),
+  categories:    (v) => _listKey(c => String(c).trim().toUpperCase())(typeof v === 'string' ? v.split(',') : v),
+  attendees:     _listKey(a => `${(a.email || '').toLowerCase()}:${(a.status || '').toUpperCase()}`),
+  alarms:        _listKey(a => `${(a.action || '').toUpperCase()}:${String(a.related || 'START').toUpperCase()}:${(a.trigger || '').trim()}`),
+  attachments:   _listKey(a => String(a.url || '').trim())
+};
+
 /**
  * Update a whole event series while preserving any existing EXDATE properties
  * on the master VEVENT and any detached override VEVENT subcomponents.
@@ -1848,6 +1864,17 @@ function updateWholeSeries(existingIcs, eventData) {
     ...eventData
   };
   const targetRid = eventData?.recurrenceId || (eventData?.uid && eventData.uid.includes('::') ? eventData.uid.split('::')[1] : null);
+  // Saved from a detached override: the modal was filled from the override, so
+  // a field still equal to the override's value was not edited and keeps the
+  // master's value instead of being promoted onto every occurrence (#242).
+  const override = targetRid && origMasterEv ? parseICSToEvent(existingIcs, { recurrenceId: targetRid }) : null;
+  if (override) {
+    for (const [field, key] of Object.entries(SERIES_FIELD_KEYS)) {
+      if (key(eventData[field]) === key(override[field])) {
+        masterEventData[field] = origMasterEv[field];
+      }
+    }
+  }
   if (targetRid && master.getFirstProperty('rrule')) {
     try {
       if (origMasterEv && origMasterEv.start) {
@@ -1886,7 +1913,12 @@ function updateWholeSeries(existingIcs, eventData) {
 
               let newMasterEndIso = null;
               if (eventData.end && eventData.start) {
-                const durationMs = new Date(eventData.end).getTime() - incStartMs;
+                let durationMs = new Date(eventData.end).getTime() - incStartMs;
+                // The override's own length was echoed back, not chosen (#242).
+                if (override && override.start && override.end && origMasterEv.end
+                    && durationMs === new Date(override.end).getTime() - new Date(override.start).getTime()) {
+                  durationMs = new Date(origMasterEv.end).getTime() - new Date(origMasterEv.start).getTime();
+                }
                 newMasterEndIso = new Date(newMasterStartMs + durationMs).toISOString();
               }
 
