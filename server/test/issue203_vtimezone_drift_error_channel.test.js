@@ -40,7 +40,7 @@ test('Issue #203 — VTIMEZONE Registration & Timezone Drift Error Channel', asy
     assert.equal(isValidTimezone(null), false, 'Null must return false');
   });
 
-  await t.test('buildVTimezoneBlock logs warning and returns fallback string for invalid IANA timezones', () => {
+  await t.test('buildVTimezoneBlock logs warning and returns null for invalid IANA timezones', () => {
     let warningLogged = false;
     const origWarn = console.warn;
     console.warn = (...args) => {
@@ -50,13 +50,61 @@ test('Issue #203 — VTIMEZONE Registration & Timezone Drift Error Channel', asy
 
     try {
       const block = buildVTimezoneBlock('Invalid/Timezone_XYZ');
-      assert.equal(typeof block, 'string', 'buildVTimezoneBlock must return string fallback for invalid timezone');
-      assert.ok(block.includes('BEGIN:VTIMEZONE'));
-      assert.ok(block.includes('TZID:Invalid/Timezone_XYZ'));
+      assert.equal(block, null, 'buildVTimezoneBlock must not fabricate a 0-offset block for an invalid timezone');
       assert.ok(warningLogged, 'Must log warning when buildVTimezoneBlock receives invalid timezone');
     } finally {
       console.warn = origWarn;
     }
+  });
+
+  await t.test('eventToICS update path (existing ICS) neither embeds nor registers a VTIMEZONE for an invalid TZID', () => {
+    const tzid = 'Invalid/Update_Path_203';
+    const existingIcs = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Test//EN',
+      'BEGIN:VEVENT',
+      'UID:update-path-203',
+      'DTSTAMP:20260101T000000Z',
+      'SUMMARY:Existing Event',
+      'DTSTART:20260601T100000Z',
+      'DTEND:20260601T110000Z',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+    const incoming = {
+      uid: 'update-path-203',
+      title: 'Existing Event',
+      start: '2026-06-01T10:00:00.000Z',
+      end: '2026-06-01T11:00:00.000Z',
+      allDay: false,
+      startTimeZone: tzid,
+      endTimeZone: tzid
+    };
+
+    assert.ok(!ICAL.TimezoneService.has(tzid), 'TZID must not be pre-registered');
+    const ics = eventToICS(incoming, existingIcs);
+
+    // Prove the update path was taken (fresh-build path uses the Freeshard PRODID).
+    assert.ok(ics.includes('PRODID:-//Test//EN'), 'Must take the existing-ICS update path');
+    assert.ok(!ics.includes('BEGIN:VTIMEZONE'), 'Must NOT embed a VTIMEZONE for an invalid TZID');
+    assert.ok(!ics.includes(tzid), 'Invalid TZID must not appear anywhere in the stored ICS');
+    assert.ok(!ICAL.TimezoneService.has(tzid), 'Invalid TZID must not be registered process-wide');
+
+    // A later read of an ICS carrying that TZID must not launder it into the event model.
+    const parsed = parseICSToEvent([
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//EN',
+      'BEGIN:VEVENT', 'UID:launder-203', 'SUMMARY:Later',
+      `DTSTART;TZID=${tzid}:20260601T100000`,
+      `DTEND;TZID=${tzid}:20260601T110000`,
+      'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n'));
+    assert.notEqual(parsed.startTimeZone, tzid, 'Bogus TZID must not be laundered into startTimeZone');
+
+    // Valid zones on the update path are still embedded and correct.
+    const ok = eventToICS({ ...incoming, startTimeZone: 'Europe/Berlin', endTimeZone: 'Europe/Berlin' }, existingIcs);
+    assert.ok(ok.includes('TZID:Europe/Berlin'), 'Valid TZID must still get a VTIMEZONE on the update path');
+    assert.equal(parseICSToEvent(ok).start, '2026-06-01T10:00:00.000Z');
   });
 
   await t.test('parseICSToEvent registers embedded VTIMEZONE into ICAL.TimezoneService', () => {

@@ -2097,6 +2097,75 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
+  test.describe('Issue #203 — background sync failures reach the user', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    // Serves `state.jobs` on every poll so a test can change it between polls.
+    async function serveJobs(page, state) {
+      await page.route('**/api/accounts/sync-status', route =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: state.jobs }) }));
+    }
+
+    // Fire the 60 s status poll and wait until its response has arrived.
+    async function nextPoll(page) {
+      const polled = page.waitForResponse('**/api/accounts/sync-status');
+      await page.clock.fastForward(61 * 1000);
+      await polled;
+    }
+
+    test('latest sync job in ERROR shows an alert banner with the worker error message', async ({ page }) => {
+      const state = { jobs: [
+        // A queued job does not hide the last finished run's failure.
+        { id: 'job-3', status: 'PENDING', errorMessage: null, createdAt: 3000, updatedAt: 3000 },
+        { id: 'job-2', status: 'ERROR', errorMessage: 'vdirsyncer: <b>conflict</b> on testuser/privat', createdAt: 2000, updatedAt: 2100 },
+        { id: 'job-1', status: 'SUCCESS', errorMessage: null, createdAt: 1000, updatedAt: 1100 },
+      ] };
+      await serveJobs(page, state);
+      await page.clock.install();
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const banner = page.locator('#sync-error-banner');
+      await expect(banner).toBeVisible({ timeout: 10000 });
+      await expect(banner).toHaveAttribute('role', 'alert');
+      // The worker's message is rendered as text, never as HTML.
+      await expect(page.locator('#sync-error-text')).toContainText('vdirsyncer: <b>conflict</b> on testuser/privat');
+      await expect(banner.locator('b')).toHaveCount(0);
+
+      await page.locator('#sync-error-dismiss').click();
+      await expect(banner).toBeHidden();
+
+      // A dismissed failure stays dismissed on the next poll ...
+      await nextPoll(page);
+      await expect(banner).toBeHidden();
+
+      // ... but a new failure is shown again.
+      state.jobs = [
+        { id: 'job-4', status: 'ERROR', errorMessage: 'discovery failed for testuser', createdAt: 4000, updatedAt: 4100 },
+        ...state.jobs,
+      ];
+      await nextPoll(page);
+      await expect(banner).toBeVisible();
+      await expect(page.locator('#sync-error-text')).toContainText('discovery failed for testuser');
+    });
+
+    test('a later successful sync supersedes an older ERROR — banner is cleared', async ({ page }) => {
+      const failed = { id: 'job-1', status: 'ERROR', errorMessage: 'old failure', createdAt: 1000, updatedAt: 1100 };
+      const state = { jobs: [failed] };
+      await serveJobs(page, state);
+      await page.clock.install();
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const banner = page.locator('#sync-error-banner');
+      await expect(banner).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#sync-error-text')).toContainText('old failure');
+
+      state.jobs = [{ id: 'job-2', status: 'SUCCESS', errorMessage: null, createdAt: 2000, updatedAt: 2100 }, failed];
+      await nextPoll(page);
+      await expect(banner).toBeHidden();
+    });
+  });
+
 });
 
 

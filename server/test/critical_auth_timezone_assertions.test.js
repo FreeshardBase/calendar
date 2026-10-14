@@ -202,11 +202,8 @@ test('Issue #218 — Critical Auth & Timezone Test Assertions Suite', async (t) 
     assert.ok(block.includes('TZOFFSETFROM:+0530'), 'Must include correct TZOFFSETFROM');
     assert.ok(block.includes('TZOFFSETTO:+0530'), 'Must include correct TZOFFSETTO');
 
-    // 2. Invalid timezone fallback handling without unhandled error
-    const fallbackBlock = buildVTimezoneBlock('NonExistent/Timezone_123');
-    assert.equal(typeof fallbackBlock, 'string');
-    assert.ok(fallbackBlock.includes('BEGIN:VTIMEZONE'));
-    assert.ok(fallbackBlock.includes('TZID:NonExistent/Timezone_123'));
+    // 2. Invalid timezone yields no block rather than a fabricated 0-offset one (#203)
+    assert.equal(buildVTimezoneBlock('NonExistent/Timezone_123'), null);
   });
 
   await t.test('iCalendar Serialization: Strict floating vs UTC vs TZID event semantics', () => {

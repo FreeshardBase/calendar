@@ -97,6 +97,8 @@ async function boot() {
       await loadEvents();
       await loadTasks();
       await checkOAuthTokenStatus();
+      await checkSyncStatus();
+      setInterval(checkSyncStatus, 60 * 1000);
       checkWelcomePopup(accounts);
     }
   } catch (err) {
@@ -1988,6 +1990,8 @@ function onEventDeleted(uid) {
 // ── UI Event Listeners ────────────────────────────────────────────────────────
 
 function attachListeners() {
+  $('sync-error-dismiss').addEventListener('click', dismissSyncError);
+
   const reauthBtn = $('oauth-reauth-btn');
   if (reauthBtn) {
     reauthBtn.addEventListener('click', () => {
@@ -2579,6 +2583,43 @@ export async function checkOAuthTokenStatus() {
   } catch (err) {
     console.warn('[OAuth status check error]', err);
   }
+}
+
+// Issue #203 / #198: the background sync worker records failures as an ERROR
+// job with an error_message. Surface the latest finished job's failure; a
+// newer successful run supersedes an older error, queued/running jobs do not.
+let dismissedSyncErrorId = null;
+
+export async function checkSyncStatus() {
+  const banner = $('sync-error-banner');
+  const textEl = $('sync-error-text');
+  let jobs;
+  try {
+    ({ jobs } = await AccountsAPI.getSyncStatus());
+    if (!Array.isArray(jobs)) throw new Error('unerwartete Antwort');
+  } catch (err) {
+    // Polled every minute — report in the banner rather than stacking toasts.
+    textEl.textContent = 'Sync-Status konnte nicht geladen werden: ' + err.message;
+    delete banner.dataset.jobId;
+    banner.classList.remove('hidden');
+    return;
+  }
+  // Server orders by created_at DESC.
+  const latest = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
+  if (latest && latest.status === 'ERROR' && latest.id !== dismissedSyncErrorId) {
+    textEl.textContent =
+      'Hintergrund-Synchronisation fehlgeschlagen: ' + (latest.errorMessage || 'unbekannter Fehler');
+    banner.dataset.jobId = latest.id;
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
+function dismissSyncError() {
+  const banner = $('sync-error-banner');
+  dismissedSyncErrorId = banner.dataset.jobId || null;
+  banner.classList.add('hidden');
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
