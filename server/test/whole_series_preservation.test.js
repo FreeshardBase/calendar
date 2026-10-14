@@ -168,8 +168,11 @@ test('Issue #241 — Whole-Series Save EXDATE and Detached Override Preservation
     });
 
     assert.ok(updatedIcs.includes('SUMMARY:Updated Multi Exdate Master'), 'Title must update');
-    assert.ok(updatedIcs.includes('EXDATE;TZID=Europe/Berlin:20260908T090000'), 'First EXDATE must be preserved');
-    assert.ok(updatedIcs.includes('EXDATE;TZID=Europe/Berlin:20260922T090000'), 'Second EXDATE must be preserved');
+    // 09:00Z is 11:00 Berlin summer time, so the save moves the series
+    // by two hours and both exceptions move with it (#243).
+    assert.ok(updatedIcs.includes('DTSTART;TZID=Europe/Berlin:20260901T110000'), 'Series start moves to 11:00');
+    assert.ok(updatedIcs.includes('EXDATE;TZID=Europe/Berlin:20260908T110000'), 'First EXDATE must be preserved and follow DTSTART');
+    assert.ok(updatedIcs.includes('EXDATE;TZID=Europe/Berlin:20260922T110000'), 'Second EXDATE must be preserved and follow DTSTART');
     assert.ok(updatedIcs.includes('BEGIN:VTIMEZONE'), 'VTIMEZONE component must be preserved');
     assert.ok(updatedIcs.includes('TZID:Europe/Berlin'), 'VTIMEZONE tzid must be preserved');
   });
