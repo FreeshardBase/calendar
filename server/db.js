@@ -4,6 +4,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
 const { v4: uuidv4 } = require('uuid');
 const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = require('./utils/migrations');
 
@@ -15,6 +16,10 @@ const dbExistedAtBoot = fs.existsSync(dbPath);
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) throw new Error(`Cannot open database ${dbPath}: ${err.message}`, { cause: err });
 });
+// Issue #149: one statement at a time on this connection. Transactions commit on a second
+// connection (withTransaction); a write that started inside another statement's read snapshot
+// would then fail with SQLITE_BUSY at once instead of waiting out busy_timeout.
+db.serialize();
 
 const WEAK_ENCRYPTION_KEYS = new Set([
   'freeshard-default-encryption-key-do-not-use-in-prod',
@@ -612,6 +617,85 @@ async function verifyEncryptionKey(database, keyMaterial, keyState) {
 // database; server/index.js does not listen before then and exits on rejection.
 const ready = migrated.then(() => verifyEncryptionKey(db, ENCRYPTION_KEY_MATERIAL, ENCRYPTION_KEY_STATE));
 
+// ── Transactions (#149) ───────────────────────────────────────────────────────
+const txContext = new AsyncLocalStorage();
+let txQueue = Promise.resolve();
+let txConnection = null;
+let savepointSeq = 0;
+
+function openTxConnection() {
+  if (!txConnection) {
+    txConnection = ready.then(() => new Promise((resolve, reject) => {
+      const conn = new sqlite3.Database(dbPath, (err) => {
+        if (err) return reject(new Error(`Cannot open database ${dbPath}: ${err.message}`, { cause: err }));
+        conn.serialize(() => {
+          conn.run('PRAGMA busy_timeout = 30000');
+          conn.run('PRAGMA foreign_keys = ON', (pragmaErr) => (pragmaErr ? reject(pragmaErr) : resolve(conn)));
+        });
+      });
+    }));
+  }
+  return txConnection;
+}
+
+function makeTx(conn) {
+  const state = { conn, done: false, tx: null };
+  const call = (method, sql, params) => new Promise((res, rej) => {
+    if (state.done) return rej(new Error('Transaction already finished'));
+    conn[method](sql, params, function (err, value) {
+      if (err) return rej(err);
+      res(method === 'run' ? this : value);
+    });
+  });
+  state.tx = {
+    run: (sql, params = []) => call('run', sql, params),
+    get: (sql, params = []) => call('get', sql, params),
+    all: (sql, params = []) => call('all', sql, params)
+  };
+  return state;
+}
+
+function exec(conn, sql) {
+  return new Promise((resolve, reject) => conn.run(sql, (err) => (err ? reject(err) : resolve())));
+}
+
+async function runTransaction(fn) {
+  const conn = await openTxConnection();
+  await exec(conn, 'BEGIN IMMEDIATE');
+  const state = makeTx(conn);
+  let result;
+  try {
+    result = await txContext.run(state, () => fn(state.tx));
+  } catch (fnErr) {
+    state.done = true;
+    await exec(conn, 'ROLLBACK');
+    throw fnErr;
+  }
+  state.done = true;
+  try {
+    await exec(conn, 'COMMIT');
+  } catch (commitErr) {
+    await exec(conn, 'ROLLBACK');
+    throw commitErr;
+  }
+  return result;
+}
+
+async function runSavepoint(outer, fn) {
+  const name = `sp_${++savepointSeq}`;
+  await outer.tx.run(`SAVEPOINT ${name}`);
+  let result;
+  try {
+    result = await fn(outer.tx);
+  } catch (fnErr) {
+    await outer.tx.run(`ROLLBACK TO ${name}`);
+    await outer.tx.run(`RELEASE ${name}`);
+    throw fnErr;
+  }
+  await outer.tx.run(`RELEASE ${name}`);
+  return result;
+}
+
 // A token column holds `iv:ciphertext` in one string; an absent token stays absent.
 function encryptToken(token) {
   if (token === null || token === undefined || token === '') return token;
@@ -837,72 +921,20 @@ const Db = {
     });
   },
 
+  // Issue #149: runs fn(tx) atomically. Transactions use their own connection, so the autocommit
+  // statements other requests send on `db` never land inside them, and run one at a time in this
+  // process under BEGIN IMMEDIATE (the sync worker and Radicale write this file too). A call made
+  // from inside fn — the same async context, tracked with AsyncLocalStorage — becomes a SAVEPOINT
+  // of the enclosing transaction; an unrelated caller that merely overlaps in time waits its turn.
+  // Inside fn, write through tx only: a write on `db` waits for this transaction's lock.
   withTransaction(fn) {
-    if (this._inTx && this._activeTx) {
-      return Promise.resolve().then(() => fn(this._activeTx));
-    }
-    return new Promise((resolve, reject) => {
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION', (startErr) => {
-          if (startErr) return reject(startErr);
-          this._inTx = true;
-          let rolledBack = false;
-          const tx = {
-            run: (sql, params = []) => {
-              return new Promise((res, rej) => {
-                if (rolledBack) return rej(new Error('Transaction already aborted'));
-                db.run(sql, params, function (runErr) {
-                  if (runErr) return rej(runErr);
-                  res(this);
-                });
-              });
-            },
-            get: (sql, params = []) => {
-              return new Promise((res, rej) => {
-                if (rolledBack) return rej(new Error('Transaction already aborted'));
-                db.get(sql, params, (getErr, row) => {
-                  if (getErr) return rej(getErr);
-                  res(row);
-                });
-              });
-            },
-            all: (sql, params = []) => {
-              return new Promise((res, rej) => {
-                if (rolledBack) return rej(new Error('Transaction already aborted'));
-                db.all(sql, params, (allErr, rows) => {
-                  if (allErr) return rej(allErr);
-                  res(rows);
-                });
-              });
-            }
-          };
-          this._activeTx = tx;
-
-          Promise.resolve()
-            .then(() => fn(tx))
-            .then((result) => {
-              if (rolledBack) return;
-              db.run('COMMIT', (commitErr) => {
-                this._inTx = false;
-                this._activeTx = null;
-                if (commitErr) {
-                  db.run('ROLLBACK', () => reject(commitErr));
-                } else {
-                  resolve(result);
-                }
-              });
-            })
-            .catch((fnErr) => {
-              rolledBack = true;
-              db.run('ROLLBACK', () => {
-                this._inTx = false;
-                this._activeTx = null;
-                reject(fnErr);
-              });
-            });
-        });
-      });
-    });
+    const outer = txContext.getStore();
+    // A continuation fn left running after its transaction finished is no longer nested in it.
+    if (outer && !outer.done) return runSavepoint(outer, fn);
+    const run = () => runTransaction(fn);
+    const result = txQueue.then(run, run);
+    txQueue = result.then(() => undefined, () => undefined);
+    return result;
   },
 
   cleanUserTmpCredentials(userId) {
