@@ -7,6 +7,12 @@ const { assertPublicUrl, getGuardedDispatcher } = require('../utils/outboundFetc
 // origin (scheme, host or port) — same rule as browsers / undici (#336).
 const CREDENTIAL_HEADERS = new Set(['authorization', 'cookie', 'proxy-authorization']);
 
+// Collection requests (calendar lists, REPORTs over a date range) may carry
+// large bodies; single-item GET/PUT/DELETE back an interactive save, so a
+// backend that accepts and never answers must fail fast there (#105).
+const COLLECTION_TIMEOUT_MS = 15000;
+const ITEM_TIMEOUT_MS = 4000;
+
 function escapeXML(str) {
   if (str == null) return '';
   return String(str)
@@ -73,7 +79,7 @@ class CalDAVClient {
       reqHeaders['Content-Type'] = 'application/xml; charset=utf-8';
     }
 
-    const timeoutMs = timeout || Number(process.env.CALDAV_TIMEOUT_MS) || 15000;
+    const timeoutMs = timeout || Number(process.env.CALDAV_TIMEOUT_MS) || COLLECTION_TIMEOUT_MS;
     const NON_RETRIABLE_CODES = new Set([
       'ECONNREFUSED',
       'ENOTFOUND',
@@ -196,7 +202,7 @@ class CalDAVClient {
    * Fetch a single resource (event .ics) with its ETag.
    */
   async get(url) {
-    const res = await this._request('GET', url);
+    const res = await this._request('GET', url, { timeout: ITEM_TIMEOUT_MS });
     if (!res.ok) {
       throw new Error(`GET ${res.status}: ${res.statusText}`);
     }
@@ -221,7 +227,7 @@ class CalDAVClient {
       headers['If-None-Match'] = '*'; // Fail if resource already exists
     }
 
-    const res = await this._request('PUT', url, { body: icsData, headers });
+    const res = await this._request('PUT', url, { body: icsData, headers, timeout: ITEM_TIMEOUT_MS });
 
     if (res.status === 412) throw new Error('ETAG_CONFLICT');
     if (!res.ok && res.status !== 201 && res.status !== 204) {
@@ -246,7 +252,7 @@ class CalDAVClient {
       if (ifMatch) headers['If-Match'] = ifMatch;
     }
 
-    const res = await this._request('DELETE', url, { headers });
+    const res = await this._request('DELETE', url, { headers, timeout: ITEM_TIMEOUT_MS });
 
     if (res.status === 412) throw new Error('ETAG_CONFLICT');
     if (!res.ok && res.status !== 204) {
