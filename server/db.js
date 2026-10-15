@@ -239,14 +239,15 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS msgraph_accounts (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
-      tenant_id TEXT DEFAULT 'common',
-      client_id TEXT,
       account_email TEXT NOT NULL,
       access_token TEXT,
       refresh_token TEXT,
       expires_at INTEGER,
       delta_link TEXT,
+      delta_started_at INTEGER,
       target_calendar_id TEXT,
+      reconnect_required INTEGER NOT NULL DEFAULT 0,
+      sync_lock_until INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -1671,13 +1672,11 @@ const Db = {
       const encRefresh = encryptToken(accountData.refreshToken || '');
       db.run(
         `INSERT INTO msgraph_accounts 
-         (id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, user_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           accountData.userId,
-          accountData.tenantId || 'common',
-          accountData.clientId || '',
           accountData.accountEmail,
           encAccess,
           encRefresh,
@@ -1698,7 +1697,7 @@ const Db = {
   getMSGraphAccounts(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at
+        `SELECT id, user_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, reconnect_required, created_at, updated_at
          FROM msgraph_accounts WHERE user_id = ? ORDER BY created_at ASC`,
         [userId],
         (err, rows) => {
@@ -1706,14 +1705,13 @@ const Db = {
           resolve(rows.map(r => ({
             id: r.id,
             userId: r.user_id,
-            tenantId: r.tenant_id,
-            clientId: r.client_id,
             accountEmail: r.account_email,
             accessToken: decryptToken(r.access_token),
             refreshToken: decryptToken(r.refresh_token),
             expiresAt: r.expires_at,
             deltaLink: r.delta_link,
             targetCalendarId: r.target_calendar_id,
+            reconnectRequired: r.reconnect_required === 1,
             createdAt: r.created_at,
             updatedAt: r.updated_at
           })));
@@ -1725,7 +1723,7 @@ const Db = {
   getMSGraphAccountById(accountId) {
     return new Promise((resolve, reject) => {
       db.get(
-        `SELECT id, user_id, tenant_id, client_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at
+        `SELECT id, user_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, reconnect_required, created_at, updated_at
          FROM msgraph_accounts WHERE id = ?`,
         [accountId],
         (err, r) => {
@@ -1734,14 +1732,13 @@ const Db = {
           resolve({
             id: r.id,
             userId: r.user_id,
-            tenantId: r.tenant_id,
-            clientId: r.client_id,
             accountEmail: r.account_email,
             accessToken: decryptToken(r.access_token),
             refreshToken: decryptToken(r.refresh_token),
             expiresAt: r.expires_at,
             deltaLink: r.delta_link,
             targetCalendarId: r.target_calendar_id,
+            reconnectRequired: r.reconnect_required === 1,
             createdAt: r.created_at,
             updatedAt: r.updated_at
           });
@@ -1761,6 +1758,7 @@ const Db = {
       if (updates.expiresAt !== undefined) { fields.push('expires_at = ?'); values.push(updates.expiresAt); }
       if (updates.deltaLink !== undefined) { fields.push('delta_link = ?'); values.push(updates.deltaLink); }
       if (updates.targetCalendarId !== undefined) { fields.push('target_calendar_id = ?'); values.push(updates.targetCalendarId); }
+      if (updates.reconnectRequired !== undefined) { fields.push('reconnect_required = ?'); values.push(updates.reconnectRequired ? 1 : 0); }
       
       fields.push('updated_at = ?');
       values.push(now);

@@ -61,7 +61,7 @@ test('Issue #84 — Office 365 / MS Graph UI Reachability Suite', async (t) => {
     );
     assert.ok(htmlContent.includes('id="btn-link-msgraph"'), 'index.html must contain #btn-link-msgraph');
     assert.ok(htmlContent.includes('id="msgraph-modal-backdrop"'), 'index.html must contain #msgraph-modal-backdrop');
-    assert.ok(htmlContent.includes('id="msgraph-form"'), 'index.html must contain #msgraph-form');
+    assert.ok(htmlContent.includes('id="btn-connect-msgraph"'), 'index.html must contain #btn-connect-msgraph');
     assert.ok(htmlContent.includes('id="msgraph-accounts-list"'), 'index.html must contain #msgraph-accounts-list');
   });
 });

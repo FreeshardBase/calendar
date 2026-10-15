@@ -30,76 +30,23 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
   const userId = 'msgraph-bg-user-id';
   const userCookie = await loginAs(userId);
 
-  await t.test('POST /api/msgraph/accounts should automatically enqueue a PENDING sync job', async () => {
-    const res = await fetch(`${baseUrl}/api/msgraph/accounts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: userCookie
-      },
-      body: JSON.stringify({
-        accountEmail: 'm365user@example.com',
-        tenantId: 'common',
-        clientId: 'test-m365-client'
-      })
-    });
-
-    assert.equal(res.status, 201);
-    const data = await res.json();
-    assert.ok(data.success);
-    assert.ok(data.account.id);
-
-    const pendingJobs = await Db.getPendingSyncJobs();
-    const userJob = pendingJobs.find(j => j.userId === userId);
-    assert.ok(userJob, 'Sync job should be enqueued in sync_queue table upon MS Graph account registration');
-    assert.equal(userJob.status, 'PENDING');
-
-    await Db.deleteMSGraphAccount(data.account.id);
-  });
-
-  await t.test('POST /api/msgraph/accounts/:id/sync should enqueue sync job and trigger sync engine', async () => {
+  await t.test('POST /api/msgraph/accounts/:id/sync enqueues a sync job for the worker', async () => {
     const account = await Db.addMSGraphAccount({
       userId,
-      accountEmail: 'outlookuser@example.com',
-      tenantId: 'common',
-      clientId: 'client-999',
-      accessToken: 'token-999',
-      refreshToken: 'refresh-999'
+      accountEmail: 'testuser@example.com',
+      accessToken: 'testuser-access-token',
+      refreshToken: 'testuser-refresh-token'
     });
 
-    // Microsoft is stubbed: an unreachable Graph API is a sync error (#343), not an empty sync.
-    const realFetch = globalThis.fetch;
-    const graphCalls = [];
-    globalThis.fetch = async (url, opts) => {
-      const href = String(url);
-      if (href.startsWith('https://login.microsoftonline.com/')) {
-        graphCalls.push(href);
-        return new Response(JSON.stringify({ access_token: 'token-1000', expires_in: 3600 }), { status: 200 });
-      }
-      if (href.startsWith('https://graph.microsoft.com/')) {
-        graphCalls.push(href);
-        return new Response(JSON.stringify({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/events/delta?token=1' }), { status: 200 });
-      }
-      return realFetch(url, opts);
-    };
-    let res;
-    try {
-      res = await fetch(`${baseUrl}/api/msgraph/accounts/${account.id}/sync`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          cookie: userCookie
-        },
-        body: JSON.stringify({ localEvents: [] })
-      });
-    } finally {
-      globalThis.fetch = realFetch;
-    }
+    const res = await fetch(`${baseUrl}/api/msgraph/accounts/${account.id}/sync`, {
+      method: 'POST',
+      headers: { cookie: userCookie }
+    });
 
-    assert.equal(res.status, 200, await res.clone().text());
-    assert.ok(graphCalls.some((u) => u.startsWith('https://graph.microsoft.com/')), 'the sync engine must query Graph');
+    assert.equal(res.status, 202, await res.clone().text());
     const data = await res.json();
     assert.ok(data.success);
+    assert.equal(data.job.status, 'PENDING');
 
     const jobs = await Db.getSyncJobs(userId);
     const userJob = jobs.find(j => j.userId === userId);
@@ -113,7 +60,8 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
       userId: 'py-msgraph-user',
       accountEmail: 'py-m365@example.com',
       accessToken: 'py-access-token',
-      refreshToken: 'mock-py-refresh-token'
+      refreshToken: 'py-refresh-token',
+      expiresAt: Date.now() + 3600000
     });
 
     const scriptDir = path.join(__dirname, '../../sync-worker');
@@ -126,7 +74,7 @@ test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) 
       'import msgraph_worker',
       'from sync_worker import sync_user',
       'page = MagicMock()',
-      "page.__enter__.return_value.read.return_value = b'{\"value\": []}'",
+      "page.__enter__.return_value.read.return_value = b'{\"value\": [], \"@odata.deltaLink\": \"https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=x\"}'",
       "with patch.object(msgraph_worker.urllib.request, 'urlopen', return_value=page):",
       "    res, err = sync_user('py-msgraph-user')",
       "print(f'SUCCESS:{res},ERR:{err}')"

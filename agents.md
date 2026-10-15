@@ -58,7 +58,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `X-Ptl-Client-Id` is a device id and never an identity source. Outside production the env identity needs no secret.
   Any other `AUTH_METHOD` value aborts boot.
 - Request security (#340): `BASE_URL` is mandatory in production (no start without it) and the only source of
-  public share URLs, OIDC/Google redirect URIs (`<BASE_URL>/api/auth/callback`, `/api/auth/google/callback`) and
+  public share URLs, OIDC/Google/Microsoft redirect URIs (`<BASE_URL>/api/auth/callback`, `/api/auth/google/callback`,
+  `/api/msgraph/callback`) and
   the CSRF origin; `X-Forwarded-Host` is never used. `utils/csrfGuard.js`: a non-GET/HEAD/OPTIONS request passes
   only with `Origin` = BASE_URL origin or, without Origin, `Sec-Fetch-Site: same-origin` (exempt: `/internal/*`,
   back-channel logout). OIDC login uses PKCE (S256), nonce and a mandatory state, and regenerates the session id;
@@ -72,13 +73,28 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).
-- `server/utils/msgraph.js` — MS Graph API client and `MSGraphSyncEngine` for Microsoft 365 / Outlook calendar integration and event format mapping (`veventToGraphEvent` / `graphEventToVEVENT`).
-- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `msgraph` (`/api/msgraph/accounts` MS Graph OAuth account management), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
+- Microsoft 365 (#97) — optional, configured by `MSGRAPH_CLIENT_ID` (+ `MSGRAPH_CLIENT_SECRET` for a confidential
+  client) and `BASE_URL`; without them `GET /api/msgraph/accounts` reports `available: false`, the modal says so and
+  `/api/msgraph/authorize` answers 503. `server/utils/msgraph.js` + `routes/msgraph.js`: authorization code flow
+  with PKCE (S256) at tenant `common`, state mandatory and single-use per session, scopes
+  `offline_access User.Read Calendars.Read`. Microsoft returns cross-site, where the `SameSite=Strict` session
+  cookie is withheld, so the registered `/api/msgraph/callback` (no auth) only serves a page that forwards
+  code/state/error same-site to `/api/msgraph/callback/complete`, which checks the state, stores the tokens
+  (re-connecting the same mailbox updates its row and clears `reconnect_required`) and enqueues a sync job. There is no token entry by request
+  body. `POST /api/msgraph/accounts/:id/sync` only enqueues a job (202). The only Graph sync path is
+  `sync-worker/msgraph_worker.py`: import only (Graph → Radicale), `/me/calendarView/delta` (window −365/+730 days,
+  fixed per delta round; a round older than 30 days, `delta_started_at`, restarts with a current window), pages `@odata.nextLink`, persists only `@odata.deltaLink`, applies `@removed`, sends
+  `Prefer: outlook.timezone="UTC"` and rejects any other `timeZone`. Refresh sends `client_id`, `scope` and
+  `client_secret` if set; `invalid_grant` sets `msgraph_accounts.reconnect_required` and the job fails with a
+  "please reconnect" message, shown in the modal. A failing account does not stop the user's other Microsoft
+  accounts or Google pairs; its error is the job's result. Requests time out after 30 s. A per-account lease (`sync_lock_until`, 15 min) keeps syncs of
+  one account from overlapping across processes.
+- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `msgraph` (`/api/msgraph/*` Microsoft 365 OAuth connection, account list, sync request), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)
   and `radicale_custom_rights` (owner full access, others via `user_calendar_shares`).
-- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (MS Graph / Outlook bidirectional sync worker).
+- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph → Radicale import, the only Graph sync path).
   Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
   `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google
   name as `displayname` (one-way; no metasync, which would push app renames to Google). A `google-<slug>`

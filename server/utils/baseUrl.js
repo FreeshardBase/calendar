@@ -64,5 +64,6 @@ module.exports = {
   getBaseUrl,
   getBaseOrigin,
   getPublicShareUrl,
+  parseBaseUrl,
   validateBaseUrl
 };

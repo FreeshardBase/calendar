@@ -62,19 +62,20 @@ class TokenCryptoTest(unittest.TestCase):
 
 
 class GraphSyncTest(unittest.TestCase):
-    ENDPOINT = "https://graph.example.com/v1.0/me/events/delta?token=previous"
+    ENDPOINT = "https://graph.example.com/v1.0/me/calendarView/delta?$deltatoken=previous"
 
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT, tenant_id TEXT,
-            client_id TEXT, account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
-            delta_link TEXT, target_calendar_id TEXT, updated_at INTEGER)""")
+        self.conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT,
+            account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
+            delta_link TEXT, target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0,
+            sync_lock_until INTEGER, updated_at INTEGER, delta_started_at INTEGER)""")
         self.conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,
             account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
         self.conn.execute(
-            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'common', 'cid', 'testuser@example.com', "
-            "'testuser-graph-token', NULL, 4102444800000, ?, 'persoenlich', 0)",
+            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', "
+            "'testuser-graph-token', NULL, 4102444800000, ?, 'persoenlich', 0, NULL, 0, NULL)",
             (self.ENDPOINT,),
         )
         self.conn.commit()
@@ -114,16 +115,18 @@ class GraphSyncTest(unittest.TestCase):
 
     def _graph_page(self, items):
         page = MagicMock()
-        page.__enter__.return_value.read.return_value = json.dumps({"value": items}).encode("utf-8")
+        page.__enter__.return_value.read.return_value = json.dumps({"value": items, "@odata.deltaLink": self.ENDPOINT}).encode("utf-8")
         return page
 
     def test_failed_local_write_fails_the_sync_and_records_no_mapping(self):
-        event = {"id": "g1", "subject": "Test", "start": {"dateTime": "2026-01-01T09:00:00"},
-                 "end": {"dateTime": "2026-01-01T10:00:00"}}
+        event = {"id": "g1", "subject": "Test", "start": {"dateTime": "2026-01-01T09:00:00", "timeZone": "UTC"},
+                 "end": {"dateTime": "2026-01-01T10:00:00", "timeZone": "UTC"}}
         local_down = urllib.error.URLError("connection refused")
         with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=[self._graph_page([event]), local_down]):
-            with self.assertRaises(urllib.error.URLError):
-                msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
+            ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
+
+        self.assertFalse(ok, "a failed local write fails the sync job")
+        self.assertIn("connection refused", error)
 
         mapped = self.conn.execute("SELECT COUNT(*) FROM msgraph_event_mappings").fetchone()[0]
         self.assertEqual(mapped, 0, "an event that was never written locally must not be recorded as synced")
@@ -133,8 +136,10 @@ class GraphSyncTest(unittest.TestCase):
         forbidden = urllib.error.HTTPError("https://caldav.example.com/", 403, "Forbidden", {}, None)
         with patch.object(msgraph_worker.urllib.request, "urlopen",
                           side_effect=[self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}]), forbidden]):
-            with self.assertRaises(urllib.error.HTTPError):
-                msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
+            ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
+
+        self.assertFalse(ok, "a failed local delete fails the sync job")
+        self.assertIn("403", error)
 
         mapped = self.conn.execute("SELECT COUNT(*) FROM msgraph_event_mappings").fetchone()[0]
         self.assertEqual(mapped, 1)

@@ -709,15 +709,13 @@ def sync_user(user_id):
         conn.close()
         return False, basic_err
 
-    # Run MS Graph / M365 replication
+    # Run MS Graph / M365 replication. A Microsoft account that fails (e.g. one waiting to be
+    # reconnected, #97) does not stop the Google pairs; its error is the job's result at the end.
     msgraph_ok, msgraph_err = sync_msgraph_accounts(user_id, conn)
-    if not msgraph_ok:
-        conn.close()
-        return False, msgraph_err
 
     if not oauth2_accounts:
         conn.close()
-        return True, ""
+        return msgraph_ok, msgraph_err
 
     # --- OAuth2 / Google path ---
 
@@ -850,7 +848,7 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
         conn.close()
 
         if not pairs_written:
-            return True, ""
+            return msgraph_ok, msgraph_err
 
         config_path = write_private_config(config_dir, config_content)
 
@@ -866,7 +864,7 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
             return False, f"vdirsyncer sync failed: {sync_res.stderr}"
 
         print(f"[Sync-Worker] Sync completed successfully for user {user_id}.")
-        return True, ""
+        return msgraph_ok, msgraph_err
     except SyncTimeout:
         raise
     # Reported as the sync job's error_message, which the user sees in the account status.

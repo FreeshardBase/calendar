@@ -179,13 +179,14 @@ class WorkerTlsVerificationTest(unittest.TestCase):
     def _graph_db(self, endpoint):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT, tenant_id TEXT, client_id TEXT,
+        conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT,
             account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT,
-            target_calendar_id TEXT, updated_at INTEGER)""")
+            target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0, sync_lock_until INTEGER,
+            updated_at INTEGER, delta_started_at INTEGER)""")
         conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,
             account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
         conn.execute(
-            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'common', 'cid', 'testuser@example.com', 'testuser-graph-token', NULL, ?, ?, 'persoenlich', 0)",
+            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', 'testuser-graph-token', NULL, ?, ?, 'persoenlich', 0, NULL, 0, NULL)",
             (4102444800000, endpoint),
         )
         conn.commit()
@@ -199,8 +200,8 @@ class WorkerTlsVerificationTest(unittest.TestCase):
 
     def test_graph_sync_verified_fetch_and_internal_put(self):
         payload = {
-            "value": [{"id": "g1", "subject": "Test", "start": {"dateTime": "2026-01-01T09:00:00"}, "end": {"dateTime": "2026-01-01T10:00:00"}}],
-            "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/events/delta?token=x",
+            "value": [{"id": "g1", "subject": "Test", "start": {"dateTime": "2026-01-01T09:00:00", "timeZone": "UTC"}, "end": {"dateTime": "2026-01-01T10:00:00", "timeZone": "UTC"}}],
+            "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=x",
         }
         graph = self._server("trusted", {("GET", "/v1.0/me/events"): (200, "application/json", json.dumps(payload))})
         internal = self._server("internal", {("PUT", "/testuser/persoenlich/msgraph-event-g1.ics"): (201, "text/plain", "")})
