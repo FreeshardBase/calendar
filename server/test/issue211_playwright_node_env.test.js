@@ -99,7 +99,8 @@ test('Issue #211 — the Playwright webServer runs the shipping auth configurati
   // session middleware nor via the per-router fallbacks of routers mounted without requireAuth.
   // The browser plays the platform proxy (#246): every request carries its secret.
   assert.ok(suiteEnv.HTTP_HEADER_AUTH_SECRET, 'production env mode needs the proxy secret');
-  const proxied = { 'X-Freeshard-Secret': suiteEnv.HTTP_HEADER_AUTH_SECRET };
+  // #143: the proxy also renders the client type of a paired terminal.
+  const proxied = { 'X-Freeshard-Secret': suiteEnv.HTTP_HEADER_AUTH_SECRET, 'X-Ptl-Client-Type': 'terminal' };
   const spoof = { ...proxied, 'X-Test-User-Id': 'victim-user' };
   for (const p of ['/api/accounts', '/api/webcal/subscriptions', '/api/notifications/push-subscriptions', '/api/availability-slots']) {
     const res = await fetch(`${baseUrl}${p}`, { headers: spoof });

@@ -51,7 +51,10 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Generic OpenID Connect / OIDC standard identity provider or reverse-proxy header auth).
   In production (and staging) `env` mode answers 401 to every request without `X-Freeshard-Secret` =
   `HTTP_HEADER_AUTH_SECRET` (the platform proxy, timing-safe; exempt: `/health`, `/api/health`, `/internal/*`)
-  and refuses to start without that secret (#246). Outside production the env identity needs no secret.
+  and refuses to start without that secret (#246). Every such request outside `/api/public/` must also carry
+  `X-Ptl-Client-Type: terminal`, so the store template's `app_meta.json` declares
+  `"": { "access": "private", "headers": { "X-Ptl-Client-Type": "{{ auth.client_type }}" } }` (#143).
+  `X-Ptl-Client-Id` is a device id and never an identity source. Outside production the env identity needs no secret.
   Any other `AUTH_METHOD` value aborts boot.
 - Request security (#340): `BASE_URL` is mandatory in production (no start without it) and the only source of
   public share URLs, OIDC/Google redirect URIs (`<BASE_URL>/api/auth/callback`, `/api/auth/google/callback`) and

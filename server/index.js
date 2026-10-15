@@ -139,6 +139,11 @@ app.use((req, res, next) => {
   if (!hasProxySecret(req)) {
     return res.status(401).json({ error: 'Authentication required' });
   }
+  // #143: the proxy's access decision is checked here too. app_meta.json declares
+  // X-Ptl-Client-Type: {{ auth.client_type }}; only a paired terminal reaches the private paths.
+  if (!req.path.startsWith('/api/public/') && req.headers['x-ptl-client-type'] !== 'terminal') {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   next();
 });
 
@@ -153,7 +158,7 @@ app.use(async (req, res, next) => {
   let newUserId = req.session.userId;
   if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
     if (hasProxySecret(req)) {
-      const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
+      const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'];
       if (headerUser) {
         newUserId = String(headerUser).trim();
       }
