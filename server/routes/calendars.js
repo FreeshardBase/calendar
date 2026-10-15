@@ -1344,52 +1344,32 @@ router.post('/:id/delta-sync', async (req, res) => {
     const cached = await Db.getCalendarSyncCache(calendarId);
     const tokenToUse = req.body?.syncToken || cached?.syncToken || null;
 
-    let xml;
-    let fallbackPerformed = false;
-    try {
-      xml = await client.syncCollection(calendarUrl, tokenToUse);
-    } catch (err) {
-      if (tokenToUse && (err.message.includes('409') || err.message.includes('412') || err.message.includes('403') || err.message.includes('400') || err.message.includes('valid-sync-token'))) {
-        console.warn('[delta-sync] Sync token invalid, resetting cached token and falling back to initial sync');
-        await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, null);
-        xml = await client.syncCollection(calendarUrl, null);
-        fallbackPerformed = true;
-      } else {
-        throw err;
-      }
+    const ctag = req.body?.ctag || cached?.ctag || null;
+
+    // A token the server rejects (RFC 6578 §3.2) is replaced by a full sync inside the client.
+    const { xml, fallbackPerformed } = await client.syncCollectionWithFallback(calendarUrl, tokenToUse);
+    if (fallbackPerformed) {
+      await Db.upsertCalendarSyncCache(calendarId, ctag, null);
     }
 
-    let parsed = parseSyncCollectionResponse(
-      xml,
-      calendarId,
-      accountId,
-      calendarUrl
-    );
-
-    if (parsed.invalidSyncToken && tokenToUse && !fallbackPerformed) {
-      console.warn('[delta-sync] Sync token invalid in XML response, resetting token and falling back to initial sync');
-      await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, null);
-      xml = await client.syncCollection(calendarUrl, null);
-      parsed = parseSyncCollectionResponse(
-        xml,
-        calendarId,
-        accountId,
-        calendarUrl
-      );
-      fallbackPerformed = true;
+    const parsed = parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl);
+    if (parsed.invalidSyncToken) {
+      throw new Error('[delta-sync] Server rejected a sync-collection REPORT without a sync token');
     }
 
     const { syncToken, updated, deleted } = parsed;
 
     if (syncToken) {
-      await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, syncToken);
-    } else if (tokenToUse && fallbackPerformed) {
-      await Db.upsertCalendarSyncCache(calendarId, req.body?.ctag || cached?.ctag || null, null);
+      await Db.upsertCalendarSyncCache(calendarId, ctag, syncToken);
     }
+
+    // Unchanged only when the server confirmed an existing token and reported an empty delta.
+    const ctagChanged = !tokenToUse || fallbackPerformed || !syncToken ||
+      updated.length > 0 || deleted.length > 0;
 
     res.json({
       calendarId,
-      ctagChanged: true,
+      ctagChanged,
       syncToken,
       updated,
       deleted,

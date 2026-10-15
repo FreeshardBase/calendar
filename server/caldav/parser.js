@@ -14,6 +14,7 @@ const {
   parseValarms,
   parseVEventToEvent,
   parseICSToEvent,
+  parseICSToEvents,
   parseAndExpandEvent,
   eventToICS,
   escParamVal,
@@ -1368,8 +1369,11 @@ module.exports = {
 
 /**
  * Parse RFC 6578 sync-collection REPORT response.
+ * A changed resource contributes its master VEVENT and every detached
+ * RECURRENCE-ID override, unexpanded; expanding into a date range is the job
+ * of the range fetch (parseEventList).
  */
-function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl, rangeStart, rangeEnd) {
+function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl) {
   let doc;
   try {
     doc = xmlParser.parseFromString(xml, 'text/xml');
@@ -1425,15 +1429,12 @@ function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl, ra
 
     if (calendarData) {
       try {
-        const parsed = parseICSToEvent(calendarData, {
+        updated.push(...parseICSToEvents(calendarData, {
           calendarId,
           accountId,
           href,
           etag: etag ? etag.trim() : null
-        });
-        if (parsed) {
-          updated.push(parsed);
-        }
+        }));
       } catch (e) {
         console.warn(`[parser] Failed to parse delta event ${href}:`, e.message);
       }
