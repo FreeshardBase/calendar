@@ -10,7 +10,11 @@ const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = requir
 const defaultDbFilename = process.env.NODE_ENV === 'test' ? '../webcalendar.test.db' : '../webcalendar.db';
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, defaultDbFilename);
 const dbExistedAtBoot = fs.existsSync(dbPath);
-const db = new sqlite3.Database(dbPath);
+// Issue #259: a database that cannot be opened (e.g. a data directory not writable by this uid)
+// is fatal and names the file, so a container restart loop shows its cause in the log.
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) throw new Error(`Cannot open database ${dbPath}: ${err.message}`, { cause: err });
+});
 
 const WEAK_ENCRYPTION_KEYS = new Set([
   'freeshard-default-encryption-key-do-not-use-in-prod',
