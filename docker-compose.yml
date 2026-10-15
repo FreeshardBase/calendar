@@ -25,6 +25,7 @@ services:
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}
       INTERNAL_WEBHOOK_SECRET: ${INTERNAL_WEBHOOK_SECRET}
+      HTTP_HEADER_AUTH_SECRET: ${HTTP_HEADER_AUTH_SECRET}
     volumes:
       - shared-data:/app/data
       - ./ssl:/app/ssl:ro

@@ -27,7 +27,8 @@ const INTERNAL_SECRET = 'issue340-internal-webhook-secret-0123456789';
 test('Issue #340 — header secret & rate limits (NODE_ENV=production)', async (t) => {
   const origEnv = { ...process.env };
   process.env.NODE_ENV = 'production';
-  process.env.AUTH_METHOD = 'env';
+  // oidc, so the #246 env-mode proxy gate does not answer first and the header identity is measured alone.
+  process.env.AUTH_METHOD = 'oidc';
   process.env.BASE_URL = 'https://calendar.shard.example';
   process.env.DATABASE_PATH = path.join(tmpDir, 'issue340.db');
   process.env.SESSION_SECRET = 'issue340-prod-session-secret-0123456789abcdef';

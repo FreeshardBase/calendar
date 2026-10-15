@@ -14,6 +14,16 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
 
   let activeServer = null;
 
+  // #246: production env mode serves only requests carrying the platform proxy secret; every
+  // probe carries it, so the production cases measure the mock guard and not the proxy gate.
+  const proxySecret = 'mock-dav-proxy-secret-0123456789abcdef0123';
+  const originalProxySecret = process.env.HTTP_HEADER_AUTH_SECRET;
+  process.env.HTTP_HEADER_AUTH_SECRET = proxySecret;
+  t.after(() => {
+    if (originalProxySecret !== undefined) process.env.HTTP_HEADER_AUTH_SECRET = originalProxySecret;
+    else delete process.env.HTTP_HEADER_AUTH_SECRET;
+  });
+
   t.afterEach(async () => {
     if (activeServer) {
       if (typeof activeServer.closeAllConnections === 'function') {
@@ -71,7 +81,8 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
         hostname: '127.0.0.1',
         port: port,
         path: '/mock-dav/',
-        method: 'PROPFIND'
+        method: 'PROPFIND',
+        headers: { 'X-Freeshard-Secret': proxySecret }
       }, resolve);
       req.on('error', reject);
       req.end();
@@ -109,7 +120,8 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
         hostname: '127.0.0.1',
         port: port,
         path: '/mock-dav/',
-        method: 'PROPFIND'
+        method: 'PROPFIND',
+        headers: { 'X-Freeshard-Secret': proxySecret }
       }, resolve);
       req.on('error', reject);
       req.end();
@@ -147,7 +159,8 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
         hostname: '127.0.0.1',
         port: port,
         path: '/mock-dav/',
-        method: 'PROPFIND'
+        method: 'PROPFIND',
+        headers: { 'X-Freeshard-Secret': proxySecret }
       }, resolve);
       req.on('error', reject);
       req.end();

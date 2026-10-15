@@ -33,6 +33,8 @@ function prodEnv(overrides) {
     ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     SYSTEM_SYNC_SECRET: 'issue340-system-sync-secret-0123456789abcdef',
     INTERNAL_WEBHOOK_SECRET: 'issue340-internal-webhook-secret-0123456789',
+    // #246: production env mode (the default) needs the platform proxy secret.
+    HTTP_HEADER_AUTH_SECRET: 'issue340-proxy-secret-0123456789abcdef0123',
     BASE_URL: 'https://calendar.shard.example',
     ...overrides
   };
@@ -85,9 +87,9 @@ test('Issue #340 — production startup configuration', async (t) => {
   });
 
   await t.test('production refuses header auth without its own HTTP_HEADER_AUTH_SECRET', async () => {
-    const r = await boot(prodEnv({ HTTP_HEADER_AUTH: 'true' }));
+    const r = await boot(prodEnv({ HTTP_HEADER_AUTH: 'true', HTTP_HEADER_AUTH_SECRET: undefined }));
     assert.equal(r.started, false);
-    assert.match(r.stderr, /HTTP_HEADER_AUTH_SECRET/);
+    assert.match(r.stderr, /HTTP_HEADER_AUTH=true requires HTTP_HEADER_AUTH_SECRET/);
   });
 
   await t.test('production refuses a header-auth secret that doubles as INTERNAL_WEBHOOK_SECRET', async () => {

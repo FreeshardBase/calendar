@@ -22,6 +22,9 @@ USER root
 RUN mkdir -p /app/data && chown -R node:node /app/data && chmod -R 777 /app/data
 USER node
 
+# The image is the production build: the #246 proxy-secret gate and the boot checks key on it.
+ENV NODE_ENV=production
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

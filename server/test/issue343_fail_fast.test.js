@@ -115,6 +115,7 @@ const bootEnv = (dbPath, extra = {}) => ({
   SESSION_SECRET: 'issue343-session-secret-0123456789abcdef0123',
   SYSTEM_SYNC_SECRET: 'issue343-system-sync-secret-0123456789abcdef',
   INTERNAL_WEBHOOK_SECRET: 'issue343-internal-webhook-secret-0123456789',
+  HTTP_HEADER_AUTH_SECRET: 'issue343-proxy-secret-0123456789abcdef0123',
   BASE_URL: 'https://calendar.example.com',
   PORT: '0',
   SSL_KEY_PATH: '',

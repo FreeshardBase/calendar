@@ -13,6 +13,9 @@ const E2E_RUN_DIR = path.join(os.tmpdir(), 'webcalendar-e2e', process.env.E2E_RU
 const E2E_DATABASE_PATH = path.join(E2E_RUN_DIR, 'webcalendar.db');
 // Issue #340: production requires BASE_URL; the CSRF guard accepts only this origin.
 const E2E_BASE_URL = process.env.BASE_URL || 'http://localhost:3098';
+// Issue #246: production env mode serves only requests carrying the platform proxy's secret.
+// The browser and the `request` fixture play the proxy by sending it on every request.
+const E2E_PROXY_SECRET = 'e2e-playwright-proxy-secret-0123456789abcdef';
 
 module.exports = defineConfig({
   testDir: './e2e',
@@ -24,6 +27,7 @@ module.exports = defineConfig({
   globalTeardown: './e2e/global-teardown.js',
   use: {
     baseURL: E2E_BASE_URL,
+    extraHTTPHeaders: { 'X-Freeshard-Secret': E2E_PROXY_SECRET },
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -51,6 +55,7 @@ module.exports = defineConfig({
       CALDAV_USERNAME: E2E_USER,
       SESSION_SECRET: 'e2e-playwright-test-session-secret-key-32bytes!',
       ENCRYPTION_KEY: 'e2e-playwright-encryption-key-32bytes!',
+      HTTP_HEADER_AUTH_SECRET: E2E_PROXY_SECRET,
       INTERNAL_CALDAV_URL: 'https://localhost:5232',
       UNDICI_NO_AUTO_SELECT_FAMILY: '1',
       SSL_KEY_PATH: '',

@@ -53,8 +53,21 @@ function validateSecurityConfig(env = process.env) {
   if (isProdLike && env.HTTP_HEADER_AUTH === 'true' && !headerSecret) {
     throw new Error('HTTP_HEADER_AUTH=true requires HTTP_HEADER_AUTH_SECRET in production.');
   }
-  if (headerSecret && headerSecret === (env.INTERNAL_WEBHOOK_SECRET || '').trim()) {
-    throw new Error('HTTP_HEADER_AUTH_SECRET must differ from INTERNAL_WEBHOOK_SECRET.');
+  const authMethod = env.AUTH_METHOD || 'env';
+  if (authMethod !== 'env' && authMethod !== 'oidc') {
+    throw new Error(`AUTH_METHOD must be 'env' or 'oidc', got '${authMethod}'.`);
+  }
+  // #246: env mode has no login of its own; in production the proxy secret is its only credential.
+  if (isProdLike && authMethod === 'env' && !headerSecret) {
+    throw new Error('AUTH_METHOD=env requires HTTP_HEADER_AUTH_SECRET (the platform proxy secret) in production.');
+  }
+  if (isProdLike && headerSecret && headerSecret.length < 32) {
+    throw new Error('HTTP_HEADER_AUTH_SECRET must be at least 32 characters in production.');
+  }
+  for (const other of ['INTERNAL_WEBHOOK_SECRET', 'SYSTEM_SYNC_SECRET', 'SESSION_SECRET', 'ENCRYPTION_KEY']) {
+    if (headerSecret && headerSecret === (env[other] || '').trim()) {
+      throw new Error(`HTTP_HEADER_AUTH_SECRET must differ from ${other}.`);
+    }
   }
 }
 
@@ -109,6 +122,26 @@ app.use((req, res, next) => {
 });
 app.use(compression());
 app.use(securityHeaders);
+
+// #340: the proxy's own secret (never INTERNAL_WEBHOOK_SECRET), compared in constant time.
+function hasProxySecret(req) {
+  const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET;
+  const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
+  return Boolean(expectedSecret) && safeCompare(providedSecret, expectedSecret);
+}
+
+// #246: in production, AUTH_METHOD=env serves only requests that come through the FreeShard
+// platform proxy. Exempt: the container healthcheck and /internal/ (own INTERNAL_WEBHOOK_SECRET).
+app.use((req, res, next) => {
+  const isProdLike = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+  if (!isProdLike || (process.env.AUTH_METHOD || 'env') !== 'env') return next();
+  if (req.path === '/health' || req.path === '/api/health' || req.path.startsWith('/internal/')) return next();
+  if (!hasProxySecret(req)) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  next();
+});
+
 app.use(session(getSessionConfig()));
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -119,11 +152,7 @@ app.use(async (req, res, next) => {
   // #50/#245: identity comes only from the session or the secret-gated proxy headers below.
   let newUserId = req.session.userId;
   if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
-    // #340: own secret (never INTERNAL_WEBHOOK_SECRET), compared in constant time.
-    const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET;
-    const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
-
-    if (expectedSecret && safeCompare(providedSecret, expectedSecret)) {
+    if (hasProxySecret(req)) {
       const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
       if (headerUser) {
         newUserId = String(headerUser).trim();
