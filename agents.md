@@ -14,6 +14,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   A test becomes a user with `await loginAs(userId, { username, email })` from `server/test/helpers/testSession.js`:
   it writes a real session row and returns a signed `cookie` header value. No request header asserts an identity,
   under any `NODE_ENV` (#50/#245); the only header identity is the secret-gated proxy auth (`HTTP_HEADER_AUTH`/`oidc`).
+  A suite that sends POST/PUT/PATCH/DELETE with `fetch` requires `./helpers/sameOriginFetch` first: the CSRF
+  guard (#340) refuses requests without a same-origin `Origin`/`Sec-Fetch-Site`, which Node's fetch never sends.
 - `python3 -m unittest discover -s server/test/python` — Python test suite (`radicale_custom_auth`, `radicale_custom_rights`, `sync_worker`, `msgraph_worker`).
 - `npm run lint` — syntax check JS files (`node --check`) and compile Python modules (`py_compile`).
 - `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
@@ -47,6 +49,14 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   on every request: DB-stored linked accounts + `env-default` (from `CALDAVURL` env) +
   `internal-caldav` (Radicale at `INTERNAL_CALDAV_URL`, authed with `SYSTEM_SYNC_SECRET`).
   Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Generic OpenID Connect / OIDC standard identity provider or reverse-proxy header auth).
+- Request security (#340): `BASE_URL` is mandatory in production (no start without it) and the only source of
+  public share URLs, OIDC/Google redirect URIs (`<BASE_URL>/api/auth/callback`, `/api/auth/google/callback`) and
+  the CSRF origin; `X-Forwarded-Host` is never used. `utils/csrfGuard.js`: a non-GET/HEAD/OPTIONS request passes
+  only with `Origin` = BASE_URL origin or, without Origin, `Sec-Fetch-Site: same-origin` (exempt: `/internal/*`,
+  back-channel logout). OIDC login uses PKCE (S256), nonce and a mandatory state, and regenerates the session id;
+  logout is `POST /api/auth/logout`. Proxy header identity needs `HTTP_HEADER_AUTH_SECRET` (timing-safe, must differ
+  from `INTERNAL_WEBHOOK_SECRET`). `utils/rateLimit.js`: per client IP (`req.ip`, `TRUST_PROXY` hop count, default 1
+  in production) 30/min on `/api/auth/*`, 120/min on `/api/public/*`, then 429 with `Retry-After`.
 - `server/db.js` — sqlite3 wrapper, schema auto-created on boot. Tables: `linked_accounts`
   (AES-256-CBC-encrypted passwords/refresh-tokens, key = scrypt(`ENCRYPTION_KEY`)), `app_passwords`
   (PBKDF2-HMAC-SHA256, for internal service/app authentication), `calendar_shares` (public ICS tokens), `sync_queue`

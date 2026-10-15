@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 require('dotenv').config();
 process.env.NODE_ENV = 'test';
 // #337: the in-process mock-dav stands in for a remote CalDAV server — allow it explicitly.

@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 // Issue #339: app-password delete, resource PATCH/DELETE and booking-page creation
 // must be scoped to the calling member. Member B gets 404 on member A's ids.

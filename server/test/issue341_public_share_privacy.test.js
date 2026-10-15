@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 // Issue #341: the public ICS share must not publish private event details or
 // attendee/organizer emails — free/busy only unless the owner picks "full
@@ -14,6 +15,7 @@ const http = require('http');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-issue341-'));
 process.env.NODE_ENV = 'production';
+process.env.BASE_URL = 'https://calendar.example.com'; // #340: mandatory in production
 delete process.env.E2E_TEST;
 process.env.DATABASE_PATH = path.join(tmpDir, 'webcalendar.db');
 process.env.ENCRYPTION_KEY_FILE = path.join(tmpDir, '.encryption_key');

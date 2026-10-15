@@ -15,19 +15,22 @@ const { SqliteSessionStore } = require('./sessionStore');
 function getTrustProxySetting(env = process.env) {
   const trustProxyVal = env.TRUST_PROXY;
   if (trustProxyVal !== undefined) {
-    if (trustProxyVal === 'true' || trustProxyVal === '1') {
+    if (trustProxyVal === 'true') {
       return true;
     }
     if (trustProxyVal === 'false' || trustProxyVal === '0') {
       return false;
     }
+    // A number is a hop count, as in Express ('1' = the one reverse proxy in front, #340).
     if (!isNaN(trustProxyVal) && String(trustProxyVal).trim() !== '') {
       return parseInt(trustProxyVal, 10);
     }
     return trustProxyVal;
   }
+  // #340: one hop, the shard's reverse proxy. With `true` req.ip would be the leftmost
+  // X-Forwarded-For entry, which the client writes itself (rate limits keyed on req.ip).
   if (env.NODE_ENV === 'production' || env.NODE_ENV === 'staging') {
-    return true;
+    return 1;
   }
   return false;
 }

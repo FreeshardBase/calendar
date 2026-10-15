@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 /**
  * Issue #334 — POST /api/accounts must reject URLs and usernames that could inject

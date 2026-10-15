@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 // #337: the mock CalDAV server stands in for a remote one — allow it explicitly.
 process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1';

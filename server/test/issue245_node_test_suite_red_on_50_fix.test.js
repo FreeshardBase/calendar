@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 // Issue #245 / #50: no request header asserts an identity, not even under NODE_ENV=test.
 // The suite's multi-identity mechanism is a real session (helpers/testSession.js).

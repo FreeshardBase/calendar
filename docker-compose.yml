@@ -15,7 +15,8 @@ services:
       NODE_ENV: production
       DATABASE_PATH: /app/data/webcalendar.db
       SESSION_SECRET: ${SESSION_SECRET}
-      TRUST_PROXY: "true"
+      BASE_URL: ${BASE_URL}
+      TRUST_PROXY: "1"
       COOKIE_SECURE: "auto"
       COOKIE_SAME_SITE: "strict"
       SSL_KEY_PATH: ""

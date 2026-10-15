@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 // Issue #342: a bad feed response must not wipe the cached webcal events — the
 // last good copy is kept and the error is recorded on the subscription — and
