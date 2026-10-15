@@ -32,7 +32,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   on :5232. Manual recipe:
   ```
   docker build -t freeshard/radicale:local ./radicale
-  docker run -d --name cal-radicale -p 5232:5232 -e DATABASE_PATH=/data/webcalendar.db \
+  # --user 0:0 lets the entrypoint chown the bind mount to uid 1000 before Radicale starts (#100)
+  docker run -d --name cal-radicale --user 0:0 -p 5232:5232 -e DATABASE_PATH=/data/webcalendar.db \
     -e SYSTEM_SYNC_SECRET=super-secret-bypass \
     -v /tmp/cal-data:/data -v $PWD/ssl:/etc/radicale/ssl:ro freeshard/radicale:local
   npx playwright test
@@ -83,6 +84,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   name as `displayname` (one-way; no metasync, which would push app renames to Google). A `google-<slug>`
   collection from older worker versions is adopted only if that account's pair has vdirsyncer status for it.
   The create route never puts app calendars under `google-` (#193).
+- Containers: all three images run their service as uid:gid 1000:1000, because they open the same SQLite
+  file. Each image's entrypoint is `drop-privileges.sh` (one copy per build context, kept identical): when
+  started as root (the store template sets `user: "0:0"` because shard_core creates the data mount
+  root-owned) it chowns the directories in `DATA_DIRS` to 1000:1000 and re-execs itself through `setpriv`;
+  started as any other uid it refuses to start if a `DATA_DIRS` entry is not writable (#100).
 - `public/` — no-framework SPA: `js/app.js` (boot, views, sidebar, dialogs), `js/calendar.js`
   (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer & Kanban board), `js/eventModal.js`, `js/api.js` (fetch wrappers),
   `js/store.js` (pub/sub state), `js/accountModal.js`, `css/app.css`.
