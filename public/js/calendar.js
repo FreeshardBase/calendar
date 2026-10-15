@@ -303,8 +303,6 @@ function renderMonth(container, events, currentDate, cb) {
 export function chipHtml(ev) {
   const cal   = calendarById(ev.calendarId);
   const color = sanitizeColor(cal?.color || '#6366f1');
-  const bg    = hexToRgba(color, 0.22);
-  const textColor = ensureContrastFloor(color, 0.22);
   const timeStr = ev.allDay ? '' : `<span class="event-chip-time">${fmtTime(ev.start)}</span>`;
   const labelText = ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`;
   const recurIcon = (ev.recurrence || ev.masterUid)
@@ -314,7 +312,7 @@ export function chipHtml(ev) {
               tabindex="0"
               role="button"
               aria-label="${escHtml(labelText)}"
-              style="background:${escHtml(bg)};color:${escHtml(textColor)};"
+              style="--event-color:${escHtml(color)};"
               data-event-uid="${escHtml(ev.uid)}">
             ${timeStr}
             <span class="event-chip-title">${escHtml(ev.title)}</span>
@@ -660,16 +658,12 @@ function createEventBlock(ev, evCol, totalCols, cb) {
 
   const isShort = hPx <= 35 || ((end - start) <= 1800000);
 
-  const textColor = ensureContrastFloor(color, 0.25);
-
   const block = document.createElement('div');
   block.className = `event-block${isShort ? ' short-event' : ''}`;
   block.style.cssText = `
     top:${topPx}px; height:${hPx}px;
     left:${l + 1}%; width:${w - 2}%;
-    background:${hexToRgba(color, 0.25)};
-    color:${escHtml(textColor)};
-    border-left-color:${escHtml(color)};
+    --event-color:${escHtml(color)};
   `;
   block.dataset.eventUid = ev.uid;
   block.setAttribute('tabindex', '0');
@@ -1022,65 +1016,6 @@ function fmtTime(iso) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
-function parseHexColor(hex) {
-  const clean = sanitizeColor(hex, '#6366f1');
-  if (clean.startsWith('#')) {
-    let h = clean.slice(1);
-    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-    if (h.length === 6) {
-      return {
-        r: parseInt(h.slice(0, 2), 16),
-        g: parseInt(h.slice(2, 4), 16),
-        b: parseInt(h.slice(4, 6), 16)
-      };
-    }
-  }
-  return { r: 99, g: 102, b: 241 };
-}
-
-function getRelativeLuminance({ r, g, b }) {
-  const sR = r / 255;
-  const sG = g / 255;
-  const sB = b / 255;
-  const R = sR <= 0.03928 ? sR / 12.92 : Math.pow((sR + 0.055) / 1.055, 2.4);
-  const G = sG <= 0.03928 ? sG / 12.92 : Math.pow((sG + 0.055) / 1.055, 2.4);
-  const B = sB <= 0.03928 ? sB / 12.92 : Math.pow((sB + 0.055) / 1.055, 2.4);
-  return 0.2126 * R + 0.7152 * G + 0.0722 * B;
-}
-
-function getContrastRatio(lum1, lum2) {
-  const l1 = Math.max(lum1, lum2);
-  const l2 = Math.min(lum1, lum2);
-  return (l1 + 0.05) / (l2 + 0.05);
-}
-
-export function ensureContrastFloor(color, bgAlpha = 0.22, minRatio = 4.5) {
-  const rgb = parseHexColor(color);
-  const bgR = Math.round((1 - bgAlpha) * 255 + bgAlpha * rgb.r);
-  const bgG = Math.round((1 - bgAlpha) * 254 + bgAlpha * rgb.g);
-  const bgB = Math.round((1 - bgAlpha) * 251 + bgAlpha * rgb.b);
-  const bgLum = getRelativeLuminance({ r: bgR, g: bgG, b: bgB });
-
-  const textLum = getRelativeLuminance(rgb);
-  if (getContrastRatio(bgLum, textLum) >= minRatio) {
-    return sanitizeColor(color, '#6366f1');
-  }
-
-  let factor = 0.85;
-  while (factor > 0.1) {
-    const curR = Math.floor(rgb.r * factor);
-    const curG = Math.floor(rgb.g * factor);
-    const curB = Math.floor(rgb.b * factor);
-    const curLum = getRelativeLuminance({ r: curR, g: curG, b: curB });
-    if (getContrastRatio(bgLum, curLum) >= minRatio) {
-      const toHex = (n) => n.toString(16).padStart(2, '0');
-      return `#${toHex(curR)}${toHex(curG)}${toHex(curB)}`;
-    }
-    factor -= 0.05;
-  }
-  return '#1d3a45';
-}
-
 export function sanitizeColor(color, fallback = '#6366f1') {
   if (!color || typeof color !== 'string') return fallback;
   const trimmed = color.trim();
@@ -1089,20 +1024,6 @@ export function sanitizeColor(color, fallback = '#6366f1') {
       /^(?:rgb|hsl)a?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[\d.]+\s*)?\)$/i.test(trimmed)) return trimmed;
   if (/^[a-zA-Z]{3,20}$/.test(trimmed)) return trimmed;
   return fallback;
-}
-
-function hexToRgba(hex, alpha) {
-  const cleanHex = sanitizeColor(hex, '#6366f1');
-  if (cleanHex.startsWith('#') && (cleanHex.length === 7 || cleanHex.length === 4)) {
-    const fullHex = cleanHex.length === 4
-      ? `#${cleanHex[1]}${cleanHex[1]}${cleanHex[2]}${cleanHex[2]}${cleanHex[3]}${cleanHex[3]}`
-      : cleanHex;
-    const r = parseInt(fullHex.slice(1,3), 16);
-    const g = parseInt(fullHex.slice(3,5), 16);
-    const b = parseInt(fullHex.slice(5,7), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
-  }
-  return `rgba(99,102,241,${alpha})`;
 }
 
 export function escHtml(str) {
@@ -1126,7 +1047,6 @@ if (typeof module !== 'undefined' && module.exports) {
     getDateRange,
     renderMiniCalendar,
     sanitizeColor,
-    ensureContrastFloor,
     chipHtml,
     agendaEventHtml,
     escHtml

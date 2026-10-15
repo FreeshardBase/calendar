@@ -2756,4 +2756,140 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await card.evaluate(flat)).toEqual({ shadow: 'none', transform: 'none' });
     });
   });
+
+  // Issue #112: event text in month chips and week/day blocks, and the day numbers of adjacent-month
+  // cells, are 10–13 px text, so WCAG's 4.5:1 floor applies whatever colour the user picked for the
+  // calendar. Measured against what is really painted: every ancestor background and every group
+  // opacity on the way down, in both themes, at rest and under the pointer.
+  test.describe('Issue #112 — event text and adjacent-month day numbers meet the contrast floor', () => {
+    // The issue's table (token teal, add-dialog default, code fallback, Google red/green/yellow)
+    // plus the extremes an unconstrained <input type="color"> or a CalDAV calendar-color allows.
+    const COLOURS = ['#007080', '#7c3aed', '#6366f1', '#ea4335', '#34a853', '#fbbc05',
+      '#ffffff', '#000000', '#ffff00', '#e0e0e0'];
+
+    // Composites the element's text over its backdrop the way the browser paints a single pixel:
+    // each ancestor's background over what lies beneath, each ancestor's opacity as a group alpha.
+    function measureText(selector) {
+      const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+      const rgba = c => {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = c;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        return [r, g, b, a / 255];
+      };
+      const over = (top, below) => [0, 1, 2].map(i => top[i] * top[3] + below[i] * (1 - top[3]));
+      const lum = rgb => {
+        const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const paint = (chain, withText) => {
+        const go = (i, backdrop) => {
+          const s = getComputedStyle(chain[i]);
+          let px = over(rgba(s.backgroundColor), backdrop);
+          px = i < chain.length - 1 ? go(i + 1, px) : (withText ? over(rgba(s.color), px) : px);
+          const o = parseFloat(s.opacity);
+          return [0, 1, 2].map(k => px[k] * o + backdrop[k] * (1 - o));
+        };
+        return go(0, [255, 255, 255]);
+      };
+      return Array.from(document.querySelectorAll(selector)).map(el => {
+        const chain = [];
+        for (let n = el; n; n = n.parentElement) chain.unshift(n);
+        const [hi, lo] = [lum(paint(chain, true)), lum(paint(chain, false))].sort((a, b) => b - a);
+        return {
+          el: `${el.className} in ${el.closest('[data-event-uid], .month-day')?.className}`,
+          text: el.textContent.trim(),
+          fontSize: parseFloat(getComputedStyle(el).fontSize),
+          ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100,
+        };
+      });
+    }
+
+    for (const theme of ['light', 'dark']) {
+      test(`${theme} theme: month chips, week blocks and adjacent-month days reach 4.5:1 for any calendar colour`, async ({ page }) => {
+        await page.goto('/');
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        // #app is shown before boot loads calendars and events; a late store.set({ calendars })
+        // would drop the calendars registered below, so wait until boot has gone quiet.
+        await page.waitForLoadState('networkidle');
+        const uids = await page.evaluate(async ({ theme, colours }) => {
+          document.documentElement.setAttribute('data-theme', theme);
+          // Hover states are measured in their end state, not mid-transition.
+          const still = document.createElement('style');
+          still.textContent = '[id^="e2e112-"] * { transition: none !important; }';
+          document.head.appendChild(still);
+          const { store } = await import('/js/store.js');
+          const { renderView } = await import('/js/calendar.js');
+          // Registered in place so the app does not react to them (no fetch, no re-render).
+          store.get('calendars').push(...colours.map((color, i) => ({ id: `e2e112-cal-${i}`, name: `E2E 112 ${i}`, color })));
+          const day = new Date(2026, 2, 11);
+          const events = colours.map((color, i) => ({
+            uid: `e2e112-ev-${i}`,
+            calendarId: `e2e112-cal-${i}`,
+            title: `E2E 112 ${color}`,
+            location: 'Testraum',
+            allDay: false,
+            start: new Date(2026, 2, 11, 8 + i).toISOString(),
+            end: new Date(2026, 2, 11, 9 + i).toISOString(),
+          }));
+          const noop = new Proxy({}, { get: () => () => {} });
+          for (const view of ['month', 'week']) {
+            const host = document.createElement('div');
+            host.id = `e2e112-${view}`;
+            host.style.cssText = 'position:fixed;inset:0;z-index:100000;overflow:auto;background:var(--bg);display:flex;flex-direction:column;';
+            document.body.appendChild(host);
+            renderView(host, events, view, day, noop);
+            if (view === 'month') host.style.display = 'none';
+          }
+          return events.map(e => e.uid);
+        }, { theme, colours: COLOURS });
+
+        // Week/day blocks first (the month host is hidden while they are measured), then the month grid.
+        const WEEK = '#e2e112-week .event-block-title, #e2e112-week .event-block-time, #e2e112-week .event-block-loc';
+        const weekAtRest = await page.evaluate(measureText, WEEK);
+        expect(weekAtRest).toHaveLength(COLOURS.length * 3);
+        for (const t of weekAtRest) expect(t.fontSize).toBeLessThan(14); // below the large-text exemption
+        expect(weekAtRest.filter(t => t.ratio < 4.5)).toEqual([]);
+        for (const uid of uids) {
+          await page.hover(`#e2e112-week [data-event-uid="${uid}"]`);
+          const hovered = await page.evaluate(measureText, `#e2e112-week [data-event-uid="${uid}"] *:not(svg, svg *)`);
+          expect(hovered.filter(t => t.text && t.ratio < 4.5)).toEqual([]);
+        }
+
+        // The calendar colour stays visible as the 4 px left edge, as in the agenda view.
+        const rail = sel => page.evaluate(sel => Array.from(document.querySelectorAll(sel)).map(el => {
+          const s = getComputedStyle(el);
+          const ctx = document.createElement('canvas').getContext('2d');
+          ctx.fillStyle = s.borderLeftColor;
+          return `${s.borderLeftWidth} ${s.borderLeftStyle} ${ctx.fillStyle}`;
+        }), sel);
+        expect(await rail('#e2e112-week .event-block')).toEqual(COLOURS.map(c => `4px solid ${c}`));
+
+        await page.evaluate(() => {
+          document.getElementById('e2e112-week').remove();
+          document.getElementById('e2e112-month').style.display = 'flex';
+        });
+        const MONTH = '#e2e112-month .event-chip-title, #e2e112-month .event-chip-time';
+        const chipsAtRest = await page.evaluate(measureText, MONTH);
+        expect(chipsAtRest).toHaveLength(COLOURS.length * 2);
+        for (const t of chipsAtRest) expect(t.fontSize).toBeLessThan(14);
+        expect(chipsAtRest.filter(t => t.ratio < 4.5)).toEqual([]);
+        for (const uid of uids) {
+          await page.hover(`#e2e112-month [data-event-uid="${uid}"]`);
+          const hovered = await page.evaluate(measureText, `#e2e112-month [data-event-uid="${uid}"] .event-chip-title, #e2e112-month [data-event-uid="${uid}"] .event-chip-time`);
+          expect(hovered.filter(t => t.ratio < 4.5)).toEqual([]);
+        }
+
+        expect(await rail('#e2e112-month .event-chip')).toEqual(COLOURS.map(c => `4px solid ${c}`));
+
+        const adjacent = await page.evaluate(measureText, '#e2e112-month .month-day.other-month .month-day-num');
+        expect(adjacent.length).toBeGreaterThan(0);
+        expect(adjacent.filter(t => t.ratio < 4.5)).toEqual([]);
+        await page.hover('#e2e112-month .month-day.other-month >> nth=0');
+        const adjacentHovered = await page.evaluate(measureText, '#e2e112-month .month-day.other-month .month-day-num');
+        expect(adjacentHovered.filter(t => t.ratio < 4.5)).toEqual([]);
+      });
+    }
+  });
 });

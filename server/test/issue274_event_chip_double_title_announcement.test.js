@@ -51,8 +51,6 @@ test('Issue #274 — Timed Event Chip Screen Reader Title Double Announcement Pr
   const mod = loadFrontendModule(calendarJsPath, {
     calendarById: () => ({ color: '#6366f1' }),
     sanitizeColor: c => c,
-    ensureContrastFloor: c => c,
-    hexToRgba: () => 'rgba(0,0,0,0.1)',
     escHtml: s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
     fmtTime: iso => {
       const d = new Date(iso);
