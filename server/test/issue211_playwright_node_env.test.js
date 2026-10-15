@@ -97,7 +97,10 @@ test('Issue #211 — the Playwright webServer runs the shipping auth configurati
 
   // A spoofed test identity header must not log the caller in as someone else — neither via the
   // session middleware nor via the per-router fallbacks of routers mounted without requireAuth.
-  const spoof = { 'X-Test-User-Id': 'victim-user' };
+  // The browser plays the platform proxy (#246): every request carries its secret.
+  assert.ok(suiteEnv.HTTP_HEADER_AUTH_SECRET, 'production env mode needs the proxy secret');
+  const proxied = { 'X-Freeshard-Secret': suiteEnv.HTTP_HEADER_AUTH_SECRET };
+  const spoof = { ...proxied, 'X-Test-User-Id': 'victim-user' };
   for (const p of ['/api/accounts', '/api/webcal/subscriptions', '/api/notifications/push-subscriptions', '/api/availability-slots']) {
     const res = await fetch(`${baseUrl}${p}`, { headers: spoof });
     assert.strictEqual(res.status, 401, `${p}: X-Test-User-Id was honoured: ${await res.text()}`);
@@ -111,16 +114,16 @@ test('Issue #211 — the Playwright webServer runs the shipping auth configurati
   assert.notStrictEqual(sessionBody.email, 'victim@example.com');
 
   // Env auth signs the browser in on the entry paths only; a bare API call stays unauthenticated.
-  const bare = await fetch(`${baseUrl}/api/tasks`);
+  const bare = await fetch(`${baseUrl}/api/tasks`, { headers: proxied });
   assert.strictEqual(bare.status, 401);
 
   // The browser flow: loading the gzipped SPA entry `/` establishes the session the SPA's API calls use.
-  const index = await fetch(`${baseUrl}/`, { headers: { 'Accept-Encoding': 'gzip' } });
+  const index = await fetch(`${baseUrl}/`, { headers: { ...proxied, 'Accept-Encoding': 'gzip' } });
   assert.strictEqual(index.status, 200);
   assert.strictEqual(index.headers.get('content-encoding'), 'gzip');
   const cookie = index.headers.get('set-cookie');
   assert.ok(cookie, 'loading / must establish a session');
-  const withCookie = await fetch(`${baseUrl}/api/accounts`, { headers: { cookie: cookie.split(';')[0] } });
+  const withCookie = await fetch(`${baseUrl}/api/accounts`, { headers: { ...proxied, cookie: cookie.split(';')[0] } });
   assert.strictEqual(withCookie.status, 200);
 
   // No fake users are seeded into the database, and spoofed ids are not persisted.

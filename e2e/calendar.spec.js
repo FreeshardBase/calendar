@@ -65,6 +65,34 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
+  test('Issue #246 — production env mode answers 401 to requests that bypass the platform proxy', async ({ browser }) => {
+    // A browser context without the proxy secret header is a caller that skipped the FreeShard proxy.
+    const direct = await browser.newContext({ extraHTTPHeaders: {} });
+    try {
+      const page = await direct.newPage();
+      const pageRes = await page.goto('/');
+      expect(pageRes.status()).toBe(401);
+      for (const p of ['/api/auth/session', '/api/calendars', '/api/accounts']) {
+        const res = await direct.request.get(p);
+        expect(res.status()).toBe(401);
+      }
+      expect(await direct.cookies()).toHaveLength(0);
+      const wrong = await direct.request.get('/api/auth/session', { headers: { 'X-Freeshard-Secret': 'wrong' } });
+      expect(wrong.status()).toBe(401);
+    } finally {
+      await direct.close();
+    }
+    // The same request through the proxy (the configured header) yields the env user.
+    const proxied = await browser.newContext();
+    try {
+      const res = await proxied.request.get('/api/auth/session');
+      expect(res.status()).toBe(200);
+      expect((await res.json()).userId).toBe(E2E_USER);
+    } finally {
+      await proxied.close();
+    }
+  });
+
   test('Issue #71 / E2E-1 — browser displays authentication error toast when unauthenticated', async ({ page, context }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });

@@ -21,6 +21,8 @@ process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
 const BASE_URL = 'https://calendar.shard.example/';
 const INTERNAL_SECRET = 'issue340-internal-webhook-secret-0123456789';
+// #246: in production, env mode serves only requests that come through the platform proxy.
+const PROXY = { 'X-Freeshard-Secret': 'issue340-proxy-secret-0123456789abcdef0123' };
 
 test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) => {
   const origEnv = { ...process.env };
@@ -32,7 +34,7 @@ test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) =
   process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   process.env.INTERNAL_WEBHOOK_SECRET = INTERNAL_SECRET;
   delete process.env.HTTP_HEADER_AUTH;
-  delete process.env.HTTP_HEADER_AUTH_SECRET;
+  process.env.HTTP_HEADER_AUTH_SECRET = PROXY['X-Freeshard-Secret'];
 
   const { app } = require('../index.js');
   const { loginAs } = require('./helpers/testSession');
@@ -50,7 +52,7 @@ test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) =
   function postAccounts(headers, body = '{}', contentType = 'application/json') {
     return fetch(`${origin}/api/accounts`, {
       method: 'POST',
-      headers: { cookie, 'Content-Type': contentType, ...headers },
+      headers: { ...PROXY, cookie, 'Content-Type': contentType, ...headers },
       body
     });
   }
@@ -92,7 +94,7 @@ test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) =
     for (const method of ['PUT', 'PATCH', 'DELETE']) {
       const res = await fetch(`${origin}/api/accounts/does-not-exist`, {
         method,
-        headers: { cookie, Origin: 'https://evil.shard.example', 'Content-Type': 'application/json' },
+        headers: { ...PROXY, cookie, Origin: 'https://evil.shard.example', 'Content-Type': 'application/json' },
         body: '{}'
       });
       assert.equal(res.status, 403, `${method} from a foreign origin must be refused`);
@@ -110,7 +112,7 @@ test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) =
   });
 
   await t.test('safe methods are not guarded', async () => {
-    const res = await fetch(`${origin}/api/accounts`, { headers: { cookie, Origin: 'https://evil.shard.example' } });
+    const res = await fetch(`${origin}/api/accounts`, { headers: { ...PROXY, cookie, Origin: 'https://evil.shard.example' } });
     assert.equal(res.status, 200);
   });
 
@@ -126,7 +128,7 @@ test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) =
   await t.test('the OIDC back-channel logout (IdP-to-server, signed token) is not guarded', async () => {
     const res = await fetch(`${origin}/api/auth/backchannel-logout`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { ...PROXY, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: ''
     });
     assert.equal(res.status, 400);

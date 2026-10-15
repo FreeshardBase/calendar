@@ -49,13 +49,17 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   on every request: DB-stored linked accounts + `env-default` (from `CALDAVURL` env) +
   `internal-caldav` (Radicale at `INTERNAL_CALDAV_URL`, authed with `SYSTEM_SYNC_SECRET`).
   Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Generic OpenID Connect / OIDC standard identity provider or reverse-proxy header auth).
+  In production (and staging) `env` mode answers 401 to every request without `X-Freeshard-Secret` =
+  `HTTP_HEADER_AUTH_SECRET` (the platform proxy, timing-safe; exempt: `/health`, `/api/health`, `/internal/*`)
+  and refuses to start without that secret (#246). Outside production the env identity needs no secret.
+  Any other `AUTH_METHOD` value aborts boot.
 - Request security (#340): `BASE_URL` is mandatory in production (no start without it) and the only source of
   public share URLs, OIDC/Google redirect URIs (`<BASE_URL>/api/auth/callback`, `/api/auth/google/callback`) and
   the CSRF origin; `X-Forwarded-Host` is never used. `utils/csrfGuard.js`: a non-GET/HEAD/OPTIONS request passes
   only with `Origin` = BASE_URL origin or, without Origin, `Sec-Fetch-Site: same-origin` (exempt: `/internal/*`,
   back-channel logout). OIDC login uses PKCE (S256), nonce and a mandatory state, and regenerates the session id;
-  logout is `POST /api/auth/logout`. Proxy header identity needs `HTTP_HEADER_AUTH_SECRET` (timing-safe, must differ
-  from `INTERNAL_WEBHOOK_SECRET`). `utils/rateLimit.js`: per client IP (`req.ip`, `TRUST_PROXY` hop count, default 1
+  logout is `POST /api/auth/logout`. Proxy header identity needs `HTTP_HEADER_AUTH_SECRET` (timing-safe, ≥32 characters in
+  production, must differ from `INTERNAL_WEBHOOK_SECRET`, `SYSTEM_SYNC_SECRET`, `SESSION_SECRET`, `ENCRYPTION_KEY`). `utils/rateLimit.js`: per client IP (`req.ip`, `TRUST_PROXY` hop count, default 1
   in production) 30/min on `/api/auth/*`, 120/min on `/api/public/*`, then 429 with `Retry-After`.
 - `server/db.js` — sqlite3 wrapper, schema auto-created on boot. Tables: `linked_accounts`
   (AES-256-CBC-encrypted passwords/refresh-tokens, key = scrypt(`ENCRYPTION_KEY`)), `app_passwords`
