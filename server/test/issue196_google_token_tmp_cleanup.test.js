@@ -40,7 +40,7 @@ try:
     now_future_ms = int(10000000000000)
     conn.execute(
         "INSERT INTO linked_accounts (user_id, url, username, password_encrypted, iv, auth_type, access_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("testuser196", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser196@example.com", encrypted_tok, iv, "oauth2", "fake_access_token", now_future_ms)
+        ("testuser196", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser196@example.com", encrypted_tok, iv, "oauth2", sync_worker.encrypt_token("fake_access_token", sync_worker.KEY_BYTES), now_future_ms)
     )
     conn.commit()
     conn.close()
@@ -102,7 +102,7 @@ conn.execute("CREATE TABLE msgraph_accounts (id INTEGER PRIMARY KEY, user_id TEX
 conn.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, calendar_id TEXT, owner_user_id TEXT, deleted_by TEXT, href TEXT, ics TEXT, created_at INTEGER)")
 enc, iv = sync_worker.encrypt("secret_refresh_token_196", sync_worker.KEY_BYTES)
 conn.execute("INSERT INTO linked_accounts (user_id, url, username, password_encrypted, iv, auth_type, access_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ("testuser196b", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser@example.com", enc, iv, "oauth2", "fake_access_token", 10000000000000))
+    ("testuser196b", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser@example.com", enc, iv, "oauth2", sync_worker.encrypt_token("fake_access_token", sync_worker.KEY_BYTES), 10000000000000))
 conn.commit()
 conn.close()
 os.environ["DATABASE_PATH"] = db_path

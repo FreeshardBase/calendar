@@ -94,8 +94,9 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
         # A fresh access token, so the job goes straight to Graph.
         conn.execute(
             "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " target_calendar_id) VALUES ('acc1', ?, 'testuser@example.com', 'testuser-access-token',"
-            " 'testuser-refresh-token', 4102444800000, 'arbeit')", (USER_ID,))
+            " target_calendar_id) VALUES ('acc1', ?, 'testuser@example.com', ?, ?, 4102444800000, 'arbeit')",
+            (USER_ID, sync_worker.encrypt_token("testuser-access-token", sync_worker.KEY_BYTES),
+             sync_worker.encrypt_token("testuser-refresh-token", sync_worker.KEY_BYTES)))
         conn.execute("INSERT INTO sync_queue (id, user_id, status, attempts, max_attempts, created_at, updated_at)"
                      " VALUES ('job-60', ?, 'PENDING', 0, 1, 1, 1)", (USER_ID,))
         conn.commit()

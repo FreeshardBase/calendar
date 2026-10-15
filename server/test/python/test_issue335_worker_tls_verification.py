@@ -186,8 +186,8 @@ class WorkerTlsVerificationTest(unittest.TestCase):
         conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,
             account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
         conn.execute(
-            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', 'testuser-graph-token', NULL, ?, ?, 'persoenlich', 0, NULL, 0, NULL)",
-            (4102444800000, endpoint),
+            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', ?, NULL, ?, ?, 'persoenlich', 0, NULL, 0, NULL)",
+            (msgraph_worker.encrypt_token("testuser-graph-token"), 4102444800000, endpoint),
         )
         conn.commit()
         return conn

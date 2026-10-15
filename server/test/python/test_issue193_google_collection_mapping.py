@@ -85,8 +85,9 @@ class TestIssue193GoogleCollectionMapping(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, auth_type,"
-            " access_token, expires_at) VALUES (?, ?, ?, 'testuser@example.com', ?, ?, 'oauth2', 'tok', ?)",
-            (acc_id, USER_ID, url, enc, iv, int(time.time() * 1000) + 3600 * 1000),
+            " access_token, expires_at) VALUES (?, ?, ?, 'testuser@example.com', ?, ?, 'oauth2', ?, ?)",
+            (acc_id, USER_ID, url, enc, iv, sync_worker.encrypt_token("tok", sync_worker.KEY_BYTES),
+             int(time.time() * 1000) + 3600 * 1000),
         )
         conn.commit()
         conn.close()

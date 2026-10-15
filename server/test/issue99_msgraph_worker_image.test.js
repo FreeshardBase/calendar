@@ -75,7 +75,7 @@ test.describe('Issue #99 — sync-worker/msgraph_worker.py Container Packaging &
         'cursor.execute("CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT, account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT, target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0, sync_lock_until INTEGER, updated_at INTEGER, delta_started_at INTEGER)")',
         'cursor.execute("CREATE TABLE linked_accounts (id TEXT PRIMARY KEY, user_id TEXT, url TEXT, username TEXT, password_encrypted TEXT, iv TEXT, auth_type TEXT, access_token TEXT, expires_at INTEGER)")',
         'cursor.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, owner_user_id TEXT, href TEXT, ics TEXT)")',
-        "cursor.execute(\"INSERT INTO msgraph_accounts VALUES ('acc1', 'u99', 'testuser@example.com', 'tok', 'ref', 9999999999999, NULL, 'persoenlich', 0, NULL, 0, NULL)\")",
+        "cursor.execute(\"INSERT INTO msgraph_accounts VALUES ('acc1', 'u99', 'testuser@example.com', ?, ?, 9999999999999, NULL, 'persoenlich', 0, NULL, 0, NULL)\", (msgraph_worker.encrypt_token('tok'), msgraph_worker.encrypt_token('ref')))",
         'conn.commit()',
         'conn.close()',
         // Graph answers with an empty delta page; an unreachable Graph API fails the sync (#343).

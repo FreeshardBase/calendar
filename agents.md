@@ -67,7 +67,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   production, must differ from `INTERNAL_WEBHOOK_SECRET`, `SYSTEM_SYNC_SECRET`, `SESSION_SECRET`, `ENCRYPTION_KEY`). `utils/rateLimit.js`: per client IP (`req.ip`, `TRUST_PROXY` hop count, default 1
   in production) 30/min on `/api/auth/*`, 120/min on `/api/public/*`, then 429 with `Retry-After`.
 - `server/db.js` — sqlite3 wrapper, schema auto-created on boot. Tables: `linked_accounts`
-  (AES-256-CBC-encrypted passwords/refresh-tokens, key = scrypt(`ENCRYPTION_KEY`)), `app_passwords`
+  (passwords and OAuth tokens, like `msgraph_accounts` tokens, are AES-256-GCM with key = scrypt(`ENCRYPTION_KEY`,
+  random per-value salt); `iv` = salt‖nonce, ciphertext = ciphertext‖tag, same format in `sync-worker/sync_worker.py`;
+  a tampered value fails to decrypt (#72)), `app_passwords`
   (PBKDF2-HMAC-SHA256, for internal service/app authentication), `calendar_shares` (public ICS tokens), `sync_queue`
   (worker jobs), `users` (OIDC uuid↔username), `user_calendar_shares` (internal user-to-user shares).
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,

@@ -124,15 +124,18 @@ function resolveEncryptionKey(env = process.env, targetDbPath = dbPath) {
   return resolveEncryptionKeyState(env, targetDbPath).secret;
 }
 
-const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
-const ENCRYPTION_SALT = process.env.ENCRYPTION_SALT || 'salt';
+// #72: every stored secret is AES-256-GCM under a key derived with scrypt from the install secret
+// and a random salt of its own. Layout, shared with sync-worker/sync_worker.py:
+//   iv column (or token part before ':')        = salt (16 bytes) || nonce (12 bytes), hex
+//   ciphertext column (or token part after ':') = ciphertext || auth tag (16 bytes), hex
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const SALT_BYTES = 16;
+const NONCE_BYTES = 12;
+const TAG_BYTES = 16;
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
 const ENCRYPTION_KEY_STATE = resolveEncryptionKeyState(process.env, dbPath, dbExistedAtBoot);
 const ENCRYPTION_SECRET = ENCRYPTION_KEY_STATE.secret;
-const ENCRYPTION_KEY = crypto.scryptSync(
-  ENCRYPTION_SECRET,
-  ENCRYPTION_SALT,
-  32
-);
+const ENCRYPTION_KEY_MATERIAL = Buffer.from(ENCRYPTION_SECRET, 'utf8');
 
 // Initialize table and index
 let migrated;
@@ -463,36 +466,75 @@ db.serialize(() => {
   `));
 });
 
-function encrypt(text) {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, ENCRYPTION_KEY, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
+// scrypt costs tens of milliseconds; each value's key is derived once per process.
+const valueKeys = new WeakMap();
+
+function valueKey(keyMaterial, salt) {
+  let keys = valueKeys.get(keyMaterial);
+  if (!keys) {
+    keys = new Map();
+    valueKeys.set(keyMaterial, keys);
+  }
+  const saltHex = salt.toString('hex');
+  if (!keys.has(saltHex)) keys.set(saltHex, crypto.scryptSync(keyMaterial, salt, 32, SCRYPT_PARAMS));
+  return keys.get(saltHex);
+}
+
+function encryptWithKey(keyMaterial, text) {
+  if (typeof text !== 'string') throw new TypeError('Only strings can be encrypted');
+  const salt = crypto.randomBytes(SALT_BYTES);
+  const nonce = crypto.randomBytes(NONCE_BYTES);
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, valueKey(keyMaterial, salt), nonce);
+  const ciphertext = Buffer.concat([cipher.update(text, 'utf8'), cipher.final(), cipher.getAuthTag()]);
   return {
-    encrypted,
-    iv: iv.toString('hex')
+    encrypted: ciphertext.toString('hex'),
+    iv: Buffer.concat([salt, nonce]).toString('hex')
   };
 }
 
+class DecryptionError extends Error {}
+
+const IV_PATTERN = new RegExp(`^[0-9a-fA-F]{${2 * (SALT_BYTES + NONCE_BYTES)}}$`);
+
+/** Throws DecryptionError for a malformed, tampered or foreign-key value. */
+function decryptWithKey(keyMaterial, encryptedHex, ivHex) {
+  if (typeof ivHex !== 'string' || !IV_PATTERN.test(ivHex) ||
+      typeof encryptedHex !== 'string' || !/^(?:[0-9a-fA-F]{2})+$/.test(encryptedHex) ||
+      encryptedHex.length < 2 * TAG_BYTES) {
+    throw new DecryptionError('Stored value is not an AES-256-GCM value of this app');
+  }
+  const header = Buffer.from(ivHex, 'hex');
+  const body = Buffer.from(encryptedHex, 'hex');
+  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, valueKey(keyMaterial, header.subarray(0, SALT_BYTES)),
+    header.subarray(SALT_BYTES));
+  decipher.setAuthTag(body.subarray(body.length - TAG_BYTES));
+  let plain;
+  try {
+    plain = Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]);
+  } catch (err) {
+    throw new DecryptionError('Stored value failed authentication (tampered, corrupted or encrypted with another key)',
+      { cause: err });
+  }
+  return plain.toString('utf8');
+}
+
+function encrypt(text) {
+  return encryptWithKey(ENCRYPTION_KEY_MATERIAL, text);
+}
+
 function decrypt(encryptedText, ivHex) {
-  const iv = Buffer.from(ivHex, 'hex');
-  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, ENCRYPTION_KEY, iv);
-  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  return decryptWithKey(ENCRYPTION_KEY_MATERIAL, encryptedText, ivHex);
 }
 
 const KEY_CHECK_PLAINTEXT = 'freeshard-webcalendar-key-check-v1';
-const ENCRYPTED_TOKEN_PATTERN = /^[0-9a-fA-F]{32}:[0-9a-fA-F]+$/;
+const ENCRYPTED_TOKEN_PATTERN = new RegExp(`^([0-9a-fA-F]{${2 * (SALT_BYTES + NONCE_BYTES)}}):([0-9a-fA-F]+)$`);
 
-function decryptsWithKey(keyBytes, cipherHex, ivHex) {
+function decryptsWithKey(keyMaterial, cipherHex, ivHex) {
   try {
-    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, keyBytes, Buffer.from(ivHex, 'hex'));
-    const plain = Buffer.concat([decipher.update(cipherHex, 'hex'), decipher.final()]);
-    return new TextDecoder('utf-8', { fatal: true }).decode(plain);
+    return decryptWithKey(keyMaterial, cipherHex, ivHex);
   } catch (err) {
-    // Wrong key, corrupted ciphertext or IV: this value does not decrypt.
-    if (/^(ERR_OSSL_|ERR_CRYPTO_INVALID_IV$|ERR_ENCODING_INVALID_ENCODED_DATA$)/.test(err.code)) return null;
+    // Wrong key, corrupted or foreign value: this value does not decrypt.
+    if (err instanceof DecryptionError) return null;
     throw err;
   }
 }
@@ -518,10 +560,8 @@ async function findCiphertexts(database) {
   const graphAccounts = await dbAll(database, 'SELECT id, access_token, refresh_token FROM msgraph_accounts');
   for (const row of graphAccounts) {
     for (const token of [row.refresh_token, row.access_token]) {
-      if (typeof token === 'string' && ENCRYPTED_TOKEN_PATTERN.test(token)) {
-        const [ivHex, cipherHex] = token.split(':');
-        ciphertexts.push({ ref: `msgraph_accounts/${row.id}`, cipherHex, ivHex });
-      }
+      const match = typeof token === 'string' && token.match(ENCRYPTED_TOKEN_PATTERN);
+      if (match) ciphertexts.push({ ref: `msgraph_accounts/${row.id}`, cipherHex: match[2], ivHex: match[1] });
     }
   }
   return ciphertexts;
@@ -533,12 +573,12 @@ async function findCiphertexts(database) {
  * - A database from before #333 (no key-check) is adopted only if its ciphertexts decrypt.
  * - A generated key is only accepted (and only then persisted) if the database holds no ciphertexts.
  */
-async function verifyEncryptionKey(database, keyBytes, keyState) {
+async function verifyEncryptionKey(database, keyMaterial, keyState) {
   const missingKeyHint = keyState.generated
     ? 'No ENCRYPTION_KEY is set and no .encryption_key file was found, so a new key was generated - '
     : '';
   const check = await dbGet(database, 'SELECT ciphertext, iv FROM encryption_key_check WHERE id = 1');
-  if (check && decryptsWithKey(keyBytes, check.ciphertext, check.iv) !== KEY_CHECK_PLAINTEXT) {
+  if (check && decryptsWithKey(keyMaterial, check.ciphertext, check.iv) !== KEY_CHECK_PLAINTEXT) {
     throw new Error(`${missingKeyHint}the configured encryption key cannot decrypt the key-check value of this database. ` +
       'Restore the original .encryption_key / ENCRYPTION_KEY; refusing to start.');
   }
@@ -549,7 +589,7 @@ async function verifyEncryptionKey(database, keyBytes, keyState) {
       throw new Error(`${missingKeyHint}but the database already holds ${ciphertexts.length} encrypted credential(s). ` +
         'Restore the original .encryption_key / ENCRYPTION_KEY; refusing to start and not persisting a new encryption key.');
     }
-    if (ciphertexts.length > 0 && !ciphertexts.some((c) => decryptsWithKey(keyBytes, c.cipherHex, c.ivHex) !== null)) {
+    if (ciphertexts.length > 0 && !ciphertexts.some((c) => decryptsWithKey(keyMaterial,c.cipherHex, c.ivHex) !== null)) {
       throw new Error(`The configured encryption key cannot decrypt any of the ${ciphertexts.length} encrypted credential(s) ` +
         `in this database (e.g. ${ciphertexts[0].ref}). Restore the original .encryption_key / ENCRYPTION_KEY; refusing to start.`);
     }
@@ -562,35 +602,44 @@ async function verifyEncryptionKey(database, keyBytes, keyState) {
   }
 
   if (!check) {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, keyBytes, iv);
-    const ciphertext = cipher.update(KEY_CHECK_PLAINTEXT, 'utf8', 'hex') + cipher.final('hex');
+    const { encrypted, iv } = encryptWithKey(keyMaterial, KEY_CHECK_PLAINTEXT);
     await dbRun(database, 'INSERT INTO encryption_key_check (id, ciphertext, iv, created_at) VALUES (1, ?, ?, ?)',
-      [ciphertext, iv.toString('hex'), Date.now()]);
+      [encrypted, iv, Date.now()]);
   }
 }
 
 // Resolves once the schema migrations have run and the configured key is proven to match this
 // database; server/index.js does not listen before then and exits on rejection.
-const ready = migrated.then(() => verifyEncryptionKey(db, ENCRYPTION_KEY, ENCRYPTION_KEY_STATE));
+const ready = migrated.then(() => verifyEncryptionKey(db, ENCRYPTION_KEY_MATERIAL, ENCRYPTION_KEY_STATE));
 
+// A token column holds `iv:ciphertext` in one string; an absent token stays absent.
 function encryptToken(token) {
-  if (!token || typeof token !== 'string') return token;
-  if (/^[0-9a-fA-F]{32}:[0-9a-fA-F]+$/.test(token)) return token;
+  if (token === null || token === undefined || token === '') return token;
   const { encrypted, iv } = encrypt(token);
   return `${iv}:${encrypted}`;
 }
 
 function decryptToken(token) {
-  if (!token || typeof token !== 'string') return token;
-  if (!token.includes(':')) return token;
-  const [ivHex, cipherHex] = token.split(':');
-  if (!ivHex || ivHex.length !== 32 || !cipherHex) return token;
-  try {
-    return decrypt(cipherHex, ivHex);
-  } catch (err) {
-    return token;
-  }
+  if (token === null || token === undefined || token === '') return token;
+  const match = typeof token === 'string' && token.match(ENCRYPTED_TOKEN_PATTERN);
+  if (!match) throw new DecryptionError('Stored token is not an AES-256-GCM value of this app');
+  return decrypt(match[2], match[1]);
+}
+
+function msGraphAccountFromRow(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    accountEmail: r.account_email,
+    accessToken: decryptToken(r.access_token),
+    refreshToken: decryptToken(r.refresh_token),
+    expiresAt: r.expires_at,
+    deltaLink: r.delta_link,
+    targetCalendarId: r.target_calendar_id,
+    reconnectRequired: r.reconnect_required === 1,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  };
 }
 
 const Db = {
@@ -619,9 +668,12 @@ const Db = {
           const unreadable = [];
           for (const row of rows) {
             let password;
+            let accessToken;
             try {
               password = decrypt(row.password_encrypted, row.iv); // decrypts either password or refresh_token
+              accessToken = decryptToken(row.access_token);
             } catch (decryptionError) {
+              if (!(decryptionError instanceof DecryptionError)) throw decryptionError;
               // Issue #136: one undecryptable row is a broken account, not a broken app.
               console.error(`[db] Skipping undecryptable linked_accounts row id=${row.id}:`, decryptionError.message);
               unreadable.push({
@@ -641,7 +693,7 @@ const Db = {
               password,
               displayName: row.display_name,
               authType: row.auth_type || 'basic',
-              accessToken: row.access_token,
+              accessToken,
               expiresAt: row.expires_at
             });
           }
@@ -668,7 +720,7 @@ const Db = {
               password: decrypt(row.password_encrypted, row.iv),
               displayName: row.display_name,
               authType: row.auth_type || 'basic',
-              accessToken: row.access_token,
+              accessToken: decryptToken(row.access_token),
               expiresAt: row.expires_at
             });
           } catch (decryptionError) {
@@ -737,7 +789,7 @@ const Db = {
       const { encrypted, iv } = encrypt(refreshToken);
       db.run(
         'INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name, auth_type, access_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, userId, url, username, encrypted, iv, displayName || username, 'oauth2', accessToken, expiresAt],
+        [id, userId, url, username, encrypted, iv, displayName || username, 'oauth2', encryptToken(accessToken), expiresAt],
         (err) => {
           if (err) return reject(err);
           resolve({ id, displayName: displayName || username });
@@ -750,7 +802,7 @@ const Db = {
     return new Promise((resolve, reject) => {
       db.run(
         'UPDATE linked_accounts SET access_token = ?, expires_at = ? WHERE id = ?',
-        [accessToken, expiresAt, id],
+        [encryptToken(accessToken), expiresAt, id],
         (err) => {
           if (err) return reject(err);
           resolve();
@@ -1711,19 +1763,12 @@ const Db = {
         [userId],
         (err, rows) => {
           if (err) return reject(err);
-          resolve(rows.map(r => ({
-            id: r.id,
-            userId: r.user_id,
-            accountEmail: r.account_email,
-            accessToken: decryptToken(r.access_token),
-            refreshToken: decryptToken(r.refresh_token),
-            expiresAt: r.expires_at,
-            deltaLink: r.delta_link,
-            targetCalendarId: r.target_calendar_id,
-            reconnectRequired: r.reconnect_required === 1,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
-          })));
+          // #72: a token that fails to decrypt rejects the read, never reaches the caller altered.
+          try {
+            resolve(rows.map(msGraphAccountFromRow));
+          } catch (decryptionError) {
+            reject(decryptionError);
+          }
         }
       );
     });
@@ -1738,19 +1783,11 @@ const Db = {
         (err, r) => {
           if (err) return reject(err);
           if (!r) return resolve(null);
-          resolve({
-            id: r.id,
-            userId: r.user_id,
-            accountEmail: r.account_email,
-            accessToken: decryptToken(r.access_token),
-            refreshToken: decryptToken(r.refresh_token),
-            expiresAt: r.expires_at,
-            deltaLink: r.delta_link,
-            targetCalendarId: r.target_calendar_id,
-            reconnectRequired: r.reconnect_required === 1,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
-          });
+          try {
+            resolve(msGraphAccountFromRow(r));
+          } catch (decryptionError) {
+            reject(decryptionError);
+          }
         }
       );
     });

@@ -23,8 +23,9 @@ import tempfile
 import uuid
 import unicodedata
 from xml.sax.saxutils import escape as xml_escape
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
+import functools
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from tls_context import ssl_context_for
 
@@ -139,7 +140,7 @@ def is_weak_encryption_secret(secret, portal_id=None):
     return False
 
 KEY_CHECK_PLAINTEXT = "freeshard-webcalendar-key-check-v1"
-_ENCRYPTED_TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32}:[0-9a-fA-F]+$")
+_ENCRYPTED_TOKEN_RE = re.compile(r"^[0-9a-fA-F]{56}:[0-9a-fA-F]+$")
 
 
 def count_ciphertexts(db_path):
@@ -263,60 +264,66 @@ SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from msgraph_worker import sync_msgraph_accounts
 
-ENCRYPTION_SALT = os.environ.get("ENCRYPTION_SALT", "salt").encode('utf-8')
+# #72: same format as server/db.js. Every value is AES-256-GCM under a key derived with scrypt from
+# the install secret and a random salt of its own:
+#   iv column (or token part before ':')        = salt (16 bytes) || nonce (12 bytes), hex
+#   ciphertext column (or token part after ':') = ciphertext || auth tag (16 bytes), hex
+SALT_BYTES = 16
+NONCE_BYTES = 12
+TAG_BYTES = 16
 
-def derive_key(secret_str, salt=None):
-    if salt is None:
-        salt_bytes = ENCRYPTION_SALT
-    elif isinstance(salt, str):
-        salt_bytes = salt.encode('utf-8')
-    else:
-        salt_bytes = salt
-    kdf = Scrypt(
-        salt=salt_bytes,
-        length=32,
-        n=16384,
-        r=8,
-        p=1,
-        backend=default_backend()
-    )
-    return kdf.derive(secret_str.encode('utf-8'))
 
-# Derive key once on startup
-KEY_BYTES = derive_key(ENCRYPTION_SECRET) if ENCRYPTION_SECRET else None
+def key_material(secret_str):
+    """The install secret as the input of the per-value scrypt derivation."""
+    return secret_str.encode('utf-8')
+
+
+@functools.lru_cache(maxsize=1024)
+def _value_key(material, salt):
+    # scrypt costs tens of milliseconds; each value's key is derived once per process.
+    return Scrypt(salt=salt, length=32, n=16384, r=8, p=1).derive(material)
+
 
 def decrypt(encrypted_hex, iv_hex, key_bytes):
-    encrypted = bytes.fromhex(encrypted_hex)
-    iv = bytes.fromhex(iv_hex)
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
-    decryptor = cipher.decryptor()
-    decrypted = decryptor.update(encrypted) + decryptor.finalize()
-    if not decrypted:
-        raise ValueError("Decrypted payload is empty")
-    padding_len = decrypted[-1]
-    if padding_len < 1 or padding_len > 16 or padding_len > len(decrypted):
-        raise ValueError(f"Invalid PKCS#7 padding length: {padding_len}")
-    if decrypted[-padding_len:] != bytes([padding_len] * padding_len):
-        raise ValueError("Invalid PKCS#7 padding bytes")
-    return decrypted[:-padding_len].decode('utf-8')
+    """Raises ValueError for a malformed, tampered or foreign-key value."""
+    header = bytes.fromhex(iv_hex)
+    body = bytes.fromhex(encrypted_hex)
+    if len(header) != SALT_BYTES + NONCE_BYTES or len(body) < TAG_BYTES:
+        raise ValueError("Stored value is not an AES-256-GCM value of this app")
+    aesgcm = AESGCM(_value_key(bytes(key_bytes), header[:SALT_BYTES]))
+    try:
+        plain = aesgcm.decrypt(header[SALT_BYTES:], body, None)
+    except InvalidTag as err:
+        raise ValueError("Stored value failed authentication (tampered, corrupted or encrypted with another key)") from err
+    return plain.decode('utf-8')
+
 
 def encrypt(plain_text, key_bytes):
-    iv = os.urandom(16)
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    padding_len = 16 - (len(plain_text.encode('utf-8')) % 16)
-    padded = plain_text.encode('utf-8') + bytes([padding_len] * padding_len)
-    encrypted = encryptor.update(padded) + encryptor.finalize()
-    return encrypted.hex(), iv.hex()
+    salt = os.urandom(SALT_BYTES)
+    nonce = os.urandom(NONCE_BYTES)
+    encrypted = AESGCM(_value_key(bytes(key_bytes), salt)).encrypt(nonce, plain_text.encode('utf-8'), None)
+    return encrypted.hex(), (salt + nonce).hex()
+
 
 def encrypt_token(token, key_bytes):
-    if not token or (isinstance(token, str) and ":" in token and len(token.split(":", 1)[0]) == 32):
+    """A token column holds `iv:ciphertext` in one string; an absent token stays absent."""
+    if not token:
         return token
     encrypted_hex, iv_hex = encrypt(token, key_bytes)
     return f"{iv_hex}:{encrypted_hex}"
 
-# Derive key once on startup
-KEY_BYTES = derive_key(ENCRYPTION_SECRET) if ENCRYPTION_SECRET else None
+
+def decrypt_token(token, key_bytes):
+    """Raises ValueError for anything but an absent token or an encrypted value of this app."""
+    if not token:
+        return token
+    if not _ENCRYPTED_TOKEN_RE.match(token):
+        raise ValueError("Stored token is not an AES-256-GCM value of this app")
+    iv_hex, encrypted_hex = token.split(":", 1)
+    return decrypt(encrypted_hex, iv_hex, key_bytes)
+
+
+KEY_BYTES = key_material(ENCRYPTION_SECRET) if ENCRYPTION_SECRET else None
 
 def refresh_google_token(refresh_token):
     url = "https://oauth2.googleapis.com/token"
@@ -735,12 +742,12 @@ status_path = {ini_value(status_dir)}
             # Decrypt refresh token
             try:
                 refresh_token = decrypt(acc["password_encrypted"], acc["iv"], KEY_BYTES)
+                access_token = decrypt_token(acc["access_token"], KEY_BYTES)
             except (ValueError, TypeError) as decrypt_err:
                 conn.close()
                 return False, f"Token decryption failed: {str(decrypt_err)}"
 
             # Check if Google access token is expired or close to expiration (within 5 minutes)
-            access_token = acc["access_token"]
             expires_at = acc["expires_at"]
             
             now_ms = int(time.time() * 1000)
@@ -754,7 +761,7 @@ status_path = {ini_value(status_dir)}
                     # Store back to DB in milliseconds
                     cursor.execute(
                         "UPDATE linked_accounts SET access_token = ?, expires_at = ? WHERE id = ?",
-                        (access_token, new_expires, acc_id)
+                        (encrypt_token(access_token, KEY_BYTES), new_expires, acc_id)
                     )
                     conn.commit()
                     expires_at = new_expires

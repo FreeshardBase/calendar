@@ -106,7 +106,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.conn.execute(
             "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
             " delta_link, target_calendar_id) VALUES ('acc1', 'testuser', 'testuser@example.com',"
-            " 'testuser-access-token', 'testuser-refresh-token', 4102444800000, NULL, 'persoenlich')")
+            " ?, ?, 4102444800000, NULL, 'persoenlich')",
+            (msgraph_worker.encrypt_token("testuser-access-token"), msgraph_worker.encrypt_token("testuser-refresh-token")))
         self.conn.commit()
         self.env = patch.dict(os.environ, {"MSGRAPH_CLIENT_ID": CLIENT_ID})
         self.env.start()
@@ -371,7 +372,9 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.conn.execute(
             "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
             " delta_link, target_calendar_id) VALUES ('acc2', 'testuser', 'testuser2@example.com',"
-            " 'testuser-access-token-2', 'testuser-refresh-token-2', 4102444800000, ?, 'persoenlich')", (healthy,))
+            " ?, ?, 4102444800000, ?, 'persoenlich')",
+            (msgraph_worker.encrypt_token("testuser-access-token-2"), msgraph_worker.encrypt_token("testuser-refresh-token-2"),
+             healthy))
         self.conn.commit()
         fake = FakeMicrosoft(pages={
             broken: {"value": [graph_event("g1", zone="Pacific Standard Time")], "@odata.deltaLink": broken + "-next"},
@@ -407,8 +410,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.conn.execute("UPDATE msgraph_accounts SET reconnect_required = 1")
         self.conn.execute(
             "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " target_calendar_id) VALUES ('acc2', 'testuser', 'testuser2@example.com', 'testuser-access-token-2',"
-            " 'testuser-refresh-token-2', 4102444800000, 'persoenlich')")
+            " target_calendar_id) VALUES ('acc2', 'testuser', 'testuser2@example.com', ?, ?, 4102444800000, 'persoenlich')",
+            (msgraph_worker.encrypt_token("testuser-access-token-2"), msgraph_worker.encrypt_token("testuser-refresh-token-2")))
         self.conn.commit()
         fake = FakeMicrosoft(pages={f"{GRAPH}/me/calendarView/delta": {
             "value": [graph_event("g2")], "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=acc2"}})
@@ -427,7 +430,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
 
         def reconnect_while_refreshing():
             other = self._connect()
-            other.execute("UPDATE msgraph_accounts SET refresh_token = 'testuser-fresh-refresh', reconnect_required = 0")
+            other.execute("UPDATE msgraph_accounts SET refresh_token = ?, reconnect_required = 0",
+                          (msgraph_worker.encrypt_token("testuser-fresh-refresh"),))
             other.commit()
             other.close()
 

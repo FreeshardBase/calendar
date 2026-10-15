@@ -24,7 +24,7 @@ process.env.SSL_CERT_PATH = '';
 
 const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const crypto = require('crypto');
+const { encryptForSecret } = require('./helpers/storedCiphertext');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { server: appServer } = require('../index');
@@ -36,23 +36,20 @@ const TEST_USER = 'oauth-token-warning-testuser';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+const ENCRYPTION_SECRET = process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET ||
+  'freeshard-default-encryption-key-do-not-use-in-prod';
+
 function encryptToken(plaintext) {
-  const key = crypto.scryptSync(
-    process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET ||
-      'freeshard-default-encryption-key-do-not-use-in-prod',
-    'salt', 32
-  );
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-  let enc = cipher.update(plaintext, 'utf8', 'hex');
-  enc += cipher.final('hex');
-  return { enc, ivHex: iv.toString('hex') };
+  const { ciphertext, iv } = encryptForSecret(ENCRYPTION_SECRET, plaintext);
+  return { enc: ciphertext, ivHex: iv };
 }
 
 async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Test OAuth', username = 'testuser@example.com', url = 'https://apidata.googleusercontent.com/caldav/v2/testuser%40example.com/' } = {}) {
   await Db.ensureUser(userId, userId);
   const id = uuidv4();
   const { enc, ivHex } = encryptToken('test-refresh-token');
+  const access = encryptToken('tok');
+  const accessTokenColumn = `${access.ivHex}:${access.enc}`;
   return new Promise((resolve, reject) => {
     Db.db.run(
       `INSERT INTO linked_accounts
@@ -61,7 +58,7 @@ async function insertOAuthAccount(userId, { expiresAt = null, displayName = 'Tes
       [
         id, userId,
         url,
-        username, enc, ivHex, displayName, 'oauth2', 'tok',
+        username, enc, ivHex, displayName, 'oauth2', accessTokenColumn,
         expiresAt ?? null
       ],
       (err) => { if (err) return reject(err); resolve(id); }

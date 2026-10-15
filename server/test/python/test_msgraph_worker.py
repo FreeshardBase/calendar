@@ -74,7 +74,8 @@ class TestMSGraphWorker(unittest.TestCase):
         cursor.execute("""
             INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at, target_calendar_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ("acc-1", "user-1", "testuser@example.com", "testuser-access-token", "testuser-refresh-token", 9999999999999, "persoenlich"))
+        """, ("acc-1", "user-1", "testuser@example.com", msgraph_worker.encrypt_token("testuser-access-token"),
+              msgraph_worker.encrypt_token("testuser-refresh-token"), 9999999999999, "persoenlich"))
         conn.commit()
 
         # An empty delta page from Graph: the sync succeeds without touching the local calendar.

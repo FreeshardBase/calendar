@@ -63,7 +63,7 @@ try:
     now_future_ms = int(10000000000000)
     conn.execute(
         "INSERT INTO linked_accounts (user_id, url, username, password_encrypted, iv, auth_type, access_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("testuser", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser@example.com", encrypted_tok, iv, "oauth2", "fake_access_token", now_future_ms)
+        ("testuser", "http://127.0.0.1:59999/caldav/v2/user/user", "testuser@example.com", encrypted_tok, iv, "oauth2", sync_worker.encrypt_token("fake_access_token", sync_worker.KEY_BYTES), now_future_ms)
     )
     conn.commit()
     conn.close()

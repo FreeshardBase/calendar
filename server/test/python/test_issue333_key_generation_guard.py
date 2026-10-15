@@ -26,7 +26,7 @@ class TestIssue333KeyGenerationGuard(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _db_with_account(self, secret):
-        enc, iv = sync_worker.encrypt("testuser-pass", sync_worker.derive_key(secret))
+        enc, iv = sync_worker.encrypt("testuser-pass", sync_worker.key_material(secret))
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "CREATE TABLE linked_accounts (id TEXT PRIMARY KEY, user_id TEXT, url TEXT, username TEXT,"
@@ -40,7 +40,7 @@ class TestIssue333KeyGenerationGuard(unittest.TestCase):
         conn.close()
 
     def _add_key_check(self, secret):
-        enc, iv = sync_worker.encrypt(sync_worker.KEY_CHECK_PLAINTEXT, sync_worker.derive_key(secret))
+        enc, iv = sync_worker.encrypt(sync_worker.KEY_CHECK_PLAINTEXT, sync_worker.key_material(secret))
         conn = sqlite3.connect(self.db_path)
         conn.execute("CREATE TABLE encryption_key_check (id INTEGER PRIMARY KEY, ciphertext TEXT, iv TEXT, created_at INTEGER)")
         conn.execute("INSERT INTO encryption_key_check VALUES (1, ?, ?, 0)", (enc, iv))
@@ -62,9 +62,9 @@ class TestIssue333KeyGenerationGuard(unittest.TestCase):
 
     def test_verify_encryption_key_against_key_check_row(self):
         self._add_key_check(KEY_A)
-        sync_worker.verify_encryption_key(self.db_path, sync_worker.derive_key(KEY_A))
+        sync_worker.verify_encryption_key(self.db_path, sync_worker.key_material(KEY_A))
         with self.assertRaisesRegex(ValueError, "cannot decrypt"):
-            sync_worker.verify_encryption_key(self.db_path, sync_worker.derive_key(KEY_B))
+            sync_worker.verify_encryption_key(self.db_path, sync_worker.key_material(KEY_B))
 
 
 if __name__ == "__main__":
