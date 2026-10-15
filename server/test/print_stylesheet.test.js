@@ -46,8 +46,7 @@ test('Print View and PDF Export Stylesheet Suite (Issue #22)', async (t) => {
       '#sidebar-settings-btn',
       '.status-bar',
       '.modal-backdrop',
-      '.popover',
-      '.no-print'
+      '.popover'
     ];
 
     for (const selector of requiredHiddenSelectors) {
@@ -70,11 +69,12 @@ test('Print View and PDF Export Stylesheet Suite (Issue #22)', async (t) => {
     const requiredBreakSelectors = [
       '.calendar-container',
       '.month-grid',
-      '.week-grid',
+      '.week-grid-body',
+      '.day-grid-body',
       '.event-chip',
       '.kanban-card',
-      '.agenda-item',
-      '.month-day-cell'
+      '.agenda-event',
+      '.month-day'
     ];
 
     for (const selector of requiredBreakSelectors) {
@@ -87,18 +87,6 @@ test('Print View and PDF Export Stylesheet Suite (Issue #22)', async (t) => {
     assert.ok(
       printCss.includes('break-inside: avoid') || printCss.includes('page-break-inside: avoid'),
       'Print stylesheet must specify break-inside: avoid or page-break-inside: avoid'
-    );
-  });
-
-  await t.test('app.css includes .no-print and .print-only helper utility rules', () => {
-    assert.ok(cssContent.includes('.no-print'), 'app.css must define .no-print class');
-    assert.ok(cssContent.includes('.print-only'), 'app.css must define .print-only class');
-
-    const printCss = getPrintBlock(cssContent);
-    const nonPrintCss = cssContent.replace(printCss, '');
-    assert.ok(
-      nonPrintCss.includes('.print-only') && nonPrintCss.includes('display: none'),
-      '.print-only must be display: none in default screen styles'
     );
   });
 

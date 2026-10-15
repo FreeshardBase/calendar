@@ -308,9 +308,9 @@ export function chipHtml(ev) {
   const timeStr = ev.allDay ? '' : `<span class="event-chip-time">${fmtTime(ev.start)}</span>`;
   const labelText = ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`;
   const recurIcon = (ev.recurrence || ev.masterUid)
-    ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
+    ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
-  return `<div class="event-chip${ev.allDay ? ' all-day' : ''}"
+  return `<div class="event-chip"
               tabindex="0"
               role="button"
               aria-label="${escHtml(labelText)}"
@@ -679,7 +679,7 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   block.setAttribute('aria-label', labelText.trim());
 
   const recurIcon = (ev.recurrence || ev.masterUid)
-    ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
+    ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
 
   block.innerHTML = `
@@ -813,7 +813,7 @@ export function agendaEventHtml(ev) {
     : `${fmtTime(ev.start)}${ev.end ? ' – ' + fmtTime(ev.end) : ''}`;
 
   const recurIcon = (ev.recurrence || ev.masterUid)
-    ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
+    ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
 
   const labelText = `${timeStr} ${ev.title}`;

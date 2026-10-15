@@ -119,11 +119,6 @@ a { color: inherit; text-decoration: none; }
   text-transform: uppercase; letter-spacing: var(--ls-label);
   color: var(--ink-muted);
 }
-.fs-mono {
-  font: 400 var(--fs-mono)/1 var(--font-mono);
-  letter-spacing: var(--ls-mono);
-  color: var(--ink-muted);
-}
 
 /* ── 5. Loading Screen ────────────────────────────────────────────────────── */
 .loading-screen {
@@ -158,7 +153,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--surface);
   border-right: var(--border-w) solid var(--border);
   display: flex; flex-direction: column;
-  overflow-y: auto; overflow-x: hidden;
+  overflow: hidden; /* .sidebar-content scrolls; the footer stays put */
   height: 100%;
   position: relative; /* containing block for .sidebar-settings-drawer */
 }
@@ -240,7 +235,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-.mini-cal-dow, .mini-cal-day-name {
+.mini-cal-dow {
   font: 600 9px/1 var(--font-ui);
   text-transform: uppercase; letter-spacing: 0.1em;
   color: var(--ink-muted); text-align: center;
@@ -515,6 +510,10 @@ a { color: inherit; text-decoration: none; }
 }
 .event-chip-title {
   overflow: hidden; text-overflow: ellipsis;
+}
+.recur-icon {
+  margin-left: 4px; flex-shrink: 0;
+  display: inline-block; vertical-align: middle;
 }
 .month-more {
   font: 600 10px/1 var(--font-ui);
@@ -938,6 +937,18 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
 }
 .attendee-name  { font-size: var(--fs-small); color: var(--ink); }
 .attendee-email { font-size: 11px; color: var(--ink-muted); font-family: var(--font-mono); }
+/* PARTSTAT pill; the second class is the RFC 5545 value */
+.attendee-status {
+  margin-left: auto;
+  padding: 1px var(--sp-2);
+  border: var(--border-w) solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: 11px; white-space: nowrap;
+  color: var(--ink-muted);
+}
+.attendee-status.ACCEPTED  { color: var(--success); }
+.attendee-status.TENTATIVE { color: var(--warning); }
+.attendee-status.DECLINED  { color: var(--danger); }
 .attendee-remove { color: var(--ink-muted); transition: color var(--t); padding: 2px; border-radius: 4px; }
 .attendee-remove:hover { color: var(--danger); }
 .attendee-remove svg { width: 13px; height: 13px; display: block; }
@@ -1092,15 +1103,10 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
 .toast.success { border-left: 3px solid var(--data); }
 .toast.error   { border-left: 3px solid var(--danger); }
 .toast.info    { border-left: 3px solid var(--line); }
+.toast.warning { border-left: 3px solid var(--warning); }
 
 /* ── 19. Keyboard focus chrome ────────────────────────────────────────────── */
 /* Teal outline + slight scale on keyboard nav only (DECISIONS.md) */
-.fs-focusable { transform-origin: center; }
-.fs-focusable:focus-visible {
-  outline: 2px solid var(--line);
-  outline-offset: 3px;
-  position: relative; z-index: 3;
-}
 /* Buttons & tiles get mild scale; full-width rows do not */
 .toolbar-btn:focus-visible,
 .btn:focus-visible {
@@ -1121,7 +1127,6 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   }
   .sidebar.open { transform: translateX(0); visibility: visible; transition: transform var(--t-slow); }
   .app { flex-direction: column; }
-  .month-grid-header-day { font-size: 9px; }
 
   /* Responsive Grid-based Toolbar Layout */
   .toolbar {
@@ -1312,26 +1317,6 @@ textarea.form-input, .form-textarea {
 }
 .onboarding-form { display: flex; flex-direction: column; }
 
-/* Sidebar section/account classes the old HTML used — now remapped */
-.sidebar-title  { font: 600 var(--fs-h3)/1 var(--font-ui); color: var(--line); }
-
-/* Calendar/Account list sections — old class names still referenced */
-.calendar-list-section,
-.account-list-section {
-  padding: var(--sp-4) var(--sp-3);
-  border-top: var(--border-w) solid var(--border);
-}
-.section-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: var(--sp-2);
-}
-.section-title {
-  font: 600 var(--fs-label)/1 var(--font-ui);
-  text-transform: uppercase; letter-spacing: var(--ls-label);
-  color: var(--ink-muted);
-}
-
-/* Mini calendar section compatibility */
 .mini-calendar { padding: 0 var(--sp-1); }
 
 
@@ -1434,7 +1419,14 @@ textarea.form-input, .form-textarea {
   background: rgba(255, 255, 255, 0.04);
   border-color: #555;
 }
-.oauth-icon {
+.btn-msgraph {
+  margin-top: 8px;
+  background: #0078D4; /* Microsoft brand blue */
+  border-color: #0078D4;
+  color: #ffffff;
+}
+.oauth-icon,
+.google-badge-icon {
   flex-shrink: 0;
 }
 .modal-divider {
@@ -1459,14 +1451,6 @@ textarea.form-input, .form-textarea {
 }
 
 /* Sidebar Restructuring & Drawer */
-/* NOTE: must not set `position` here — this rule comes after the mobile media
-   query and would override the off-canvas `position: fixed` of the sidebar. */
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden !important;
-}
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
@@ -1687,6 +1671,7 @@ textarea.form-input, .form-textarea {
 [data-theme="dark"] .kanban-card {
   background: var(--surface-bg-alt);
 }
+.kanban-card-body { min-width: 0; }
 .kanban-card-title {
   font-weight: 600;
   font-size: 14px;
@@ -1756,6 +1741,12 @@ textarea.form-input, .form-textarea {
 }
 
 /* ── Empty State Styles ─────────────────────────────────────────────────── */
+.empty-state {
+  padding: var(--sp-4) var(--sp-3);
+  text-align: center;
+  font-size: var(--fs-small);
+  color: var(--ink-muted);
+}
 .kanban-empty-state {
   margin: 12px 0 16px 0;
   padding: 16px 20px;
@@ -1817,6 +1808,9 @@ textarea.form-input, .form-textarea {
   margin-top: 3px;
   cursor: pointer;
 }
+.sidebar-task-info { flex: 1; min-width: 0; cursor: pointer; }
+.sidebar-task-meta { font-size: 0.75rem; color: var(--ink-muted); }
+.sidebar-tasks-empty { font-size: 0.78rem; color: var(--ink-muted); padding: 4px 8px; }
 .sidebar-task-title {
   font-size: 0.82rem;
   font-weight: 500;
@@ -1960,11 +1954,6 @@ textarea.form-input, .form-textarea {
   background: #c69500;
 }
 
-/* ── Print & Vector PDF Export Utility Classes ────────────────────────────────── */
-.print-only {
-  display: none !important;
-}
-
 /* ── Print & Vector PDF Export Styles ─────────────────────────────────────── */
 @media print {
   body {
@@ -1983,18 +1972,10 @@ textarea.form-input, .form-textarea {
   .status-bar,
   .modal-backdrop,
   .popover,
-  .notifications-toast,
   #kanban-side-drawer,
-  .drawer-backdrop,
   .shortcuts-modal-backdrop,
-  .toolbar-tz-select-wrapper,
-  .quick-add-container,
-  .header-actions,
-  .no-print {
+  .toolbar-tz-select-wrapper {
     display: none !important;
-  }
-  .print-only {
-    display: block !important;
   }
   .app {
     display: block !important;
@@ -2018,7 +1999,8 @@ textarea.form-input, .form-textarea {
   }
   .calendar-container,
   .month-grid,
-  .week-grid,
+  .week-grid-body,
+  .day-grid-body,
   .agenda-view,
   .kanban-board {
     width: 100% !important;
@@ -2028,11 +2010,11 @@ textarea.form-input, .form-textarea {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
-  .month-day-cell,
+  .month-day,
   .week-day-col,
   .event-chip,
   .kanban-card,
-  .agenda-item {
+  .agenda-event {
     border: 1px solid #000 !important;
     color: #000 !important;
     background: #ffffff !important;

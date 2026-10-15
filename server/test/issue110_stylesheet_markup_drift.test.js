@@ -1,94 +1,82 @@
+// Issue #110: the stylesheet and the markup must not drift apart. These are invariants over the
+// whole of public/, not lists of names: every custom property in use is defined, every class
+// selector in app.css is emitted somewhere, and no top-level rule is declared twice.
 const fs = require('fs');
 const path = require('path');
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 
-describe('Issue #110 — Stylesheet and Markup Drift Fixes', () => {
-  const cssPath = path.join(process.cwd(), 'public/css/app.css');
-  const cssContent = fs.readFileSync(cssPath, 'utf8');
-  const publicDir = path.join(process.cwd(), 'public');
+const publicDir = path.join(__dirname, '..', '..', 'public');
+const css = fs.readFileSync(path.join(publicDir, 'css', 'app.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
-  function getProjectCode() {
-    let code = '';
-    function walk(dir) {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.html') || entry.name.endsWith('.js') || entry.name.endsWith('.css')) {
-          code += fs.readFileSync(full, 'utf8') + '\n';
-        }
-      }
+function readSources(ext) {
+  const out = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (ext.some(e => entry.name.endsWith(e))) out.push(fs.readFileSync(full, 'utf8'));
     }
-    walk(publicDir);
-    return code;
+  })(publicDir);
+  return out.join('\n');
+}
+const markup = readSources(['.html', '.js']);
+
+// Top-level rules of the stylesheet: { selector, depth } where depth > 0 means inside an at-rule.
+function rules(text) {
+  const result = [];
+  const stack = [];
+  let buf = '';
+  for (const ch of text) {
+    if (ch === '{') {
+      const sel = buf.trim();
+      stack.push(sel);
+      if (!sel.startsWith('@')) result.push({ selector: sel, atRules: stack.slice(0, -1).filter(s => s.startsWith('@')) });
+      buf = '';
+    } else if (ch === '}') {
+      stack.pop();
+      buf = '';
+    } else if (ch === ';' ) {
+      buf = '';
+    } else {
+      buf += ch;
+    }
   }
+  return result;
+}
 
-  test('All referenced custom CSS properties are defined in app.css', () => {
-    const definedVars = new Set();
-    for (const m of cssContent.matchAll(/--[a-zA-Z0-9_-]+(?=\s*:)/g)) {
-      definedVars.add(m[0]);
-    }
-
-    const allCode = getProjectCode();
-    const usedVars = new Set();
-    for (const m of allCode.matchAll(/var\((--[a-zA-Z0-9_-]+)/g)) {
-      usedVars.add(m[1]);
-    }
-
-    const targetUndefinedVars = [
-      '--surface-hover',
-      '--text-muted',
-      '--surface-bg-alt',
-      '--radius-card',
-      '--radius-sm',
-      '--text',
-      '--warning'
-    ];
-
-    const missingVars = targetUndefinedVars.filter(v => !definedVars.has(v));
-    assert.deepStrictEqual(missingVars, [], `Missing custom property definitions in CSS: ${missingVars.join(', ')}`);
+describe('Issue #110 — stylesheet and markup drift', () => {
+  test('every custom property referenced under public/ is defined in app.css', () => {
+    const defined = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+    const used = new Set([...(css + markup).matchAll(/var\(\s*(--[\w-]+)/g)].map(m => m[1]));
+    const undefinedVars = [...used].filter(v => !defined.has(v)).sort();
+    assert.deepStrictEqual(undefinedVars, [], `custom properties used but never defined: ${undefinedVars.join(', ')}`);
   });
 
-  test('Unstyled component classes have CSS definitions in app.css', () => {
-    const cssClassSelectors = new Set();
-    for (const m of cssContent.matchAll(/\.([a-zA-Z0-9_-]+)/g)) {
-      cssClassSelectors.add(m[1]);
+  test('every class selector in app.css is emitted by the markup or scripts', () => {
+    const classes = new Set();
+    for (const { selector } of rules(css)) {
+      // Attribute selectors and :not()/:is() arguments may hold dots that are not classes.
+      const plain = selector.replace(/\[[^\]]*\]/g, '');
+      for (const m of plain.matchAll(/\.(-?[a-zA-Z_][\w-]*)/g)) classes.add(m[1]);
     }
-
-    const requiredClasses = [
-      'btn-secondary',
-      'popover-attachments',
-      'attachment-drive-link',
-      'popover-color-bar',
-      'popover-meta',
-      'popover-actions',
-      'toast-icon',
-      'toast-msg',
-      'toast-close',
-      'btn-revoke-share',
-      'share-role-toggle',
-      'agenda-events',
-      'agenda-event-loc'
-    ];
-
-    const unstyled = requiredClasses.filter(c => !cssClassSelectors.has(c));
-    assert.deepStrictEqual(unstyled, [], `Unstyled component classes missing in CSS: ${unstyled.join(', ')}`);
+    assert.ok(classes.size > 100, 'the stylesheet parsed into class selectors');
+    const dead = [...classes].filter(c => !new RegExp(`(^|[^\\w-])${c}($|[^\\w-])`).test(markup)).sort();
+    assert.deepStrictEqual(dead, [], `class selectors with no element that could match them: ${dead.join(', ')}`);
   });
 
-  test('Obsolete dead CSS selectors are removed from app.css', () => {
-    const deadSelectors = [
-      '.onboarding-screen',
-      '.onboarding-logo-icon',
-      '.account-item',
-      '.account-remove',
-      '.view-switcher',
-      '.view-btn',
-      '.search-bar',
-      '.attendee-info',
-      '.popover-header'
-    ];
-
-    const presentDeadSelectors = deadSelectors.filter(sel => cssContent.includes(sel));
-    assert.deepStrictEqual(presentDeadSelectors, [], `Dead CSS selectors still present in app.css: ${presentDeadSelectors.join(', ')}`);
+  test('no rule is declared twice at the top level', () => {
+    // A later top-level duplicate sits after the media queries and silently overrides them
+    // (the second `.sidebar` rule did this to the off-canvas drawer). A shared base rule for a
+    // selector group followed by per-selector rules is not a duplicate.
+    const seen = new Set();
+    const dupes = [];
+    for (const { selector, atRules } of rules(css)) {
+      if (atRules.length > 0) continue;
+      const key = selector.split(',').map(x => x.trim().replace(/\s+/g, ' ')).sort().join(', ');
+      if (seen.has(key)) dupes.push(key);
+      seen.add(key);
+    }
+    assert.deepStrictEqual(dupes, [], `rules declared more than once at the top level: ${dupes.join(' | ')}`);
   });
 });

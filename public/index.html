@@ -688,11 +688,11 @@
         </div>
 
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ev-attachment-url">Dateianhang / Drive Link</label>
             <input class="form-input" id="ev-attachment-url" type="url" placeholder="https://files.freeshard.local/d/..." />
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ev-attachment-name">Dateiname (optional)</label>
             <input class="form-input" id="ev-attachment-name" type="text" placeholder="z. B. Dokument.pdf" />
           </div>
@@ -762,7 +762,7 @@
           </svg>
           Mit Google Kalender verbinden
         </button>
-        <button type="button" class="btn btn-oauth btn-msgraph" id="btn-link-msgraph" style="margin-top: 8px; background-color: #0078D4; color: #ffffff;">
+        <button type="button" class="btn btn-oauth btn-msgraph" id="btn-link-msgraph">
           <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
           </svg>
@@ -890,7 +890,7 @@
     </div>
     <div class="modal-body" style="text-align: center; padding: 20px 10px;">
       <div style="display: flex; justify-content: center; margin-bottom: 16px;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5" width="48" height="48">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--line)" stroke-width="1.5" width="48" height="48">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
           <line x1="16" y1="2" x2="16" y2="6"/>
           <line x1="8" y1="2" x2="8" y2="6"/>
@@ -984,7 +984,7 @@
           <textarea class="form-input" id="task-description" rows="2" placeholder="Zusätzliche Details..."></textarea>
         </div>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-status">Status</label>
             <select class="form-select" id="task-status">
               <option value="NEEDS-ACTION">Zu erledigen (Offen)</option>
@@ -992,33 +992,33 @@
               <option value="COMPLETED">Erledigt</option>
             </select>
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-calendar-id">Kalender</label>
             <select class="form-select" id="task-calendar-id"></select>
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-dtstart">Startdatum</label>
             <input class="form-input" id="task-dtstart" type="datetime-local" />
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-due">Fälligkeitsdatum</label>
             <input class="form-input" id="task-due" type="datetime-local" />
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-duration">Dauer (z. B. PT2H)</label>
             <input class="form-input" id="task-duration" type="text" placeholder="z. B. PT2H oder PT30M" />
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-percent-complete">Fortschritt (%)</label>
             <input class="form-input" id="task-percent-complete" type="number" min="0" max="100" placeholder="0 - 100" />
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-priority">Priorität</label>
             <select class="form-select" id="task-priority">
               <option value="">Keine</option>
@@ -1027,7 +1027,7 @@
               <option value="3">Niedrig (3)</option>
             </select>
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="task-recurrence">Wiederholung (RRULE)</label>
             <select class="form-select" id="task-recurrence">
               <option value="">Keine Wiederholung</option>
@@ -1116,21 +1116,21 @@
       <form id="availability-form" style="margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px;">
         <h4 style="margin-top:0; margin-bottom:12px;">Neue Buchungsseite erstellen</h4>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ap-title">Titel / Name</label>
             <input class="form-input" id="ap-title" type="text" placeholder="z. B. 30 Min. Erstberatung" required />
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ap-slug">Kürzel (Slug)</label>
             <input class="form-input" id="ap-slug" type="text" placeholder="beratung-30m" required />
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ap-calendar">Ziel-Kalender</label>
             <select class="form-select" id="ap-calendar" required></select>
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ap-duration">Dauer (Minuten)</label>
             <input class="form-input" id="ap-duration" type="number" value="30" min="15" step="15" required />
           </div>
@@ -1141,11 +1141,11 @@
           <div id="ap-busy-calendars"></div>
         </fieldset>
         <div class="form-row">
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ap-start-hour">Start-Uhrzeit (Std.)</label>
             <input class="form-input" id="ap-start-hour" type="number" value="9" min="0" max="23" required />
           </div>
-          <div class="form-group flex-1">
+          <div class="form-group">
             <label class="form-label" for="ap-end-hour">End-Uhrzeit (Std.)</label>
             <input class="form-input" id="ap-end-hour" type="number" value="17" min="1" max="24" required />
           </div>
