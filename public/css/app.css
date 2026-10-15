@@ -475,7 +475,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-direction: column;
 }
 .month-day:hover { background: var(--bg); }
-.month-day.other-month { opacity: 0.75; }
+.month-day.other-month { background: var(--bg); }
 .month-day.today { background: color-mix(in srgb, var(--data) 4%, var(--surface)); }
 .month-day.today .month-day-num {
   display: inline-flex; align-items: center; justify-content: center;
@@ -488,8 +488,20 @@ a { color: inherit; text-decoration: none; }
 }
 .month-day-num {
   font: 400 var(--fs-small)/1 var(--font-ui);
-  color: var(--ink-muted); margin-bottom: var(--sp-2);
+  color: var(--ink); margin-bottom: var(--sp-2);
   display: inline-block;
+}
+/* Events: a tinted fill with a coloured left edge (CONCEPTS.md). The calendar colour is
+   user-chosen and unbounded, so it never colours text: titles stay --ink, and the tint is at
+   most 30 % over --surface, which keeps --ink above 4.5:1 for any colour in both themes (#112). */
+.event-chip, .event-block {
+  --event-color: var(--data); /* calendar.js sets each event's calendar colour inline */
+  color: var(--ink);
+  background: color-mix(in srgb, var(--event-color) 18%, var(--surface));
+  border-left: 4px solid var(--event-color);
+}
+.event-chip:hover, .event-block:hover {
+  background: color-mix(in srgb, var(--event-color) 30%, var(--surface));
 }
 .event-chip {
   display: flex; align-items: center;
@@ -500,13 +512,11 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 2px;
   cursor: pointer;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  transition: opacity var(--t);
+  transition: background var(--t);
 }
-.event-chip:hover { opacity: 0.85; }
 .event-chip-time {
   font: 400 10px var(--font-mono);
   margin-right: 4px;
-  opacity: 0.85;
 }
 .event-chip-title {
   overflow: hidden; text-overflow: ellipsis;
@@ -643,14 +653,14 @@ a { color: inherit; text-decoration: none; }
   padding: 4px 8px;
   border-radius: var(--radius-control);
   border: 1px solid transparent;
-  border-left-width: 4px;
+  border-left: 4px solid var(--event-color);
   font: 400 11px/1.3 var(--font-ui);
   cursor: pointer; overflow: hidden;
-  transition: opacity var(--t);
+  transition: background var(--t);
   z-index: 1;
   display: flex; flex-direction: column; gap: 2px;
 }
-.event-block:hover { opacity: 0.95; z-index: 2; }
+.event-block:hover { z-index: 2; }
 .event-block.short-event {
   padding: 1px 6px;
   flex-direction: row;
@@ -670,14 +680,14 @@ a { color: inherit; text-decoration: none; }
   text-overflow: ellipsis;
 }
 .event-block-time {
-  font: 400 10px var(--font-mono); opacity: 0.85;
+  font: 400 10px var(--font-mono);
 }
 .event-block-title {
   font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .event-block-loc {
-  font-size: 10px; opacity: 0.8;
+  font-size: 10px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
