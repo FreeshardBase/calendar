@@ -3005,40 +3005,35 @@ const Db = {
     return new Promise((resolve, reject) => {
       db.get(`PRAGMA wal_checkpoint(${normalizedMode})`, (err, row) => {
         if (err) return reject(err);
-        resolve({
-          busy: row ? (row.busy ?? 0) : 0,
-          log: row ? (row.log ?? 0) : 0,
-          checkpointed: row ? (row.checkpointed ?? 0) : 0
-        });
+        if (!row || typeof row.busy !== 'number') {
+          return reject(new Error(`PRAGMA wal_checkpoint(${normalizedMode}) returned no result; is the database in WAL mode?`));
+        }
+        resolve({ busy: row.busy, log: row.log, checkpointed: row.checkpointed });
       });
     });
   },
 
+  // Issue #120: a consistent copy of the live database for the shard backup, which copies the
+  // data directory file by file and would tear the live WAL triplet. VACUUM INTO reads within one
+  // transaction, so it includes commits still in the WAL and is not torn by concurrent writers.
+  // It writes a temp file, checks it, and renames it into place, so targetPath is always whole.
   async createBackup(targetPath) {
     if (!targetPath) {
       throw new Error('targetPath is required for database backup');
     }
-    const quiesceResult = await this.quiesceDatabase('TRUNCATE');
-    const dir = path.dirname(targetPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    return new Promise((resolve, reject) => {
-      db.run(`VACUUM INTO ?`, [targetPath], (err) => {
-        if (!err) {
-          const stats = fs.statSync(targetPath);
-          return resolve({ backupPath: targetPath, size: stats.size, quiesceResult });
-        }
-        try {
-          fs.copyFileSync(dbPath, targetPath);
-          const stats = fs.statSync(targetPath);
-          resolve({ backupPath: targetPath, size: stats.size, quiesceResult, fallback: true });
-        } catch (copyErr) {
-          reject(copyErr);
-        }
-      });
+    await ready;
+    const tmpPath = `${targetPath}.tmp`;
+    // VACUUM INTO refuses an existing file; a leftover from an interrupted run is never valid.
+    fs.rmSync(tmpPath, { force: true });
+    await new Promise((resolve, reject) => {
+      db.run('VACUUM INTO ?', [tmpPath], (err) => (err ? reject(err) : resolve()));
     });
+    if (!(await this.verifyDatabaseIntegrity(tmpPath))) {
+      fs.rmSync(tmpPath, { force: true });
+      throw new Error(`Database snapshot ${tmpPath} failed PRAGMA integrity_check`);
+    }
+    fs.renameSync(tmpPath, targetPath);
+    return { backupPath: targetPath, size: fs.statSync(targetPath).size };
   },
 
   verifyDatabaseIntegrity(targetPath = dbPath) {
@@ -3093,6 +3088,7 @@ Db.migrations = migrations;
 Db.db = db;
 Db.getDbPath = () => dbPath;
 Db.dbPath = dbPath;
+Db.backupPath = `${dbPath}.backup`;
 
 module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
