@@ -65,6 +65,7 @@ export const store = createStore({
 
   // Loading state
   loadingEvents:   false,
+  eventsError:     null,   // message of the last failed load with nothing cached to show (#106)
   loadingCalendars: false,
 
   // Search
