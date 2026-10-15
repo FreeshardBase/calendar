@@ -10,6 +10,13 @@ const E2E_USER = webServer.env.CALDAV_USERNAME;
 // server's CSRF guard (#340), as the browser does for the app's own fetches.
 const SAME_ORIGIN = { 'Sec-Fetch-Site': 'same-origin' };
 
+// YYYY-MM-DD of the first Monday at least `weeks` weeks from now (UTC).
+function mondayWeeksAhead(weeks) {
+  const d = new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000);
+  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
 function runSql(sql, params = []) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(E2E_DATABASE_PATH);
@@ -1342,6 +1349,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Navigate to public booking page
     await page.goto(`/booking.html?slug=${slug}`);
     await expect(page.locator('#page-title')).toHaveText('E2E Public Consultation', { timeout: 10000 });
+    // Calendar events block slots (#345); earlier specs put events on today, so book a free future Monday.
+    await page.fill('#booking-date', mondayWeeksAhead(6));
+    await page.locator('#booking-date').dispatchEvent('change');
 
     // Select first slot
     const slotBtn = page.locator('.slot-btn').first();
@@ -2359,11 +2369,111 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+
+  // Must stay the last spec: it adds a second calendar, and Radicale refuses to delete a
+  // collection during the run (DELETE 403), while earlier specs expect exactly one calendar.
+  // global-teardown.js removes the run's whole principal, this calendar included.
+  test('Issue #345 — a booking page hides slots taken by events in the ticked calendars and a booking appears in the calendar', async ({ page }) => {
+    const date = mondayWeeksAhead(5); // bookings are open for one year ahead only
+    const range = `start=${date}T00:00:00Z&end=${date}T23:59:59Z`;
+    const slot = (hhmm) => page.locator(`.slot-btn[data-time="${date}T${hhmm}:00.000Z"]`);
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    await page.click('#availability-btn');
+    await expect(page.locator('#availability-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ap-calendar option')).not.toHaveCount(0, { timeout: 10000 });
+    const calendarId = await page.locator('#ap-calendar').inputValue();
+    await page.click('#availability-modal-close');
+
+    // A second calendar whose events only count when the owner ticks it.
+    const createdCal = await page.request.post('/api/calendars', {
+      headers: SAME_ORIGIN,
+      data: { accountId: calendarId.split('::')[0], name: 'E2E 345 Work' }
+    });
+    expect(createdCal.status()).toBe(201);
+    const workId = (await createdCal.json()).id;
+
+    const slug = `e2e-345-${Date.now()}`;
+    try {
+      for (const [calId, title, start, end] of [
+        [calendarId, 'E2E 345 Target Meeting', '10:00', '11:00'],
+        [workId, 'E2E 345 Work Meeting', '11:00', '12:00']
+      ]) {
+        const ev = await page.request.post('/api/events', {
+          headers: SAME_ORIGIN,
+          data: { calendarId: calId, title, start: `${date}T${start}:00.000Z`, end: `${date}T${end}:00.000Z` }
+        });
+        expect(ev.status()).toBe(201);
+      }
+
+      // The dialog lists the calendars whose events block slots; the target always counts.
+      await page.click('#availability-btn');
+      await expect(page.locator('#availability-modal-backdrop')).not.toHaveClass(/hidden/);
+      const targetBox = page.locator(`#ap-busy-calendars input[type="checkbox"][value="${calendarId}"]`);
+      const workBox = page.locator(`#ap-busy-calendars input[type="checkbox"][value="${workId}"]`);
+      await expect(workBox).toBeAttached({ timeout: 10000 });
+      await page.selectOption('#ap-calendar', calendarId);
+      await expect(targetBox).toBeChecked();
+      await expect(targetBox).toBeDisabled();
+      await expect(workBox).not.toBeChecked();
+      await expect(workBox).toBeEnabled();
+      // Switching the target moves the locked box along.
+      await page.selectOption('#ap-calendar', workId);
+      await expect(workBox).toBeDisabled();
+      await expect(workBox).toBeChecked();
+      await expect(targetBox).toBeEnabled();
+      await page.selectOption('#ap-calendar', calendarId);
+      await expect(targetBox).toBeDisabled();
+      await expect(workBox).toBeEnabled();
+      await workBox.check();
+
+      await page.fill('#ap-title', 'E2E 345 Busy Page');
+      await page.fill('#ap-slug', slug);
+      const savePromise = page.waitForResponse(resp => resp.url().includes('/api/availability-slots') && resp.request().method() === 'POST');
+      await page.click('#ap-save-btn');
+      expect((await savePromise).status()).toBe(201);
+      const card = page.locator(`.availability-page-card:has-text("${slug}")`);
+      await expect(card).toBeVisible({ timeout: 10000 });
+      await expect(card.locator('.availability-page-busy')).toContainText('Persönlich');
+      await expect(card.locator('.availability-page-busy')).toContainText('E2E 345 Work');
+
+      await page.goto(`/booking.html?slug=${slug}`);
+      await expect(page.locator('#page-title')).toHaveText('E2E 345 Busy Page', { timeout: 10000 });
+      await page.fill('#booking-date', date);
+      await page.locator('#booking-date').dispatchEvent('change');
+      await expect(slot('09:00')).toBeVisible({ timeout: 10000 });
+      for (const taken of ['10:00', '10:30', '11:00', '11:30']) await expect(slot(taken)).toHaveCount(0);
+      await expect(slot('12:00')).toBeVisible();
+
+      await slot('09:00').click();
+      await page.fill('#guest-name', 'Test Guest');
+      await page.fill('#guest-email', 'testuser@example.com');
+      await page.click('#confirm-booking-btn');
+      await expect(page.locator('#booking-success')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      // The booked slot is gone for the next visitor.
+      await page.reload();
+      await page.fill('#booking-date', date);
+      await page.locator('#booking-date').dispatchEvent('change');
+      await expect(slot('12:00')).toBeVisible({ timeout: 10000 });
+      await expect(slot('09:00')).toHaveCount(0);
+
+      // The owner sees the booking in their calendar.
+      await page.goto(`/?date=${date}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.getByText('E2E 345 Busy Page: Test Guest').first()).toBeVisible({ timeout: 10000 });
+    } finally {
+      const list = await page.request.get(`/api/events?${range}&calendarId=${encodeURIComponent(calendarId)}`);
+      expect(list.ok()).toBeTruthy();
+      for (const ev of (await list.json()).filter(e => e.title.startsWith('E2E 345'))) {
+        const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          headers: SAME_ORIGIN,
+          data: { calendarId, href: ev.href, etag: ev.etag }
+        });
+        expect(del.ok()).toBeTruthy();
+      }
+    }
+  });
 });
-
-
-
-
-
-
-

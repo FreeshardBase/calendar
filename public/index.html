@@ -1135,6 +1135,11 @@
             <input class="form-input" id="ap-duration" type="number" value="30" min="15" step="15" required />
           </div>
         </div>
+        <fieldset class="form-group" id="ap-busy-fieldset" style="border: none; padding: 0; margin: 0 0 12px;">
+          <legend class="form-label">Belegt-Zeiten berücksichtigen aus</legend>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;">Termine in diesen Kalendern blockieren Zeitslots. Der Ziel-Kalender zählt immer.</p>
+          <div id="ap-busy-calendars"></div>
+        </fieldset>
         <div class="form-row">
           <div class="form-group flex-1">
             <label class="form-label" for="ap-start-hour">Start-Uhrzeit (Std.)</label>

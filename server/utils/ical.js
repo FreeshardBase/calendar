@@ -341,6 +341,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     location:    ev.location  || null,
     description: ev.description || null,
     status:      vevent.getFirstPropertyValue('status') || null,
+    transp:      vevent.getFirstPropertyValue('transp') || null,
     attendees,
     organizer,
     recurrence,

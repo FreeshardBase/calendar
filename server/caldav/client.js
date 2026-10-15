@@ -913,5 +913,6 @@ function formatIfMatch(etag) {
 }
 
 CalDAVClient.formatIfMatch = formatIfMatch;
+CalDAVClient.isDavMultistatus = isDavMultistatus;
 
 module.exports = CalDAVClient;

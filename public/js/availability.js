@@ -12,9 +12,12 @@ export function initAvailabilityManager() {
   const closeBtn = document.getElementById('availability-modal-close');
   const form = document.getElementById('availability-form');
   const calSelect = document.getElementById('ap-calendar');
+  const busyList = document.getElementById('ap-busy-calendars');
   const pagesList = document.getElementById('availability-pages-list');
 
   if (!btn || !backdrop) return;
+
+  let calendarNames = new Map();
 
   btn.addEventListener('click', async () => {
     openDialog(backdrop);
@@ -39,6 +42,7 @@ export function initAvailabilityManager() {
       const durationMinutes = parseInt(document.getElementById('ap-duration').value, 10) || 30;
       const startHour = parseInt(document.getElementById('ap-start-hour').value, 10) || 9;
       const endHour = parseInt(document.getElementById('ap-end-hour').value, 10) || 17;
+      const busyCalendarIds = [...busyList.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value);
 
       await AvailabilityAPI.createPage({
         title,
@@ -47,11 +51,13 @@ export function initAvailabilityManager() {
         durationMinutes,
         startHour,
         endHour,
-        daysOfWeek: '1,2,3,4,5'
+        daysOfWeek: '1,2,3,4,5',
+        busyCalendarIds
       });
 
       showToast('Buchungsseite erfolgreich erstellt', 'success');
       form.reset();
+      await loadCalendars();
       await loadPages();
     } catch (err) {
       showToast(err.message || 'Fehler beim Erstellen der Buchungsseite', 'error');
@@ -59,22 +65,44 @@ export function initAvailabilityManager() {
   });
 
   async function loadCalendars() {
-    if (!calSelect) return;
+    let list;
     try {
       const res = await CalendarsAPI.list();
-      const list = Array.isArray(res) ? res : (res?.calendars || []);
-      if (list.length === 0) {
-        calSelect.innerHTML = '<option value="default-local">Standard Kalender</option>';
-        return;
-      }
-      calSelect.innerHTML = list.map(c => `
-        <option value="${escapeHtml(c.id)}">${escapeHtml(c.displayName || c.name || c.id)}</option>
-      `).join('');
+      list = Array.isArray(res) ? res : (res?.calendars || []);
     } catch (err) {
-      console.error('[availability] Error loading calendars:', err);
-      calSelect.innerHTML = '<option value="default-local">Standard Kalender</option>';
+      calSelect.innerHTML = '';
+      busyList.innerHTML = '';
+      showToast(err.message || 'Kalender konnten nicht geladen werden', 'error');
+      return;
+    }
+    calendarNames = new Map(list.map(c => [c.id, c.displayName || c.name || c.id]));
+    calSelect.innerHTML = list.map(c => `
+      <option value="${escapeHtml(c.id)}">${escapeHtml(c.displayName || c.name || c.id)}</option>
+    `).join('');
+    busyList.innerHTML = list.map(c => `
+      <label class="ap-busy-calendar" style="display: flex; gap: 6px; align-items: center; font-size: 13px;">
+        <input type="checkbox" value="${escapeHtml(c.id)}" />
+        ${escapeHtml(c.displayName || c.name || c.id)}
+      </label>
+    `).join('');
+    syncBusyTarget();
+  }
+
+  // The target calendar always counts as busy; its checkbox shows that and cannot be cleared.
+  // A box that stops being the target gets back the owner's own choice.
+  function syncBusyTarget() {
+    for (const cb of busyList.querySelectorAll('input[type="checkbox"]')) {
+      const isTarget = cb.value === calSelect.value;
+      if (isTarget && !cb.disabled) {
+        cb.dataset.ownerChoice = cb.checked ? 'checked' : '';
+        cb.checked = true;
+      } else if (!isTarget && cb.disabled) {
+        cb.checked = cb.dataset.ownerChoice === 'checked';
+      }
+      cb.disabled = isTarget;
     }
   }
+  calSelect?.addEventListener('change', syncBusyTarget);
 
   async function loadPages() {
     if (!pagesList) return;
@@ -87,12 +115,16 @@ export function initAvailabilityManager() {
 
       pagesList.innerHTML = pages.map(p => {
         const publicUrl = `${window.location.origin}/booking.html?slug=${encodeURIComponent(p.slug)}`;
+        const busyNames = [p.calendarId, ...(p.busyCalendarIds || [])].map(id => calendarNames.get(id) || id);
         return `
           <div class="availability-page-card" style="padding: 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
             <div>
               <strong style="font-size: 14px;">${escapeHtml(p.title)}</strong>
               <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
                 Dauer: ${p.durationMinutes} Min. | Zeitfenster: ${p.startHour}:00 - ${p.endHour}:00 | Slug: <code>${escapeHtml(p.slug)}</code>
+              </div>
+              <div class="availability-page-busy" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                Belegt aus: ${busyNames.map(escapeHtml).join(', ')}
               </div>
               <div style="margin-top: 4px;">
                 <a href="${publicUrl}" target="_blank" style="font-size: 12px; color: var(--accent); text-decoration: underline;">${publicUrl}</a>
