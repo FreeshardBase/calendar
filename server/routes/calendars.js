@@ -72,6 +72,8 @@ function decryptToken(token) {
 // ── Public Router ─────────────────────────────────────────────────────────────
 const publicRouter = express.Router();
 
+const PUBLIC_SHARE_ERROR = 'Der freigegebene Kalender kann gerade nicht abgerufen werden. Bitte versuche es später erneut.';
+
 publicRouter.get('/share/:token.ics', async (req, res) => {
   const token = req.params.token;
   try {
@@ -183,7 +185,11 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     res.setHeader('X-Cache', 'MISS');
     res.send(publicIcs);
   } catch (err) {
-    return sendError(res, err, '[Public Share Export Error]');
+    // The caller is an anonymous subscriber (#162): log the cause, but answer with
+    // one fixed text and status so nothing about the owner's accounts, the upstream
+    // server or its responses reaches them.
+    console.error('[Public Share Export Error]', err?.stack || err);
+    return res.status(500).json({ error: PUBLIC_SHARE_ERROR });
   }
 });
 
