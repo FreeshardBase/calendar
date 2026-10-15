@@ -588,6 +588,8 @@ app.use('/api/accounts',          requireSessionIdentity, accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);
 app.use('/api/events',            requireAuth, eventsRouter);
 app.use('/api/tasks',             requireAuth, tasksRouter);
+// #97: Microsoft's cross-site redirect carries no SameSite=Strict session cookie; this page forwards it same-site.
+app.get('/api/msgraph/callback',  createRateLimiter(AUTH_RATE_LIMIT), msgraphRouter.forwardCallback);
 app.use('/api/msgraph',           requireAuth, msgraphRouter);
 app.use('/api/resources',         requireAuth, resourcesRouter);
 app.use('/api/delegates',         requireAuth, delegatesRouter);

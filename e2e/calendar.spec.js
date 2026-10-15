@@ -2261,6 +2261,104 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #97 — Microsoft 365 connection', () => {
+    test.use({ serviceWorkers: 'block' });
+
+    async function openMSGraphModal(page) {
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      await page.click('#settings-add-account-btn');
+      await page.click('#btn-link-msgraph');
+      await expect(page.locator('#msgraph-modal-backdrop')).not.toHaveClass(/hidden/);
+    }
+
+    test('connect starts the PKCE flow at Microsoft and an expired account asks to reconnect', async ({ page }) => {
+      const accountId = `e2e-issue97-${Date.now()}`;
+      await runSql("DELETE FROM msgraph_accounts WHERE user_id = ? AND id LIKE 'e2e-issue97-%'", [E2E_USER]);
+      await runSql(
+        `INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,
+           reconnect_required, created_at, updated_at) VALUES (?, ?, 'testuser@example.com', '', '', 0, 1, ?, ?)`,
+        [accountId, E2E_USER, Date.now(), Date.now()]
+      );
+      try {
+        await page.goto('/');
+        await openMSGraphModal(page);
+
+        await expect(page.locator('#msgraph-unavailable')).toBeHidden();
+        const connect = page.locator('#btn-connect-msgraph');
+        await expect(connect).toBeVisible();
+        await expect(connect).toHaveAttribute('href', '/api/msgraph/authorize');
+        // There is no form to type an address or tokens into.
+        await expect(page.locator('#msgraph-modal input')).toHaveCount(0);
+
+        const row = page.locator('#msgraph-accounts-list .msgraph-account', { hasText: 'testuser@example.com' });
+        await expect(row.locator('.msgraph-reconnect-required')).toHaveText('Autorisierung abgelaufen – bitte neu verbinden.');
+        await expect(row.locator('a.btn-reconnect-msgraph')).toHaveAttribute('href', '/api/msgraph/authorize');
+        await expect(row.locator('.btn-sync-msgraph')).toHaveCount(0);
+
+        // The link's target redirects to Microsoft with PKCE; the redirect is inspected, not followed.
+        const start = await page.request.get('/api/msgraph/authorize', { maxRedirects: 0 });
+        expect(start.status()).toBe(302);
+        const location = new URL(start.headers()['location']);
+        expect(`${location.origin}${location.pathname}`).toBe('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+        expect(location.searchParams.get('code_challenge_method')).toBe('S256');
+        expect(location.searchParams.get('redirect_uri')).toBe(`${webServer.env.BASE_URL}/api/msgraph/callback`);
+      } finally {
+        await runSql('DELETE FROM msgraph_accounts WHERE id = ?', [accountId]);
+      }
+    });
+
+    test('without a Microsoft app registration the modal explains that the integration is unavailable', async ({ page }) => {
+      await page.route('**/api/msgraph/accounts', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, available: false, accounts: [] }),
+      }));
+      await page.goto('/');
+      await openMSGraphModal(page);
+
+      await expect(page.locator('#msgraph-unavailable')).toBeVisible();
+      await expect(page.locator('#msgraph-unavailable')).toContainText('MSGRAPH_CLIENT_ID');
+      await expect(page.locator('#btn-connect-msgraph')).toBeHidden();
+    });
+
+    test('the cross-site return from Microsoft reaches the session despite its SameSite=Strict cookie', async ({ page }) => {
+      // page.route plays Microsoft's login page: it answers the authorize request by sending the browser
+      // back to the callback, cross-site, as Microsoft does. The user declines, so no code is exchanged.
+      await page.route('https://login.microsoftonline.com/**', route => {
+        const state = new URL(route.request().url()).searchParams.get('state');
+        return route.fulfill({
+          status: 302,
+          headers: { location: `${webServer.env.BASE_URL}/api/msgraph/callback?error=access_denied&state=${encodeURIComponent(state)}` },
+        });
+      });
+      const unrouted = [];
+      page.on('response', r => {
+        if (/microsoftonline\.com|msauth\.net/.test(r.url()) && !r.request().redirectedFrom() && r.status() !== 302) unrouted.push(r.url());
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      // page.route does not see requests that follow a redirect, so the redirect to Microsoft is read
+      // (same browser session, not followed) and then navigated to directly, where the route answers it.
+      const start = await page.request.get('/api/msgraph/authorize', { maxRedirects: 0 });
+      expect(start.status()).toBe(302);
+      await page.goto(start.headers()['location']);
+
+      // Only with the session's own state does the callback reach this outcome; without it, it answers 400.
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Verbindung mit Microsoft 365 fehlgeschlagen' })).toBeVisible({ timeout: 10000 });
+      expect(unrouted, 'no page from Microsoft was loaded').toEqual([]);
+    });
+
+    test('returning from Microsoft reports the outcome once', async ({ page }) => {
+      await page.goto('/?msgraph=connected');
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Microsoft 365 Konto verbunden' })).toBeVisible({ timeout: 10000 });
+      await expect(page).toHaveURL(url => !url.searchParams.has('msgraph'));
+
+      await page.goto('/?msgraph=error');
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Verbindung mit Microsoft 365 fehlgeschlagen' })).toBeVisible({ timeout: 10000 });
+    });
+  });
+
 });
 
 

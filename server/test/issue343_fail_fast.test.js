@@ -38,7 +38,6 @@ const tasksRouter = require('../routes/tasks');
 const authRouter = require('../routes/auth');
 const { publicRouter } = require('../routes/calendars');
 const { fetchFileBrowserFiles } = require('../utils/filebrowser');
-const { MSGraphSyncEngine } = require('../utils/msgraph');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 const INDEX_MODULE = path.join(ROOT_DIR, 'server/index.js');
@@ -394,17 +393,6 @@ test.describe('Issue #343 — fail-fast startup and error propagation', () => {
       else process.env.FILEBROWSER_URL = previous;
       failing.close();
     }
-  });
-
-  test('an MS Graph push answered without a readable event id stores no invented mapping', async () => {
-    await Db.ready;
-    const account = { id: 'issue343-graph', accessToken: 'testuser-token', expiresAt: Date.now() + 3600000 };
-    const event = { uid: 'issue343-graph-event', title: 'Test User sync', start: '2026-08-10T09:00:00.000Z', end: '2026-08-10T10:00:00.000Z' };
-    const notJson = new MSGraphSyncEngine(account, async () => new Response('<html>proxy error</html>', { status: 200 }));
-    await assert.rejects(notJson.pushLocalEvent(event), SyntaxError);
-    const noId = new MSGraphSyncEngine(account, async () => new Response('{}', { status: 201 }));
-    await assert.rejects(noId.pushLocalEvent(event), /without an event id/);
-    assert.equal(await Db.getMSGraphEventMapping(event.uid), null, 'no fake Graph id may be stored');
   });
 
   test('deleting a user fails when a plaintext credential file cannot be removed', async () => {

@@ -1082,21 +1082,15 @@
       </button>
     </div>
     <div class="modal-body">
-      <form id="msgraph-form" novalidate>
-        <div class="form-group">
-          <label class="form-label" for="msgraph-email">Office 365 E-Mail-Adresse</label>
-          <input class="form-input" id="msgraph-email" type="email" placeholder="user@organization.com" required />
+      <p class="form-hint hidden" id="msgraph-unavailable">
+        Microsoft 365 ist auf diesem Shard nicht eingerichtet: Die Shard-Administration muss dafür eine
+        Azure-App-Registrierung hinterlegen (MSGRAPH_CLIENT_ID). Alle anderen Kalenderfunktionen sind davon nicht betroffen.
+      </p>
+      <div class="modal-actions hidden" id="msgraph-connect-actions">
+        <div class="modal-actions-right">
+          <a class="btn btn-primary" id="btn-connect-msgraph" href="/api/msgraph/authorize">Bei Microsoft anmelden</a>
         </div>
-        <div class="form-group">
-          <label class="form-label" for="msgraph-tenant">Tenant ID <span class="optional">(optional)</span></label>
-          <input class="form-input" id="msgraph-tenant" type="text" placeholder="common" value="common" />
-        </div>
-        <div class="modal-actions">
-          <div class="modal-actions-right">
-            <button type="submit" class="btn btn-primary" id="btn-save-msgraph">Verbinden & Synchronisieren</button>
-          </div>
-        </div>
-      </form>
+      </div>
       <div class="modal-divider" style="margin: 16px 0;">
         <span>Verbundene Microsoft Konten</span>
       </div>

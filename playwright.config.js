@@ -64,6 +64,9 @@ module.exports = defineConfig({
       SYSTEM_SYNC_SECRET: 'super-secret-bypass',
       ALLOW_INSECURE_SYSTEM_SYNC_SECRET: 'true',
       OUTBOUND_FETCH_ALLOW_HOSTS: '127.0.0.1',
+      // #97: a placeholder Azure app id, so the Microsoft 365 connect flow is offered. The specs only
+      // inspect the redirect to Microsoft; no browser navigation or request reaches it.
+      MSGRAPH_CLIENT_ID: '00000000-0000-0000-0000-0000000e2e97',
     },
     url: 'http://localhost:3098',
     reuseExistingServer: !process.env.CI,

@@ -24,14 +24,15 @@ class TestMSGraphWorker(unittest.TestCase):
             CREATE TABLE msgraph_accounts (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
-                tenant_id TEXT,
-                client_id TEXT,
                 account_email TEXT,
                 access_token TEXT,
                 refresh_token TEXT,
                 expires_at INTEGER,
                 delta_link TEXT,
                 target_calendar_id TEXT,
+                reconnect_required INTEGER NOT NULL DEFAULT 0,
+                sync_lock_until INTEGER,
+                delta_started_at INTEGER,
                 updated_at INTEGER
             )
         """)
@@ -67,18 +68,18 @@ class TestMSGraphWorker(unittest.TestCase):
         self.assertTrue(status)
         self.assertEqual(err, "")
 
-    def test_sync_with_mock_account_no_events(self):
+    def test_sync_with_account_no_events(self):
         conn = msgraph_worker.get_db(self.db_path)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO msgraph_accounts (id, user_id, tenant_id, client_id, access_token, refresh_token, expires_at, target_calendar_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, ("acc-1", "user-1", "common", "client-1", "mock-access-token", "mock-refresh-token", 9999999999999, "persoenlich"))
+            INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at, target_calendar_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("acc-1", "user-1", "testuser@example.com", "testuser-access-token", "testuser-refresh-token", 9999999999999, "persoenlich"))
         conn.commit()
 
         # An empty delta page from Graph: the sync succeeds without touching the local calendar.
         graph_page = MagicMock()
-        graph_page.__enter__.return_value.read.return_value = b'{"value": []}'
+        graph_page.__enter__.return_value.read.return_value = b'{"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=x"}'
         with patch.object(msgraph_worker.urllib.request, "urlopen", return_value=graph_page):
             status, err = msgraph_worker.sync_msgraph_accounts("user-1", conn=conn)
         self.assertTrue(status, err)
