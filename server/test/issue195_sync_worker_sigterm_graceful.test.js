@@ -8,6 +8,53 @@ const { spawn, execFileSync } = require('child_process');
 const path = require('path');
 const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
+// Resolves once the child prints `marker`. Rejects if the child exits first (e.g. an
+// ImportError for a missing worker dependency) or stays silent for 15 s, so a broken
+// environment fails this file instead of wedging `npm test` until the CI ceiling (#204).
+function waitForMarker(child, marker) {
+  let stdout = '';
+  let stderr = '';
+  child.stderr.on('data', data => { stderr += data.toString(); });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`No ${marker} from sync_worker child within 15 s. stderr:\n${stderr}`));
+    }, 15000);
+    child.on('error', err => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.stdout.on('data', data => {
+      stdout += data.toString();
+      if (stdout.includes(marker)) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    // 'close' rather than 'exit': it fires after stderr is drained, so the traceback is complete.
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      reject(new Error(`sync_worker child exited (code ${code}, signal ${signal}) before printing ${marker}. stderr:\n${stderr}`));
+    });
+  });
+}
+
+// Sends SIGTERM and resolves with [code, signal]. The child scripts keep running for 5 s,
+// so a handler that does not exit (or blocks) is caught here instead of hanging the file.
+function terminateAndWait(child, ms = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`sync_worker child did not exit within ${ms} ms of SIGTERM`));
+    }, ms);
+    child.on('exit', (code, signal) => {
+      clearTimeout(timer);
+      resolve([code, signal]);
+    });
+    child.kill('SIGTERM');
+  });
+}
+
 describe('Issue #195 — Sync Worker SIGTERM Signal & Graceful Exit Suite', () => {
   const scriptDir = path.join(__dirname, '../../sync-worker');
   const dbPath = Db.getDbPath();
@@ -28,25 +75,12 @@ for _ in range(50):
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
-    let stdout = '';
-    child.stdout.on('data', data => { stdout += data.toString(); });
+    await waitForMarker(child, 'READY');
 
-    await new Promise(resolve => {
-      const check = setInterval(() => {
-        if (stdout.includes('READY')) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
-    });
+    const [code, signal] = await terminateAndWait(child);
 
-    child.kill('SIGTERM');
-
-    const [code, signal] = await new Promise(resolve => {
-      child.on('exit', (c, s) => resolve([c, s]));
-    });
-
-    assert.ok(code === 0 || signal === 'SIGTERM', `Process exited with code ${code} and signal ${signal}`);
+    // Without a handler Python dies from the signal itself (signal 'SIGTERM'); the handler exits 0.
+    assert.deepEqual([code, signal], [0, null], `Process exited with code ${code} and signal ${signal}`);
   });
 
   test('sync_worker resets stranded RUNNING jobs back to PENDING on startup', async () => {
@@ -118,21 +152,9 @@ time.sleep(5)
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
-    let stdout = '';
-    child.stdout.on('data', data => { stdout += data.toString(); });
+    await waitForMarker(child, 'ACTIVE_JOB_READY');
 
-    await new Promise(resolve => {
-      const check = setInterval(() => {
-        if (stdout.includes('ACTIVE_JOB_READY')) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
-    });
-
-    child.kill('SIGTERM');
-
-    await new Promise(resolve => child.on('exit', resolve));
+    await terminateAndWait(child);
 
     const updatedJob = await new Promise((resolve, reject) => {
       Db.db.get("SELECT * FROM sync_queue WHERE id = ?", [job.id], (err, row) => err ? reject(err) : resolve(row));
