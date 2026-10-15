@@ -19,10 +19,15 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
 - `npx playwright test` — e2e (`e2e/calendar.spec.js`), starts its own server via `playwright.config.js`
   (`reuseExistingServer` outside CI). That server runs the shipping configuration (`NODE_ENV=production`,
-  no test-mode switch, no fake users are seeded) on its own database
-  `$TMPDIR/webcalendar-e2e/webcalendar.db`; specs seed fixtures there themselves (#211). A server you
-  started yourself on :3098 is reused as-is, so leave the port free and let Playwright start it. Needs a
-  reachable internal CalDAV server whose `SYSTEM_SYNC_SECRET` matches `playwright.config.js`; local recipe:
+  no test-mode switch, no fake users are seeded); specs seed fixtures themselves (#211). Every run is
+  its own fixture (#217): `playwright.config.js` picks a run id (`E2E_RUN_ID`), signs the browser in as
+  `e2e-<run id>` (`CALDAV_USERNAME`) with the database `$TMPDIR/webcalendar-e2e/<run id>/webcalendar.db`,
+  and `e2e/global-teardown.js` deletes the run's Radicale principal `/e2e-<run id>/` and that directory
+  afterwards, failed runs included. The teardown fails the run if Radicale refuses the delete. A server you
+  started yourself on :3098 is reused as-is and does not sign in as the run's user, so leave the port free
+  and let Playwright start it. Needs a reachable internal CalDAV server whose `SYSTEM_SYNC_SECRET` matches
+  `playwright.config.js`: `just test-e2e` starts one (`just e2e-radicale`, as in CI) if nothing answers
+  on :5232. Manual recipe:
   ```
   docker build -t freeshard/radicale:local ./radicale
   docker run -d --name cal-radicale -p 5232:5232 -e DATABASE_PATH=/data/webcalendar.db \
