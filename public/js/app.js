@@ -987,7 +987,7 @@ function openEditCalendarDialog(cal) {
                    value="${cal.color || '#007080'}"
                    style="height:40px;padding:4px 8px;cursor:pointer;" />
           </div>
-          <div id="edit-cal-error" class="form-error hidden"></div>
+          <div id="edit-cal-error" class="form-error hidden" role="alert"></div>
           <div class="modal-actions">
             <div class="modal-actions-right">
               <button type="button" class="btn btn-ghost" id="edit-cal-cancel">Abbrechen</button>
@@ -1367,7 +1367,7 @@ function openShareCalendarDialog(cal) {
               showToast('Freigabe entfernt.', 'info');
               loadShares();
             } catch (e) {
-              showToast('Fehler: ' + e.message, 'error');
+              showToast(e.message, 'error');
               btn.disabled = false;
             }
           });
@@ -1795,7 +1795,7 @@ function renderSettingsCalendars() {
         renderSidebar();
         renderCalendarView();
       } catch (err) {
-        showToast('Fehler: ' + err.message, 'error');
+        showToast(err.message, 'error');
       }
     });
   });
@@ -1847,7 +1847,7 @@ function openAddCalendarDialog() {
               <select class="form-select" id="add-cal-account">${accountOptions}</select>
             </div>
           </div>
-          <div id="add-cal-error" class="form-error hidden"></div>
+          <div id="add-cal-error" class="form-error hidden" role="alert"></div>
           <div class="modal-actions">
             <div class="modal-actions-right">
               <button type="button" class="btn btn-ghost" id="add-cal-cancel">Abbrechen</button>
@@ -2549,7 +2549,7 @@ export function showToast(message, type = 'info') {
   toast.innerHTML = `
     <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${icons[type] || icons.info}</svg>
     <span class="toast-msg">${escHtml(message)}</span>
-    <span class="toast-close">×</span>`;
+    <button type="button" class="toast-close" aria-label="Meldung schließen">×</button>`;
 
   container.appendChild(toast);
   toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
