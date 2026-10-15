@@ -140,7 +140,8 @@ for (const NODE_ENV of ['production', 'staging']) test(`Issue #246 — ${NODE_EN
   t.after(() => stop(r.child));
 
   const base = `http://127.0.0.1:${port}`;
-  const proxied = { 'X-Freeshard-Secret': PROXY_SECRET };
+  // #143: the proxy also renders the client type of a paired terminal.
+  const proxied = { 'X-Freeshard-Secret': PROXY_SECRET, 'X-Ptl-Client-Type': 'terminal' };
   const cookieOf = (res) => (res.headers.getSetCookie()[0] || '').split(';')[0];
 
   await t.test('anonymous requests are 401 on the session handshake, the page and the API', async () => {

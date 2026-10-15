@@ -27,7 +27,8 @@ module.exports = defineConfig({
   globalTeardown: './e2e/global-teardown.js',
   use: {
     baseURL: E2E_BASE_URL,
-    extraHTTPHeaders: { 'X-Freeshard-Secret': E2E_PROXY_SECRET },
+    // Issue #143: the proxy also renders the client type; a paired terminal is "terminal".
+    extraHTTPHeaders: { 'X-Freeshard-Secret': E2E_PROXY_SECRET, 'X-Ptl-Client-Type': 'terminal' },
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

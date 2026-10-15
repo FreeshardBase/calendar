@@ -82,7 +82,7 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
         port: port,
         path: '/mock-dav/',
         method: 'PROPFIND',
-        headers: { 'X-Freeshard-Secret': proxySecret }
+        headers: { 'X-Freeshard-Secret': proxySecret, 'X-Ptl-Client-Type': 'terminal' }
       }, resolve);
       req.on('error', reject);
       req.end();
@@ -121,7 +121,7 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
         port: port,
         path: '/mock-dav/',
         method: 'PROPFIND',
-        headers: { 'X-Freeshard-Secret': proxySecret }
+        headers: { 'X-Freeshard-Secret': proxySecret, 'X-Ptl-Client-Type': 'terminal' }
       }, resolve);
       req.on('error', reject);
       req.end();
@@ -160,7 +160,7 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
         port: port,
         path: '/mock-dav/',
         method: 'PROPFIND',
-        headers: { 'X-Freeshard-Secret': proxySecret }
+        headers: { 'X-Freeshard-Secret': proxySecret, 'X-Ptl-Client-Type': 'terminal' }
       }, resolve);
       req.on('error', reject);
       req.end();

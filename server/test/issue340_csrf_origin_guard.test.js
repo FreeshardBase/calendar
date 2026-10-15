@@ -21,8 +21,8 @@ process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
 const BASE_URL = 'https://calendar.shard.example/';
 const INTERNAL_SECRET = 'issue340-internal-webhook-secret-0123456789';
-// #246: in production, env mode serves only requests that come through the platform proxy.
-const PROXY = { 'X-Freeshard-Secret': 'issue340-proxy-secret-0123456789abcdef0123' };
+// #246/#143: in production, env mode serves only requests a paired terminal sends through the platform proxy.
+const PROXY = { 'X-Freeshard-Secret': 'issue340-proxy-secret-0123456789abcdef0123', 'X-Ptl-Client-Type': 'terminal' };
 
 test('Issue #340 — origin-based CSRF guard (NODE_ENV=production)', async (t) => {
   const origEnv = { ...process.env };
