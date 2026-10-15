@@ -23,6 +23,7 @@ const {
   updateWholeSeries,
   normalizeRecurrenceRule
 } = require('../utils/ical');
+const { userError } = require('../utils/errorSanitizer');
 
 const xmlParser = new DOMParser({
   // Suppress non-fatal xmldom warnings in production
@@ -1058,17 +1059,18 @@ function completedInstanceOf(task, completionTime) {
 function advanceRecurringTask(task) {
   if (!task || !task.recurrence) return null;
 
-  // Use ICAL.Recur iterator to correctly honour BYDAY, COUNT, UNTIL, INTERVAL.
-  // A synthetic DTSTART is derived from task.dtstart or task.due so that the
-  // iterator produces valid occurrences relative to the series origin.
+  // The RRULE is evaluated only through the ical.js iterator, so BYDAY, COUNT,
+  // UNTIL, INTERVAL, month ends and sub-daily frequencies follow RFC 5545.
+  // A rule ical.js rejects is a stored-data error and fails loudly (#64).
   const rruleStr = String(task.recurrence).replace(/^RRULE:/i, '');
-
   let recur;
   try {
     recur = ICAL.Recur.fromString(rruleStr);
-  } catch (_) {
-    // Unparseable RRULE — fall back to simple arithmetic, no COUNT/UNTIL awareness.
-    recur = null;
+  } catch (err) {
+    throw userError(`Ungültige Wiederholungsregel: ${err.message}`, 422);
+  }
+  if (!recur.freq) {
+    throw userError('Ungültige Wiederholungsregel: FREQ fehlt', 422);
   }
 
   const baseDue = task.due ? new Date(task.due) : new Date();
@@ -1088,105 +1090,55 @@ function advanceRecurringTask(task) {
     return null;
   }
 
-  if (recur) {
-    // Build DTSTART: prefer explicit task.dtstart, otherwise use the due date
-    // (the series effectively starts at its first occurrence).
-    const dtStartMs = task.dtstart ? new Date(task.dtstart).getTime() : baseDue.getTime();
-    const dtStart = isNaN(dtStartMs) ? baseDue : new Date(dtStartMs);
-    const icalStart = ICAL.Time.fromJSDate(dtStart, true /* isUTC */);
-
-    const iterator = recur.iterator(icalStart);
-    const dueMs = baseDue.getTime();
-    const maxSteps = 50000; // safety guard against infinite loops
-    let steps = 0;
-    let next;
-
-    while (steps < maxSteps) {
-      next = iterator.next();
-      steps++;
-      if (!next) {
-        // Iterator exhausted (COUNT reached or UNTIL passed)
-        return null;
-      }
-      const nextMs = next.toJSDate().getTime();
-      if (nextMs > dueMs) {
-        // Found the first occurrence strictly after the current due date.
-        // Advance DTSTART by the same occurrence delta and decrement COUNT.
-        const timeDeltaMs = nextMs - dueMs;
-        let newDtstart = null;
-        if (task.dtstart) {
-          const origDtstartMs = new Date(task.dtstart).getTime();
-          if (!isNaN(origDtstartMs)) {
-            newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
-          }
-        }
-        let newRrule = task.recurrence;
-        if (currentCount !== null) {
-          newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
-        }
-
-        return {
-          ...task,
-          dtstart: newDtstart,
-          due: next.toJSDate().toISOString(),
-          recurrence: newRrule,
-          status: 'NEEDS-ACTION',
-          completed: null,
-          percentComplete: 0,
-          completedHistory,
-          completedInstance
-        };
-      }
+  // RFC 5545: the rule recurs from DTSTART (or DUE when there is none). The
+  // open instance is the last occurrence at or before DUE; the next DUE keeps
+  // that instance's offset to DUE (start 08:00, due 17:00 stays that way).
+  const dueMs = baseDue.getTime();
+  const originMs = task.dtstart ? new Date(task.dtstart).getTime() : dueMs;
+  if (isNaN(originMs) || originMs > dueMs) {
+    throw userError('Aufgabe ungültig: DTSTART liegt nach DUE', 422);
+  }
+  const iterator = recur.iterator(ICAL.Time.fromJSDate(new Date(originMs), true /* isUTC */));
+  const maxSteps = 50000; // ical.js iterates impossible rules (e.g. 30 Feb) forever
+  let currentMs = null;
+  for (let steps = 0; steps < maxSteps; steps++) {
+    const next = iterator.next();
+    if (!next) {
+      // Iterator exhausted (COUNT reached or UNTIL passed)
+      return null;
+    }
+    const nextMs = next.toJSDate().getTime();
+    if (nextMs <= dueMs) {
+      currentMs = nextMs;
+      continue;
     }
 
-    // Safety limit hit without finding a next occurrence
-    return null;
-  }
-
-  // ICAL.Recur.fromString failed — fall back to simple interval arithmetic.
-  const rruleUpper = rruleStr.toUpperCase();
-  let interval = 1;
-  const matchInterval = rruleUpper.match(/INTERVAL=(\d+)/);
-  if (matchInterval) interval = parseInt(matchInterval[1], 10) || 1;
-
-  const nextDate = new Date(baseDue.getTime());
-  if (rruleUpper.includes('FREQ=DAILY')) {
-    nextDate.setUTCDate(nextDate.getUTCDate() + interval);
-  } else if (rruleUpper.includes('FREQ=WEEKLY')) {
-    nextDate.setUTCDate(nextDate.getUTCDate() + 7 * interval);
-  } else if (rruleUpper.includes('FREQ=MONTHLY')) {
-    nextDate.setUTCMonth(nextDate.getUTCMonth() + interval);
-  } else if (rruleUpper.includes('FREQ=YEARLY')) {
-    nextDate.setUTCFullYear(nextDate.getUTCFullYear() + interval);
-  } else {
-    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-  }
-
-  const timeDeltaMs = nextDate.getTime() - baseDue.getTime();
-  let newDtstart = null;
-  if (task.dtstart) {
-    const origDtstartMs = new Date(task.dtstart).getTime();
-    if (!isNaN(origDtstartMs)) {
-      newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
+    const timeDeltaMs = nextMs - currentMs;
+    let newDtstart = null;
+    if (task.dtstart) {
+      const origDtstartMs = new Date(task.dtstart).getTime();
+      if (!isNaN(origDtstartMs)) {
+        newDtstart = new Date(origDtstartMs + timeDeltaMs).toISOString();
+      }
     }
-  }
+    let newRrule = task.recurrence;
+    if (currentCount !== null) {
+      newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
+    }
 
-  let newRrule = task.recurrence;
-  if (currentCount !== null) {
-    newRrule = String(task.recurrence).replace(/\bCOUNT=\d+\b/i, `COUNT=${currentCount - 1}`);
+    return {
+      ...task,
+      dtstart: newDtstart,
+      due: new Date(dueMs + timeDeltaMs).toISOString(),
+      recurrence: newRrule,
+      status: 'NEEDS-ACTION',
+      completed: null,
+      percentComplete: 0,
+      completedHistory,
+      completedInstance
+    };
   }
-
-  return {
-    ...task,
-    dtstart: newDtstart,
-    due: nextDate.toISOString(),
-    recurrence: newRrule,
-    status: 'NEEDS-ACTION',
-    completed: null,
-    percentComplete: 0,
-    completedHistory,
-    completedInstance
-  };
+  throw userError(`Wiederholungsregel ergibt kein weiteres Vorkommen: ${rruleStr}`, 422);
 }
 
 function updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId = null) {
