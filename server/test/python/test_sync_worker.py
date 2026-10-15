@@ -5,8 +5,8 @@ import sqlite3
 import tempfile
 import shutil
 import sys
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 SYNC_WORKER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../sync-worker"))
 if SYNC_WORKER_DIR not in sys.path:
@@ -75,31 +75,28 @@ class TestSyncWorker(unittest.TestCase):
         decrypted = sync_worker.decrypt(parts[1], parts[0], key)
         self.assertEqual(decrypted, token)
 
-    def test_decrypt_invalid_pkcs7_padding_bytes(self):
+    def test_tampered_value_fails_authentication(self):
+        # #72: AES-GCM; a flipped bit in the nonce or the ciphertext is an error, never altered plaintext.
         key = sync_worker.KEY_BYTES
-        iv = os.urandom(16)
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        # Invalid padding: len byte says 4, but bytes don't match
-        payload = b"012345678912" + b"\x04\x04\x04\x00"
-        encrypted = encryptor.update(payload) + encryptor.finalize()
+        enc_hex, iv_hex = sync_worker.encrypt("AAAAAAAAAAAAAAAA", key)
+        flipped_iv = iv_hex[:-1] + format(int(iv_hex[-1], 16) ^ 1, "x")
+        with self.assertRaises(ValueError):
+            sync_worker.decrypt(enc_hex, flipped_iv, key)
+        flipped_enc = format(int(enc_hex[0], 16) ^ 1, "x") + enc_hex[1:]
+        with self.assertRaises(ValueError):
+            sync_worker.decrypt(flipped_enc, iv_hex, key)
 
-        with self.assertRaises(ValueError) as ctx:
-            sync_worker.decrypt(encrypted.hex(), iv.hex(), key)
-        self.assertIn("Invalid PKCS#7 padding", str(ctx.exception))
-
-    def test_decrypt_invalid_pkcs7_padding_length(self):
+    def test_values_use_aes_gcm_under_per_value_scrypt_salt(self):
+        # #72: iv column = salt(16) || nonce(12), ciphertext column = ciphertext || tag(16).
         key = sync_worker.KEY_BYTES
-        iv = os.urandom(16)
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        # Invalid padding length > 16
-        payload = b"0123456789123456" # zero length byte if evaluated as offset
-        encrypted = encryptor.update(payload) + encryptor.finalize()
-
-        with self.assertRaises(ValueError) as ctx:
-            sync_worker.decrypt(encrypted.hex(), iv.hex(), key)
-        self.assertIn("Invalid PKCS#7 padding", str(ctx.exception))
+        enc_a, iv_a = sync_worker.encrypt("same-password", key)
+        enc_b, iv_b = sync_worker.encrypt("same-password", key)
+        self.assertNotEqual(iv_a[:32], iv_b[:32])
+        header = bytes.fromhex(iv_a)
+        self.assertEqual(len(header), 28)
+        record_key = Scrypt(salt=header[:16], length=32, n=16384, r=8, p=1).derive(
+            sync_worker.ENCRYPTION_SECRET.encode("utf-8"))
+        self.assertEqual(AESGCM(record_key).decrypt(header[16:], bytes.fromhex(enc_a), None), b"same-password")
 
     def test_recover_stranded_jobs(self):
         conn = sqlite3.connect(self.db_path)

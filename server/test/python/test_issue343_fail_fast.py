@@ -50,7 +50,7 @@ import radicale_custom_rights  # noqa: E402
 
 class TokenCryptoTest(unittest.TestCase):
     def test_encrypt_token_failure_never_falls_back_to_plaintext(self):
-        with patch.object(sync_worker, "KEY_BYTES", b"too-short"):
+        with patch.object(sync_worker, "encrypt", side_effect=ValueError("testuser encryption failure")):
             with self.assertRaises(ValueError):
                 msgraph_worker.encrypt_token("testuser-graph-refresh-token")
 
@@ -75,8 +75,8 @@ class GraphSyncTest(unittest.TestCase):
             account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
         self.conn.execute(
             "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', "
-            "'testuser-graph-token', NULL, 4102444800000, ?, 'persoenlich', 0, NULL, 0, NULL)",
-            (self.ENDPOINT,),
+            "?, NULL, 4102444800000, ?, 'persoenlich', 0, NULL, 0, NULL)",
+            (msgraph_worker.encrypt_token("testuser-graph-token"), self.ENDPOINT),
         )
         self.conn.commit()
 
@@ -103,7 +103,8 @@ class GraphSyncTest(unittest.TestCase):
         self.assertEqual(row["delta_link"], self.ENDPOINT, "only an expired (410) delta link restarts the delta round")
 
     def test_token_refresh_failure_fails_the_sync(self):
-        self.conn.execute("UPDATE msgraph_accounts SET refresh_token = 'testuser-refresh-token', expires_at = 0")
+        self.conn.execute("UPDATE msgraph_accounts SET refresh_token = ?, expires_at = 0",
+                          (msgraph_worker.encrypt_token("testuser-refresh-token"),))
         refused = urllib.error.HTTPError("https://login.example.com/token", 400, "invalid_grant", {}, None)
         with patch.object(msgraph_worker, "refresh_msgraph_token", side_effect=refused), \
              patch.object(msgraph_worker.urllib.request, "urlopen") as urlopen:

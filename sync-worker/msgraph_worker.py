@@ -135,20 +135,11 @@ def release_sync_lease(conn, acc_id, lease_until):
     conn.commit()
 
 def decrypt_token(token):
-    if not token or ":" not in token:
-        return token
-    parts = token.split(":", 1)
-    if len(parts[0]) != 32:
-        return token
-    # #343: a token that does not decrypt is an error, never sent on as a bearer token.
+    # #343/#72: a token that does not decrypt is an error, never sent on as a bearer token.
     import sync_worker
-    return sync_worker.decrypt(parts[1], parts[0], sync_worker.KEY_BYTES)
+    return sync_worker.decrypt_token(token, sync_worker.KEY_BYTES)
 
 def encrypt_token(token):
-    if not token:
-        return token
-    if ":" in token and len(token.split(":", 1)[0]) == 32:
-        return token
     # #343: a failed encryption is an error, never a fallback to storing the plaintext token.
     import sync_worker
     return sync_worker.encrypt_token(token, sync_worker.KEY_BYTES)

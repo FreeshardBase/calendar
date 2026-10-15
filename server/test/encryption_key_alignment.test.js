@@ -6,8 +6,8 @@
  * Verifies that Node.js app (server/db.js) and Python daemon (sync-worker/sync_worker.py):
  *   1. Support both ENCRYPTION_KEY and ENCRYPTION_SECRET environment variables with identical precedence.
  *   2. Shared docker-compose.yml configuration passes ENCRYPTION_KEY into both webcalendar and sync-worker.
- *   3. Scrypt key derivation (32 bytes, salt='salt', N=16384, r=8, p=1) and AES-256-CBC encryption/decryption
- *      produce 100% interoperable ciphertexts across Node.js and Python.
+ *   3. Stored values (AES-256-GCM under scrypt(secret, per-value salt), see #72) are interoperable
+ *      across Node.js and Python.
  */
 
 const test = require('node:test');
@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execSync } = require('node:child_process');
-const crypto = require('node:crypto');
+const { encryptForSecret } = require('./helpers/storedCiphertext');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 
@@ -65,28 +65,19 @@ test.describe('Issue #322 — App & Sync-Worker Encryption Key Alignment', () =>
     );
   });
 
-  test('Node.js AES-256-CBC ciphertext is successfully decrypted by Python sync_worker decrypt routine', () => {
+  test('a value in the shared AES-256-GCM format is decrypted by the Python sync_worker decrypt routine', () => {
     const secret = 'custom-test-secret-key-32-chars!!';
     const plaintext = 'sensitive-oauth-refresh-token-xyz789';
+    const { ciphertext: encryptedHex, iv } = encryptForSecret(secret, plaintext);
 
-    // 1. Derive key in Node.js
-    const derivedKeyNode = crypto.scryptSync(secret, 'salt', 32);
-
-    // 2. Encrypt in Node.js using AES-256-CBC
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-cbc', derivedKeyNode, iv);
-    let encryptedHex = cipher.update(plaintext, 'utf8', 'hex');
-    encryptedHex += cipher.final('hex');
-
-    // 3. Decrypt in Python using sync_worker logic
     const pyScript = `
 import os
 import sys
 sys.path.insert(0, '${path.join(ROOT_DIR, 'sync-worker')}')
 import sync_worker
 
-key = sync_worker.derive_key('${secret}')
-decrypted = sync_worker.decrypt('${encryptedHex}', '${iv.toString('hex')}', key)
+key = sync_worker.key_material('${secret}')
+decrypted = sync_worker.decrypt('${encryptedHex}', '${iv}', key)
 print(decrypted)
 `;
 
@@ -114,11 +105,7 @@ print(decrypted)
     const secretWorkerWrong = 'freeshard-worker-wrong-key-2';
     const plaintext = 'sensitive-oauth-refresh-token-999';
 
-    const derivedKeyNode = crypto.scryptSync(secretApp, 'salt', 32);
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-cbc', derivedKeyNode, iv);
-    let encryptedHex = cipher.update(plaintext, 'utf8', 'hex');
-    encryptedHex += cipher.final('hex');
+    const { ciphertext: encryptedHex, iv } = encryptForSecret(secretApp, plaintext);
 
     const pyScript = `
 import os
@@ -126,9 +113,9 @@ import sys
 sys.path.insert(0, '${path.join(ROOT_DIR, 'sync-worker')}')
 import sync_worker
 
-key_wrong = sync_worker.derive_key('${secretWorkerWrong}')
+key_wrong = sync_worker.key_material('${secretWorkerWrong}')
 try:
-    decrypted = sync_worker.decrypt('${encryptedHex}', '${iv.toString('hex')}', key_wrong)
+    decrypted = sync_worker.decrypt('${encryptedHex}', '${iv}', key_wrong)
     print("UNEXPECTED_SUCCESS:" + str(decrypted))
 except Exception as e:
     print("RAISED_ERROR:" + type(e).__name__)

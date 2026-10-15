@@ -14,6 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const { encryptForSecret } = require('./helpers/storedCiphertext');
 const http = require('node:http');
 const { spawnSync } = require('node:child_process');
 
@@ -52,10 +53,8 @@ function openDb(file) {
 }
 
 function encryptWith(secret, plaintext) {
-  const key = crypto.scryptSync(secret, 'salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-  return { encrypted: cipher.update(plaintext, 'utf8', 'hex') + cipher.final('hex'), iv: iv.toString('hex') };
+  const { ciphertext, iv } = encryptForSecret(secret, plaintext);
+  return { encrypted: ciphertext, iv };
 }
 
 async function withApp(mount, fn, session = () => ({ userId: 'testuser', accounts: [] })) {

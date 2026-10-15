@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const crypto = require('node:crypto');
+const { encryptForSecret } = require('./helpers/storedCiphertext');
 const { spawnSync } = require('node:child_process');
 const sqlite3 = require('sqlite3');
 
@@ -55,10 +55,8 @@ function bootDb(env, script = '') {
 }
 
 function legacyEncrypt(secret, plaintext) {
-  const key = crypto.scryptSync(secret, 'salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-  return { encrypted: cipher.update(plaintext, 'utf8', 'hex') + cipher.final('hex'), iv: iv.toString('hex') };
+  const { ciphertext, iv } = encryptForSecret(secret, plaintext);
+  return { encrypted: ciphertext, iv };
 }
 
 // A database written before #333: credentials encrypted with `secret`, no key-check row.
@@ -200,13 +198,23 @@ test.describe('Issue #333 — encryption key canary and fresh-install-only key g
     try {
       const blocker = path.join(tmp, 'not-a-directory');
       fs.writeFileSync(blocker, '');
-      const { resolveEncryptionKey } = require('../db');
       const keyFile = path.join(blocker, '.encryption_key');
       const dbPath = path.join(tmp, 'webcalendar.db');
 
+      // Loaded in a child against its own database, so the module's boot never touches a shared one.
       for (const NODE_ENV of ['production', 'development']) {
-        assert.throws(() => resolveEncryptionKey({ NODE_ENV, ENCRYPTION_KEY_FILE: keyFile }, dbPath), /EEXIST|ENOTDIR/);
-        assert.throws(() => resolveEncryptionKey({ NODE_ENV, ENCRYPTION_KEY_FILE: keyFile, ENCRYPTION_KEY: KEY_A }, dbPath), /EEXIST|ENOTDIR/);
+        for (const extra of [{}, { ENCRYPTION_KEY: KEY_A }]) {
+          const result = bootDb(baseEnv(path.join(tmp, 'boot.db'), { ENCRYPTION_KEY: KEY_A }), `
+            try {
+              Db.resolveEncryptionKey(${JSON.stringify({ NODE_ENV, ENCRYPTION_KEY_FILE: keyFile, ...extra })}, ${JSON.stringify(dbPath)});
+              console.log('NOT THROWN');
+            } catch (err) {
+              console.log('THROWN ' + err.message);
+            }
+          `);
+          assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+          assert.match(result.stdout, /THROWN .*(EEXIST|ENOTDIR)/, `NODE_ENV=${NODE_ENV}: ${result.stdout}`);
+        }
       }
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

@@ -12,7 +12,7 @@ process.env.ENCRYPTION_KEY_FILE = require('path').join(require('os').tmpdir(), '
 const { describe, it, before, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const crypto = require('crypto');
+const { encryptForSecret } = require('./helpers/storedCiphertext');
 
 const TEST_USER = 'user-136-test';
 const OTHER_USER = 'user-136-other';
@@ -63,19 +63,12 @@ function insertBrokenAccount(userId, displayName) {
 /** Inserts a properly encrypted account using the same key db.js uses. */
 function insertGoodAccount(userId, displayName) {
   const id = require('uuid').v4();
-  const encKey = crypto.scryptSync(
-    process.env.ENCRYPTION_KEY || 'freeshard-default-encryption-key-do-not-use-in-prod',
-    process.env.ENCRYPTION_SALT || 'salt',
-    32
-  );
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', encKey, iv);
-  let enc = cipher.update('good-password', 'utf8', 'hex');
-  enc += cipher.final('hex');
+  const { ciphertext, iv } = encryptForSecret(
+    process.env.ENCRYPTION_KEY || 'freeshard-default-encryption-key-do-not-use-in-prod', 'good-password');
   return new Promise((res, rej) => Db.db.run(
     `INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name)
      VALUES (?,?,?,?,?,?,?)`,
-    [id, userId, 'https://caldav.example.com/', 'gooduser', enc, iv.toString('hex'), displayName],
+    [id, userId, 'https://caldav.example.com/', 'gooduser', ciphertext, iv, displayName],
     err => err ? rej(err) : res(id)
   ));
 }
