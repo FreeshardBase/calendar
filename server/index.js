@@ -259,7 +259,12 @@ app.use(async (req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, '../public')));
+// #164: express.static percent-decodes the path, so /api/x/..%2F.. would resolve to public/ and be
+// answered with index.html. API paths never reach it; they end at a router or the JSON 404 below.
+const isApiPath = (req) =>
+  req.path.split('/').filter(seg => seg !== '' && seg !== '.')[0]?.toLowerCase() === 'api';
+const serveStatic = express.static(path.join(__dirname, '../public'));
+app.use((req, res, next) => (isApiPath(req) ? next() : serveStatic(req, res, next)));
 
 // ── Internal Hook Security Middleware ─────────────────────────────────────────
 const requireInternal = createRequireInternalMiddleware(process.env);
@@ -617,6 +622,8 @@ app.use('/api', (req, res) => {
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
+  // Shapes like //api/x or /./api/x miss the '/api' mount above but are still API paths.
+  if (isApiPath(req)) return res.status(404).json({ error: 'Not Found' });
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 

@@ -35,9 +35,15 @@ async function request(method, path, body, onResponse) {
     throw err;
   }
 
+  // Every endpoint called through request() answers JSON. Anything else (e.g. the SPA page served for a
+  // path no router matched, #164) is reported instead of being handed to the caller as data.
   const ct = res.headers.get('content-type') || '';
-  if (ct.includes('application/json')) return res.json();
-  return res.text();
+  if (!ct.includes('application/json')) {
+    const err = new Error(`Unerwartete Antwort von ${path.split('?')[0]} (HTTP ${res.status}, ${ct || 'ohne Content-Type'}) statt JSON`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
 }
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
