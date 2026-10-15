@@ -1,4 +1,5 @@
-FROM python:3-slim
+# Pinned Python minor and Debian release: python:3-slim follows the newest Python major (#103).
+FROM python:3.12-slim-trixie
 
 LABEL org.opencontainers.image.title="freeshard-radicale"
 LABEL org.opencontainers.image.description="FreeShard Radicale CalDAV Server"
