@@ -553,7 +553,7 @@ function renderAttendeeList(attendees) {
       <span class="attendee-email">${escHtml(a.email)}</span>
       <span class="attendee-status ${a.status}">${statusLabel(a.status)}</span>
       <button type="button" class="attendee-remove" data-idx="${i}" aria-label="Entfernen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -874,7 +874,7 @@ function handleAddAttendee() {
     <span class="attendee-email">${escHtml(email)}</span>
     <span class="attendee-status NEEDS-ACTION">Ausstehend</span>
     <button type="button" class="attendee-remove" data-idx="${idx}" aria-label="Entfernen">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M18 6L6 18M6 6l12 12"/>
       </svg>
     </button>`;

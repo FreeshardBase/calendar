@@ -410,21 +410,21 @@ function renderWebcalSidebar() {
             : '<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Webcal-Feed</span>'}
         </div>
         <div class="cal-item-actions">
-          <button class="cal-action-btn" data-sync-webcal="${escHtml(sub.id)}" title="Jetzt synchronisieren">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button class="cal-action-btn" data-sync-webcal="${escHtml(sub.id)}" title="Jetzt synchronisieren" aria-label="Jetzt synchronisieren">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M23 4v6h-6M1 20v-6h6"/>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
           </button>
-          <button class="cal-action-btn" data-delete-webcal="${escHtml(sub.id)}" title="Abonnement löschen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button class="cal-action-btn" data-delete-webcal="${escHtml(sub.id)}" title="Abonnement löschen" aria-label="Abonnement löschen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
             </svg>
           </button>
         </div>
         <div class="calendar-check" style="${checked ? 'background:' + escHtml(sanitizeColor(sub.color)) : ''}">
-          <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
+          <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10" aria-hidden="true">
             <path d="M2 6l3 3 5-5"/>
           </svg>
         </div>
@@ -722,8 +722,8 @@ function renderCalendarList() {
     
     const shareBtnHtml = c.isShared
       ? ''
-      : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link" aria-label="Teilen & Link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
               <polyline points="16 6 12 2 8 6"/>
               <line x1="12" y1="2" x2="12" y2="15"/>
@@ -732,16 +732,16 @@ function renderCalendarList() {
 
     const editBtnHtml = c.readOnly
       ? ''
-      : `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      : `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen" aria-label="Umbenennen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </button>`;
 
     const exportBtnHtml =
-      `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="Als ICS exportieren">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="Als ICS exportieren" aria-label="Als ICS exportieren">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
@@ -749,7 +749,7 @@ function renderCalendarList() {
         </button>`;
           
     const googleBadge = c.source === 'google'
-      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" title="Mit Google Kalender synchronisiert">
+      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="Mit Google Kalender synchronisiert">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
@@ -776,7 +776,7 @@ function renderCalendarList() {
           ${exportBtnHtml}
         </div>
         <div class="calendar-check" style="${checked ? 'background:' + escHtml(sanitizeColor(c.color)) : ''}">
-          <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10">
+          <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10" aria-hidden="true">
             <path d="M2 6l3 3 5-5"/>
           </svg>
         </div>
@@ -898,7 +898,7 @@ function openImportDialog(fileName, icsText) {
       <div class="modal-header">
         <h3 class="modal-title" id="import-dialog-title">ICS importieren</h3>
         <button class="icon-btn" id="import-close" aria-label="Schließen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
@@ -969,7 +969,7 @@ function openEditCalendarDialog(cal) {
       <div class="modal-header">
         <h3 class="modal-title" id="edit-cal-dialog-title">Kalender bearbeiten</h3>
         <button class="icon-btn" id="edit-cal-close" aria-label="Schließen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
@@ -1105,7 +1105,7 @@ function openShareCalendarDialog(cal) {
       <div class="modal-header">
         <h3 class="modal-title" id="share-cal-dialog-title">Freigabe & Sharing: ${escHtml(cal.name)}</h3>
         <button class="icon-btn" id="share-cal-close" aria-label="Schließen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
@@ -1129,8 +1129,8 @@ function openShareCalendarDialog(cal) {
           <div class="public-link-container hidden" id="public-link-area">
             <input class="form-input" id="public-link-input" type="text" readonly style="background:var(--bg);" />
             <button class="btn btn-secondary" id="public-link-copy-btn">Kopieren</button>
-            <button class="btn btn-ghost" id="public-link-regen-btn" title="Link neu generieren (alter Link verfällt)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <button class="btn btn-ghost" id="public-link-regen-btn" title="Link neu generieren (alter Link verfällt)" aria-label="Link neu generieren (alter Link verfällt)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/>
               </svg>
             </button>
@@ -1330,8 +1330,8 @@ function openShareCalendarDialog(cal) {
                   <option value="true" ${s.readWrite ? 'selected' : ''}>Schreiben</option>
                 </select>
                 <span class="share-badge ${badgeClass}">${badgeLabel}</span>
-                <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="Entfernen" style="padding:4px;">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="Entfernen" style="padding:4px;" aria-label="Entfernen">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
                   </svg>
@@ -1545,8 +1545,8 @@ async function renderSettingsAppPasswords() {
             <span style="font-size: 10px; color:var(--ink-muted)">Erstellt am ${dateStr}</span>
           </div>
           <div class="settings-item-actions">
-            <button class="settings-action-btn btn-danger" data-delete-asp="${escHtml(asp.id)}" title="Passwort löschen" style="padding:4px">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <button class="settings-action-btn btn-danger" data-delete-asp="${escHtml(asp.id)}" title="Passwort löschen" style="padding:4px" aria-label="Passwort löschen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
               </svg>
@@ -1600,8 +1600,8 @@ function renderSettingsAccounts() {
           <div style="color:var(--danger, #ef4444); font-size:0.68rem; margin-top:2px;">Zugangsdaten nicht lesbar — Konto neu verbinden</div>
         </div>
         <div class="settings-item-actions">
-          <button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen" aria-label="Account entfernen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
               <path d="M10 11v6M14 11v6"/>
@@ -1616,8 +1616,8 @@ function renderSettingsAccounts() {
     const hasError = !!errObj;
 
     const reconnectBtn = (hasError && a.url.includes('googleusercontent.com'))
-      ? `<button class="settings-action-btn" data-reconnect-acc="${escHtml(a.id)}" title="Verbindung wiederherstellen" style="color:var(--warning, #f59e0b)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      ? `<button class="settings-action-btn" data-reconnect-acc="${escHtml(a.id)}" title="Verbindung wiederherstellen" style="color:var(--warning, #f59e0b)" aria-label="Verbindung wiederherstellen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/>
           </svg>
          </button>`
@@ -1625,8 +1625,8 @@ function renderSettingsAccounts() {
 
     const editBtn = isEnvDefault
       ? ''
-      : `<button class="settings-action-btn" data-edit-acc="${escHtml(a.id)}" title="Umbenennen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      : `<button class="settings-action-btn" data-edit-acc="${escHtml(a.id)}" title="Umbenennen" aria-label="Umbenennen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
@@ -1634,8 +1634,8 @@ function renderSettingsAccounts() {
 
     const deleteBtn = isEnvDefault
       ? ''
-      : `<button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      : `<button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen" aria-label="Account entfernen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
             <path d="M10 11v6M14 11v6"/>
@@ -1645,7 +1645,7 @@ function renderSettingsAccounts() {
 
     const errorHtml = hasError
       ? `<div style="color:var(--danger, #ef4444); font-size:0.68rem; margin-top:2px; display:flex; align-items:center; gap:4px;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="flex-shrink:0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="flex-shrink:0" aria-hidden="true">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
           </svg>
           Verbindungsfehler
@@ -1746,8 +1746,8 @@ function renderSettingsCalendars() {
   list.innerHTML = cals.map(c => {
     const deleteBtn = (c.isShared || c.readOnly || c.id.includes('env-default'))
       ? ''
-      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="Kalender löschen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="Kalender löschen" aria-label="Kalender löschen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
             <path d="M10 11v6M14 11v6"/>
@@ -1756,7 +1756,7 @@ function renderSettingsCalendars() {
          </button>`;
 
     const googleBadge = c.source === 'google'
-      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" title="Mit Google Kalender synchronisiert">
+      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="Mit Google Kalender synchronisiert">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
@@ -1825,7 +1825,7 @@ function openAddCalendarDialog() {
       <div class="modal-header">
         <h3 class="modal-title" id="add-cal-dialog-title">Neuer Kalender</h3>
         <button class="icon-btn modal-close" id="add-cal-close" aria-label="Schließen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
@@ -1927,7 +1927,7 @@ function showEventPopover(ev, mouseEvent) {
 
   const attHtml = ev.attendees?.length
     ? `<div class="popover-row">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
         <span>${ev.attendees.map(a => escHtml(a.name || a.email)).join(', ')}</span>
        </div>`
     : '';
@@ -1936,7 +1936,7 @@ function showEventPopover(ev, mouseEvent) {
   const linkAttachments = Array.isArray(ev.attachments) ? ev.attachments.filter(a => a && isSafeLinkUrl(a.url)) : [];
   const attachHtml = linkAttachments.length > 0
     ? `<div class="popover-row popover-attachments" id="popover-attachments">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
         <div style="display:flex; flex-direction:column; gap:2px;">
           ${linkAttachments.map(a => `
             <a href="${escHtml(a.url)}" target="_blank" rel="noopener" class="attachment-drive-link" style="color:var(--accent); font-size:12px; text-decoration:underline;">${escHtml(a.name || a.url)}</a>
@@ -1957,15 +1957,15 @@ function showEventPopover(ev, mouseEvent) {
     <div class="popover-title" id="popover-title">${escHtml(ev.title)}</div>
     <div class="popover-meta">
       <div class="popover-row">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         <span>${timeStr}</span>
       </div>
       ${ev.location ? `<div class="popover-row popover-location">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
         <span>${escHtml(ev.location)}</span>
       </div>` : ''}
       ${ev.description ? `<div class="popover-row popover-description" style="margin-top:4px; font-size:12px; color:var(--text-muted);">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
         <span>${escHtml(ev.description)}</span>
       </div>` : ''}
       ${attHtml}
@@ -2015,6 +2015,8 @@ function showEventPopover(ev, mouseEvent) {
     deleteBtn.onclick = async () => {
       const recId = ev.recurrenceId || (ev.uid && ev.uid.includes('::') ? ev.uid.split('::')[1] : null);
       let scope = 'series';
+      // The question names the event; the popover would otherwise sit over the dialog's buttons.
+      closePopover();
       if (recId) {
         scope = await chooseRecurrenceScope(`„${ev.title}“ löschen:`);
         if (!scope) return;
@@ -2027,7 +2029,6 @@ function showEventPopover(ev, mouseEvent) {
           calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
           ...(scope === 'occurrence' ? { scope, recurrenceId: recId } : {})
         });
-        closePopover();
         onEventDeleted(targetUid);
         showToast('Termin gelöscht.', 'info');
       } catch(err) { showToast(err.message, 'error'); }
@@ -2539,9 +2540,14 @@ export function showToast(message, type = 'info') {
     setStatus('Fehler: ' + message);
   }
 
-  const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
+  const icons = {
+    success: '<polyline points="20 6 9 17 4 12"></polyline>',
+    error: '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>',
+    info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>',
+    warning: '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>'
+  };
   toast.innerHTML = `
-    <span class="toast-icon">${icons[type] || icons.info}</span>
+    <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${icons[type] || icons.info}</svg>
     <span class="toast-msg">${escHtml(message)}</span>
     <span class="toast-close">×</span>`;
 

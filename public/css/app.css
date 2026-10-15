@@ -1009,6 +1009,8 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   animation: fadeIn var(--t) ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+/* A confirmation is asked from inside other modals (share, settings) and must sit above them. */
+#confirm-dialog-backdrop { z-index: 250; }
 
 .modal {
   width: 100%; max-width: 560px;

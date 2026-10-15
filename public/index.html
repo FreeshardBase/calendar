@@ -20,7 +20,7 @@
 <div id="loading-screen" class="loading-screen">
   <div class="loading-logo">
     <div class="loading-icon">
-      <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+      <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40" aria-hidden="true">
         <rect width="40" height="40" rx="10" fill="var(--surface)" stroke="var(--border-cool)" stroke-width="1"/>
         <rect x="10" y="14" width="20" height="16" rx="2" stroke="var(--line)" stroke-width="1.5"/>
         <path d="M10 19h20" stroke="var(--line)" stroke-width="1.5"/>
@@ -41,7 +41,7 @@
   <div class="onboarding-card">
     <div class="onboarding-header">
       <div class="onboarding-logo">
-        <svg viewBox="0 0 32 32" fill="none" width="32" height="32">
+        <svg viewBox="0 0 32 32" fill="none" width="32" height="32" aria-hidden="true">
           <rect width="32" height="32" rx="8" fill="var(--surface)" stroke="var(--border-cool)" stroke-width="1"/>
           <rect x="8" y="11" width="16" height="13" rx="1.5" stroke="var(--line)" stroke-width="1.5"/>
           <path d="M8 15h16" stroke="var(--line)" stroke-width="1.5"/>
@@ -60,7 +60,7 @@
     <!-- Google OAuth Option -->
     <div class="oauth-section" style="padding: 0 32px;">
       <button type="button" class="btn btn-oauth btn-google" id="btn-onboarding-link-google">
-        <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18">
+        <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
           <path fill="#EA4335" d="M12 5.04c1.65 0 3.13.57 4.3 1.69l3.21-3.21C17.55 1.62 14.99 1 12 1 7.35 1 3.4 3.65 1.48 7.5l3.86 3C6.25 7.57 8.91 5.04 12 5.04z"/>
           <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.27H12v4.3h6.45c-.28 1.47-1.11 2.72-2.36 3.56l3.67 2.84c2.14-1.97 3.37-4.87 3.37-8.43z"/>
           <path fill="#FBBC05" d="M5.34 14.5c-.23-.69-.36-1.42-.36-2.18s.13-1.49.36-2.18L1.48 7.15C.53 9.06 0 11.19 0 13.43s.53 4.37 1.48 6.28l3.86-3.21z"/>
@@ -96,7 +96,7 @@
                  autocomplete="current-password" required />
           <button type="button" class="toggle-password" data-target="ob-password"
                   aria-label="Passwort anzeigen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
             </svg>
           </button>
@@ -127,7 +127,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-logo">
-        <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+        <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
           <rect x="1" y="4" width="22" height="18" rx="3" stroke="var(--line)" stroke-width="1.5"/>
           <path d="M1 9h22" stroke="var(--line)" stroke-width="1.5"/>
           <rect x="7" y="1" width="2" height="5" rx="1" fill="var(--line)"/>
@@ -139,7 +139,7 @@
         <span class="sidebar-logo-name">FreeShard</span>
       </div>
       <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Sidebar schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -150,13 +150,13 @@
       <!-- New buttons -->
       <div style="display:flex; gap:8px; margin-bottom:12px;">
         <button class="sidebar-new-btn" id="new-event-btn" style="flex:1;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M12 5v14M5 12h14"/>
           </svg>
           Neuer Termin
         </button>
         <button class="sidebar-secondary-btn" id="new-task-btn" style="flex:1;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M9 11l3 3L22 4"/>
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
           </svg>
@@ -173,15 +173,15 @@
       <div class="sidebar-section">
         <div class="sidebar-section-header">
           <span class="sidebar-section-title">Kalender</span>
-          <button class="icon-btn" id="add-calendar-btn" title="Kalender hinzufügen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button class="icon-btn" id="add-calendar-btn" title="Kalender hinzufügen" aria-label="Kalender hinzufügen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 5v14M5 12h14"/>
             </svg>
           </button>
         </div>
         <div id="calendar-list"></div>
         <div id="ics-dropzone" tabindex="0" role="button" aria-label="ICS-Datei importieren" title="ICS-Datei importieren">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
@@ -195,7 +195,7 @@
         <div class="sidebar-section-header">
           <span class="sidebar-section-title">Abonnements</span>
           <button class="icon-btn" id="add-webcal-btn" title="Webcal-Abonnement hinzufügen" aria-label="Webcal-Abonnement hinzufügen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 5v14M5 12h14"/>
             </svg>
           </button>
@@ -216,7 +216,7 @@
     <!-- Sidebar Footer (Settings button) -->
     <div class="sidebar-footer">
       <button class="sidebar-settings-btn" id="sidebar-settings-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
@@ -229,7 +229,7 @@
       <div class="settings-drawer-header">
         <h2 id="settings-drawer-title">Einstellungen</h2>
         <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
@@ -239,8 +239,8 @@
         <div class="settings-section">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
             <h3 style="margin:0">Accounts verwalten</h3>
-            <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px" aria-label="Account hinzufügen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
             </button>
@@ -251,8 +251,8 @@
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
             <h3 style="margin:0">Kalender löschen</h3>
-            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender erstellen" style="padding:2px">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender erstellen" style="padding:2px" aria-label="Kalender erstellen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
             </button>
@@ -263,8 +263,8 @@
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
             <h3 style="margin:0">App-Passwörter (CalDAV)</h3>
-            <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" style="padding:2px">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" style="padding:2px" aria-label="App-Passwort erstellen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
             </button>
@@ -407,20 +407,20 @@
     <!-- Toolbar -->
     <header class="toolbar">
       <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menü öffnen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M3 6h18M3 12h18M3 18h18"/>
         </svg>
       </button>
 
       <div class="toolbar-nav">
         <button class="toolbar-btn" id="prev-btn" aria-label="Zurück">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M15 18l-6-6 6-6"/>
           </svg>
         </button>
         <button class="toolbar-today-btn" id="today-btn">Heute</button>
         <button class="toolbar-btn" id="next-btn" aria-label="Vor">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M9 18l6-6-6-6"/>
           </svg>
         </button>
@@ -443,7 +443,7 @@
       </button>
 
       <button class="toolbar-btn" id="export-pdf-btn" title="PDF Export / Drucken" style="margin-left: 8px;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;" aria-hidden="true">
           <path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
           <path d="M6 14h12v8H6z"/>
         </svg>
@@ -451,7 +451,7 @@
       </button>
 
       <button class="toolbar-btn" id="availability-btn" title="Termin-Buchung" style="margin-left: 8px;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;" aria-hidden="true">
           <circle cx="12" cy="12" r="10"/>
           <polyline points="12 6 12 12 16 14"/>
         </svg>
@@ -474,7 +474,7 @@
 
       <div class="search-wrapper">
         <span class="search-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
@@ -485,7 +485,7 @@
     <!-- OAuth Token Expiry Warning Banner (Issue #7) -->
     <div id="oauth-warning-banner" class="oauth-warning-banner hidden">
       <div class="oauth-warning-content">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
           <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
           <line x1="12" y1="9" x2="12" y2="13"/>
           <line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -524,7 +524,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="event-modal-title">Neuer Termin</h3>
       <button class="icon-btn modal-close" id="event-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -745,7 +745,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="account-modal-title">Account hinzufügen</h3>
       <button class="icon-btn modal-close" id="account-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -754,7 +754,7 @@
       <!-- Google OAuth Option -->
       <div class="oauth-section">
         <button type="button" class="btn btn-oauth btn-google" id="btn-link-google">
-          <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18">
+          <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path fill="#EA4335" d="M12 5.04c1.65 0 3.13.57 4.3 1.69l3.21-3.21C17.55 1.62 14.99 1 12 1 7.35 1 3.4 3.65 1.48 7.5l3.86 3C6.25 7.57 8.91 5.04 12 5.04z"/>
             <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.27H12v4.3h6.45c-.28 1.47-1.11 2.72-2.36 3.56l3.67 2.84c2.14-1.97 3.37-4.87 3.37-8.43z"/>
             <path fill="#FBBC05" d="M5.34 14.5c-.23-.69-.36-1.42-.36-2.18s.13-1.49.36-2.18L1.48 7.15C.53 9.06 0 11.19 0 13.43s.53 4.37 1.48 6.28l3.86-3.21z"/>
@@ -763,7 +763,7 @@
           Mit Google Kalender verbinden
         </button>
         <button type="button" class="btn btn-oauth btn-msgraph" id="btn-link-msgraph">
-          <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
             <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
           </svg>
           Mit Office 365 / Outlook verbinden
@@ -801,7 +801,7 @@
             <input class="form-input" id="acc-password" type="password" name="password"
                    autocomplete="current-password" required />
             <button type="button" class="toggle-password" data-target="acc-password" aria-label="Passwort anzeigen">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
               </svg>
             </button>
@@ -832,7 +832,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="webcal-modal-title">Webcal-Abonnement hinzufügen</h3>
       <button class="icon-btn modal-close" id="webcal-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -883,14 +883,14 @@
     <div class="modal-header">
       <h3 class="modal-title" id="welcome-modal-title">Willkommen beim WebCalendar</h3>
       <button class="icon-btn modal-close" id="welcome-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
     </div>
     <div class="modal-body" style="text-align: center; padding: 20px 10px;">
       <div style="display: flex; justify-content: center; margin-bottom: 16px;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="var(--line)" stroke-width="1.5" width="48" height="48">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--line)" stroke-width="1.5" width="48" height="48" aria-hidden="true">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
           <line x1="16" y1="2" x2="16" y2="6"/>
           <line x1="8" y1="2" x2="8" y2="6"/>
@@ -921,7 +921,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="confirm-dialog-title">Bestätigung</h3>
       <button class="icon-btn modal-close" id="confirm-dialog-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -965,7 +965,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="task-modal-title">Neue Aufgabe</h3>
       <button class="icon-btn" id="task-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -1060,7 +1060,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="invitations-modal-title">Einladungen & RSVP</h3>
       <button class="icon-btn modal-close" id="invitations-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -1076,7 +1076,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="msgraph-modal-title">Microsoft Office 365 / Outlook Sync</h3>
       <button class="icon-btn modal-close" id="msgraph-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -1107,7 +1107,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="availability-modal-title">Öffentliche Termin-Buchungsseiten</h3>
       <button class="icon-btn modal-close" id="availability-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
@@ -1170,7 +1170,7 @@
     <div class="modal-header">
       <h3 class="modal-title" id="shortcuts-modal-title">Tastaturkürzel für Power-User</h3>
       <button class="icon-btn modal-close" id="shortcuts-modal-close" aria-label="Schließen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
