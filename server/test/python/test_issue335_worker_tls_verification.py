@@ -18,7 +18,6 @@ import sys
 import tempfile
 import threading
 import unittest
-import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from cryptography import x509
@@ -157,52 +156,19 @@ class WorkerTlsVerificationTest(unittest.TestCase):
         reason = getattr(exc, "reason", exc)
         self.assertIsInstance(reason, ssl.SSLCertVerificationError, f"expected certificate error, got {exc!r}")
 
-    # --- sync_worker.fetch_external_event_ics -------------------------------------------
+    # --- sync_worker.protect_cross_user_deletions ---------------------------------------
 
-    def test_external_ics_fetch_rejects_self_signed_certificate(self):
-        server = self._server("untrusted", {("GET", "/cal/evt-1.ics"): (200, "text/calendar", EVENT_ICS)})
-        with self.assertRaises(urllib.error.URLError) as cm:
-            sync_worker.fetch_external_event_ics(f"{server.url}/cal/", "testuser-google-token", "evt-1")
-        self._assert_cert_error(cm.exception)
-        self.assertEqual(server.requests, [], "bearer token must never reach an unverified host")
-
-    def test_external_ics_fetch_works_against_trusted_certificate(self):
-        server = self._server("trusted", {("GET", "/cal/evt-1.ics"): (200, "text/calendar", EVENT_ICS)})
-        ics = sync_worker.fetch_external_event_ics(f"{server.url}/cal/", "testuser-google-token", "evt-1")
-        self.assertEqual(ics, EVENT_ICS)
-        self.assertEqual(server.requests[0]["authorization"], "Bearer testuser-google-token")
-
-    def test_external_ics_fetch_returns_none_only_for_missing_event(self):
-        server = self._server("trusted", {("GET", "/cal/broken.ics"): (500, "text/plain", "boom")})
-        self.assertIsNone(sync_worker.fetch_external_event_ics(f"{server.url}/cal/", "tok", "gone"))
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            sync_worker.fetch_external_event_ics(f"{server.url}/cal/", "tok", "broken")
-        self.assertEqual(cm.exception.code, 500)
-
-    def test_external_host_on_same_hostname_as_internal_is_still_verified(self):
-        internal = self._server("internal", {})
-        external = self._server("untrusted", {("GET", "/cal/evt-1.ics"): (200, "text/calendar", EVENT_ICS)})
-        # Same hostname (127.0.0.1), different port: only the exact internal host:port is exempt.
-        sync_worker.LOCAL_CALDAV_URL = internal.url
-        with self.assertRaises(urllib.error.URLError) as cm:
-            sync_worker.fetch_external_event_ics(f"{external.url}/cal/", "tok", "evt-1")
-        self._assert_cert_error(cm.exception)
-        self.assertEqual(external.requests, [])
-
-    def test_cross_user_restore_fetches_verified_and_puts_to_internal_radicale(self):
-        external = self._server("trusted", {("GET", "/cal/evt-1.ics"): (200, "text/calendar", EVENT_ICS)})
+    def test_cross_user_restore_puts_to_internal_radicale(self):
         internal = self._server("internal", {("PUT", "/testuser/persoenlich/evt-1.ics"): (201, "text/plain", "")})
         sync_worker.LOCAL_CALDAV_URL = internal.url
 
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE cross_user_deletions (id INTEGER PRIMARY KEY, owner_user_id TEXT, uid TEXT, calendar_id TEXT, deleted_by TEXT)")
-        conn.execute("CREATE TABLE accounts (access_token TEXT, url TEXT)")
-        conn.execute("INSERT INTO cross_user_deletions (owner_user_id, uid, calendar_id, deleted_by) VALUES ('testuser', 'evt-1', 'acc::/testuser/persoenlich/', 'otheruser')")
-        conn.execute("INSERT INTO accounts VALUES (?, ?)", ("testuser-google-token", f"{external.url}/cal/"))
-        accounts = conn.execute("SELECT access_token, url FROM accounts").fetchall()
+        conn.execute("CREATE TABLE cross_user_deletions (id INTEGER PRIMARY KEY, owner_user_id TEXT, uid TEXT, href TEXT, ics TEXT)")
+        conn.execute("INSERT INTO cross_user_deletions (owner_user_id, uid, href, ics) VALUES (?, ?, ?, ?)",
+                     ("testuser", "evt-1", "/testuser/persoenlich/evt-1.ics", EVENT_ICS))
 
-        sync_worker.protect_cross_user_deletions("testuser", conn, accounts)
+        sync_worker.protect_cross_user_deletions("testuser", conn)
 
         puts = [r for r in internal.requests if r["method"] == "PUT"]
         self.assertEqual(len(puts), 1, "internal Radicale with self-signed cert must stay reachable")

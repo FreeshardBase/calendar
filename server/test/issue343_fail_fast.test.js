@@ -348,25 +348,32 @@ test.describe('Issue #343 — fail-fast startup and error propagation', () => {
     await withDav(() => ({ status: 204 }), async (davUrl, methods) => {
       const session = () => ({ userId: 'testuser', accounts: [basicAccount('internal-caldav', davUrl)] });
       await withStub(Db, 'getSharedCalendarsForUser', async () => [{ calendar_id: calendarId, role: 'WRITE', status: 'ACCEPTED', read_write: 1 }], () =>
-        withStub(Db, 'recordCrossUserDeletion', dbFailure, () =>
-          withApp((app) => app.use('/api/events', eventsRouter), async (base) => {
-            const res = await json('DELETE', `${base}/api/events/issue343`, { calendarId, href: '/testowner/cal/issue343.ics' });
-            assert.equal(res.status, 500, `expected an error, got ${res.status} ${await res.text()}`);
-          }, session)));
-      assert.deepEqual(methods, [], 'the owner\'s event must not be deleted without its protection record');
+        withStub(Db, 'hasExternalAccounts', async () => true, () =>
+          withStub(Db, 'recordCrossUserDeletion', dbFailure, () =>
+            withApp((app) => app.use('/api/events', eventsRouter), async (base) => {
+              const res = await json('DELETE', `${base}/api/events/issue343`, { calendarId, href: '/testowner/cal/issue343.ics' });
+              assert.equal(res.status, 500, `expected an error, got ${res.status} ${await res.text()}`);
+            }, session))));
+      assert.deepEqual(methods, ['GET'], 'the owner\'s event must not be deleted without its protection record');
     });
   });
 
   test('a sharee delete that fails on the server withdraws its cross-user deletion record', async () => {
     await Db.ready;
     const calendarId = 'internal-caldav::/testowner-del/cal/';
-    await withDav(() => ({ status: 500, body: 'Internal Server Error' }), async (davUrl) => {
+    // The event is read (and recorded), then the DELETE itself fails.
+    const dav = (req) => (req.method === 'GET'
+      ? { status: 200, body: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' }
+      : { status: 500, body: 'Internal Server Error' });
+    await withDav(dav, async (davUrl, methods) => {
       const session = () => ({ userId: 'testuser', accounts: [basicAccount('internal-caldav', davUrl)] });
       await withStub(Db, 'getSharedCalendarsForUser', async () => [{ calendar_id: calendarId, role: 'WRITE', status: 'ACCEPTED', read_write: 1 }], () =>
-        withApp((app) => app.use('/api/events', eventsRouter), async (base) => {
-          const res = await json('DELETE', `${base}/api/events/issue343-del`, { calendarId, href: '/testowner-del/cal/issue343-del.ics' });
-          assert.ok(res.status >= 500, `expected an error, got ${res.status}`);
-        }, session));
+        withStub(Db, 'hasExternalAccounts', async () => true, () =>
+          withApp((app) => app.use('/api/events', eventsRouter), async (base) => {
+            const res = await json('DELETE', `${base}/api/events/issue343-del`, { calendarId, href: '/testowner-del/cal/issue343-del.ics' });
+            assert.ok(res.status >= 500, `expected an error, got ${res.status}`);
+          }, session)));
+      assert.ok(methods.includes('DELETE'), 'the delete must have been attempted after recording');
     });
     assert.deepEqual(await Db.getCrossUserDeletions('testowner-del'), [],
       'an event that was not deleted must not be restored over by the sync worker');

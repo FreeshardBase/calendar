@@ -395,80 +395,58 @@ def discover_google_collections(google_url, access_token):
 
 import base64
 
-def fetch_external_event_ics(url, access_token, uid):
-    """Returns the event's ICS, or None if the external server no longer has it (404/410).
-    Any other failure (TLS, network, HTTP error) propagates."""
-    event_url = f"{url.rstrip('/')}/{uid}.ics"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "text/calendar, application/xml, */*"
-    }
-    req = urllib.request.Request(event_url, headers=headers, method="GET")
-    try:
-        with urllib.request.urlopen(req, context=ssl_context_for(event_url, LOCAL_CALDAV_URL)) as res:
-            return res.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        if e.code in (404, 410):
-            return None
-        raise
+class CrossUserRestoreError(Exception):
+    """An event deleted by a sharee could not be put back; the sync must not run (#319)."""
 
-def protect_cross_user_deletions(user_id, conn, accounts):
-    # #343: a record is only dropped once its event is restored (or gone upstream); a failed
-    # fetch or restore keeps it, so the next sync retries instead of silently losing the protection.
+
+def protect_cross_user_deletions(user_id, conn):
+    """Put events that a sharee deleted from this owner's calendars back into the local Radicale (#319).
+
+    The Basic-auth CalDAV and Google passes are two-way and would carry such a delete out into the
+    owner's external calendar, where no shard backup can restore it. This therefore runs before
+    any pass. The event is written back exactly as it was stored (href and ICS recorded by
+    DELETE /api/events), with If-None-Match: * so an item created there in the meantime wins.
+    A failed restore keeps its record and is raised, so no pass runs (#343).
+    """
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, uid, calendar_id, deleted_by FROM cross_user_deletions WHERE owner_user_id = ?",
+        "SELECT id, uid, href, ics FROM cross_user_deletions WHERE owner_user_id = ?",
         (user_id,)
     )
-    records = cursor.fetchall()
-    if not records:
-        return
-
-    for rec in records:
-        rec_id = rec["id"]
-        uid = rec["uid"]
-        calendar_id = rec["calendar_id"]
-        
-        parts = calendar_id.split('::')
-        calendar_href = parts[1] if len(parts) > 1 else parts[0]
-        segments = [s for s in calendar_href.split('/') if s]
-        calendar_slug = segments[1] if len(segments) > 1 else "persoenlich"
-
-        restore_failed = False
-        for acc in accounts:
-            access_token = acc["access_token"] if "access_token" in acc.keys() else None
-            url = acc["url"] if "url" in acc.keys() else None
-            if not access_token or not url:
-                continue
-
-            try:
-                restore_cross_user_deleted_event(user_id, url, access_token, uid, calendar_slug)
-            except urllib.error.URLError as err:
-                restore_failed = True
-                print(f"[Sync-Worker] Restoring cross-user deleted event {uid} failed, retrying on the next sync: {err}",
-                      file=sys.stderr)
-
-        if not restore_failed:
-            cursor.execute("DELETE FROM cross_user_deletions WHERE id = ?", (rec_id,))
-    conn.commit()
-
-
-def restore_cross_user_deleted_event(user_id, url, access_token, uid, calendar_slug):
-    event_ics = fetch_external_event_ics(url, access_token, uid)
-    if event_ics:
-        local_put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_slug}/{uid}.ics"
-        auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+    for rec in cursor.fetchall():
+        if not rec["href"].startswith("/"):
+            raise CrossUserRestoreError(f"restoring event {rec['uid']} failed: href {rec['href']!r} is not a path")
+        # The path may name the owner by username while the job runs under the UUID; Radicale's
+        # rights plugin grants the owner by the path's first segment, so log in as that.
+        path_owner = urllib.parse.unquote(rec["href"].split("/")[1])
+        auth_str = base64.b64encode(f"{path_owner}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+        put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}{rec['href']}"
         req = urllib.request.Request(
-            local_put_url,
-            data=event_ics.encode("utf-8"),
+            put_url,
+            data=rec["ics"].encode("utf-8"),
             headers={
                 "Content-Type": "text/calendar; charset=utf-8",
-                "Authorization": f"Basic {auth_str}"
+                "Authorization": f"Basic {auth_str}",
+                "Accept-Encoding": "identity",
+                "If-None-Match": "*",
             },
             method="PUT"
         )
-        with urllib.request.urlopen(req, context=ssl_context_for(local_put_url, LOCAL_CALDAV_URL)):
-            print(f"[Sync-Worker] Protected & restored cross-user deleted event {uid} for owner {user_id}")
+        try:
+            with urllib.request.urlopen(req, context=ssl_context_for(put_url, LOCAL_CALDAV_URL), timeout=30):
+                print(f"[Sync-Worker] Restored event {rec['uid']} deleted by a sharee of owner {user_id}")
+        except urllib.error.HTTPError as e:
+            if e.code == 412:
+                print(f"[Sync-Worker] Event {rec['uid']} exists again locally; keeping that version")
+            elif e.code in (404, 409):
+                # The calendar itself is gone, so there is nothing left to restore into or export from.
+                print(f"[Sync-Worker] Calendar of event {rec['uid']} no longer exists; dropping its restore")
+            else:
+                raise CrossUserRestoreError(f"restoring event {rec['uid']} failed: {e}") from e
+        except OSError as e:  # URLError, and TimeoutError while reading the response
+            raise CrossUserRestoreError(f"restoring event {rec['uid']} failed: {e}") from e
+        cursor.execute("DELETE FROM cross_user_deletions WHERE id = ?", (rec["id"],))
+        conn.commit()
 
 
 class SyncTimeout(Exception):
@@ -703,6 +681,19 @@ def sync_user(user_id):
     oauth2_accounts = [a for a in all_accounts if a["auth_type"] == "oauth2"]
     basic_accounts  = [a for a in all_accounts if a["auth_type"] == "basic"]
 
+    if all_accounts:
+        # Before any two-way pass: undo sharee deletes so none of them is exported (#319).
+        try:
+            protect_cross_user_deletions(user_id, conn)
+        except CrossUserRestoreError as restore_err:
+            conn.close()
+            return False, str(restore_err)
+    else:
+        # Only the CalDAV / Google pairs write outward (MS Graph only imports), so without them
+        # a sharee's delete cannot leave the shard and stands.
+        cursor.execute("DELETE FROM cross_user_deletions WHERE owner_user_id = ?", (user_id,))
+        conn.commit()
+
     if not oauth2_accounts and not basic_accounts and not msgraph_accounts_list:
         print(f"[Sync-Worker] No external accounts found for user {user_id}. Skipping.")
         conn.close()
@@ -729,9 +720,6 @@ def sync_user(user_id):
         return True, ""
 
     # --- OAuth2 / Google path ---
-
-    # Protect against cross-user deletions prior to vdirsyncer execution
-    protect_cross_user_deletions(user_id, conn, oauth2_accounts)
 
     status_dir = os.path.join(get_status_root(), user_id)
     os.makedirs(status_dir, exist_ok=True)

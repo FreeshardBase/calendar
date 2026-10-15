@@ -372,6 +372,8 @@ db.serialize(() => {
       calendar_id TEXT NOT NULL,
       owner_user_id TEXT NOT NULL,
       deleted_by TEXT NOT NULL,
+      href TEXT NOT NULL,
+      ics TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )
   `);
@@ -2352,17 +2354,33 @@ const Db = {
     });
   },
 
-  recordCrossUserDeletion(uid, calendarId, ownerUserId, deletedBy) {
+  // Whether the user's sync writes calendars out to an external account: the two-way CalDAV and
+  // Google pairs (linked_accounts). Microsoft 365 (msgraph_accounts) only imports.
+  hasExternalAccounts(userId) {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT EXISTS (SELECT 1 FROM linked_accounts WHERE user_id = ?) AS has_accounts',
+        [userId],
+        (err, row) => {
+          if (err) return reject(err);
+          resolve(row.has_accounts === 1);
+        }
+      );
+    });
+  },
+
+  // href and ics are the deleted resource as Radicale stored it; the sync worker puts it back (#319).
+  recordCrossUserDeletion(uid, calendarId, ownerUserId, deletedBy, href, ics) {
     return new Promise((resolve, reject) => {
       const id = require('node:crypto').randomUUID();
       const createdAt = Date.now();
       db.run(
-        `INSERT INTO cross_user_deletions (id, uid, calendar_id, owner_user_id, deleted_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [id, uid, calendarId, ownerUserId, deletedBy, createdAt],
+        `INSERT INTO cross_user_deletions (id, uid, calendar_id, owner_user_id, deleted_by, href, ics, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, uid, calendarId, ownerUserId, deletedBy, href, ics, createdAt],
         function(err) {
           if (err) return reject(err);
-          resolve({ id, uid, calendarId, ownerUserId, deletedBy, createdAt });
+          resolve({ id, uid, calendarId, ownerUserId, deletedBy, href, createdAt });
         }
       );
     });
@@ -2371,7 +2389,7 @@ const Db = {
   getCrossUserDeletions(ownerUserId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT id, uid, calendar_id, owner_user_id, deleted_by, created_at
+        `SELECT id, uid, calendar_id, owner_user_id, deleted_by, href, ics, created_at
          FROM cross_user_deletions WHERE owner_user_id = ?`,
         [ownerUserId],
         (err, rows) => {

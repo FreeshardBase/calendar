@@ -53,6 +53,7 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
             )
         """)
         conn.execute("CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)")
+        conn.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, owner_user_id TEXT, href TEXT, ics TEXT)")
         enc, iv = sync_worker.encrypt(EVIL_PASSWORD, sync_worker.KEY_BYTES)
         conn.execute(
             "INSERT INTO linked_accounts (id, user_id, account_type, url, username, password_encrypted, iv, auth_type)"

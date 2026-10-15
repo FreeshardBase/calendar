@@ -54,7 +54,8 @@ class TestIssue193GoogleCollectionMapping(unittest.TestCase):
         conn.execute("CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)")
         conn.execute("""
             CREATE TABLE cross_user_deletions (
-                id TEXT PRIMARY KEY, owner_user_id TEXT, uid TEXT, calendar_id TEXT, deleted_by TEXT
+                id TEXT PRIMARY KEY, owner_user_id TEXT, uid TEXT, calendar_id TEXT, deleted_by TEXT,
+                href TEXT, ics TEXT
             )
         """)
         # Same shape as server/db.js.

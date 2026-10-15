@@ -169,28 +169,25 @@ class CrossUserDeletionTest(unittest.TestCase):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("CREATE TABLE cross_user_deletions (id INTEGER PRIMARY KEY, owner_user_id TEXT, uid TEXT, "
-                          "calendar_id TEXT, deleted_by TEXT)")
-        self.conn.execute("CREATE TABLE accounts (access_token TEXT, url TEXT)")
-        self.conn.execute("INSERT INTO cross_user_deletions (owner_user_id, uid, calendar_id, deleted_by) "
-                          "VALUES ('testuser', 'evt-1', 'acc::/testuser/persoenlich/', 'otheruser')")
-        self.conn.execute("INSERT INTO accounts VALUES ('testuser-google-token', 'https://caldav.example.com/cal/')")
-        self.accounts = self.conn.execute("SELECT access_token, url FROM accounts").fetchall()
+                          "href TEXT, ics TEXT)")
+        self.conn.execute("INSERT INTO cross_user_deletions (owner_user_id, uid, href, ics) "
+                          "VALUES ('testuser', 'evt-1', '/testuser/persoenlich/evt-1.ics', ?)", (EVENT_ICS,))
 
     def tearDown(self):
         self.conn.close()
 
     def test_failed_restore_keeps_the_record_for_the_next_sync(self):
-        # The event is still upstream, but writing it back to the local Radicale fails.
-        with patch.object(sync_worker, "fetch_external_event_ics", return_value=EVENT_ICS), \
-             patch.object(sync_worker.urllib.request, "urlopen", side_effect=urllib.error.URLError("timed out")):
-            sync_worker.protect_cross_user_deletions("testuser", self.conn, self.accounts)
+        # Writing the event back to the local Radicale fails.
+        with patch.object(sync_worker.urllib.request, "urlopen", side_effect=urllib.error.URLError("timed out")), \
+             self.assertRaises(sync_worker.CrossUserRestoreError):
+            sync_worker.protect_cross_user_deletions("testuser", self.conn)
 
         remaining = self.conn.execute("SELECT COUNT(*) FROM cross_user_deletions").fetchone()[0]
         self.assertEqual(remaining, 1, "a deletion whose event was not restored must not be forgotten")
 
     def test_restored_record_is_removed(self):
-        with patch.object(sync_worker, "fetch_external_event_ics", return_value=None):
-            sync_worker.protect_cross_user_deletions("testuser", self.conn, self.accounts)
+        with patch.object(sync_worker.urllib.request, "urlopen", MagicMock()):
+            sync_worker.protect_cross_user_deletions("testuser", self.conn)
 
         remaining = self.conn.execute("SELECT COUNT(*) FROM cross_user_deletions").fetchone()[0]
         self.assertEqual(remaining, 0)
