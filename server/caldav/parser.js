@@ -50,6 +50,29 @@ function firstText(node, localName) {
   return els.length > 0 ? (els[0].textContent || '').trim() : null;
 }
 
+/**
+ * Parse a PROPFIND/REPORT body that must be a complete DAV multistatus document.
+ * Throws on anything else — a proxy error page, a JSON error body, a truncated
+ * 207 — so the caller reports the calendar as failed instead of empty (#65).
+ */
+function parseMultistatus(xml, what) {
+  const problems = [];
+  const parser = new DOMParser({
+    errorHandler: {
+      warning: () => {},
+      error: (msg) => problems.push(msg),
+      fatalError: (msg) => problems.push(msg)
+    }
+  });
+  const doc = parser.parseFromString(String(xml ?? ''), 'text/xml');
+  const root = doc && doc.documentElement;
+  if (problems.length > 0 || !root || root.localName !== 'multistatus' || root.namespaceURI !== 'DAV:') {
+    const reason = problems.length > 0 ? 'malformed XML' : `root element is <${root ? root.nodeName : 'none'}>`;
+    throw new Error(`${what}: server did not answer with a complete DAV multistatus (${reason})`);
+  }
+  return doc;
+}
+
 // ── Calendar List Parser ──────────────────────────────────────────────────────
 
 /**
@@ -60,13 +83,7 @@ function firstText(node, localName) {
  * @param {string} baseUrl   - Base URL of the CalDAV server (for resolving relative hrefs)
  */
 function parseCalendarList(xml, accountId, baseUrl, username) {
-  let doc;
-  try {
-    doc = xmlParser.parseFromString(xml, 'text/xml');
-  } catch (e) {
-    console.error('[parser] XML parse error:', e.message);
-    return [];
-  }
+  const doc = parseMultistatus(xml, 'Calendar list');
 
   const responses = getByLocalName(doc, 'response');
   const calendars = [];
@@ -203,20 +220,16 @@ function parseCalendarList(xml, accountId, baseUrl, username) {
  *   could not be parsed; such resources are left out of the returned list.
  */
 function parseEventList(xml, calendarId, accountId, calendarUrl, rangeStart, rangeEnd, parseErrors = null) {
-  let doc;
-  try {
-    doc = xmlParser.parseFromString(xml, 'text/xml');
-  } catch (e) {
-    console.error('[parser] XML parse error:', e.message);
-    return [];
-  }
+  const doc = parseMultistatus(xml, 'Event list');
 
   const responses = getByLocalName(doc, 'response');
   const events = [];
 
   for (const response of responses) {
+    // Any resource carrying calendar-data is an event, whatever its href looks
+    // like (servers are free to name resources without a lowercase ".ics").
     const href = firstText(response, 'href');
-    if (!href || !href.endsWith('.ics')) continue;
+    if (!href) continue;
 
     // Find the 200-OK propstat
     const propstats = getByLocalName(response, 'propstat');

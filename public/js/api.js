@@ -95,25 +95,30 @@ export const CalendarsAPI = {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 export const EventsAPI = {
+  // Resolves to { events, errors }: `errors` names every calendar or account
+  // the server could not read, so its events are missing from `events` (#65).
   // onUnparseable({ count, resources }) is called when the server could not
   // read some stored events and left them out of the list (#128).
   list: async (start, end, onUnparseable) => {
     try {
-      const events = await request('GET', `/api/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, undefined, (res) => {
+      const { events, errors } = await request('GET', `/api/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, undefined, (res) => {
         const header = res.headers.get('x-caldav-unparseable');
         if (header && onUnparseable) onUnparseable(JSON.parse(decodeURIComponent(header)));
       });
-      if (typeof window !== 'undefined' && window.OfflineCache && Array.isArray(events)) {
+      if (!Array.isArray(events) || !Array.isArray(errors)) {
+        throw new Error('Unerwartete Antwort von /api/events');
+      }
+      if (typeof window !== 'undefined' && window.OfflineCache && errors.length === 0) {
         events.forEach(ev => {
           if (ev.calendarId) window.OfflineCache.saveEvents(ev.calendarId, events);
         });
         window.OfflineCache.saveEvents('all', events);
       }
-      return events;
+      return { events, errors };
     } catch (err) {
       if (typeof window !== 'undefined' && window.OfflineCache && window.OfflineCache.isOffline()) {
         const cached = window.OfflineCache.getEvents('all');
-        if (cached && cached.length > 0) return cached;
+        if (cached && cached.length > 0) return { events: cached, errors: [] };
       }
       throw err;
     }

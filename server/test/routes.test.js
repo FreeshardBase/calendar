@@ -72,8 +72,9 @@ test('HTTP Routes Integration Suite', async (t) => {
     });
     assert.strictEqual(res.status, 200);
 
-    const events = await res.json();
-    assert.ok(Array.isArray(events));
+    const body = await res.json();
+    assert.ok(Array.isArray(body.events));
+    assert.ok(Array.isArray(body.errors));
   });
 
   await t.test('POST /api/accounts with base domain should run discovery and add account', async () => {

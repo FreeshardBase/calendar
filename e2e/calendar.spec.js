@@ -247,7 +247,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   async function seriesInstances(page, title) {
     const res = await page.request.get('/api/events?start=2036-08-01T00:00:00Z&end=2036-10-01T00:00:00Z');
     expect(res.ok()).toBeTruthy();
-    return (await res.json()).filter(e => e.title === title).sort((a, b) => a.start.localeCompare(b.start));
+    return (await res.json()).events.filter(e => e.title === title).sort((a, b) => a.start.localeCompare(b.start));
   }
 
   async function deleteSeries(page, title) {
@@ -1086,7 +1086,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     ];
 
     test.beforeEach(async ({ page }) => {
-      await page.route('**/api/events?**', route => route.fulfill({ json: fixedEvents }));
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events: fixedEvents, errors: [] } }));
       await page.goto('/?date=2037-05-14');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await expect(page.locator('.month-grid .event-chip', { hasText: 'Standup' })).toBeVisible({ timeout: 10000 });
@@ -1631,6 +1631,49 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
     });
 
+    test('Issue #65 — a calendar that could not be loaded gets a warning badge and a toast, not an empty week', async ({ page }) => {
+      const okId = 'internal-caldav::/testuser/issue65-ok/';
+      const badId = 'internal-caldav::/testuser/issue65-bad/';
+      const calendar = (id, name) => ({
+        id, accountId: 'internal-caldav', name, color: '#3366cc', href: id.split('::')[1],
+        isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false
+      });
+      await page.route('**/api/calendars', route => route.fulfill({
+        json: { calendars: [calendar(okId, 'E2E 65 Working'), calendar(badId, 'E2E 65 Broken')], errors: [] }
+      }));
+      let failing = true;
+      await page.route('**/api/events?*', route => route.fulfill({ json: {
+        events: [{ uid: 'e2e-issue65-a', title: 'E2E 65 Visible', calendarId: okId, accountId: 'internal-caldav',
+          start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T10:00:00+02:00', allDay: false }],
+        errors: failing
+          ? [{ accountId: 'internal-caldav', calendarId: badId, status: 502, error: 'Der Kalenderserver ist gerade nicht erreichbar.' }]
+          : []
+      } }));
+
+      await page.goto('/?date=2037-05-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      // The calendar that did load still shows its event.
+      await expect(page.locator('.month-grid .event-chip', { hasText: 'E2E 65 Visible' })).toBeVisible({ timeout: 10000 });
+      // The broken one is badged in the sidebar, the working one is not.
+      const badItem = page.locator(`#calendar-list .calendar-item[data-cal-id="${badId}"]`);
+      const okItem = page.locator(`#calendar-list .calendar-item[data-cal-id="${okId}"]`);
+      await expect(badItem.locator('.calendar-load-error')).toBeVisible({ timeout: 10000 });
+      await expect(badItem.locator('.calendar-load-error')).toHaveAttribute('title', 'Der Kalenderserver ist gerade nicht erreichbar.');
+      await expect(badItem).toHaveAttribute('aria-label', /E2E 65 Broken \(Termine konnten nicht geladen werden/);
+      await expect(okItem).toBeVisible();
+      await expect(okItem.locator('.calendar-load-error')).toHaveCount(0);
+      await expect(page.locator('#toast-container .toast.error', {
+        hasText: 'Termine konnten nicht vollständig geladen werden (E2E 65 Broken)'
+      })).toBeVisible({ timeout: 10000 });
+
+      // Once the calendar answers again, the badge is gone.
+      failing = false;
+      await page.click('#next-btn');
+      await expect(badItem).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-load-error')).toHaveCount(0, { timeout: 10000 });
+    });
+
     test('Issue #170 — revisiting a month is served from the cache after a delta-sync check; a change made elsewhere forces a refetch', async ({ page }) => {
       const listRequests = [];
       const deltaRequests = [];
@@ -1726,13 +1769,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         const start = new Date(params.get('start'));
         const end = new Date(params.get('end'));
         if (firstStart === null) firstStart = params.get('start');
-        if (params.get('start') !== firstStart) return route.fulfill({ json: [] });
+        if (params.get('start') !== firstStart) return route.fulfill({ json: { events: [], errors: [] } });
         const evStart = new Date((start.getTime() + end.getTime()) / 2);
-        await route.fulfill({ json: [{
+        await route.fulfill({ json: { errors: [], events: [{
           uid: 'e2e-issue170-unknown', title: 'E2E Issue170 Unknown Calendar',
           calendarId: 'internal-caldav::/testuser/issue170-unknown/', accountId: 'internal-caldav',
           start: evStart.toISOString(), end: new Date(evStart.getTime() + 3600 * 1000).toISOString(), allDay: false
-        }] });
+        }] } });
       });
       const isList = r => new URL(r.url()).pathname === '/api/events' && r.request().method() === 'GET';
       const firstList = page.waitForResponse(isList);
@@ -1784,8 +1827,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Simulate a payload that bypassed server-side filtering (e.g. an older cached response).
     await page.route('**/api/events?**', async (route) => {
       const response = await route.fetch();
-      const events = await response.json();
-      for (const ev of events) {
+      const body = await response.json();
+      for (const ev of body.events) {
         if (ev.title === title) {
           ev.attachments = [
             { url: 'javascript:document.title="pwned"', name: 'Agenda.pdf' },
@@ -1794,7 +1837,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
           ];
         }
       }
-      await route.fulfill({ response, json: events });
+      await route.fulfill({ response, json: body });
     });
     await page.reload();
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
@@ -2467,7 +2510,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     } finally {
       const list = await page.request.get(`/api/events?${range}&calendarId=${encodeURIComponent(calendarId)}`);
       expect(list.ok()).toBeTruthy();
-      for (const ev of (await list.json()).filter(e => e.title.startsWith('E2E 345'))) {
+      for (const ev of (await list.json()).events.filter(e => e.title.startsWith('E2E 345'))) {
         const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
           headers: SAME_ORIGIN,
           data: { calendarId, href: ev.href, etag: ev.etag }
