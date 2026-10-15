@@ -4,6 +4,8 @@ const { webServer } = require('../playwright.config.js');
 
 // The webServer's own database (#211), never the developer's webcalendar.db.
 const E2E_DATABASE_PATH = webServer.env.DATABASE_PATH;
+// Env auth signs the browser in as this run's fixture user (#217), whose collections live under /<E2E_USER>/.
+const E2E_USER = webServer.env.CALDAV_USERNAME;
 
 function runSql(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -919,8 +921,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
             uid: 'e2e-issue182-task',
             title: taskTitle,
             status: 'NEEDS-ACTION',
-            calendarId: 'internal-caldav::/test/personal/',
-            href: '/test/personal/e2e-issue182-task.ics',
+            calendarId: `internal-caldav::/${E2E_USER}/personal/`,
+            href: `/${E2E_USER}/personal/e2e-issue182-task.ics`,
             etag: '"1"',
           }]),
         });
@@ -1038,7 +1040,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Fixed events so the counts in the accessible names are known; page.route
     // needs the service worker off.
     test.use({ serviceWorkers: 'block' });
-    const calendarId = 'internal-caldav::/test/personal/';
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
     const fixedEvents = [
       { uid: 'e2e-issue183-a', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
       { uid: 'e2e-issue183-b', title: 'Review', calendarId, start: '2037-05-14T14:00:00+02:00', end: '2037-05-14T15:00:00+02:00', allDay: false },
@@ -1931,8 +1933,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
   test('Issue #136 — an account with unreadable credentials is shown in settings and can be deleted from the UI', async ({ page }) => {
     const { randomUUID } = require('crypto');
-    // Env auth signs the browser in as CALDAV_USERNAME || 'test'; rows go into the webServer's DATABASE_PATH.
-    const userId = process.env.CALDAV_USERNAME || 'test';
+    // Rows go into the webServer's DATABASE_PATH, owned by the user env auth signs the browser in as.
+    const userId = E2E_USER;
     const brokenId = randomUUID();
     const brokenName = `Nextcloud kaputt ${Date.now()}`;
 
