@@ -7,6 +7,9 @@ from contextlib import closing
 import hmac
 
 class Auth(BaseAuth):
+    # Implements the BaseAuth._login(login, password) API of Radicale 3.4.1, the version pinned
+    # in requirements.txt and setup.py. Newer Radicale passes an AuthContext via _login_ext;
+    # re-check this override before bumping the pin (issue #103).
     def _login(self, login, password):
         # 1. Resolve username-to-UUID mapping in SQLite database
         db_path = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
