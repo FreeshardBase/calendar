@@ -110,9 +110,9 @@ test('Issue #134 — Comprehensive User Deletion Cleanup & Radicale ASP Revocati
 
   // Cross user deletions
   await runQuery(
-    `INSERT OR REPLACE INTO cross_user_deletions (id, uid, calendar_id, owner_user_id, deleted_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    ['cross-134', 'uid-134', 'cal-134', userId, 'other-user', Date.now()]
+    `INSERT OR REPLACE INTO cross_user_deletions (id, uid, calendar_id, owner_user_id, deleted_by, href, ics, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['cross-134', 'uid-134', 'cal-134', userId, 'other-user', '/cal-134/uid-134.ics', 'BEGIN:VCALENDAR', Date.now()]
   );
 
   // Color overrides

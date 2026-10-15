@@ -74,6 +74,7 @@ test.describe('Issue #99 — sync-worker/msgraph_worker.py Container Packaging &
         'cursor = conn.cursor()',
         'cursor.execute("CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT, tenant_id TEXT, client_id TEXT, account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT, target_calendar_id TEXT, updated_at INTEGER)")',
         'cursor.execute("CREATE TABLE linked_accounts (id TEXT PRIMARY KEY, user_id TEXT, url TEXT, username TEXT, password_encrypted TEXT, iv TEXT, auth_type TEXT, access_token TEXT, expires_at INTEGER)")',
+        'cursor.execute("CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, uid TEXT, owner_user_id TEXT, href TEXT, ics TEXT)")',
         "cursor.execute(\"INSERT INTO msgraph_accounts VALUES ('acc1', 'u99', 'common', 'cid', 'test@example.com', 'tok', 'ref', 9999999999999, NULL, 'persoenlich', 0)\")",
         'conn.commit()',
         'conn.close()',

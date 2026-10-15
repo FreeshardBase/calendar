@@ -512,10 +512,12 @@ router.delete('/:uid', async (req, res) => {
     // An href that names no calendar (undecodable, or above calendar level)
     // cannot be authorized, so it is refused rather than left unchecked (#232).
     if (!derivedCalId) return res.status(400).json({ error: 'Invalid href' });
+    // The calendar the href points into is the one whose event is deleted.
+    let targetAccess = access;
     if (derivedCalId !== calendarId) {
-      const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
-      if (!hrefAccess.allowed) {
-        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      targetAccess = await checkCalendarAccess(req, derivedCalId, 'write');
+      if (!targetAccess.allowed) {
+        return res.status(targetAccess.status || 403).json({ error: targetAccess.reason });
       }
     }
 
@@ -537,17 +539,27 @@ router.delete('/:uid', async (req, res) => {
 
     const ifMatch  = etag ? formatIfMatch(etag) : null;
 
-    // A sharee deleting the owner's event: the record lets the sync worker restore it upstream.
-    // It is written first, so a failure aborts the delete instead of losing the protection (#343).
-    // If the delete itself then fails, the record is withdrawn again, so the worker never restores
-    // an upstream copy over an event that was not deleted.
-    let crossUserDeletion = null;
-    const calParts = calendarId.split('::');
-    if (calParts[0] === 'internal-caldav' && calParts[1]) {
-      const calSegments = calParts[1].split('/').filter(Boolean);
-      const ownerUserId = calSegments[0];
-      if (ownerUserId && req.session && req.session.userId && req.session.userId !== ownerUserId) {
-        crossUserDeletion = await Db.recordCrossUserDeletion(req.params.uid, calendarId, ownerUserId, req.session.userId);
+    // A sharee deleting the owner's event: the record lets the sync worker put it back into
+    // Radicale before the owner's next sync, which would otherwise carry the delete out into the
+    // owner's external calendar (#319). It is written first, so a failure aborts the delete instead
+    // of losing the protection (#343). If the delete itself then fails, the record is withdrawn
+    // again, so the worker never writes over an event that was not deleted.
+    // Only owner ids with a linked external account get a record: the owner's sync jobs run
+    // under those ids, and without such an account nothing can carry the delete out of the shard.
+    const crossUserDeletions = [];
+    if (!targetAccess.isOwner) {
+      const eventPath = new URL(eventUrl).pathname;
+      if (extractCalendarIdFromHref(accountId, eventPath) !== derivedCalId) {
+        return res.status(400).json({ error: 'Invalid href' });
+      }
+      const ownerSegment = derivedCalId.split('::')[1].split('/').filter(Boolean)[0];
+      const ownerIds = new Set([ownerSegment, await Db.getUserIdByUsername(ownerSegment)].filter(Boolean));
+      let stored = null;
+      for (const ownerId of ownerIds) {
+        if (!(await Db.hasExternalAccounts(ownerId))) continue;
+        stored = stored || await client.get(eventUrl);
+        crossUserDeletions.push(await Db.recordCrossUserDeletion(
+          req.params.uid, derivedCalId, ownerId, req.session.userId, eventPath, stored.ics));
       }
     }
 
@@ -562,7 +574,7 @@ router.delete('/:uid', async (req, res) => {
         }
       }
     } catch (delErr) {
-      if (crossUserDeletion) await Db.clearCrossUserDeletion(crossUserDeletion.id);
+      for (const record of crossUserDeletions) await Db.clearCrossUserDeletion(record.id);
       throw delErr;
     }
 
