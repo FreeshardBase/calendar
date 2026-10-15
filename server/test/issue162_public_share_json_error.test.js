@@ -8,8 +8,12 @@ require('dotenv').config();
 
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const Db = require('../db');
-const { app, server } = require('../index');
+const { server } = require('../index');
+
+// The one answer an anonymous subscriber gets when the export fails, whatever the cause.
+const PUBLIC_SHARE_ERROR = 'Der freigegebene Kalender kann gerade nicht abgerufen werden. Bitte versuche es später erneut.';
 
 describe('Issue #162 — Public Share Route JSON & Clean Error Handling', () => {
   after(() => {
@@ -20,53 +24,90 @@ describe('Issue #162 — Public Share Route JSON & Clean Error Handling', () => 
 
   const baseUrl = `http://localhost:${process.env.PORT}`;
 
-  test('GET /api/public/calendars/share/invalidtoken.ics returns JSON error payload with status 404', async () => {
+  async function addOAuthShare() {
+    // Unique username so the file can be re-run against an existing test DB.
+    const acc = await Db.addAccount('testuser', {
+      label: 'Broken OAuth Account',
+      url: 'https://apidata.googleusercontent.com/caldav/v2/test/user',
+      username: `oauthuser-${crypto.randomUUID()}`,
+      password: 'dummy_refresh_token',
+      authType: 'oauth2'
+    });
+    await new Promise((resolve, reject) => {
+      Db.db.run("UPDATE linked_accounts SET auth_type = 'oauth2', expires_at = 0 WHERE id = ?", [acc.id], (err) => err ? reject(err) : resolve());
+    });
+    const share = await Db.addCalendarShare(`${acc.id}::/caldav/v2/test/user/events/`, 'Broken OAuth Share');
+    assert.ok(share.token);
+    return share;
+  }
+
+  async function assertFixedError(res, leaks) {
+    assert.strictEqual(res.status, 500);
+    const contentType = res.headers.get('content-type') || '';
+    assert.ok(contentType.includes('application/json'), `Expected application/json, got ${contentType}`);
+    const raw = await res.text();
+    for (const fragment of leaks) {
+      assert.strictEqual(raw.includes(fragment), false, `Response must not contain ${JSON.stringify(fragment)}: ${raw}`);
+    }
+    assert.deepStrictEqual(JSON.parse(raw), { error: PUBLIC_SHARE_ERROR });
+  }
+
+  test('GET /api/public/calendars/share/invalidtoken.ics returns a German JSON error with status 404', async () => {
     const res = await fetch(`${baseUrl}/api/public/calendars/share/invalidtoken99999.ics`);
     assert.strictEqual(res.status, 404);
     const contentType = res.headers.get('content-type') || '';
     assert.ok(contentType.includes('application/json'), `Expected application/json, got ${contentType}`);
-
-    const data = await res.json();
-    assert.ok(data && typeof data === 'object', 'Response body must be JSON object');
-    assert.ok(data.error, 'JSON payload must contain "error" property');
-    assert.strictEqual(typeof data.error, 'string');
-    assert.strictEqual(data.error.includes('Calendar share not found'), false, 'Error message must not be raw English plain text');
+    assert.deepStrictEqual(await res.json(), { error: 'Kalenderfreigabe nicht gefunden oder Token ungültig.' });
   });
 
-  test('Public share 500 error handler returns JSON error without echoing internal exception messages', async () => {
-    // Add an oauth2 account with no GOOGLE_CLIENT_ID to throw immediately in getClientForAccount
-    const acc = await Db.addAccount('testuser', {
-      label: 'Broken OAuth Account',
-      url: 'https://apidata.googleusercontent.com/caldav/v2/test/user',
-      username: 'oauthuser',
-      password: 'dummy_refresh_token',
-      authType: 'oauth2'
-    });
-
-    await new Promise((resolve, reject) => {
-      Db.db.run("UPDATE linked_accounts SET auth_type = 'oauth2', expires_at = 0 WHERE id = ?", [acc.id], (err) => err ? reject(err) : resolve());
-    });
-
-    const share = await Db.addCalendarShare(`${acc.id}::/caldav/v2/test/user/events/`, 'Broken OAuth Share');
-    assert.ok(share.token);
-
-    // Save current env and temporarily clear GOOGLE_CLIENT_ID to force immediate local throw
+  test('missing OAuth configuration is answered with the fixed German error, not the config detail', async () => {
+    const share = await addOAuthShare();
     const origId = process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_ID;
-
     try {
       const res = await fetch(`${baseUrl}/api/public/calendars/share/${share.token}.ics`);
-      assert.strictEqual(res.status, 500);
-      const contentType = res.headers.get('content-type') || '';
-      assert.ok(contentType.includes('application/json'), `Expected application/json, got ${contentType}`);
-
-      const data = await res.json();
-      assert.ok(data && typeof data === 'object');
-      assert.ok(data.error);
-      assert.strictEqual(data.error.includes('Error generating calendar export:'), false, 'Error message must not echo internal exception strings');
-      assert.strictEqual(data.error.includes('GOOGLE_CLIENT_ID'), false, 'Error message must not leak internal configuration variable names');
+      await assertFixedError(res, ['GOOGLE_CLIENT_ID', 'OAuth', 'nicht eingerichtet']);
     } finally {
       if (origId !== undefined) process.env.GOOGLE_CLIENT_ID = origId;
+    }
+  });
+
+  test('a failed Google token refresh does not leak the upstream body to the anonymous caller', async () => {
+    const share = await addOAuthShare();
+    const origFetch = global.fetch;
+    const origId = process.env.GOOGLE_CLIENT_ID;
+    const origSecret = process.env.GOOGLE_CLIENT_SECRET;
+    process.env.GOOGLE_CLIENT_ID = 'test-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+    global.fetch = async (url, opts) => {
+      if (String(url).startsWith('https://oauth2.googleapis.com/token')) {
+        return new Response(
+          JSON.stringify({ error: 'invalid_grant', error_description: 'UPSTREAM-SECRET-BODY host=internal-caldav:5232' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return origFetch(url, opts);
+    };
+    try {
+      const res = await origFetch(`${baseUrl}/api/public/calendars/share/${share.token}.ics`);
+      await assertFixedError(res, ['UPSTREAM-SECRET-BODY', 'internal-caldav', 'token refresh', 'verknüpfe']);
+    } finally {
+      global.fetch = origFetch;
+      if (origId === undefined) delete process.env.GOOGLE_CLIENT_ID; else process.env.GOOGLE_CLIENT_ID = origId;
+      if (origSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET; else process.env.GOOGLE_CLIENT_SECRET = origSecret;
+    }
+  });
+
+  test('an internal database error is answered with the fixed German error', async () => {
+    const orig = Db.getCalendarShareByToken;
+    Db.getCalendarShareByToken = async () => {
+      throw new Error('SQLITE_ERROR: no such table: calendar_shares');
+    };
+    try {
+      const res = await fetch(`${baseUrl}/api/public/calendars/share/sometoken12345.ics`);
+      await assertFixedError(res, ['SQLITE', 'calendar_shares']);
+    } finally {
+      Db.getCalendarShareByToken = orig;
     }
   });
 });
