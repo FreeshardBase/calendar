@@ -1923,6 +1923,60 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#settings-drawer')).toHaveClass(/hidden/);
   });
 
+  test.describe('Issue #106 — the status bar says loading, free, failed or a count in every view', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    test('every view states its own empty range, and the loading state precedes it', async ({ page }) => {
+      let releaseEvents;
+      const eventsHeld = new Promise(resolve => { releaseEvents = resolve; });
+      await page.route('**/api/events?*', async route => {
+        await eventsHeld;
+        await route.fulfill({ json: { events: [], errors: [] } });
+      });
+      await page.route('**/api/tasks', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ json: [] });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const bar = page.locator('#status-bar');
+      await expect(bar).toHaveText('Lade Termine…', { timeout: 10000 });
+      releaseEvents();
+      await expect(bar).toHaveText('Keine Termine in diesem Monat.', { timeout: 10000 });
+
+      const expected = [
+        ['week', 'Keine Termine in dieser Woche.'],
+        ['workweek', 'Keine Termine in dieser Arbeitswoche.'],
+        ['day', 'Keine Termine an diesem Tag.'],
+        ['agenda', 'Keine Termine im gewählten Zeitraum.'],
+        ['kanban', 'Keine Aufgaben vorhanden.'],
+        ['month', 'Keine Termine in diesem Monat.']
+      ];
+      for (const [view, text] of expected) {
+        // Blank the bar first: a view that never writes it must not pass on the previous view's text.
+        await bar.evaluate(el => { el.textContent = ''; });
+        await page.click(`#view-${view}`);
+        await expect(bar, `${view} view`).toHaveText(text, { timeout: 10000 });
+      }
+    });
+
+    test('a failed load keeps the error in the bar, also after switching views', async ({ page }) => {
+      await page.route('**/api/events?*', route =>
+        route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) }));
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const bar = page.locator('#status-bar');
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Fehler beim Laden der Termine' })).toBeVisible({ timeout: 10000 });
+      await expect(bar).toHaveText(/^Fehler: Fehler beim Laden der Termine: .*Datenbankfehler/);
+
+      await bar.evaluate(el => { el.textContent = ''; });
+      await page.click('#view-day');
+      await expect(bar).toHaveText(/Fehler beim Laden der Termine: .*Datenbankfehler/, { timeout: 10000 });
+      await expect(bar).not.toHaveText(/Keine Termine/);
+    });
+  });
+
   test.describe('Issue #343 — load failures are shown, not swallowed', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });

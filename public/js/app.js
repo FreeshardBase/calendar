@@ -282,15 +282,17 @@ async function loadEvents() {
     // A partial result is not cached: the next load must ask the failed calendars again.
     if (errors.length === 0) cacheEvents(cacheKey, events);
     const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
-    store.set({ events: [...events, ...activeCurrentSubs] });
+    store.set({ events: [...events, ...activeCurrentSubs], eventsError: null });
     renderCalendarView();
     checkAndTriggerAlarms();
   } catch (err) {
     if (seq !== loadEventsSeq) return;
+    // With nothing cached the view is empty because of the failure, not because
+    // the range is free; the status bar must say so and keep saying it (#106).
+    store.set({ eventsError: cached ? null : err.message });
     renderCalendarView();
     if (!cached) {
       showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
-      setStatus('');
     }
   } finally {
     if (seq === loadEventsSeq) {
@@ -580,6 +582,30 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+const EMPTY_RANGE_TEXT = {
+  month:    'Keine Termine in diesem Monat.',
+  week:     'Keine Termine in dieser Woche.',
+  workweek: 'Keine Termine in dieser Arbeitswoche.',
+  day:      'Keine Termine an diesem Tag.',
+  agenda:   'Keine Termine im gewählten Zeitraum.'
+};
+
+// The status bar must say which state the view is in — failed, partial, free
+// or a count — never a bare "0" that reads like a failed load (#106).
+function eventStatusText(view, count, query) {
+  const eventsError = store.get('eventsError');
+  if (eventsError) return `Fehler beim Laden der Termine: ${eventsError}`;
+  if (query) return `${count} Ergebnis${count !== 1 ? 'se' : ''} für „${query}“`;
+  const partial = (store.get('eventErrors') || []).length > 0;
+  if (count === 0) {
+    if (partial) return 'Keine Termine geladen – nicht alle Kalender konnten gelesen werden.';
+    if (!EMPTY_RANGE_TEXT[view]) throw new Error(`No empty-state text for view "${view}"`);
+    return EMPTY_RANGE_TEXT[view];
+  }
+  const text = `${count} Termin${count !== 1 ? 'e' : ''}`;
+  return partial ? `${text} – nicht alle Kalender konnten gelesen werden.` : text;
+}
+
 function renderCalendarView() {
   const container  = $('calendar-container');
   const view       = store.get('view');
@@ -603,6 +629,8 @@ function renderCalendarView() {
       announce('Fehler beim Laden der Aufgaben');
     } else if (searchQuery && searchQuery.trim() && count === 0) {
       announce(`0 Ergebnisse für „${searchQuery.trim()}“`);
+    } else if (count === 0) {
+      announce('Keine Aufgaben vorhanden.');
     } else {
       announce(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
     }
@@ -628,19 +656,14 @@ function renderCalendarView() {
     }
   });
 
-  if (searchQuery && searchQuery.trim() && events.length === 0) {
+  const query = searchQuery ? searchQuery.trim() : '';
+  if (query && events.length === 0 && !store.get('eventsError')) {
     const banner = document.createElement('div');
     banner.className = 'search-empty-banner';
-    banner.innerHTML = `<span class="search-empty-icon">🔍</span> Keine Termine für „${escapeHtml(searchQuery.trim())}“ gefunden.`;
+    banner.innerHTML = `<span class="search-empty-icon">🔍</span> Keine Termine für „${escapeHtml(query)}“ gefunden.`;
     container.insertBefore(banner, container.firstChild);
-    announce(`0 Ergebnisse für „${searchQuery.trim()}“`);
-  } else if (searchQuery && searchQuery.trim()) {
-    const count = events.length;
-    announce(`${count} Ergebnis${count !== 1 ? 'se' : ''} für „${searchQuery.trim()}“`);
-  } else {
-    const count = events.length;
-    announce(`${count} Termin${count !== 1 ? 'e' : ''}`);
   }
+  announce(eventStatusText(view, events.length, query));
 
   // Mini calendar
   renderMiniCalendar(
