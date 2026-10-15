@@ -45,6 +45,37 @@ describe('Issue #164 — SPA catch-all does not answer unmatched /api paths with
     assert.strictEqual(data.error, 'Not Found');
   });
 
+  // express.static percent-decodes the path, so these resolve into public/ and would be answered with
+  // index.html (301 to a trailing slash, then 200 text/html) before any /api router sees them.
+  for (const apiPath of [
+    '/api/nope/..%2F..',
+    '/api/nope/..%2F../',
+    '/API/nope/..%2F..',
+    '/./api/nope/..%2F..',
+    '//api/nonexistent',
+  ]) {
+    test(`GET ${apiPath} returns 404 JSON, not the SPA page`, async () => {
+      const res = await fetch(`${baseUrl}${apiPath}`, { redirect: 'manual' });
+      assert.strictEqual(res.status, 404, `Expected status 404, got ${res.status}`);
+      const contentType = res.headers.get('content-type') || '';
+      assert.ok(contentType.includes('application/json'), `Expected application/json content-type, got ${contentType}`);
+      assert.strictEqual((await res.json()).error, 'Not Found');
+    });
+  }
+
+  test('GET /api/resources/..%2F.. (built by ResourcesAPI.get("../..")) is not answered with the SPA page', async () => {
+    const res = await fetch(`${baseUrl}/api/resources/..%2F..`, { redirect: 'manual' });
+    assert.ok(res.status >= 400, `Expected an error status, got ${res.status}`);
+    const contentType = res.headers.get('content-type') || '';
+    assert.ok(contentType.includes('application/json'), `Expected application/json content-type, got ${contentType}`);
+  });
+
+  test('static assets are still served', async () => {
+    const res = await fetch(`${baseUrl}/js/api.js`);
+    assert.strictEqual(res.status, 200);
+    assert.ok((res.headers.get('content-type') || '').includes('javascript'));
+  });
+
   test('GET non-api route still returns 200 HTML page from SPA catch-all', async () => {
     const res = await fetch(`${baseUrl}/dashboard`);
     assert.strictEqual(res.status, 200, `Expected status 200 for SPA route, got ${res.status}`);

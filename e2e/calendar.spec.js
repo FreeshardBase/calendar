@@ -3155,4 +3155,24 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#status-bar')).toHaveText('Fehler: Kalender ist gesperrt');
     });
   });
+
+  test.describe('Issue #164 — an HTML page on a JSON endpoint is reported, not used as data', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    test('a calendar list answered with the SPA page raises an error toast naming the endpoint', async ({ page }) => {
+      await page.route('**/api/calendars', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!DOCTYPE html>\n<html lang="de"></html>' });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      // Boot may load the calendar list more than once (e.g. after a sync), each failure toasting.
+      const toast = page.locator('#toast-container .toast.error', { hasText: 'Kalender konnten nicht geladen werden' }).first();
+      await expect(toast).toBeVisible({ timeout: 10000 });
+      await expect(toast).toContainText('/api/calendars');
+      await expect(toast).toContainText('text/html');
+    });
+  });
 });
