@@ -20,6 +20,7 @@ const {
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,
+  cloneOccurrenceOverride,
   updateWholeSeries,
   normalizeRecurrenceRule
 } = require('../utils/ical');
@@ -1192,7 +1193,7 @@ function updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId =
       const rid = v.getFirstPropertyValue('recurrence-id');
       if (!rid) return false;
       const ridStr = rid.toString();
-      if (ridStr === targetRid) return true;
+      if (ridStr.replace(/[-:]/g, '') === targetRid.replace(/[-:]/g, '')) return true;
       const iso1 = /^\d{8}T\d{6}Z?$/.test(ridStr) ? ridStr.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z') : ridStr;
       const iso2 = /^\d{8}T\d{6}Z?$/.test(targetRid) ? targetRid.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z') : targetRid;
       const t1 = new Date(iso1).getTime();
@@ -1201,35 +1202,7 @@ function updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId =
     });
 
     if (!targetVevent) {
-      // Create a detached override for targetRid cloned from master VEVENT
-      const master = vevents.find(v => !v.getFirstProperty('recurrence-id')) || vevents[0];
-      targetVevent = new ICAL.Component(JSON.parse(JSON.stringify(master.jCal)));
-      targetVevent.removeAllProperties('rrule');
-
-      const ridProp = new ICAL.Property('recurrence-id', targetVevent);
-      const dtstartProp = master.getFirstProperty('dtstart');
-      const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
-      if (tzid) ridProp.setParameter('tzid', tzid);
-
-      try {
-        const isoStr = /^\d{8}T\d{6}Z?$/.test(targetRid)
-          ? targetRid.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/, '$1-$2-$3T$4:$5:$6Z')
-          : targetRid;
-        const time = ICAL.Time.fromString(isoStr);
-        if (dtstartProp && !time.isDate) {
-          time.zone = dtstartProp.zone || ICAL.Timezone.utcTimezone;
-        }
-        ridProp.setValue(time);
-
-        // Align start date to occurrence time
-        const startProp = targetVevent.getFirstProperty('dtstart');
-        if (startProp) startProp.setValue(time);
-      } catch (e) {
-        ridProp.setValue(targetRid);
-      }
-
-      targetVevent.addProperty(ridProp);
-      comp.addSubcomponent(targetVevent);
+      targetVevent = cloneOccurrenceOverride(comp, targetRid);
     }
 
     const attendees = targetVevent.getAllProperties('attendee');
@@ -1270,6 +1243,8 @@ function buildItipReply(event, attendeeEmail, status, attendeeName) {
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${dtstamp}`,
+    // RFC 5546 §3.2.3: the reply echoes the SEQUENCE of the request it answers.
+    `SEQUENCE:${Number.isInteger(event?.sequence) && event.sequence > 0 ? event.sequence : 0}`,
     `SUMMARY:${escIcal(event?.title || 'Event Reply')}`
   ];
 
