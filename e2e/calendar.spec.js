@@ -3022,4 +3022,137 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       }
     });
   });
+
+  test.describe('Issue #163 — errors are announced and a failed delete stays on screen', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    const failWith = (message, status = 500) => route =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: message }) });
+
+    test('a failed event save is announced as an alert in the event dialog', async ({ page }) => {
+      await page.route('**/api/events', route =>
+        route.request().method() === 'POST' ? failWith('Speichern auf dem Server fehlgeschlagen')(route) : route.continue());
+      await page.goto('/?date=2028-12-28');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.fill('#ev-title', `E2E 163 ${Date.now()}`);
+      await page.fill('#ev-start-date', '2028-12-28');
+      await page.fill('#ev-end-date', '2028-12-28');
+      await page.check('#ev-allday');
+      await page.click('#event-save-btn');
+
+      const alert = page.locator('#event-modal').getByRole('alert');
+      await expect(alert).toHaveText('Speichern auf dem Server fehlgeschlagen');
+      await expect(alert).toHaveAttribute('id', 'event-form-error');
+    });
+
+    test('a failed account add is announced as an alert in the account dialog', async ({ page }) => {
+      await page.route('**/api/accounts', route =>
+        route.request().method() === 'POST' ? failWith('Server nicht erreichbar', 502)(route) : route.continue());
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      await page.click('#settings-add-account-btn');
+      await expect(page.locator('#account-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.fill('#acc-url', 'https://caldav.example.com/');
+      await page.fill('#acc-username', 'testuser');
+      await page.fill('#acc-password', 'not-a-real-password');
+      await page.click('#account-save-btn');
+
+      const alert = page.locator('#account-modal').getByRole('alert');
+      await expect(alert).toHaveText('Server nicht erreichbar');
+      await expect(alert).toHaveAttribute('id', 'account-form-error');
+    });
+
+    test('a failed calendar create is announced as an alert in the add-calendar dialog', async ({ page }) => {
+      await page.route('**/api/calendars', route =>
+        route.request().method() === 'POST' ? failWith('Kalender konnte nicht angelegt werden')(route) : route.continue());
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      await page.click('#add-calendar-btn');
+      await page.fill('#add-cal-name', `E2E 163 ${Date.now()}`);
+      await page.click('#add-cal-submit');
+
+      const alert = page.locator('#add-cal-dialog-backdrop').getByRole('alert');
+      await expect(alert).toHaveText(/Kalender konnte nicht angelegt werden/);
+      await expect(alert).toHaveAttribute('id', 'add-cal-error');
+    });
+
+    test('every inline form error box is an alert region', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      for (const id of ['onboarding-error', 'event-form-error', 'account-form-error', 'webcal-form-error']) {
+        await expect(page.locator(`#${id}`), id).toHaveAttribute('role', 'alert');
+      }
+      await page.locator('#calendar-list [data-edit-cal]').first().click();
+      await expect(page.locator('#edit-cal-error')).toHaveAttribute('role', 'alert');
+    });
+
+    test('a failed delete from the popover leaves an assertive error that outlives four seconds and closes from the keyboard', async ({ page }) => {
+      await page.goto('/?date=2028-12-28');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      const title = `E2E 163 Löschfehler ${Date.now()}`;
+      await page.click('#new-event-btn');
+      await page.fill('#ev-title', title);
+      await page.fill('#ev-start-date', '2028-12-28');
+      await page.fill('#ev-end-date', '2028-12-28');
+      await page.check('#ev-allday');
+      await page.click('#event-save-btn');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
+      const chip = page.locator('.event-chip').filter({ hasText: title }).first();
+      await expect(chip).toBeVisible({ timeout: 15000 });
+
+      const failDelete = route =>
+        route.request().method() === 'DELETE' ? failWith('Termin ist gesperrt')(route) : route.continue();
+      await page.route('**/api/events/**', failDelete);
+      try {
+        await chip.click();
+        await page.click('#popover-delete-btn');
+        await page.click('#confirm-dialog-ok');
+
+        const toast = page.locator('#toast-container').getByRole('alert').filter({ hasText: 'Termin ist gesperrt' });
+        await expect(toast).toBeVisible();
+        await expect(toast).toHaveAttribute('aria-live', 'assertive');
+        await page.waitForTimeout(4600);
+        await expect(toast).toBeVisible();
+        await expect(chip).toBeVisible();
+
+        const close = toast.getByRole('button', { name: 'Meldung schließen' });
+        await close.focus();
+        await expect(close).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(toast).toHaveCount(0);
+      } finally {
+        await page.unroute('**/api/events/**', failDelete);
+        await page.keyboard.press('Escape');
+        await chip.click();
+        await page.click('#popover-delete-btn');
+        await page.click('#confirm-dialog-ok');
+        await expect(chip).not.toBeVisible();
+      }
+    });
+
+    test('a failed calendar delete in settings names the failure once', async ({ page }) => {
+      await page.route('**/api/calendars/**', route =>
+        route.request().method() === 'DELETE' ? failWith('Kalender ist gesperrt')(route) : route.continue());
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      await page.locator('[data-delete-cal-settings]').first().click();
+      await page.click('#confirm-dialog-ok');
+
+      const toast = page.locator('#toast-container').getByRole('alert');
+      await expect(toast).toHaveText(/Kalender ist gesperrt/);
+      await expect(page.locator('#status-bar')).toHaveText('Fehler: Kalender ist gesperrt');
+    });
+  });
 });
