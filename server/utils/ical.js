@@ -341,6 +341,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     location:    ev.location  || null,
     description: ev.description || null,
     status:      vevent.getFirstPropertyValue('status') || null,
+    sequence:    vevent.getFirstPropertyValue('sequence') || 0,
     transp:      vevent.getFirstPropertyValue('transp') || null,
     attendees,
     organizer,
@@ -1276,6 +1277,47 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   return cleanMalformedTzidZ(comp.toString());
 }
 
+/**
+ * Detach one occurrence of the series in `comp` as an exact copy of the master,
+ * moved to that occurrence: DTSTART becomes the occurrence start and DTEND keeps
+ * the master's wall-clock duration (a DURATION property carries over as is).
+ * Returns the new override VEVENT, already added to `comp`.
+ */
+function cloneOccurrenceOverride(comp, recurrenceId) {
+  _registerEmbeddedTimezones(comp);
+  const master = getMasterVEvent(comp);
+  const override = new ICAL.Component(JSON.parse(JSON.stringify(master.jCal)));
+  for (const name of ['rrule', 'rdate', 'exdate']) override.removeAllProperties(name);
+
+  const masterEvent = new ICAL.Event(master);
+  const start = occurrenceTime(master, recurrenceId);
+  const dtstartProp = master.getFirstProperty('dtstart');
+  const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
+  const keepTzid = tzid && !start.isUtc && isValidTimezone(tzid);
+
+  const rid = new ICAL.Property('recurrence-id', override);
+  if (keepTzid) rid.setParameter('tzid', tzid);
+  rid.setValue(start);
+  override.addProperty(rid);
+
+  override.getFirstProperty('dtstart').setValue(start.clone());
+
+  const dtendProp = override.getFirstProperty('dtend');
+  if (dtendProp) {
+    const end = start.clone();
+    end.addDuration(masterEvent.endDate.subtractDate(masterEvent.startDate));
+    const endTzid = dtendProp.getParameter('tzid');
+    if (endTzid && isValidTimezone(endTzid) && !end.isDate) {
+      dtendProp.setValue(end.convertToZone(ICAL.TimezoneService.get(endTzid)));
+    } else {
+      dtendProp.setValue(end);
+    }
+  }
+
+  comp.addSubcomponent(override);
+  return override;
+}
+
 function escParamVal(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -2137,6 +2179,7 @@ module.exports = {
   isNoOpEventSave,
   addOccurrenceException,
   upsertOccurrenceOverride,
+  cloneOccurrenceOverride,
   updateWholeSeries,
   normalizeRecurrenceRule,
   foldLines
