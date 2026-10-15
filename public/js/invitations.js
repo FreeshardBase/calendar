@@ -106,11 +106,11 @@ export function escHtml(str) {
 
 export function renderInvitationsHTML(invList, options = {}) {
   if (options.error || invitationsError) {
-    return '<p class="empty-state invitations-error-state" style="padding: 20px; text-align: center; color: var(--danger);">Fehler beim Laden der Einladungen.</p>';
+    return '<p class="empty-state invitations-error-state" style="color: var(--danger);">Fehler beim Laden der Einladungen.</p>';
   }
 
   if (!Array.isArray(invList) || invList.length === 0) {
-    return '<p class="empty-state" style="padding: 20px; text-align: center; color: var(--text-muted);">Keine ausstehenden Einladungen vorhanden.</p>';
+    return '<p class="empty-state">Keine ausstehenden Einladungen vorhanden.</p>';
   }
 
   return invList.map(inv => {

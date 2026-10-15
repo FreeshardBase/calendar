@@ -2573,4 +2573,91 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       }
     }
   });
+
+  test.describe('Issue #110 — stylesheet and markup agree', () => {
+    // Computed value of a design token, as an rgb() string comparable to getComputedStyle colours.
+    async function tokenColor(page, token) {
+      return page.evaluate(t => {
+        const probe = document.createElement('span');
+        probe.style.color = `var(${t})`;
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      }, token);
+    }
+
+    test('a warning toast carries its own glyph and the warning border colour', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]').click();
+      await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
+
+      // Adding a share with nothing entered is the share flow's warning.
+      await page.click('#share-add-btn');
+      const toast = page.locator('#toast-container .toast.warning');
+      await expect(toast).toBeVisible();
+      await expect(toast.locator('.toast-icon')).not.toHaveText('ℹ');
+      await expect(toast.locator('.toast-icon')).toHaveText('⚠');
+      const border = await toast.evaluate(el => {
+        const s = getComputedStyle(el);
+        return { width: s.borderLeftWidth, color: s.borderLeftColor };
+      });
+      expect(border).toEqual({ width: '3px', color: await tokenColor(page, '--warning') });
+
+      // The user-search suggestions sit over the dialog's content on an opaque surface.
+      await page.locator('#share-search-input').fill('testuser');
+      const dropdown = page.locator('#share-autocomplete-dropdown');
+      await expect(dropdown).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await dropdown.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await tokenColor(page, '--surface'));
+    });
+
+    test('an attendee\'s participation status renders as a muted pill', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#new-event-btn');
+      await page.fill('#ev-attendee-name', 'Test User');
+      await page.fill('#ev-attendee-email', 'testuser@example.com');
+      await page.click('#add-attendee-btn');
+
+      const status = page.locator('#ev-attendee-list .attendee-status').first();
+      await expect(status).toHaveText('Ausstehend');
+      const style = await status.evaluate(el => {
+        const s = getComputedStyle(el);
+        return { color: s.color, paddingLeft: s.paddingLeft, borderRadius: s.borderTopLeftRadius };
+      });
+      expect(style.color).toBe(await tokenColor(page, '--ink-muted'));
+      expect(parseFloat(style.paddingLeft)).toBeGreaterThan(0);
+      expect(parseFloat(style.borderRadius)).toBeGreaterThan(0);
+    });
+
+    test('empty lists use the muted empty-state text', async ({ page }) => {
+      await page.route('**/api/msgraph/accounts', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, available: true, accounts: [] }),
+      }));
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      await page.click('#settings-add-account-btn');
+      await page.click('#btn-link-msgraph');
+      await expect(page.locator('#msgraph-modal-backdrop')).not.toHaveClass(/hidden/);
+
+      const empty = page.locator('#msgraph-accounts-list .empty-state');
+      await expect(empty).toHaveText('Keine Office 365 Konten verbunden.');
+      expect(await empty.evaluate(el => getComputedStyle(el).color)).toBe(await tokenColor(page, '--ink-muted'));
+    });
+
+    test('the welcome dialog\'s calendar glyph is drawn in the accent line colour', async ({ page }) => {
+      // Registered after the suite's init script, so it runs later and re-enables the welcome dialog.
+      await page.addInitScript(() => {
+        if (window.origin !== 'null') window.localStorage.removeItem('welcome-popup-closed');
+      });
+      await page.goto('/');
+      await expect(page.locator('#welcome-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const glyph = page.locator('#welcome-modal .modal-body svg').first();
+      expect(await glyph.evaluate(el => getComputedStyle(el).stroke)).toBe(await tokenColor(page, '--line'));
+      await page.click('#welcome-btn-close');
+    });
+  });
 });
