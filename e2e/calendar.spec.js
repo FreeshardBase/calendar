@@ -2660,4 +2660,100 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#welcome-btn-close');
     });
   });
+
+  // Issue #111: the task, RSVP and share badges are small bold text (10–11 px), so WCAG's 4.5:1 floor
+  // applies, measured against what is really painted behind them — the card they sit in, at rest and
+  // under the pointer, in both themes. Kanban cards show elevation by border and tone, never by lift.
+  test.describe('Issue #111 — badges meet the contrast floor and kanban cards stay flat', () => {
+    // The markup tasks.js, invitations.js and app.js render for each badge, inside its real container.
+    const BADGE_MARKUP = `
+      <div class="kanban-card" id="e2e111-card"><div class="kanban-card-meta">
+        <span class="kanban-due-date">15.10.</span>
+        <span class="kanban-prio prio-high">Hoch</span>
+        <span class="kanban-prio prio-med">Mittel</span>
+        <span class="kanban-prio prio-low">Niedrig</span>
+        <span class="kanban-recurrence-badge">Wöchentlich</span>
+      </div></div>
+      <div class="invitation-card"><div class="invitation-attendees"><div class="inv-attendee-row">
+        <span class="status-badge status-accepted">Zugesagt</span>
+        <span class="status-badge status-declined">Abgesagt</span>
+        <span class="status-badge status-tentative">Vorläufig</span>
+        <span class="status-badge status-pending">Offen</span>
+        <span class="status-badge">Offen</span>
+      </div></div></div>
+      <div class="share-user-item"><div class="share-user-actions">
+        <span class="share-badge accepted">aktiv</span>
+        <span class="share-badge pending">ausstehend</span>
+        <span class="share-badge declined">abgelehnt</span>
+      </div></div>`;
+
+    // Paints each badge's backdrop (every ancestor background, composited bottom-up) and its text
+    // colour onto a canvas, so the browser itself resolves color-mix(), alpha and the theme tokens.
+    function measureBadges() {
+      const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+      const paint = (colors) => {
+        ctx.clearRect(0, 0, 1, 1);
+        for (const c of colors) { ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); }
+        return Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3);
+      };
+      const lum = rgb => {
+        const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const root = document.getElementById('e2e111-root');
+      return Array.from(root.querySelectorAll('[class*="badge"], .kanban-due-date, .kanban-prio')).map(el => {
+        const layers = [];
+        for (let n = el; n; n = n.parentElement) layers.unshift(getComputedStyle(n).backgroundColor);
+        const bg = paint(layers);
+        const fg = paint([...layers, getComputedStyle(el).color]);
+        const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a);
+        return {
+          badge: el.className,
+          fontSize: parseFloat(getComputedStyle(el).fontSize),
+          ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100,
+        };
+      });
+    }
+
+    for (const theme of ['light', 'dark']) {
+      test(`${theme} theme: every badge reaches 4.5:1 on its card, at rest and on hover`, async ({ page }) => {
+        await page.goto('/');
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await page.evaluate(({ theme, markup }) => {
+          document.documentElement.setAttribute('data-theme', theme);
+          const root = document.createElement('div');
+          root.id = 'e2e111-root';
+          root.style.cssText = 'position:fixed;top:0;left:0;z-index:100000;width:420px;';
+          root.innerHTML = markup;
+          document.body.appendChild(root);
+        }, { theme, markup: BADGE_MARKUP });
+
+        const atRest = await page.evaluate(measureBadges);
+        expect(atRest).toHaveLength(13);
+        for (const b of atRest) expect(b.fontSize).toBeLessThan(14); // below the large-text exemption
+        expect(atRest.filter(b => b.ratio < 4.5)).toEqual([]);
+
+        await page.hover('#e2e111-card');
+        const hovered = await page.evaluate(measureBadges);
+        expect(hovered.filter(b => b.ratio < 4.5)).toEqual([]);
+      });
+    }
+
+    test('a hovered kanban card neither lifts nor casts a shadow', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.evaluate(markup => {
+        const root = document.createElement('div');
+        root.id = 'e2e111-root';
+        root.style.cssText = 'position:fixed;top:0;left:0;z-index:100000;width:420px;';
+        root.innerHTML = markup;
+        document.body.appendChild(root);
+      }, BADGE_MARKUP);
+      const card = page.locator('#e2e111-card');
+      const flat = el => { const s = getComputedStyle(el); return { shadow: s.boxShadow, transform: s.transform }; };
+      expect(await card.evaluate(flat)).toEqual({ shadow: 'none', transform: 'none' });
+      await card.hover();
+      expect(await card.evaluate(flat)).toEqual({ shadow: 'none', transform: 'none' });
+    });
+  });
 });

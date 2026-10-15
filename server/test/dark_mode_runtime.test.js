@@ -61,11 +61,8 @@ test('Issue #104 — Dark Mode Runtime Reachability & CSS Compatibility Suite', 
     // Verify undefined custom properties are eliminated
     assert.strictEqual(cssContent.includes('var(--text-main)'), false, 'CSS must not contain undefined var(--text-main)');
     assert.strictEqual(cssContent.includes('var(--bg-canvas)'), false, 'CSS must not contain undefined var(--bg-canvas)');
-
-    // Verify dark mode overrides exist for newest components
-    assert.ok(cssContent.includes('[data-theme="dark"] .share-badge'), 'CSS must contain dark mode styling for share badges');
-    assert.ok(cssContent.includes('[data-theme="dark"] .status-accepted'), 'CSS must contain dark mode styling for invitation status badges');
-    assert.ok(cssContent.includes('[data-theme="dark"] .prio-high'), 'CSS must contain dark mode styling for kanban priority tags');
+    // Share, status and priority badges take their colours from theme tokens, so they need no dark
+    // overrides; their dark-theme legibility is measured in the browser (e2e, Issue #111).
   });
 
   await t.test('public/js/app.js references theme module', () => {
