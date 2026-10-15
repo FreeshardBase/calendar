@@ -289,7 +289,9 @@ router.get('/', async (req, res) => {
       );
     }
 
-    res.json(filteredEvents);
+    // A calendar or account that could not be read is named in `errors` even
+    // when others succeeded, so a partial failure never looks like a free week (#65).
+    res.json({ events: filteredEvents, errors });
   } catch (err) {
     return sendError(res, err, '[events GET]');
   }

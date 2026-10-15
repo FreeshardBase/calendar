@@ -205,6 +205,31 @@ function reportUnparseableEvents(info) {
   console.error('[loadEvents] Unparseable CalDAV resources:', info.resources);
 }
 
+let lastEventErrorNotice = '';
+
+// Calendars the server could not read are missing from the view, which must
+// not look like a free week (#65): badge them in the sidebar and say so once
+// per distinct set of failures.
+function reportEventLoadErrors(errors) {
+  store.set({ eventErrors: errors });
+  renderCalendarList();
+  const key = JSON.stringify(errors);
+  if (key === lastEventErrorNotice) return;
+  lastEventErrorNotice = key;
+  if (errors.length === 0) return;
+  const failed = (store.get('calendars') || []).filter(c => calendarLoadError(c));
+  const names = failed.length > 0 ? failed.map(c => c.name).join(', ') : errors.map(e => e.accountId).join(', ');
+  showToast(`Termine konnten nicht vollständig geladen werden (${names}): ${errors[0].error}`, 'error');
+  console.error('[loadEvents] CalDAV fetch errors:', errors);
+}
+
+// The /api/events error for this calendar: its own, or its account's when the
+// whole account could not be read.
+function calendarLoadError(cal) {
+  return (store.get('eventErrors') || []).find(e =>
+    e.calendarId ? e.calendarId === cal.id : e.accountId === cal.accountId);
+}
+
 async function loadEvents() {
   const seq = ++loadEventsSeq;
   const view = store.get('view');
@@ -241,10 +266,11 @@ async function loadEvents() {
       return;
     }
     let unparseable = null;
-    const events = await EventsAPI.list(start.toISOString(), end.toISOString(), info => { unparseable = info; });
+    const { events, errors } = await EventsAPI.list(start.toISOString(), end.toISOString(), info => { unparseable = info; });
     const rangeWebcalEvents = await webcalPromise;
     if (seq !== loadEventsSeq) return;
     if (unparseable) reportUnparseableEvents(unparseable);
+    reportEventLoadErrors(errors);
     webcalEvents = rangeWebcalEvents;
     // Events from a calendar the delta check does not know (created or shared
     // elsewhere): other cached ranges may lack it, and it needs a sync token.
@@ -253,7 +279,8 @@ async function loadEvents() {
       invalidateEventCache();
       loadCalendars();
     }
-    cacheEvents(cacheKey, events);
+    // A partial result is not cached: the next load must ask the failed calendars again.
+    if (errors.length === 0) cacheEvents(cacheKey, events);
     const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
     store.set({ events: [...events, ...activeCurrentSubs] });
     renderCalendarView();
@@ -707,8 +734,10 @@ function renderCalendarList() {
          </svg>`
       : '';
 
+    const loadError = calendarLoadError(c);
+
     return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(c.name)}">
+      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? `${c.name} (Termine konnten nicht geladen werden: ${loadError.error})` : c.name)}">
         <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
         <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
           <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
@@ -716,6 +745,7 @@ function renderCalendarList() {
             ${googleBadge}
           </div>
           ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">von ${escHtml(c.owner)}</span>` : ''}
+          ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">⚠ Nicht erreichbar – Termine fehlen</span>` : ''}
         </div>
         <div class="cal-item-actions">
           ${shareBtnHtml}

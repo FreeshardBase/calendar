@@ -50,6 +50,7 @@ export const store = createStore({
   // Calendar data
   calendars:       [],   // [{ id, accountId, name, color, href, url, ... }]
   hiddenCalendars: new Set(),  // calendarIds to hide
+  eventErrors:     [],   // [{ accountId, calendarId?, status, error }] from the last GET /api/events (#65)
 
   // Events cache: Map<string(YYYY-MM), Event[]>
   eventCache:      new Map(),

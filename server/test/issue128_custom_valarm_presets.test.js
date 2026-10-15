@@ -309,7 +309,7 @@ test('Issue #128 — an unparseable CalDAV resource is reported, not silently dr
     try {
       const res = await fetch(`http://127.0.0.1:${server.address().port}/api/events?start=2026-08-01T00:00:00Z&end=2026-09-01T00:00:00Z`);
       assert.equal(res.status, 200);
-      const events = await res.json();
+      const { events } = await res.json();
       assert.deepEqual(events.map(e => e.title), ['Test User meeting']);
       const header = res.headers.get('x-caldav-unparseable');
       assert.ok(header, 'the dropped resources must be reported in X-CalDAV-Unparseable');

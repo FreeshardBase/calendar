@@ -94,6 +94,7 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       'calendarsUnchanged',
       'invalidateEventCache',
       'loadCalendars',
+      'renderCalendarList',
       `
       ${loadEventsFnMatch[0]}
       return loadEvents;
@@ -124,6 +125,7 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       async () => [],
       async () => false, // delta check reports a change: full fetch (#170)
       () => {},
+      () => {},
       () => {}
     );
 
@@ -139,7 +141,7 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
 
     // 3. Req2 (April) resolves FIRST with April events
     const aprilEvents = [{ id: 'evt-april-1', title: 'April Event' }];
-    req2Resolver(aprilEvents);
+    req2Resolver({ events: aprilEvents, errors: [] });
     await p2;
 
     assert.deepEqual(mockEventsInStore, aprilEvents, 'Store should hold April events after req2 resolution');
@@ -148,7 +150,7 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
 
     // 4. Req1 (March) resolves SECOND (out-of-order response) with March events
     const marchEvents = [{ id: 'evt-march-1', title: 'March Event' }];
-    req1Resolver(marchEvents);
+    req1Resolver({ events: marchEvents, errors: [] });
     await p1;
 
     // Stale March response MUST be discarded!

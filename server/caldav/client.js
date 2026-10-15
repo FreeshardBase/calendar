@@ -23,6 +23,9 @@ function escapeXML(str) {
  * a captive portal, webmail landing page or misconfigured vhost that answers
  * every request with `200 text/html` (#157).
  */
+// Statuses of a sharing PROPFIND that mean "this server has no sharing", not "it failed".
+const SHARING_UNSUPPORTED_STATUSES = new Set([404, 405, 501]);
+
 function isDavMultistatus(xml) {
   // Skip a BOM (matched by \s), XML declaration / processing instructions and comments; the
   // first element must be the multistatus root.
@@ -545,11 +548,16 @@ class CalDAVClient {
     });
 
     if (!res.ok && res.status !== 207) {
-      if (!this._sharingTypes) {
-        this._sharingTypes = {};
+      // A server that does not offer the property or method has no sharing (#269).
+      if (SHARING_UNSUPPORTED_STATUSES.has(res.status)) {
+        if (!this._sharingTypes) {
+          this._sharingTypes = {};
+        }
+        this._sharingTypes[calendarUrl] = 'none';
+        return [];
       }
-      this._sharingTypes[calendarUrl] = 'none';
-      return [];
+      // Any other failure (5xx, auth) is not "no shares" (#65): fail, and cache nothing.
+      throw new Error(`PROPFIND ${res.status}: ${res.statusText}`);
     }
 
     const text = await res.text();
