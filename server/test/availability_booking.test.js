@@ -138,47 +138,8 @@ test('Availability Slots Booking Engine Suite', async (t) => {
     assert.strictEqual(list.length, 2);
   });
 
-  await t.test('REST API Public Endpoints: GET & POST /api/public/availability/:slug', async () => {
-    // GET public page slots for date 2026-08-17 (Monday)
-    const getPublicRes = await fetch(`${baseUrl}/api/public/availability/${testSlug}?date=2026-08-17`);
-    assert.strictEqual(getPublicRes.status, 200);
-    const publicData = await getPublicRes.json();
-    assert.strictEqual(publicData.title, 'Test User Consultation');
-    assert.ok(Array.isArray(publicData.availableSlots));
-    assert.ok(publicData.availableSlots.length > 0);
-
-    const selectedSlot = publicData.availableSlots[0].startTime;
-
-    // Book the slot
-    const bookRes = await fetch(`${baseUrl}/api/public/availability/${testSlug}/book`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        startTime: selectedSlot,
-        guestName: 'Test Guest',
-        guestEmail: 'testuser@example.com',
-        notes: 'Discussion about upcoming project'
-      })
-    });
-
-    assert.strictEqual(bookRes.status, 201);
-    const bookingResult = await bookRes.json();
-    assert.ok(bookingResult.bookingId);
-
-    // Attempting to book the SAME slot again should return 409 Conflict
-    const duplicateBookRes = await fetch(`${baseUrl}/api/public/availability/${testSlug}/book`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        startTime: selectedSlot,
-        guestName: 'Another Guest',
-        guestEmail: 'testuser@example.com',
-        notes: 'Trying to double book'
-      })
-    });
-
-    assert.strictEqual(duplicateBookRes.status, 409);
-  });
+  // The public slot query and booking read and write the owner's calendars; they are
+  // covered against a CalDAV stub in issue345_booking_busy_and_event.test.js.
 
   await t.test('REST API: DELETE /api/availability-slots/:id', async () => {
     const deleteRes = await fetch(`${baseUrl}/api/availability-slots/${createdPageId}`, {

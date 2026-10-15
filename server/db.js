@@ -306,6 +306,7 @@ db.serialize(() => {
       start_hour INTEGER NOT NULL DEFAULT 9,
       end_hour INTEGER NOT NULL DEFAULT 17,
       days_of_week TEXT NOT NULL DEFAULT '1,2,3,4,5',
+      busy_calendar_ids TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL
     )
   `);
@@ -319,7 +320,8 @@ db.serialize(() => {
       end_time TEXT NOT NULL,
       notes TEXT,
       event_uid TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      UNIQUE (page_id, start_time)
     )
   `);
   db.run(`
@@ -930,6 +932,13 @@ const Db = {
         [calendarId, altId]
       );
       await tx.run('DELETE FROM availability_pages WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      // A deleted calendar no longer feeds busy time into other booking pages (#345).
+      await tx.run(
+        `UPDATE availability_pages SET busy_calendar_ids = (
+           SELECT json_group_array(value) FROM json_each(availability_pages.busy_calendar_ids) WHERE value NOT IN (?, ?)
+         ) WHERE EXISTS (SELECT 1 FROM json_each(availability_pages.busy_calendar_ids) WHERE value IN (?, ?))`,
+        [calendarId, altId, calendarId, altId]
+      );
       await tx.run('DELETE FROM event_history WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('UPDATE msgraph_accounts SET target_calendar_id = NULL WHERE target_calendar_id = ? OR target_calendar_id = ?', [calendarId, altId]);
     });
@@ -2043,14 +2052,14 @@ const Db = {
   },
 
   // ── Availability Slots Booking Engine ──────────────────────────────────
-  createAvailabilityPage({ id, userId, slug, title, calendarId, durationMinutes = 30, startHour = 9, endHour = 17, daysOfWeek = '1,2,3,4,5' }) {
+  createAvailabilityPage({ id, userId, slug, title, calendarId, durationMinutes = 30, startHour = 9, endHour = 17, daysOfWeek = '1,2,3,4,5', busyCalendarIds = [] }) {
     return new Promise((resolve, reject) => {
       const pageId = id || `ap-${uuidv4()}`;
       const now = Date.now();
       db.run(
-        `INSERT INTO availability_pages (id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [pageId, userId, slug, title, calendarId, durationMinutes, startHour, endHour, daysOfWeek, now],
+        `INSERT INTO availability_pages (id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, busy_calendar_ids, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [pageId, userId, slug, title, calendarId, durationMinutes, startHour, endHour, daysOfWeek, JSON.stringify(busyCalendarIds), now],
         (err) => {
           if (err) return reject(err);
           resolve({
@@ -2063,6 +2072,7 @@ const Db = {
             startHour,
             endHour,
             daysOfWeek,
+            busyCalendarIds,
             createdAt: now
           });
         }
@@ -2073,7 +2083,7 @@ const Db = {
   getAvailabilityPages(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, created_at
+        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, busy_calendar_ids, created_at
          FROM availability_pages WHERE user_id = ? ORDER BY created_at DESC`,
         [userId],
         (err, rows) => {
@@ -2088,6 +2098,7 @@ const Db = {
             startHour: r.start_hour,
             endHour: r.end_hour,
             daysOfWeek: r.days_of_week,
+            busyCalendarIds: JSON.parse(r.busy_calendar_ids),
             createdAt: r.created_at
           })));
         }
@@ -2098,7 +2109,7 @@ const Db = {
   getAvailabilityPageBySlug(slug) {
     return new Promise((resolve, reject) => {
       db.get(
-        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, created_at
+        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, busy_calendar_ids, created_at
          FROM availability_pages WHERE slug = ?`,
         [slug],
         (err, r) => {
@@ -2114,6 +2125,7 @@ const Db = {
             startHour: r.start_hour,
             endHour: r.end_hour,
             daysOfWeek: r.days_of_week,
+            busyCalendarIds: JSON.parse(r.busy_calendar_ids),
             createdAt: r.created_at
           });
         }
