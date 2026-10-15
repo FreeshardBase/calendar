@@ -8,7 +8,7 @@ require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: sa
  * in Radicale) for every owner id that has a linked external account, so the owner's sync job
  * can put it back before any vdirsyncer / Graph pass runs (sync-worker/sync_worker.py, covered
  * by server/test/python/test_issue319_cross_user_deletion_restore.py).
- * The owner's own delete records nothing, whichever id form (UUID or username) the session holds.
+ * The owner's own delete records nothing. Calendar paths and sessions carry the owner's user id (#144).
  */
 
 const os = require('node:os');
@@ -36,7 +36,7 @@ const EVENT_ICS = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN
   + 'SUMMARY:Test User meeting\r\nDTSTART:20261020T090000Z\r\nDTEND:20261020T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
 
 let ownerCounter = 0;
-// A fresh owner (UUID + username) per test, so no record leaks between tests.
+// A fresh owner per test, so no record leaks between tests.
 // linked: 'caldav' (Basic-auth or Google, both in linked_accounts), 'msgraph' (Microsoft 365) or null.
 async function newOwner({ linked = 'caldav' } = {}) {
   ownerCounter += 1;
@@ -161,20 +161,6 @@ test('the record is a normalised path, never the caller\'s raw href', async () =
   assert.equal(rows[0].href, `/${owner.uuid}/cal/issue319-evt.ics`);
 });
 
-test('the record is keyed by the owner id that holds the external account', async () => {
-  // The calendar path carries the username, the owner's accounts are linked under the UUID.
-  const owner = await newOwner();
-  const calendarId = `internal-caldav::/${owner.name}/cal/`;
-  const href = `/${owner.name}/cal/issue319-evt.ics`;
-
-  await deleteAs(SHAREE, [calendarId], { calendarId, href });
-
-  const rows = await Db.getCrossUserDeletions(owner.uuid);
-  assert.equal(rows.length, 1, 'the job that syncs the account must find it');
-  assert.equal(rows[0].href, href, 'the event goes back where it was deleted');
-  assert.deepEqual(await Db.getCrossUserDeletions(owner.name), []);
-});
-
 test('a sharee delete records nothing for an owner whose only external account is Microsoft 365', async () => {
   // The Graph sync only imports, so it cannot carry the delete out; the sharee's delete stands.
   const owner = await newOwner({ linked: 'msgraph' });
@@ -195,17 +181,6 @@ test('a sharee delete for an owner without external accounts records nothing', a
   assert.deepEqual(requests.map((r) => r.split(' ')[0]), ['DELETE']);
   assert.deepEqual(await Db.getCrossUserDeletions(owner.uuid), [],
     'nothing mirrors the calendar, so a later account link must not resurrect this delete');
-});
-
-test('the owner deleting their own event records nothing when the session holds the username', async () => {
-  const owner = await newOwner();
-  const calendarId = `internal-caldav::/${owner.uuid}/cal/`;
-
-  await deleteAs(owner.name, [], { calendarId, href: `/${owner.uuid}/cal/issue319-evt.ics` });
-
-  assert.deepEqual(await Db.getCrossUserDeletions(owner.uuid), [],
-    'an owner\'s delete must not be restored by the sync worker');
-  assert.deepEqual(await Db.getCrossUserDeletions(owner.name), []);
 });
 
 test('the owner deleting their own event records nothing when the session holds the UUID', async () => {

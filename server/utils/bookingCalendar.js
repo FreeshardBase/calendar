@@ -54,17 +54,17 @@ async function loadOwnerAccounts(ownerId) {
     });
   }
   if (!process.env.DISABLE_INTERNAL_CALDAV) {
-    const username = (await Db.getUsernameByUserId(ownerId)) || ownerId;
+    // #144: the owner's collection root is the owner's user id.
     const internalUrl = process.env.INTERNAL_CALDAV_URL || 'https://localhost:5232';
     const internal = accounts.find(a => a.id === 'internal-caldav');
     if (internal) {
-      internal.username = username;
-      internal.url = `${internalUrl}/${username}/`;
+      internal.username = ownerId;
+      internal.url = `${internalUrl}/${ownerId}/`;
     } else {
       accounts.unshift({
         id: 'internal-caldav',
-        url: `${internalUrl}/${username}/`,
-        username,
+        url: `${internalUrl}/${ownerId}/`,
+        username: ownerId,
         password: process.env.SYSTEM_SYNC_SECRET
       });
     }

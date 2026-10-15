@@ -17,12 +17,15 @@ class Auth(BaseAuth):
         
         # #343: database errors propagate; Radicale logs them and answers 500 instead of
         # authenticating an unresolved login or reporting a wrong password.
+        # #144: the user id (OIDC sub) names the collection root, so an exact user id match wins
+        # over a username; another member's display name may equal this sub.
         if os.path.exists(db_path):
             with closing(sqlite3.connect(db_path)) as conn:
                 conn.execute("PRAGMA foreign_keys = ON")
                 row = conn.execute(
-                    "SELECT user_id FROM users WHERE username = ? OR user_id = ?",
-                    (login, login)
+                    "SELECT user_id FROM users WHERE user_id = ?", (login,)
+                ).fetchone() or conn.execute(
+                    "SELECT user_id FROM users WHERE username = ?", (login,)
                 ).fetchone()
             if row:
                 user_id = row[0]

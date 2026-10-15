@@ -25,7 +25,7 @@ Synchronisation with a provider uses push notifications wherever the provider's 
 
 ## Invariants spanning modules
 
-**Identity.** Per-user data is keyed by a stable internal user id, never by the OIDC `sub` string or a display name, and never by `X-Ptl-Client-Id`, which identifies a device, not a person. *(Convention — stable surrogate keys; see #144, #331.)*
+**Identity.** Per-user data is keyed by the user id: in `AUTH_METHOD=oidc` that is the OIDC `sub` itself, in env mode `CALDAV_USERNAME`. Radicale collection roots (`/<user id>/`), internal calendar ids and the Radicale auth/rights plugins all use it; a display name (`preferred_username`) never names or opens a collection, and neither does `X-Ptl-Client-Id`, which identifies a device, not a person. A `sub` that is not safe as a single path segment is refused with 401, never rewritten. *(Confirmed 2026-10-15 — no existing installations, so no alias or migration; see #144, #331.)*
 
 **One permission matrix.** Sharing and delegation are a single model: person × calendar × level. Delegation is the highest per-calendar level, above read and write. Whoever holds delegation on a person's *default* calendar may answer that person's invitations and acts for them in scheduling (including out-of-office declines). Delegation needs no acceptance; the delegate is informed and can drop it. There is no second, person-wide delegation concept. *(Confirmed 2026-10-13 — chosen over a separate person-wide model such as CalDAV proxy groups.)*
 

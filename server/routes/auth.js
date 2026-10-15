@@ -9,6 +9,7 @@ const { generators } = require('openid-client');
 const { getOidcClient } = require('../utils/oidcClient');
 const { getBaseUrl } = require('../utils/baseUrl');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
+const { isSafeStorageId } = require('../utils/storageId');
 
 // GET /api/auth/session — returns current session status
 router.get('/session', async (req, res) => {
@@ -80,6 +81,10 @@ router.get('/callback', async (req, res) => {
 
     const claims = tokenSet.claims();
     const userId = claims.sub; // Generic OIDC unique user subject
+    // #144: the sub is the storage identity (Radicale collection root); refuse, never rewrite.
+    if (!isSafeStorageId(userId)) {
+      return res.status(401).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: ungültige Benutzerkennung.');
+    }
     let username = claims.preferred_username || claims.username || claims.email || claims.name || userId;
     let userEmail = claims.email;
 

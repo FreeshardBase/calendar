@@ -90,40 +90,14 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
     return { allowed: false, status: 400, reason: 'Invalid calendar href' };
   }
 
-  // 1. Direct or Mapped Owner check
-  let isOwner = (userId === ownerId);
-  if (!isOwner) {
-    const mappedUser = await Db.getUserIdByUsername(userId);
-    const mappedOwner = await Db.getUserIdByUsername(ownerId);
-    if (
-      (mappedUser && mappedUser === ownerId) ||
-      (mappedOwner && mappedOwner === userId) ||
-      (mappedUser && mappedOwner && mappedUser === mappedOwner)
-    ) {
-      isOwner = true;
-    }
-  }
-
-  if (isOwner) {
+  // 1. Owner check. #144: the collection root is the user id itself (the OIDC sub); a display
+  // name never makes anyone the owner, since it may equal another member's sub.
+  if (userId === ownerId) {
     return { allowed: true, isOwner: true, ownerId };
   }
 
-  // 2. Check internal calendar share table
-  const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
-  const username = (await Db.getUsernameByUserId(userId)) || userId;
-  
-  const sharesSet = new Map();
-  for (const uid of [userId, userUuid, username]) {
-    if (!uid) continue;
-    const shares = await Db.getSharedCalendarsForUser(uid);
-    for (const s of shares) {
-      sharesSet.set(s.calendar_id, s);
-    }
-  }
-  const userShares = Array.from(sharesSet.values());
-
-  const ownerUuid = (await Db.getUserIdByUsername(ownerId)) || ownerId;
-  const ownerUsername = (await Db.getUsernameByUserId(ownerId)) || ownerId;
+  // 2. Check internal calendar share table (sharees are stored by user id)
+  const userShares = await Db.getSharedCalendarsForUser(userId);
 
   // Share rows are compared decoded but never resolved: a row stored under a
   // traversal id such as "/me/%2e%2e/victim/cal/" matches nothing, just as
@@ -139,16 +113,7 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
     const reqOwner = segments[0];
     const reqSlug = segments.slice(1).join('/');
 
-    const slugMatches = (sSlug === reqSlug);
-    // The share's owner must be the requested owner (under any of its ids).
-    // reqOwner is always one of ownerUuid/ownerUsername, so comparing those to
-    // each other would match a same-slug calendar of any other user.
-    const ownerMatches = (
-      sOwner === reqOwner ||
-      sOwner === ownerUuid ||
-      sOwner === ownerUsername
-    );
-    return slugMatches && ownerMatches;
+    return sSlug === reqSlug && sOwner === reqOwner;
   });
 
   if (matchingShare) {
@@ -180,7 +145,7 @@ async function checkCalendarAccess(req, calendarId, requiredAccess = 'read') {
   const actionName = requiredAccess === 'write' ? 'WRITE' : 'READ';
   const delegateRes = await checkDelegateAccess({
     principalUserId: ownerId,
-    delegateUserId: userUuid,
+    delegateUserId: userId,
     calendarId,
     action: actionName
   });
@@ -213,9 +178,8 @@ function extractCalendarIdFromHref(accountId, href) {
  * Enqueues sync jobs after a calendar operation.
  *
  * The owner is never parsed out of the caller-supplied href on its own (#323):
- * for internal calendars the owner is the one checkCalendarAccess resolved and
- * matched to the requesting user (same person, possibly under a mapped id).
- * Everyone else only ever gets their own sync job.
+ * for internal calendars only the requester's access is checked, and the
+ * requester only ever gets their own sync job.
  *
  * @param {string} calendarId Format: "accountId::calendarHref"
  * @param {string} requestingUserId Requesting user ID (req.session.userId)
@@ -238,9 +202,6 @@ async function queueSyncForCalendar(calendarId, requestingUserId) {
   if (!access.allowed) {
     console.warn(`[sync-queue] Unauthorized sync queue request on ${calendarId} by user ${requestingUserId}`);
     return;
-  }
-  if (access.isOwner && access.ownerId !== requestingUserId) {
-    await enqueue(access.ownerId);
   }
   await enqueue(requestingUserId);
 }

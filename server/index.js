@@ -17,6 +17,7 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const { validateBaseUrl } = require('./utils/baseUrl');
+const { isSafeStorageId } = require('./utils/storageId');
 
 function validateSystemSyncSecret(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
@@ -179,6 +180,13 @@ app.use(async (req, res, next) => {
     }
   }
 
+  // #144: in oidc mode the user id is the storage identity and names the Radicale collection root.
+  if (authMethod === 'oidc' && newUserId && !isSafeStorageId(newUserId)) {
+    delete req.session.userId;
+    req.session.accounts = [];
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
   if (newUserId && req.session.userId !== newUserId) {
     req.session.userId = newUserId;
   }
@@ -215,22 +223,22 @@ app.use(async (req, res, next) => {
         });
       }
 
-      // Inject the internal CalDAV account (Radicale) unless disabled
-      const canonicalUsername = (await Db.getUsernameByUserId(userId)) || userId;
+      // Inject the internal CalDAV account (Radicale) unless disabled. #144: the collection root
+      // is the user id itself (OIDC sub, or CALDAV_USERNAME in env mode), never a display name.
       if (!process.env.DISABLE_INTERNAL_CALDAV) {
         const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://localhost:5232';
         const internalAcc = accounts.find(a => a.id === 'internal-caldav');
         if (!internalAcc) {
           accounts.unshift({
             id: 'internal-caldav',
-            url: `${localCalDAVCUrl}/${canonicalUsername}/`,
-            username: canonicalUsername,
+            url: `${localCalDAVCUrl}/${userId}/`,
+            username: userId,
             password: process.env.SYSTEM_SYNC_SECRET,
             displayName: 'Interner Kalender'
           });
         } else {
-          internalAcc.username = canonicalUsername;
-          internalAcc.url = `${localCalDAVCUrl}/${canonicalUsername}/`;
+          internalAcc.username = userId;
+          internalAcc.url = `${localCalDAVCUrl}/${userId}/`;
         }
       }
       
