@@ -116,9 +116,9 @@ export function checkAndTriggerAlarms() {
         notifiedAlarms.add(alarmKey);
         saveNotifiedAlarms();
 
-        const title = `⏰ Erinnerung: ${ev.title || 'Termin'}`;
+        const title = `Erinnerung: ${ev.title || 'Termin'}`;
         const timeStr = new Date(ev.start).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-        const locationStr = ev.location ? ` | 📍 Ort: ${ev.location}` : '';
+        const locationStr = ev.location ? ` | Ort: ${ev.location}` : '';
         const descStr = alarm.description ? ` (${alarm.description})` : '';
         const body = `Zeit: ${timeStr}${locationStr}${descStr}`;
 

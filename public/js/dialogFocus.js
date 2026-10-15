@@ -186,7 +186,7 @@ export function confirmDialog(message, title = 'Bestätigung') {
 
   const backdrop = document.getElementById('confirm-dialog-backdrop');
   if (!backdrop) {
-    return Promise.resolve(typeof window.confirm === 'function' ? window.confirm(message) : true);
+    throw new Error('confirmDialog: #confirm-dialog-backdrop is missing from the page');
   }
 
   return new Promise((resolve) => {
@@ -219,14 +219,6 @@ export function confirmDialog(message, title = 'Bestätigung') {
     if (closeBtn) closeBtn.addEventListener('click', onCancel);
 
     openDialog(backdrop, okBtn);
-
-    // Playwright/test environment integration check:
-    if (typeof window.confirm === 'function') {
-      const testRes = window.confirm(message);
-      if (typeof testRes === 'boolean') {
-        cleanup(testRes);
-      }
-    }
   });
 }
 

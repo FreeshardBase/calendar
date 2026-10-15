@@ -160,13 +160,6 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const eventChip = page.locator('.event-chip').filter({ hasText: uniqueTitle }).first();
     await expect(eventChip).toBeVisible({ timeout: 15000 });
 
-    // Register dialog handler for deletion
-    page.on('dialog', async dialog => {
-      if (dialog.message().includes('löschen')) {
-        await dialog.accept();
-      }
-    });
-
     // Click on event chip to show popover
     await eventChip.click();
 
@@ -176,6 +169,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Click "Löschen" in popover
     await page.click('#popover-delete-btn');
+    await expect(page.locator('#confirm-dialog-text')).toContainText(uniqueTitle);
+    await page.click('#confirm-dialog-ok');
 
     // Event chip should disappear
     await expect(eventChip).not.toBeVisible();
@@ -386,8 +381,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // Clean up the imported event
     await chip.click();
-    page.on('dialog', dialog => dialog.accept());
     await page.click('#popover-delete-btn');
+    await page.click('#confirm-dialog-ok');
     await expect(chip).not.toBeVisible({ timeout: 10000 });
   });
 
@@ -543,11 +538,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // 4. Click delete / revoke button
     const revokeBtn = listContainer.locator('.btn-revoke-share').first();
-    page.on('dialog', async dialog => {
-      expect(dialog.message()).toContain('entziehen');
-      await dialog.accept(); // Confirm revocation
-    });
     await revokeBtn.click();
+    await expect(page.locator('#confirm-dialog-text')).toContainText('entziehen');
+    await page.click('#confirm-dialog-ok'); // Confirm revocation
 
     // 5. Verify share is removed from list
     await expect(listContainer).not.toContainText('testuser@example.com', { timeout: 10000 });
@@ -643,10 +636,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // 4. Regenerate link
     const regenerated = page.waitForResponse(r => r.url().includes('/public-link') && r.request().method() === 'POST');
-    page.once('dialog', async dialog => {
-      await dialog.accept();
-    });
     await page.click('#public-link-regen-btn');
+    await page.click('#confirm-dialog-ok');
     expect((await regenerated).status()).toBe(200);
 
     // Wait for public input to update to new URL
@@ -727,9 +718,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
 
     // Clean up test 9 event
-    page.once('dialog', dialog => dialog.accept());
     await chip.click();
     await page.click('#popover-delete-btn');
+    await page.click('#confirm-dialog-ok');
     await expect(chip).not.toBeVisible({ timeout: 10000 });
   });
 
@@ -805,9 +796,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       resp => resp.request().method() === 'DELETE' && resp.url().includes('/api/events'),
       { timeout: 10000 }
     );
-    page.once('dialog', dialog => dialog.accept());
     await eventChip.click();
     await page.click('#popover-delete-btn');
+    await page.click('#confirm-dialog-ok');
     await deleteResponsePromise;
     // Give the UI a moment to re-render after delete
     await page.waitForTimeout(1000);
@@ -938,8 +929,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(instance).toMatch(/STATUS:COMPLETED/);
 
     // Clean up: delete task
-    page.on('dialog', dialog => dialog.accept());
     await cardResetted.locator('.btn-delete').click();
+    await page.click('#confirm-dialog-ok');
     await expect(page.locator(`.kanban-card:has-text("${taskTitle}")`)).not.toBeVisible({ timeout: 10000 });
   });
 
@@ -1446,8 +1437,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   }
 
   async function deleteViaPopover(page, chip) {
-    page.on('dialog', dialog => dialog.accept());
     await page.click('#popover-delete-btn');
+    await page.click('#confirm-dialog-ok');
     await expect(chip).not.toBeVisible({ timeout: 10000 });
   }
 
@@ -2094,7 +2085,6 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     );
 
     try {
-      page.on('dialog', d => d.accept());
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
@@ -2115,6 +2105,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(deleteBtn).toBeEnabled();
 
       await deleteBtn.click();
+      await page.click('#confirm-dialog-ok');
       await expect(row).toHaveCount(0, { timeout: 10000 });
 
       const res = await page.request.get('/api/accounts');
@@ -2199,8 +2190,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       try {
         const delBtn = page.locator('#webcal-list .calendar-item', { hasText: feedName }).locator('[data-delete-webcal]').first();
         if (await delBtn.isVisible()) {
-          page.once('dialog', d => d.accept());
           await delBtn.click();
+          await page.click('#confirm-dialog-ok');
         }
       } finally {
         await new Promise(resolve => feedServer.close(resolve));
@@ -2597,8 +2588,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#share-add-btn');
       const toast = page.locator('#toast-container .toast.warning');
       await expect(toast).toBeVisible();
-      await expect(toast.locator('.toast-icon')).not.toHaveText('ℹ');
-      await expect(toast.locator('.toast-icon')).toHaveText('⚠');
+      // The warning triangle, not the info circle (#114: inline SVG, hidden from assistive technology).
+      await expect(toast.locator('svg.toast-icon[aria-hidden="true"] path[d^="M10.29 3.86"]')).toHaveCount(1);
+      await expect(toast.locator('.toast-icon circle')).toHaveCount(0);
       const border = await toast.evaluate(el => {
         const s = getComputedStyle(el);
         return { width: s.borderLeftWidth, color: s.borderLeftColor };
@@ -2891,5 +2883,143 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         expect(adjacentHovered.filter(t => t.ratio < 4.5)).toEqual([]);
       });
     }
+  });
+
+  test.describe('Issue #114 — interaction conventions: app confirm dialog, no emoji, labelled icons', () => {
+    async function firstCalendarId(page) {
+      await page.click('#new-event-btn');
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      const calendarId = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      return calendarId;
+    }
+
+    // Every native browser dialog is recorded and dismissed, so a native confirm() cannot decide anything unseen.
+    function recordNativeDialogs(page) {
+      const native = [];
+      page.on('dialog', dialog => { native.push(dialog.message()); return dialog.dismiss(); });
+      return native;
+    }
+
+    // Decorative SVG is hidden from assistive technology; icon-only buttons carry an aria-label.
+    function unlabelledIcons() {
+      const svgs = Array.from(document.querySelectorAll('svg'))
+        .filter(svg => svg.getAttribute('aria-hidden') !== 'true' && !(svg.getAttribute('role') === 'img' && svg.getAttribute('aria-label')))
+        .map(svg => (svg.closest('[id]') || {}).id || svg.outerHTML.slice(0, 80));
+      const buttons = Array.from(document.querySelectorAll('button'))
+        .filter(b => b.textContent.trim() === '' && !b.getAttribute('aria-label') && !b.getAttribute('aria-labelledby'))
+        .map(b => b.id || b.className);
+      return { svgs, buttons };
+    }
+
+    test('deleting an event asks in the app dialog naming it, and Abbrechen keeps it', async ({ page }) => {
+      const native = recordNativeDialogs(page);
+      await page.goto('/?date=2036-05-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const calendarId = await firstCalendarId(page);
+      const title = `E2E Issue114 Event ${Date.now()}`;
+      const created = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: { calendarId, title, start: '2036-05-14T10:00:00.000Z', end: '2036-05-14T11:00:00.000Z' }
+      });
+      expect(created.status()).toBe(201);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      const chip = page.locator('.event-chip').filter({ hasText: title }).first();
+      await expect(chip).toBeVisible({ timeout: 15000 });
+      await chip.click();
+      await page.click('#popover-delete-btn');
+      await expect(page.locator('#confirm-dialog-backdrop')).toBeVisible();
+      await expect(page.locator('#confirm-dialog-text')).toContainText(title);
+      await page.click('#confirm-dialog-cancel');
+      await expect(page.locator('#confirm-dialog-backdrop')).toBeHidden();
+      await expect(chip).toBeVisible();
+
+      await chip.click();
+      await page.click('#popover-delete-btn');
+      await expect(page.locator('#confirm-dialog-backdrop')).toBeVisible();
+      await page.click('#confirm-dialog-ok');
+      await expect(chip).not.toBeVisible({ timeout: 10000 });
+      expect(native).toEqual([]);
+    });
+
+    test('deleting a kanban task asks in the app dialog naming the task; buttons and icons are labelled', async ({ page }) => {
+      const native = recordNativeDialogs(page);
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const calendarId = await firstCalendarId(page);
+      const title = `E2E Issue114 Task ${Date.now()}`;
+      const created = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data: { calendarId, title } });
+      expect(created.status()).toBe(201);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+
+      expect(await page.evaluate(unlabelledIcons)).toEqual({ svgs: [], buttons: [] });
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#settings-account-list .settings-item').first()).toBeVisible({ timeout: 10000 });
+      expect(await page.evaluate(unlabelledIcons)).toEqual({ svgs: [], buttons: [] });
+      await page.keyboard.press('Escape');
+
+      await page.click('#view-kanban');
+      const card = page.locator('.kanban-card', { hasText: title });
+      await expect(card).toBeVisible({ timeout: 10000 });
+      expect(await page.evaluate(unlabelledIcons)).toEqual({ svgs: [], buttons: [] });
+
+      await card.locator('.btn-delete').click();
+      await expect(page.locator('#confirm-dialog-backdrop')).toBeVisible();
+      await expect(page.locator('#confirm-dialog-text')).toContainText(title);
+      await page.click('#confirm-dialog-ok');
+      await expect(card).not.toBeVisible({ timeout: 10000 });
+      expect(native).toEqual([]);
+    });
+
+    test('a due reminder toast and desktop notification carry no emoji', async ({ page }) => {
+      await page.addInitScript(() => {
+        window.desktopNotifications = [];
+        window.Notification = class {
+          constructor(title, options) { window.desktopNotifications.push({ title, body: options.body }); }
+          static permission = 'granted';
+          static requestPermission() { return Promise.resolve('granted'); }
+        };
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const calendarId = await firstCalendarId(page);
+      const now = Date.now();
+      const title = `E2E Issue114 Reminder ${now}`;
+      const created = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: {
+          calendarId, title, location: 'Room B',
+          start: new Date(now - 60 * 1000).toISOString(),
+          end: new Date(now + 30 * 60 * 1000).toISOString(),
+          alarms: [{ action: 'DISPLAY', trigger: 'PT0S', description: 'Reminder' }]
+        }
+      });
+      expect(created.status()).toBe(201);
+      const ev = await created.json();
+      try {
+        await page.reload();
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await page.evaluate(() => window.__checkAndTriggerAlarms && window.__checkAndTriggerAlarms());
+        const toast = page.locator('#toast-container .toast', { hasText: title });
+        await expect(toast).toBeVisible({ timeout: 10000 });
+        await expect(toast).toContainText('Ort: Room B');
+        expect(await toast.textContent()).not.toMatch(/\p{Extended_Pictographic}/u);
+        const notif = (await page.evaluate(() => window.desktopNotifications)).find(n => n.title.includes(title));
+        expect(notif).toBeTruthy();
+        expect(`${notif.title} ${notif.body}`).not.toMatch(/\p{Extended_Pictographic}/u);
+      } finally {
+        const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          headers: SAME_ORIGIN,
+          data: { calendarId, href: ev.href, etag: ev.etag }
+        });
+        expect(del.ok()).toBeTruthy();
+      }
+    });
   });
 });
