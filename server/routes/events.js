@@ -555,13 +555,11 @@ router.delete('/:uid', async (req, res) => {
         return res.status(400).json({ error: 'Invalid href' });
       }
       const ownerSegment = derivedCalId.split('::')[1].split('/').filter(Boolean)[0];
-      const ownerIds = new Set([ownerSegment, await Db.getUserIdByUsername(ownerSegment)].filter(Boolean));
-      let stored = null;
-      for (const ownerId of ownerIds) {
-        if (!(await Db.hasExternalAccounts(ownerId))) continue;
-        stored = stored || await client.get(eventUrl);
+      // #144: the owner segment is the owner's user id.
+      if (await Db.hasExternalAccounts(ownerSegment)) {
+        const stored = await client.get(eventUrl);
         crossUserDeletions.push(await Db.recordCrossUserDeletion(
-          req.params.uid, derivedCalId, ownerId, req.session.userId, eventPath, stored.ics));
+          req.params.uid, derivedCalId, ownerSegment, req.session.userId, eventPath, stored.ics));
       }
     }
 

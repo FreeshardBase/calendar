@@ -270,8 +270,7 @@ router.get('/share-invitations', async (req, res) => {
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
-    const invitations = await Db.getPendingShareInvitationsForUser(userUuid);
+    const invitations = await Db.getPendingShareInvitationsForUser(userId);
     res.json({ invitations });
   } catch (err) {
     return sendError(res, err, '[share-invitations GET]');
@@ -285,14 +284,13 @@ router.post('/share-invitations/:id/accept', async (req, res) => {
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
 
     const invite = await Db.getShareInvitationById(req.params.id);
     if (!invite) {
       return res.status(404).json({ error: 'Share invitation not found' });
     }
 
-    if (invite.shareeUserId !== userUuid && invite.shareeUserId !== userId) {
+    if (invite.shareeUserId !== userId) {
       return res.status(403).json({ error: 'You are not authorized to respond to this invitation' });
     }
 
@@ -310,14 +308,13 @@ router.post('/share-invitations/:id/decline', async (req, res) => {
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const userUuid = (await Db.getUserIdByUsername(userId)) || userId;
 
     const invite = await Db.getShareInvitationById(req.params.id);
     if (!invite) {
       return res.status(404).json({ error: 'Share invitation not found' });
     }
 
-    if (invite.shareeUserId !== userUuid && invite.shareeUserId !== userId) {
+    if (invite.shareeUserId !== userId) {
       return res.status(403).json({ error: 'You are not authorized to respond to this invitation' });
     }
 
@@ -373,7 +370,7 @@ router.get('/', async (req, res) => {
         errors.push({ accountId: accounts[i].id, status, error: message });
         console.error(`[calendars] Account ${accounts[i].id}:`, r.reason.message);
         if (process.env.DISABLE_INTERNAL_CALDAV === '1' && req.session?.userId) {
-          const canonicalUser = (await Db.getUsernameByUserId(req.session.userId)) || req.session.userId;
+          const canonicalUser = req.session.userId;
           allCalendars.push({
             id: `internal-caldav::/${canonicalUser}/personal/`,
             accountId: accounts[i].id,
