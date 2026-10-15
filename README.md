@@ -86,6 +86,13 @@ key: `ENCRYPTION_KEY`, persisted to `.encryption_key` next to the database
 - **Backups** must contain `webcalendar.db` *and* `.encryption_key` (or the
   `ENCRYPTION_KEY` value). A database restored without its key cannot be used. Restore the
   key and the service starts again.
+- **Consistent snapshot:** the shard backup copies the data directory file by file, which can
+  tear the live WAL-mode `webcalendar.db` / `-wal` / `-shm` while writes happen. The web app
+  therefore writes `webcalendar.db.backup` next to the database at boot and then every hour
+  (`VACUUM INTO`, checked with `PRAGMA integrity_check`, renamed into place). **To restore**,
+  stop all services, replace `webcalendar.db` with `webcalendar.db.backup`, delete
+  `webcalendar.db-wal` and `webcalendar.db-shm`, and start again. Changes made after the
+  snapshot (at most an hour before the backup) are lost.
 - **Rotation:** there is no re-encryption tool yet. To replace a key, stop all services,
   delete the rows of `linked_accounts`, `msgraph_accounts` and `encryption_key_check`,
   remove `.encryption_key`, set the new `ENCRYPTION_KEY`, start, and re-link the accounts.

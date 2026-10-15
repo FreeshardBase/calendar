@@ -109,6 +109,7 @@ const freebusyRouter = require('./routes/freebusy');
 const notificationsRouter = require('./routes/notifications');
 const webcalRouter = require('./routes/webcal');
 const { startWebcalSyncWorker } = require('./utils/webcalSubscription');
+const { startDbBackupWorker } = require('./utils/dbBackup');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -663,6 +664,7 @@ if (listenWhenEmbedded) listen();
 Db.ready.then(() => {
   if (runAsMain) listen();
   if (runAsMain || listenWhenEmbedded) module.exports.webcalWorker = startWebcalSyncWorker();
+  if (runAsMain) module.exports.dbBackupWorker = startDbBackupWorker();
 }).catch((err) => {
   console.error(`[startup] ${err.message}`);
   process.exit(1);

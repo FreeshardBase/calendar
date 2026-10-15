@@ -123,6 +123,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   keep writes short-lived; schema changes must be additive and go into a new numbered entry in
   `server/utils/migrations.js` (never an ad-hoc `ALTER TABLE` in db.js). The server listens only after
   `Db.ready` (migrations + encryption-key check) resolved; a failed migration exits with status 1 (#343).
+  The server process (`server/utils/dbBackup.js`) writes the consistent snapshot `webcalendar.db.backup`
+  via `Db.createBackup` at boot and hourly, for the shard backup that copies the live files (#120).
 - Fail fast (#343): no empty or comment-only `catch {}`, no `.catch(() => {})` / `.catch(() => [])` /
   `.catch(noop)` (ESLint errors) and no `except Exception: pass`
   or blind `except Exception` (ruff S110/BLE001). Catch only the specific expected error, or let it reach
