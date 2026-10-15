@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 // Issue #338 — stored XSS via `javascript:` attachment URLs; CSP must not allow
 // 'unsafe-inline' / 'unsafe-eval' in script-src. Runs with production semantics.
 const os = require('node:os');

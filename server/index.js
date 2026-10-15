@@ -16,6 +16,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
+const { validateBaseUrl } = require('./utils/baseUrl');
 
 function validateSystemSyncSecret(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
@@ -43,14 +44,36 @@ function validateSystemSyncSecret(env = process.env) {
   }
 }
 
+// Issue #340: BASE_URL is the only source of public URLs, OAuth redirect URIs and the CSRF
+// origin; the proxy header identity has its own secret, distinct from INTERNAL_WEBHOOK_SECRET.
+function validateSecurityConfig(env = process.env) {
+  validateBaseUrl(env);
+  const isProdLike = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging';
+  const headerSecret = (env.HTTP_HEADER_AUTH_SECRET || '').trim();
+  if (isProdLike && env.HTTP_HEADER_AUTH === 'true' && !headerSecret) {
+    throw new Error('HTTP_HEADER_AUTH=true requires HTTP_HEADER_AUTH_SECRET in production.');
+  }
+  if (headerSecret && headerSecret === (env.INTERNAL_WEBHOOK_SECRET || '').trim()) {
+    throw new Error('HTTP_HEADER_AUTH_SECRET must differ from INTERNAL_WEBHOOK_SECRET.');
+  }
+}
+
 // Issue #82: Validate SYSTEM_SYNC_SECRET on server boot before any subsystems load
 if (require.main === module || process.env.EXIT_ON_INVALID_SECRETS === 'true') {
   validateSystemSyncSecret(process.env);
+  try {
+    validateSecurityConfig(process.env);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
 }
 
 const Db = require('./db');
 const { getTrustProxySetting, getSessionConfig } = require('./utils/sessionConfig');
-const { createRequireInternalMiddleware } = require('./utils/internalAuth');
+const { createRequireInternalMiddleware, safeCompare } = require('./utils/internalAuth');
+const { csrfGuard } = require('./utils/csrfGuard');
+const { createRateLimiter, AUTH_RATE_LIMIT, PUBLIC_RATE_LIMIT } = require('./utils/rateLimit');
 const securityHeaders = require('./utils/securityHeaders');
 const compression = require('./utils/compression');
 
@@ -96,10 +119,11 @@ app.use(async (req, res, next) => {
   // #50/#245: identity comes only from the session or the secret-gated proxy headers below.
   let newUserId = req.session.userId;
   if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
-    const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET || process.env.INTERNAL_WEBHOOK_SECRET;
+    // #340: own secret (never INTERNAL_WEBHOOK_SECRET), compared in constant time.
+    const expectedSecret = process.env.HTTP_HEADER_AUTH_SECRET;
     const providedSecret = req.headers['x-freeshard-secret'] || req.headers['x-internal-secret'];
 
-    if (expectedSecret && providedSecret === expectedSecret) {
+    if (expectedSecret && safeCompare(providedSecret, expectedSecret)) {
       const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'] || req.headers['x-ptl-client-id'];
       if (headerUser) {
         newUserId = String(headerUser).trim();
@@ -448,6 +472,10 @@ END:VCALENDAR</c:calendar-data>
   });
 }
 
+// ── CSRF guard (#340) ─────────────────────────────────────────────────────────
+// Every state-changing request below must come from the app's own origin.
+app.use(csrfGuard);
+
 // ── Auth guard for API routes ─────────────────────────────────────────────────
 function requireAuth(req, res, next) {
   if (!req.session?.userId || !req.session.accounts || req.session.accounts.length === 0) {
@@ -519,7 +547,8 @@ app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   next();
 });
-app.use('/api/auth',              authRouter);
+app.use('/api/auth',              createRateLimiter(AUTH_RATE_LIMIT), authRouter);
+app.use('/api/public',            createRateLimiter(PUBLIC_RATE_LIMIT));
 app.use('/api/public/calendars', publicRouter);
 app.use('/api/accounts',          requireSessionIdentity, accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);
@@ -603,6 +632,6 @@ Db.ready.then(() => {
   process.exit(1);
 });
 
-module.exports = { app, server, webcalWorker: null, validateSystemSyncSecret };
+module.exports = { app, server, webcalWorker: null, validateSystemSyncSecret, validateSecurityConfig };
 
 

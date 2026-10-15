@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 // Issue #160 — what a mounted route handler actually sends when the upstream
 // CalDAV server fails. The client must get a German message from the server's
 // error table and an HTTP status derived from the upstream status; the English

@@ -4,7 +4,7 @@
  * Issue #263 — Session Cookie & Proxy Production Container Alignment
  *
  * Validates session cookie, Express trust proxy, and production container security alignment:
- *   1. Express trust proxy config respects TRUST_PROXY env var and defaults to true in production.
+ *   1. Express trust proxy config respects TRUST_PROXY env var and defaults to one hop in production (#340).
  *   2. Session cookie uses httpOnly: true, configurable sameSite, and secure setting ('auto' or boolean).
  *   3. Production guard throws error when SESSION_SECRET is missing or default fallback in production.
  *   4. docker-compose.yml configures TRUST_PROXY, COOKIE_SECURE, COOKIE_SAME_SITE, and SESSION_SECRET for webcalendar.
@@ -23,15 +23,15 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
 
   test('getTrustProxySetting evaluates environment correctly', () => {
     assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: 'true' }), true);
-    assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: '1' }), true);
+    assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: '1' }), 1);
     assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: 'false' }), false);
     assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: '0' }), false);
     assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: '2' }), 2);
     assert.strictEqual(getTrustProxySetting({ TRUST_PROXY: 'loopback, 10.0.0.0/8' }), 'loopback, 10.0.0.0/8');
 
-    // Default behavior when TRUST_PROXY is omitted
-    assert.strictEqual(getTrustProxySetting({ NODE_ENV: 'production' }), true);
-    assert.strictEqual(getTrustProxySetting({ NODE_ENV: 'staging' }), true);
+    // Default behavior when TRUST_PROXY is omitted: one hop, the shard's reverse proxy (#340)
+    assert.strictEqual(getTrustProxySetting({ NODE_ENV: 'production' }), 1);
+    assert.strictEqual(getTrustProxySetting({ NODE_ENV: 'staging' }), 1);
     assert.strictEqual(getTrustProxySetting({ NODE_ENV: 'development' }), false);
   });
 

@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 /**
  * Issue #343 — fail fast: no swallowed errors.
@@ -114,6 +115,7 @@ const bootEnv = (dbPath, extra = {}) => ({
   SESSION_SECRET: 'issue343-session-secret-0123456789abcdef0123',
   SYSTEM_SYNC_SECRET: 'issue343-system-sync-secret-0123456789abcdef',
   INTERNAL_WEBHOOK_SECRET: 'issue343-internal-webhook-secret-0123456789',
+  BASE_URL: 'https://calendar.example.com',
   PORT: '0',
   SSL_KEY_PATH: '',
   SSL_CERT_PATH: '',

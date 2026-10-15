@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 process.env.NODE_ENV = 'test';
 // #337: the local feed servers stand in for remote ones — allow them explicitly.
 process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1,localhost';

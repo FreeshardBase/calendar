@@ -39,23 +39,23 @@ test('Issue #101 — getBaseUrl unit tests', async (t) => {
     );
   });
 
-  await t.test('respects X-Forwarded-Proto and X-Forwarded-Host when BASE_URL is unset', () => {
+  // #340: X-Forwarded-Host is client-controllable and never trusted for public URLs.
+  await t.test('ignores X-Forwarded-Host when BASE_URL is unset (development)', () => {
     delete process.env.BASE_URL;
     const mockReq = {
       protocol: 'http',
       get: (header) => {
         const h = header.toLowerCase();
-        if (h === 'x-forwarded-proto') return 'https, http';
         if (h === 'x-forwarded-host') return 'calendar.shard.internal:8443';
         if (h === 'host') return '127.0.0.1:3000';
         return null;
       }
     };
 
-    assert.strictEqual(getBaseUrl(mockReq), 'https://calendar.shard.internal:8443');
+    assert.strictEqual(getBaseUrl(mockReq), 'http://127.0.0.1:3000');
     assert.strictEqual(
       getPublicShareUrl(mockReq, 'mytoken'),
-      'https://calendar.shard.internal:8443/api/public/calendars/share/mytoken.ics'
+      'http://127.0.0.1:3000/api/public/calendars/share/mytoken.ics'
     );
   });
 

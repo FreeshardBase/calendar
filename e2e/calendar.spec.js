@@ -6,6 +6,9 @@ const { webServer } = require('../playwright.config.js');
 const E2E_DATABASE_PATH = webServer.env.DATABASE_PATH;
 // Env auth signs the browser in as this run's fixture user (#217), whose collections live under /<E2E_USER>/.
 const E2E_USER = webServer.env.CALDAV_USERNAME;
+// Direct API calls are not browser requests; they declare themselves same-origin to pass the
+// server's CSRF guard (#340), as the browser does for the app's own fetches.
+const SAME_ORIGIN = { 'Sec-Fetch-Site': 'same-origin' };
 
 function runSql(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -55,7 +58,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // `request` carries no session cookie; the server runs the shipping auth configuration (#211).
     for (const ep of endpoints) {
-      const response = await request[ep.method](ep.path, { data: ep.data });
+      const response = await request[ep.method](ep.path, { data: ep.data, headers: SAME_ORIGIN });
       expect(response.status()).toBe(401);
       const body = await response.json();
       expect(body.error).toBe('Authentication required');
@@ -1542,6 +1545,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const now = Date.now();
     const title = `E2E Issue128 End Reminder ${now}`;
     const created = await page.request.post('/api/events', {
+      headers: SAME_ORIGIN,
       data: {
         calendarId, title,
         start: new Date(now - 26 * 3600 * 1000).toISOString(),
@@ -1559,6 +1563,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#toast-container .toast', { hasText: title })).toBeVisible({ timeout: 10000 });
     } finally {
       const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+        headers: SAME_ORIGIN,
         data: { calendarId, href: ev.href, etag: ev.etag }
       });
       expect(del.ok()).toBeTruthy();
@@ -1640,6 +1645,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const day = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 15, 10, 0, 0));
       const title = `E2E Issue170 Delta ${Date.now()}`;
       const created = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
         data: { calendarId, title, start: day.toISOString(), end: new Date(day.getTime() + 3600 * 1000).toISOString() }
       });
       expect(created.status()).toBe(201);
@@ -1652,6 +1658,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         await expect(page.locator('#calendar-container', { hasText: title })).toBeVisible({ timeout: 10000 });
       } finally {
         const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          headers: SAME_ORIGIN,
           data: { calendarId, href: ev.href, etag: ev.etag }
         });
         expect(del.ok()).toBeTruthy();
@@ -2104,7 +2111,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const { subscriptions } = await list.json();
       for (const sub of subscriptions || []) {
         if (onlyName ? sub.name !== onlyName : !String(sub.name || '').startsWith('E2E Timetable ')) continue;
-        const del = await page.request.delete(`/api/webcal/subscriptions/${encodeURIComponent(sub.id)}`);
+        const del = await page.request.delete(`/api/webcal/subscriptions/${encodeURIComponent(sub.id)}`, { headers: SAME_ORIGIN });
         expect(del.ok()).toBeTruthy();
       }
     };

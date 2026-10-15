@@ -11,6 +11,8 @@ process.env.E2E_RUN_ID = process.env.E2E_RUN_ID || `${Date.now().toString(36)}-$
 const E2E_USER = `e2e-${process.env.E2E_RUN_ID}`;
 const E2E_RUN_DIR = path.join(os.tmpdir(), 'webcalendar-e2e', process.env.E2E_RUN_ID);
 const E2E_DATABASE_PATH = path.join(E2E_RUN_DIR, 'webcalendar.db');
+// Issue #340: production requires BASE_URL; the CSRF guard accepts only this origin.
+const E2E_BASE_URL = process.env.BASE_URL || 'http://localhost:3098';
 
 module.exports = defineConfig({
   testDir: './e2e',
@@ -21,7 +23,7 @@ module.exports = defineConfig({
   reporter: 'list',
   globalTeardown: './e2e/global-teardown.js',
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3098',
+    baseURL: E2E_BASE_URL,
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -44,6 +46,7 @@ module.exports = defineConfig({
     env: {
       PORT: '3098',
       NODE_ENV: 'production',
+      BASE_URL: E2E_BASE_URL,
       DATABASE_PATH: E2E_DATABASE_PATH,
       CALDAV_USERNAME: E2E_USER,
       SESSION_SECRET: 'e2e-playwright-test-session-secret-key-32bytes!',

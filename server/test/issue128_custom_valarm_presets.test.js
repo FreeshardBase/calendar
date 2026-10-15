@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 // Issue #128 — VALARM triggers must survive a read/write round trip unchanged:
 // RELATED=END keeps its anchor, absolute triggers are written as
 // TRIGGER;VALUE=DATE-TIME, every alarm is kept, malformed triggers are refused

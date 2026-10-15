@@ -5,7 +5,9 @@ const router = express.Router();
 const crypto = require('crypto');
 const Db = require('../db');
 const { sendError } = require('../utils/errorSanitizer');
+const { generators } = require('openid-client');
 const { getOidcClient } = require('../utils/oidcClient');
+const { getBaseUrl } = require('../utils/baseUrl');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
 
 // GET /api/auth/session — returns current session status
@@ -30,15 +32,25 @@ router.get('/session', async (req, res) => {
   }
 });
 
+// #340: the redirect URIs come from BASE_URL, never from request headers.
+const oidcRedirectUri = (req) => `${getBaseUrl(req)}/api/auth/callback`;
+const googleRedirectUri = (req) => `${getBaseUrl(req)}/api/auth/google/callback`;
+
 // GET /api/auth/login — Redirect user to OIDC identity provider login page
+// #340: authorization code flow with PKCE (S256), nonce and state, all bound to this session.
 router.get('/login', async (req, res) => {
   try {
     const client = await getOidcClient();
-    const state = crypto.randomBytes(16).toString('hex');
-    req.session.oidcState = state;
+    const codeVerifier = generators.codeVerifier();
+    const transaction = { state: generators.state(), nonce: generators.nonce(), codeVerifier };
+    req.session.oidc = transaction;
     const authUrl = client.authorizationUrl({
       scope: 'openid profile email',
-      state
+      redirect_uri: oidcRedirectUri(req),
+      state: transaction.state,
+      nonce: transaction.nonce,
+      code_challenge: generators.codeChallenge(codeVerifier),
+      code_challenge_method: 'S256'
     });
     res.redirect(authUrl);
   } catch (err) {
@@ -50,16 +62,21 @@ router.get('/login', async (req, res) => {
 // GET /api/auth/callback — OIDC identity provider redirects here with auth code
 router.get('/callback', async (req, res) => {
   try {
+    const transaction = req.session.oidc;
+    delete req.session.oidc;
+    // #340: without a login transaction there is nothing to check the response against;
+    // accepting it would log the browser into whatever account the code belongs to.
+    if (!transaction || !transaction.state || !transaction.nonce || !transaction.codeVerifier) {
+      return res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: keine laufende Anmeldung.');
+    }
+
     const client = await getOidcClient();
     const params = client.callbackParams(req);
-    
-    const expectedState = req.session.oidcState;
-    delete req.session.oidcState;
-    const tokenSet = await client.callback(
-      process.env.OIDC_REDIRECT_URI,
-      params,
-      { state: expectedState }
-    );
+    const tokenSet = await client.callback(oidcRedirectUri(req), params, {
+      state: transaction.state,
+      nonce: transaction.nonce,
+      code_verifier: transaction.codeVerifier
+    });
 
     const claims = tokenSet.claims();
     const userId = claims.sub; // Generic OIDC unique user subject
@@ -77,13 +94,16 @@ router.get('/callback', async (req, res) => {
       }
     }
 
+    // Register mapping in database
+    await Db.upsertUser(userId, username, userEmail);
+
+    // #340: a new session id on login, so an id planted before login (fixation) stays anonymous.
+    await new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())));
+
     // Persist login to Express session
     req.session.userId = userId;
     req.session.username = username;
     if (userEmail) req.session.userEmail = userEmail;
-
-    // Register mapping in database
-    await Db.upsertUser(userId, username, userEmail);
 
     console.log(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
     res.redirect('/');
@@ -93,22 +113,22 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-// GET /api/auth/logout — End session locally and redirect
-router.get('/logout', (req, res) => {
+// POST /api/auth/logout — End session locally and redirect.
+// #340: POST only (a GET could be triggered by an <img>); the CSRF guard checks the origin.
+router.post('/logout', (req, res, next) => {
   req.session.destroy((err) => {
-    if (err) {
-      console.error('[OIDC logout error]', err.message);
-    }
-    res.redirect('/');
+    if (err) return next(err);
+    res.clearCookie('connect.sid');
+    res.redirect(303, '/');
   });
 });
 
 // GET /api/auth/google — Redirect to Google OAuth2 consent screen
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  const redirectUri = googleRedirectUri(req);
 
-  if (!clientId || !redirectUri) {
+  if (!clientId) {
     return res.status(500).send('Google OAuth-Konfiguration fehlt in den Umgebungsvariablen (.env)');
   }
 
@@ -148,7 +168,6 @@ router.get('/google/callback', async (req, res) => {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
   const userId = req.session.userId;
 
   if (!userId) {
@@ -156,6 +175,7 @@ router.get('/google/callback', async (req, res) => {
   }
 
   try {
+    const redirectUri = googleRedirectUri(req);
     // Exchange Auth Code for Access and Refresh Tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',

@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 // Issue #232 — the #202 chain: an authenticated attacker writes into (or grants
 // itself a share on) a victim's internal CalDAV collection. The app-layer gate
 // must authorize the same collection the request is actually sent to: a

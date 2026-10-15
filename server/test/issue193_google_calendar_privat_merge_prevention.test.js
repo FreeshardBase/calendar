@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 // Issue #193 — the sync worker pairs each Google calendar with a local collection named
 // `google-<opaque id>` (see server/test/python/test_issue193_google_collection_mapping.py).
 // This side: the app's own create route must never put a user calendar into the `google-`
