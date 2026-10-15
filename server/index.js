@@ -149,12 +149,21 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(session(getSessionConfig()));
+// #164: express.static percent-decodes the path, so /api/x/..%2F.. would resolve to public/ and be
+// answered with index.html. API paths never reach it; they end at a router or the JSON 404 below.
+const isApiPath = (req) =>
+  req.path.split('/').filter(seg => seg !== '' && seg !== '.')[0]?.toLowerCase() === 'api';
+// #172: only the API and the page itself use the session. Static assets, 304s and the SPA fallback
+// skip the session store and the account loader, so they cost no database read or write.
+const usesSession = (req) => isApiPath(req) || req.path === '/' || req.path === '/index.html';
+const sessionMiddleware = session(getSessionConfig());
+app.use((req, res, next) => (usesSession(req) ? sessionMiddleware(req, res, next) : next()));
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
+  if (!usesSession(req)) return next();
   const authMethod = process.env.AUTH_METHOD || 'env';
   // #50/#245: identity comes only from the session or the secret-gated proxy headers below.
   let newUserId = req.session.userId;
@@ -259,10 +268,6 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// #164: express.static percent-decodes the path, so /api/x/..%2F.. would resolve to public/ and be
-// answered with index.html. API paths never reach it; they end at a router or the JSON 404 below.
-const isApiPath = (req) =>
-  req.path.split('/').filter(seg => seg !== '' && seg !== '.')[0]?.toLowerCase() === 'api';
 const serveStatic = express.static(path.join(__dirname, '../public'));
 app.use((req, res, next) => (isApiPath(req) ? next() : serveStatic(req, res, next)));
 
@@ -548,7 +553,7 @@ app.get('/', (req, res, next) => {
 });
 
 // ── Static files ──────────────────────────────────────────────────────────────
-// Express static middleware is mounted above session middleware to avoid session overhead on static assets
+// Mounted after the session middleware, which skips every non-API path except the page (#172).
 
 // ── Webhook route (Only accessible internally / local connection) ──────────────
 app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) => {
