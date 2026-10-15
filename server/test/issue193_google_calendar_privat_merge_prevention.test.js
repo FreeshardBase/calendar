@@ -74,7 +74,7 @@ async function create(base, name) {
     const deadline = Date.now() + 10000;
     for (;;) {
       const rows = await dbAll('SELECT id FROM sync_queue WHERE user_id = ?', ['testuser']);
-      if (rows.some(r => !queuedBefore.has(r.id)) && !Db._inTx) break;
+      if (rows.some(r => !queuedBefore.has(r.id))) break;
       assert.ok(Date.now() < deadline, 'the sync job queued by POST /api/calendars never committed');
       await new Promise(resolve => setTimeout(resolve, 5));
     }
