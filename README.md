@@ -39,7 +39,11 @@ mkdir -p ssl && openssl req -x509 -newkey rsa:2048 -keyout ssl/key.pem \
 docker compose up --build
 ```
 
-The app listens on https://localhost:3000 (Radicale runs unexposed on the internal container network).
+The app listens on http://localhost:3000 (Radicale runs unexposed on the internal container network).
+The compose file runs the app on plain HTTP (`SSL_KEY_PATH`/`SSL_CERT_PATH` are blank), as on a
+shard, where the platform proxy terminates TLS; the certificate generated above is used only by
+the internal Radicale. With `COOKIE_SECURE=auto` the session cookie is marked `Secure` only on
+HTTPS requests, so the session works on this local HTTP URL as well.
 
 ## Development
 
