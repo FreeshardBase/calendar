@@ -17,10 +17,15 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ build-base sqlite-
 COPY server/  ./server/
 COPY public/  ./public/
 
-# Create data directory and set permissions for SQLite volume
+# Data directory for the SQLite volume, owned by node (uid 1000, shared with the radicale and
+# sync-worker images). A bind mount shadows it, so drop-privileges.sh takes ownership of the
+# mount at start when the container runs as root, then drops to uid 1000 (issue #100).
 USER root
-RUN mkdir -p /app/data && chown -R node:node /app/data && chmod -R 777 /app/data
+COPY drop-privileges.sh /usr/local/bin/drop-privileges.sh
+RUN apk add --no-cache setpriv && chmod +x /usr/local/bin/drop-privileges.sh \
+    && mkdir -p /app/data && chown node:node /app/data
 USER node
+ENV DATA_DIRS="/app/data"
 
 # The image is the production build: the #246 proxy-secret gate and the boot checks key on it.
 ENV NODE_ENV=production
@@ -30,4 +35,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD wget -qO- http://localhost:3000/api/health || wget -qO- --no-check-certificate https://localhost:3000/api/health || exit 1
 
+ENTRYPOINT ["/usr/local/bin/drop-privileges.sh"]
 CMD ["node", "server/index.js"]
