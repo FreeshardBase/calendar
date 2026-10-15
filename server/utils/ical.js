@@ -398,6 +398,23 @@ function parseICSToEvent(icsString, meta = {}) {
   return parseVEventToEvent(vevent, { ...meta, rawIcs: meta.rawIcs || icsString });
 }
 
+/**
+ * Every VEVENT of one resource, unexpanded: the master plus each detached
+ * RECURRENCE-ID override, the overrides shaped like expanded instances
+ * (uid `<uid>::<recurrenceId>`, masterUid, recurrenceId).
+ */
+function parseICSToEvents(icsString, meta = {}) {
+  const comp = new ICAL.Component(ICAL.parse(icsString));
+  _registerEmbeddedTimezones(comp);
+  const rawMeta = { ...meta, rawIcs: meta.rawIcs || icsString };
+  return comp.getAllSubcomponents('vevent').map(vevent => {
+    const event = parseVEventToEvent(vevent, rawMeta);
+    const rid = vevent.getFirstPropertyValue('recurrence-id');
+    if (!rid) return event;
+    const recurrenceId = rid.toString();
+    return { ...event, uid: `${event.uid}::${recurrenceId}`, masterUid: event.uid, recurrenceId };
+  });
+}
 
 function parseAndExpandEvent(icsString, rangeStart, rangeEnd, meta = {}) {
   const jcal = ICAL.parse(icsString);
@@ -2167,6 +2184,7 @@ module.exports = {
   assertValidAlarms,
   parseVEventToEvent,
   parseICSToEvent,
+  parseICSToEvents,
   parseAndExpandEvent,
   expandCalendarInRange,
   eventToICS,

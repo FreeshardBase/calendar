@@ -502,6 +502,15 @@ class CalDAVClient {
    * @param {string} syncLevel
    */
   async syncCollection(calendarUrl, syncToken = null, syncLevel = '1') {
+    return (await this.syncCollectionWithFallback(calendarUrl, syncToken, syncLevel)).xml;
+  }
+
+  /**
+   * Like syncCollection, but also says whether the server rejected the token
+   * (RFC 6578 §3.2, DAV:valid-sync-token) and a full sync was done instead.
+   * @returns {Promise<{xml: string, fallbackPerformed: boolean}>}
+   */
+  async syncCollectionWithFallback(calendarUrl, syncToken = null, syncLevel = '1') {
     const tokenTag = syncToken ? `<d:sync-token>${escapeXML(syncToken)}</d:sync-token>` : `<d:sync-token/>`;
     const body = `<?xml version="1.0" encoding="utf-8"?>
 <d:sync-collection xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -517,15 +526,15 @@ class CalDAVClient {
       const xml = await this.report(calendarUrl, body);
       if (syncToken && (xml.includes('valid-sync-token') || xml.includes('invalid-sync-token'))) {
         console.warn('[CalDAVClient] Sync token invalidated in multistatus XML response, falling back to initial sync');
-        return await this.syncCollection(calendarUrl, null, syncLevel);
+        return { xml: await this.syncCollection(calendarUrl, null, syncLevel), fallbackPerformed: true };
       }
-      return xml;
+      return { xml, fallbackPerformed: false };
     } catch (err) {
       const statusMatch = err.message ? err.message.match(/REPORT (\d{3})/) : null;
       const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 0;
       if (syncToken && ([400, 403, 409, 412].includes(statusCode) || err.message.includes('valid-sync-token'))) {
         console.warn(`[CalDAVClient] Sync token invalidated by server (status ${statusCode}), falling back to initial sync`);
-        return await this.syncCollection(calendarUrl, null, syncLevel);
+        return { xml: await this.syncCollection(calendarUrl, null, syncLevel), fallbackPerformed: true };
       }
       throw err;
     }
