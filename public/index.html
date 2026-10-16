@@ -37,6 +37,17 @@
   <div class="loading-spinner"></div>
 </div>
 
+<!-- ── Sign-in again (#224: shown on any 401) ────────────────────────────────── -->
+<div id="reauth-screen" class="onboarding hidden">
+  <div class="onboarding-card">
+    <div class="onboarding-header">
+      <h1 class="onboarding-title">Sitzung abgelaufen</h1>
+      <p class="onboarding-subtitle">Du bist nicht mehr angemeldet. Melde dich erneut an, um deine Kalender zu sehen.</p>
+    </div>
+    <a class="btn btn-primary btn-full" id="reauth-login-link" href="/api/auth/login">Erneut anmelden</a>
+  </div>
+</div>
+
 <!-- ── Onboarding ───────────────────────────────────────────────────────────── -->
 <div id="onboarding" class="onboarding hidden">
   <div class="onboarding-card">

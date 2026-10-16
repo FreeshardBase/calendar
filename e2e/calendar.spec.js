@@ -106,16 +106,18 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
-  test('Issue #71 / E2E-1 — browser displays authentication error toast when unauthenticated', async ({ page, context }) => {
+  test('Issue #71 / E2E-1 — browser asks to sign in again when the session is lost', async ({ page, context }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    const authToast = page.locator('#toast-container .toast', { hasText: 'Authentication required' });
+    const reauth = page.locator('#reauth-screen');
     await expect(page.locator('#calendar-list')).toContainText('Persönlich');
-    await expect(authToast).toHaveCount(0);
-    // The session is lost (expired / cleared); the next data fetch must surface the 401.
+    await expect(reauth).toBeHidden();
+    // The session is lost (expired / cleared); the next data fetch must surface the 401 (#224: as a sign-in prompt).
+    // A boot request still in flight may already get the 401 and hide the shell, so navigate through the DOM.
     await context.clearCookies();
-    await page.click('#next-btn');
-    await expect(authToast.first()).toBeVisible({ timeout: 10000 });
+    await page.evaluate(() => document.getElementById('next-btn').click());
+    await expect(reauth).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#app')).toBeHidden();
   });
 
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {
@@ -2045,6 +2047,74 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await reloadFailed;
       await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
       await expect(feedToast).toHaveCount(1);
+    });
+  });
+
+  test.describe('Issue #224 — a failed first request is neither "no accounts" nor "no calendars"', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    const failWith = (status, error) => route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error }) });
+    };
+
+    test('a 401 on the account list asks the user to sign in again instead of onboarding', async ({ page }) => {
+      await page.route('**/api/accounts', failWith(401, 'Authentication required'));
+      await page.goto('/');
+
+      const reauth = page.locator('#reauth-screen');
+      await expect(reauth).toBeVisible({ timeout: 10000 });
+      await expect(reauth.getByRole('heading', { name: 'Sitzung abgelaufen' })).toBeVisible();
+      await expect(reauth.getByRole('link', { name: 'Erneut anmelden' })).toHaveAttribute('href', '/api/auth/login');
+      await expect(page.locator('#onboarding')).toBeHidden();
+      await expect(page.locator('#app')).toBeHidden();
+      await expect(page.locator('#loading-screen')).toBeHidden();
+    });
+
+    test('a 401 on the calendar list asks the user to sign in again', async ({ page }) => {
+      await page.route('**/api/calendars', failWith(401, 'Authentication required'));
+      await page.goto('/');
+
+      await expect(page.locator('#reauth-screen')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#app')).toBeHidden();
+      await expect(page.locator('#onboarding')).toBeHidden();
+    });
+
+    test('a 500 on the account list keeps the app shell, shows the error once and claims no empty sidebar', async ({ page }) => {
+      await page.route('**/api/accounts', failWith(500, 'Fehler beim Laden der Kontodaten.'));
+      await page.goto('/');
+
+      await expect(page.locator('#app')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#onboarding')).toBeHidden();
+      await expect(page.locator('#reauth-screen')).toBeHidden();
+      await expect(page.locator('#toast-container .toast.error .toast-msg')).toHaveText('Fehler beim Laden der Kontodaten.');
+      const list = page.locator('#calendar-list');
+      await expect(list).toHaveText('Kalender konnten nicht geladen werden.');
+      await expect(list).not.toContainText('Keine Kalender gefunden.');
+    });
+
+    test('a 500 on the calendar list shows the failure in the sidebar, not an empty list', async ({ page }) => {
+      await page.route('**/api/calendars', failWith(500, 'CalDAV-Server nicht erreichbar'));
+      await page.goto('/');
+
+      await expect(page.locator('#app')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'CalDAV-Server nicht erreichbar' })).toBeVisible({ timeout: 10000 });
+      const list = page.locator('#calendar-list');
+      await expect(list).toHaveText('Kalender konnten nicht geladen werden.');
+      await expect(list).not.toContainText('Keine Kalender gefunden.');
+    });
+
+    test('only a successful empty account list leads to onboarding', async ({ page }) => {
+      await page.route('**/api/accounts', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ json: [] });
+      });
+      await page.goto('/');
+
+      await expect(page.locator('#onboarding')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#reauth-screen')).toBeHidden();
+      await expect(page.locator('#app')).toBeHidden();
     });
   });
 

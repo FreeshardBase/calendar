@@ -4,7 +4,7 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, setUnauthorizedHandler } from './api.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
@@ -47,6 +47,8 @@ function parseUrlDate() {
   return null;
 }
 
+const ACCOUNTS_LOAD_ERROR = 'Fehler beim Laden der Kontodaten';
+
 async function boot() {
   const initialDate = parseUrlDate();
   if (initialDate) {
@@ -82,6 +84,7 @@ async function boot() {
 
   // Attach UI event listeners
   attachListeners();
+  setUnauthorizedHandler(showReauth);
 
   try {
     const accounts = await AccountsAPI.list();
@@ -103,11 +106,14 @@ async function boot() {
     }
   } catch (err) {
     console.error('Boot error:', err);
+    // #224: a 401 already shows the sign-in prompt; any other failure keeps the app shell and says so.
+    if (err.status === 401) return;
+    store.set({ calendarsError: err.message });
     hideLoading();
     showApp();
-    if (typeof showToast === 'function') {
-      showToast('Fehler beim Laden der Kontodaten: ' + err.message, 'error');
-    }
+    // The server's own message for this request already names it; only add context to anything else.
+    const message = err.message.startsWith(ACCOUNTS_LOAD_ERROR) ? err.message : `${ACCOUNTS_LOAD_ERROR}: ${err.message}`;
+    showToast(message, 'error');
   }
 }
 
@@ -123,6 +129,13 @@ function showOnboarding() {
   hideLoading();
   $('onboarding').classList.remove('hidden');
   $('app').classList.add('hidden');
+}
+
+function showReauth() {
+  hideLoading();
+  $('onboarding').classList.add('hidden');
+  $('app').classList.add('hidden');
+  $('reauth-screen').classList.remove('hidden');
 }
 
 function showApp() {
@@ -141,12 +154,14 @@ async function loadCalendars() {
     const res = await CalendarsAPI.list();
     store.set({ 
       calendars: res.calendars || [],
-      accountErrors: res.errors || []
+      accountErrors: res.errors || [],
+      calendarsError: null
     });
     if (res.errors?.length) {
       res.errors.forEach(e => console.warn('[calendar load error]', e));
     }
   } catch (err) {
+    store.set({ calendarsError: err.message });
     showToast('Kalender konnten nicht geladen werden: ' + err.message, 'error');
   } finally {
     store.set({ loadingCalendars: false });
@@ -783,11 +798,17 @@ function renderSidebar() {
   renderSettings();
 }
 
+const CALENDARS_LOAD_FAILED = 'Kalender konnten nicht geladen werden.';
+
 function renderCalendarList() {
   const list   = $('calendar-list');
   const hidden = store.get('hiddenCalendars');
   const cals   = store.get('calendars');
 
+  if (store.get('calendarsError')) {
+    list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${CALENDARS_LOAD_FAILED}</div>`;
+    return;
+  }
   if (!cals.length) {
     list.innerHTML = '<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">Keine Kalender gefunden.</div>';
     return;
@@ -1913,6 +1934,10 @@ function renderSettingsCalendars() {
   if (!list) return;
   const cals = store.get('calendars');
 
+  if (store.get('calendarsError')) {
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${CALENDARS_LOAD_FAILED}</div>`;
+    return;
+  }
   if (!cals.length) {
     list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine Kalender gefunden.</div>';
     return;

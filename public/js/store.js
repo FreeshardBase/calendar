@@ -67,6 +67,7 @@ export const store = createStore({
   loadingEvents:   false,
   eventsError:     null,   // message of the last failed load with nothing cached to show (#106)
   loadingCalendars: false,
+  calendarsError:  null,   // message of the last failed calendar load; the lists show it instead of "none" (#224)
 
   // Search
   searchQuery:     '',
