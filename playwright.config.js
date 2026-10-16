@@ -32,7 +32,10 @@ module.exports = defineConfig({
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    timezoneId: process.env.TZ || 'Europe/Berlin',
+    // Issue #239: the browser zone is a literal, not the ambient TZ, and differs from the server's
+    // (webServer.env.TZ below); otherwise every clock assertion in the suite passes vacuously.
+    timezoneId: 'Europe/Berlin',
+    locale: 'de-DE',
   },
   projects: [
     {
@@ -49,6 +52,8 @@ module.exports = defineConfig({
   webServer: {
     command: `mkdir -p '${E2E_RUN_DIR}' && node server/index.js`,
     env: {
+      // Issue #239: pinned, and different from the browser's `use.timezoneId`.
+      TZ: 'UTC',
       PORT: '3098',
       NODE_ENV: 'production',
       BASE_URL: E2E_BASE_URL,
