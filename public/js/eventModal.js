@@ -138,8 +138,8 @@ export function openCreateModal(defaultDate, callbacks) {
 
   const activeCurrentDate = store.get('currentDate');
   const d = defaultDate ? new Date(defaultDate) : (activeCurrentDate ? new Date(activeCurrentDate) : new Date());
-  $('ev-start-date').value = toInputDate(d, null, true);
-  $('ev-end-date').value   = toInputDate(d, null, true);
+  $('ev-start-date').value = toLocalInputDate(d);
+  $('ev-end-date').value   = toLocalInputDate(d);
 
   if (defaultDate && d.getHours() !== 0) {
     $('ev-start-time').value = toInputTime(d);
@@ -497,8 +497,8 @@ function resetForm() {
 
   const activeCurrentDate = store.get('currentDate');
   const d = activeCurrentDate ? new Date(activeCurrentDate) : new Date();
-  $('ev-start-date').value = toInputDate(d, null, true);
-  $('ev-end-date').value   = toInputDate(d, null, true);
+  $('ev-start-date').value = toLocalInputDate(d);
+  $('ev-end-date').value   = toLocalInputDate(d);
   updateAlldayUI(false);
   setButtonLoading('event-save-btn', false);
 
@@ -1008,6 +1008,11 @@ export function initEventModal() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// The browser-local calendar date of a Date, e.g. the day a view or a clicked slot stands for (#254).
+function toLocalInputDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function toInputDate(d, tzid, isUtcDate = false) {
   if (isUtcDate || (!tzid && typeof d === 'string' && (/^\d{4}-\d{2}-\d{2}/.test(d) || d.endsWith('Z')))) {

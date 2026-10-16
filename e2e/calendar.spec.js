@@ -1981,6 +1981,94 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#settings-drawer')).toHaveClass(/hidden/);
   });
 
+  // Issue #254: the browser clock is pinned to a daylight-saving changeover and to an ordinary
+  // control day. The modal fills in its own default date and time, and the test asserts that
+  // the wall clock the form showed is the wall clock Radicale stored. Expected defaults are
+  // literals: a Date built here in the test process would not see the browser's pinned clock.
+  test.describe('Issue #254 — the wall clock the create form showed is the wall clock that got stored', () => {
+    async function createWithFormDefaults(page, pinnedNow) {
+      await page.clock.install({ time: new Date(pinnedNow) });
+      await page.goto('/');
+      await page.clock.resume();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      const shown = {
+        date: await page.locator('#ev-start-date').inputValue(),
+        time: await page.locator('#ev-start-time').inputValue(),
+        tz: await page.locator('#ev-start-tz').inputValue(),
+      };
+      const title = `Issue 254 default ${pinnedNow}`;
+      await page.fill('#ev-title', title);
+      await page.click('#event-save-btn');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      await expect(page.locator('.event-chip').filter({ hasText: title }).first()).toBeVisible({ timeout: 15000 });
+      await expectSavesLanded(page);
+
+      const stored = await page.evaluate(async ({ title, date }) => {
+        const day = Date.parse(`${date}T00:00:00Z`);
+        const range = `start=${new Date(day - 2 * 86400000).toISOString()}&end=${new Date(day + 3 * 86400000).toISOString()}`;
+        const res = await fetch(`/api/events?${range}`);
+        const ev = (await res.json()).events.find(e => e.title === title);
+        if (!ev) return null;
+        // The calendar export is Radicale's own copy of the collection, not the app's parse of it.
+        const exported = await (await fetch(`/api/calendars/${encodeURIComponent(ev.calendarId)}/export`)).text();
+        const vevent = exported.replace(/\r?\n[ \t]/g, '').split('BEGIN:VEVENT').find(c => c.includes(`\nUID:${ev.uid}`));
+        await fetch(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ calendarId: ev.calendarId, etag: ev.etag, href: ev.href }),
+        });
+        return vevent || null;
+      }, { title, date: shown.date });
+      expect(stored).not.toBeNull();
+      const storedDtstart = stored.match(/^DTSTART[;:].*$/m)[0].trim();
+      return { shown, storedDtstart };
+    }
+
+    function expectStoredAsShown({ shown, storedDtstart }) {
+      expect(storedDtstart).toBe(
+        `DTSTART;TZID=${shown.tz}:${shown.date.replace(/-/g, '')}T${shown.time.replace(':', '')}00`);
+    }
+
+    test('Europe/Berlin changeover day 2026-10-25, 00:10 CEST', async ({ page }) => {
+      const r = await createWithFormDefaults(page, '2026-10-24T22:10:00Z');
+      expect(r.shown).toEqual({ date: '2026-10-25', time: '01:00', tz: 'Europe/Berlin' });
+      expectStoredAsShown(r);
+    });
+
+    test('Europe/Berlin control day 2026-10-19, 00:10 CEST', async ({ page }) => {
+      const r = await createWithFormDefaults(page, '2026-10-18T22:10:00Z');
+      expect(r.shown).toEqual({ date: '2026-10-19', time: '01:00', tz: 'Europe/Berlin' });
+      expectStoredAsShown(r);
+    });
+
+    test.describe('in America/New_York', () => {
+      test.use({ timezoneId: 'America/New_York' });
+
+      test('changeover day 2026-11-01, 02:10 EST', async ({ page }) => {
+        const r = await createWithFormDefaults(page, '2026-11-01T07:10:00Z');
+        expect(r.shown).toEqual({ date: '2026-11-01', time: '03:00', tz: 'America/New_York' });
+        expectStoredAsShown(r);
+      });
+
+      test('control day 2026-10-25, 03:10 EDT', async ({ page }) => {
+        const r = await createWithFormDefaults(page, '2026-10-25T07:10:00Z');
+        expect(r.shown).toEqual({ date: '2026-10-25', time: '04:00', tz: 'America/New_York' });
+        expectStoredAsShown(r);
+      });
+
+      test('evening 2026-10-30, 20:30 EDT, when UTC is already on the next day', async ({ page }) => {
+        const r = await createWithFormDefaults(page, '2026-10-31T00:30:00Z');
+        expect(r.shown).toEqual({ date: '2026-10-30', time: '21:00', tz: 'America/New_York' });
+        expectStoredAsShown(r);
+      });
+    });
+  });
+
   test.describe('Issue #106 — the status bar says loading, free, failed or a count in every view', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
@@ -2223,10 +2311,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
-  test('should render calendar non-vacuously on DST changeover day with pinned date context (Issue #254)', async ({ page }) => {
-    // Navigate to DST autumn fall-back changeover date
+  test('Issue #254 — a view opened on the changeover date 2026-10-25 creates events on that date', async ({ page }) => {
     await page.goto('/?date=2026-10-25');
-    await page.clock.setFixedTime(new Date('2026-10-25T10:00:00Z'));
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
 
@@ -2238,13 +2324,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
-    // Verify default start date in modal.
-    // parseUrlDate('2026-10-25') → new Date(2026, 9, 25) = local midnight Berlin (CET = UTC+1)
-    // openCreateModal calls toInputDate(d, null, true) which reads UTC date
-    // → local Oct 25 00:00 CET = Oct 24 23:00 UTC → toInputDate returns '2026-10-24'
-    // This is a known UTC/local mismatch in the production date-display logic.
-    // The test asserts the actual behaviour; fixing the root cause is tracked separately.
-    await expect(page.locator('#ev-start-date')).toHaveValue('2026-10-24');
+    // The view stands at local midnight Berlin, 2026-10-24T22:00Z; the form shows the local date.
+    await expect(page.locator('#ev-start-date')).toHaveValue('2026-10-25');
+    await expect(page.locator('#ev-end-date')).toHaveValue('2026-10-25');
 
     await page.keyboard.press('Escape');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
