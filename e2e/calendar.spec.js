@@ -610,24 +610,25 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(dialog).not.toContainText(/\bihn\b|eines Benutzers|Benutzern\b/);
   });
 
-  test('Issue #229 — renders and share-dialog cycles leave no click listener behind', async ({ page }) => {
-    // Tally live click listeners per target: add/remove pairs cancel, so a count that grows is a leak.
+  test('Issue #229 — renders and share-dialog cycles leave no click or keydown listener behind', async ({ page }) => {
+    // Tally live click and keydown listeners per target: add/remove pairs cancel, so a count that grows is a leak.
     await page.addInitScript(() => {
-      const live = new Map();
+      const live = { click: new Map(), keydown: new Map() };
       const add = EventTarget.prototype.addEventListener;
       const remove = EventTarget.prototype.removeEventListener;
       EventTarget.prototype.addEventListener = function (type, listener, options) {
-        if (type === 'click' && listener) {
-          if (!live.has(this)) live.set(this, new Set());
-          live.get(this).add(listener);
+        if (live[type] && listener) {
+          if (!live[type].has(this)) live[type].set(this, new Set());
+          live[type].get(this).add(listener);
         }
         return add.call(this, type, listener, options);
       };
       EventTarget.prototype.removeEventListener = function (type, listener, options) {
-        if (type === 'click') live.get(this)?.delete(listener);
+        if (live[type]) live[type].get(this)?.delete(listener);
         return remove.call(this, type, listener, options);
       };
-      window.__clickListenerCount = target => live.get(target)?.size || 0;
+      window.__clickListenerCount = target => live.click.get(target)?.size || 0;
+      window.__keydownListenerCount = target => live.keydown.get(target)?.size || 0;
     });
 
     await page.goto('/');
@@ -636,6 +637,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const counts = () => page.evaluate(() => ({
       document: window.__clickListenerCount(document),
       container: window.__clickListenerCount(document.getElementById('calendar-container')),
+      containerKeydown: window.__keydownListenerCount(document.getElementById('calendar-container')),
       prevBtn: window.__clickListenerCount(document.getElementById('prev-btn')),
     }));
 
@@ -648,6 +650,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
     const afterRenders = await counts();
     expect(afterRenders.container).toBe(afterBoot.container);
+    expect(afterRenders.containerKeydown).toBe(afterBoot.containerKeydown);
     expect(afterRenders.prevBtn).toBe(1);
 
     // Share dialog: each open/close cycle must give back the document handler it added.
@@ -1538,6 +1541,308 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb 2026');
       await expect(page.locator('#toolbar-title')).toHaveText('Februar 2026');
       await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('28');
+    });
+
+    test('the toolbar arrows page month and agenda view from the 31st without skipping', async ({ page }) => {
+      const title = page.locator('#toolbar-title');
+      const selected = page.locator('#mini-calendar .mini-cal-day.selected');
+      await openAt(page, '2026-01-31');
+      await expect(title).toHaveText('Januar 2026');
+      await page.click('#next-btn');
+      await expect(title).toHaveText('Februar 2026');
+      await expect(selected).toHaveText('28');
+      // From the clamped 28 February the day is kept, not clamped again.
+      await page.click('#next-btn');
+      await expect(title).toHaveText('März 2026');
+      await expect(selected).toHaveText('28');
+
+      await openAt(page, '2026-03-31');
+      await page.click('#view-agenda');
+      await expect(title).toHaveText('März 2026');
+      await page.click('#prev-btn');
+      await expect(title).toHaveText('Februar 2026');
+      await expect(selected).toHaveText('28');
+
+      // Leap year: 31 January lands on 29 February.
+      await openAt(page, '2028-01-31');
+      await page.click('#view-month');
+      await page.click('#next-btn');
+      await expect(title).toHaveText('Februar 2028');
+      await expect(selected).toHaveText('29');
+    });
+  });
+
+  // Issue #401: these replace the source-grep tests that once guarded public/js/calendar.js.
+  test.describe('Issue #401 — calendar views render, order and lay out events', () => {
+    test.use({ serviceWorkers: 'block' });
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const ev = (uid, title, start, end, allDay = false) => ({ uid, title, calendarId, start, end, allDay });
+
+    function routeEvents(page, events) {
+      return page.route('**/api/events?**', route => route.fulfill({ json: { events, errors: [] } }));
+    }
+
+    async function openAt(page, date) {
+      await page.goto(date ? `/?date=${date}` : '/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-container [role="grid"], #calendar-container .agenda-view').first())
+        .toBeVisible({ timeout: 10000 });
+    }
+
+    test('Issue #107 — a day lists all-day events first, then by start, end and title', async ({ page }) => {
+      // Served shuffled, so only sorting can produce the expected order.
+      await routeEvents(page, [
+        ev('e2e-107-late', 'Late Meeting', '2037-05-14T18:00:00+02:00', '2037-05-14T19:00:00+02:00'),
+        ev('e2e-107-ad2', 'All Day Event 2', '2037-05-14', '2037-05-15', true),
+        ev('e2e-107-standup', 'Morning Standup', '2037-05-14T09:00:00+02:00', '2037-05-14T09:30:00+02:00'),
+        ev('e2e-107-ad1', 'All Day Event 1', '2037-05-14', '2037-05-15', true),
+        ev('e2e-107-noon', 'Noon Workshop', '2037-05-14T12:00:00+02:00', '2037-05-14T13:00:00+02:00'),
+        ev('e2e-107-quick', 'Quick Sync', '2037-05-14T09:00:00+02:00', '2037-05-14T09:15:00+02:00'),
+        ev('e2e-107-breakfast', 'Breakfast', '2037-05-14T09:00:00+02:00', '2037-05-14T09:30:00+02:00'),
+      ]);
+      await openAt(page, '2037-05-14');
+      const cell = page.locator('.month-grid .month-day[aria-selected="true"]');
+      await expect(cell.locator('.event-chip-title')).toHaveText([
+        'All Day Event 1', 'All Day Event 2',
+        'Quick Sync', // same start, earlier end
+        'Breakfast', 'Morning Standup', // same start and end, by title
+        'Noon Workshop', 'Late Meeting',
+      ], { timeout: 10000 });
+    });
+
+    test('Issue #76 — event UIDs and calendar colours cannot break out of chip attributes', async ({ page }) => {
+      const fallback = 'rgb(99, 102, 241)'; // #6366f1
+      const colours = [
+        ['red; xss: expression(alert(1))', fallback],
+        ['#ff0000" onclick="document.body.dataset.xss401=\'color\'"', fallback],
+        ['url("javascript:alert(1)")', fallback],
+        ['#123456; background-image: url(https://attacker.example/leak)', fallback],
+        ['<script>alert(1)</script>', fallback],
+        ['/* comment */ #000', fallback],
+        ['#ff0000', 'rgb(255, 0, 0)'],
+        ['#123', 'rgb(17, 34, 51)'],
+        ['rgb(255, 0, 0)', 'rgb(255, 0, 0)'],
+        ['blue', 'rgb(0, 0, 255)'],
+      ];
+      const calendars = colours.map(([color], i) => ({
+        id: `internal-caldav::/testuser/e2e-401-c${i}/`, accountId: 'internal-caldav', name: `E2E 401 Kalender ${i}`,
+        color, href: `/testuser/e2e-401-c${i}/`, isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false,
+      }));
+      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { calendars, errors: [] } })
+        : route.fallback()));
+      const evilUid = 'e2e-401-uid" onmouseover="document.body.dataset.xss401=\'uid\'" data-x="';
+      const day = i => `2037-05-${String(10 + i).padStart(2, '0')}`;
+      const events = calendars.map((cal, i) => ({
+        uid: i === 0 ? evilUid : `e2e-401-ev${i}`, title: `E2E 401 Termin ${i}`, calendarId: cal.id,
+        start: `${day(i)}T09:00:00+02:00`, end: `${day(i)}T10:00:00+02:00`, allDay: false,
+      }));
+      await routeEvents(page, events);
+      await openAt(page, '2037-05-14');
+
+      for (let i = 0; i < colours.length; i++) {
+        const chip = page.locator('.month-grid .event-chip', { hasText: `E2E 401 Termin ${i}` });
+        await expect(chip).toHaveCount(1, { timeout: 10000 });
+        const color = await chip.evaluate(el => {
+          const probe = document.createElement('div');
+          probe.style.color = el.style.getPropertyValue('--event-color');
+          document.body.appendChild(probe);
+          const rgb = getComputedStyle(probe).color;
+          probe.remove();
+          return rgb;
+        });
+        expect(color, `chip colour for ${colours[i][0]}`).toBe(colours[i][1]);
+      }
+      const evilChip = page.locator('.month-grid .event-chip', { hasText: 'E2E 401 Termin 0' });
+      expect(await evilChip.getAttribute('data-event-uid')).toBe(evilUid);
+      await expect(evilChip).not.toHaveAttribute('onmouseover');
+      await expect(evilChip).not.toHaveAttribute('data-x');
+      // The escaped UID still finds its event.
+      await evilChip.click();
+      await expect(page.locator('#event-popover .popover-title')).toHaveText('E2E 401 Termin 0');
+      await page.keyboard.press('Escape');
+
+      await page.click('#view-agenda');
+      for (let i = 0; i < colours.length; i++) {
+        const item = page.locator('.agenda-event', { hasText: `E2E 401 Termin ${i}` });
+        await expect(item.locator('.agenda-event-color')).toHaveCSS('background-color', colours[i][1]);
+      }
+      const evilItem = page.locator('.agenda-event', { hasText: 'E2E 401 Termin 0' });
+      expect(await evilItem.getAttribute('data-event-uid')).toBe(evilUid);
+      await expect(evilItem).not.toHaveAttribute('onmouseover');
+      await evilItem.hover();
+      expect(await page.evaluate(() => document.body.dataset.xss401)).toBeUndefined();
+    });
+
+    test('Issue #161 — the month view loads exactly the six weeks its grid shows', async ({ page }) => {
+      const ranges = [];
+      await page.route('**/api/events?**', route => {
+        const params = new URL(route.request().url()).searchParams;
+        ranges.push({ start: params.get('start'), end: params.get('end') });
+        return route.fulfill({ json: { events: [], errors: [] } });
+      });
+      // October 2026 starts on a Thursday, November 2026 on a Sunday (Europe/Berlin).
+      const cases = [
+        ['2026-10-15', '28', '8', '2026-09-27T22:00:00.000Z', '2026-11-08T22:59:59.999Z'],
+        ['2026-11-15', '26', '6', '2026-10-25T23:00:00.000Z', '2026-12-06T22:59:59.999Z'],
+      ];
+      for (const [date, firstDay, lastDay, start, end] of cases) {
+        ranges.length = 0;
+        await openAt(page, date);
+        const cells = page.locator('.month-grid .month-day');
+        await expect(cells).toHaveCount(42);
+        await expect(cells.first().locator('.month-day-num')).toHaveText(firstDay);
+        await expect(cells.last().locator('.month-day-num')).toHaveText(lastDay);
+        expect(await cells.first().getAttribute('data-date')).toBe(start);
+        await expect.poll(() => ranges.length).toBeGreaterThan(0);
+        expect(ranges[0]).toEqual({ start, end });
+      }
+    });
+
+    test('Issue #175 — the current-time line follows the clock and re-renders keep one timer', async ({ page }) => {
+      await page.clock.install({ time: new Date('2037-05-14T10:00:00+02:00') });
+      // Installed after the clock, so it counts the app's minute intervals on the clock's timers.
+      await page.addInitScript(() => {
+        const live = new Set();
+        const set = window.setInterval;
+        const clear = window.clearInterval;
+        window.setInterval = function (fn, delay, ...args) {
+          const id = set.call(this, fn, delay, ...args);
+          if (delay === 60_000) live.add(id);
+          return id;
+        };
+        window.clearInterval = function (id) {
+          live.delete(id);
+          return clear.call(this, id);
+        };
+        window.__minuteIntervals = () => live.size;
+      });
+      await routeEvents(page, []);
+      await openAt(page);
+      await page.click('#view-day');
+      const line = page.locator('.day-view .current-time-line');
+      await expect(line).toHaveCount(1);
+
+      // The minute timer must move this very element; the app's 5-minute event reload would
+      // re-render a fresh line, so stay below that and pin the element.
+      await line.evaluate(el => { el.dataset.e2eProbe = '175'; });
+      const probed = page.locator('.current-time-line[data-e2e-probe="175"]');
+      const topPx = () => probed.evaluate(el => parseFloat(el.style.top));
+      const nowPx = () => page.evaluate(() => { const n = new Date(); return (n.getHours() + n.getMinutes() / 60) * 60; });
+      const before = await topPx();
+      expect(Math.abs(before - await nowPx())).toBeLessThanOrEqual(1);
+      await page.clock.runFor('03:00');
+      await expect.poll(async () => Math.abs(await topPx() - await nowPx())).toBeLessThanOrEqual(1);
+      expect(await topPx() - before).toBeGreaterThanOrEqual(2);
+
+      // Re-rendering the view replaces the line's timer instead of adding one.
+      const withLine = await page.evaluate(() => window.__minuteIntervals());
+      for (const view of ['#view-week', '#view-day', '#view-week', '#view-day']) {
+        await page.click(view);
+        await expect(page.locator('.current-time-line')).toHaveCount(1);
+      }
+      expect(await page.evaluate(() => window.__minuteIntervals())).toBe(withLine);
+      // A view without the line stops its timer.
+      await page.click('#view-month');
+      await expect(page.locator('.current-time-line')).toHaveCount(0);
+      expect(await page.evaluate(() => window.__minuteIntervals())).toBe(withLine - 1);
+    });
+
+    test('Issue #228 — overlapping events share columns only within their own cluster', async ({ page }) => {
+      await routeEvents(page, [
+        ev('e2e-228-a', 'Cluster A', '2037-05-14T09:00:00+02:00', '2037-05-14T10:00:00+02:00'),
+        ev('e2e-228-b', 'Cluster B', '2037-05-14T09:15:00+02:00', '2037-05-14T09:45:00+02:00'),
+        ev('e2e-228-c', 'Cluster C', '2037-05-14T09:30:00+02:00', '2037-05-14T10:15:00+02:00'),
+        ev('e2e-228-solo', 'Solo', '2037-05-14T14:00:00+02:00', '2037-05-14T15:00:00+02:00'),
+        ev('e2e-228-ca', 'Chain A', '2037-05-14T16:00:00+02:00', '2037-05-14T17:00:00+02:00'),
+        ev('e2e-228-cb', 'Chain B', '2037-05-14T16:30:00+02:00', '2037-05-14T17:30:00+02:00'),
+        ev('e2e-228-cc', 'Chain C', '2037-05-14T17:00:00+02:00', '2037-05-14T18:00:00+02:00'),
+      ]);
+      await openAt(page, '2037-05-14');
+      await page.click('#view-day');
+      const col = page.locator('.day-view .week-day-col');
+      await expect(col.locator('.event-block')).toHaveCount(7, { timeout: 10000 });
+      const colBox = await col.boundingBox();
+      const place = async title => {
+        const box = await col.locator('.event-block', { hasText: title }).boundingBox();
+        return { left: (box.x - colBox.x) / colBox.width, width: box.width / colBox.width };
+      };
+      // Each block is 100/cols % wide minus a 2 % gap, offset by 1 %.
+      const third = 1 / 3 - 0.02;
+      for (const [title, left] of [['Cluster A', 0.01], ['Cluster B', 1 / 3 + 0.01], ['Cluster C', 2 / 3 + 0.01]]) {
+        const p = await place(title);
+        expect(p.width, title).toBeCloseTo(third, 2);
+        expect(p.left, title).toBeCloseTo(left, 2);
+      }
+      // An unrelated event later that day keeps the full width.
+      const solo = await place('Solo');
+      expect(solo.width).toBeCloseTo(0.98, 2);
+      expect(solo.left).toBeCloseTo(0.01, 2);
+      // A chain is one cluster of two columns; C reuses A's column once A has ended.
+      for (const [title, left] of [['Chain A', 0.01], ['Chain B', 0.51], ['Chain C', 0.01]]) {
+        const p = await place(title);
+        expect(p.width, title).toBeCloseTo(0.48, 2);
+        expect(p.left, title).toBeCloseTo(left, 2);
+      }
+    });
+
+    test('Issue #267 — only days of the shown month create events; leading and trailing days are disabled', async ({ page }) => {
+      await routeEvents(page, []);
+      await openAt(page, '2026-10-15');
+      const other = page.locator('.month-grid .month-day.other-month');
+      // 28–30 September and 1–8 November.
+      await expect(other).toHaveCount(11);
+      for (let i = 0; i < 11; i++) await expect(other.nth(i)).toHaveAttribute('aria-disabled', 'true');
+      await expect(page.locator('.month-grid .month-day:not(.other-month)[aria-disabled]')).toHaveCount(0);
+
+      // The 28 September cell is inert; Playwright treats aria-disabled as not clickable, so force the click.
+      await other.first().click({ force: true });
+      await other.last().click({ force: true });
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      await page.locator('.month-grid .month-day:not(.other-month)', { hasText: /^20$/ }).click();
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-start-date')).toHaveValue('2026-10-20');
+    });
+
+    test('Issue #274 — event chips announce time and title once, without a duplicate title tooltip', async ({ page }) => {
+      await routeEvents(page, [
+        ev('e2e-274-standup', 'Project Standup', '2037-05-14T10:00:00+02:00', '2037-05-14T10:30:00+02:00'),
+        ev('e2e-274-holiday', 'Company Holiday', '2037-05-14', '2037-05-15', true),
+        ev('e2e-274-review', 'Architecture Review', '2037-05-14T14:00:00+02:00', '2037-05-14T15:00:00+02:00'),
+        ev('e2e-274-sync', '1-on-1 Sync', '2037-05-14T16:00:00+02:00', '2037-05-14T16:30:00+02:00'),
+      ]);
+      await openAt(page, '2037-05-14');
+      const standup = page.locator('.month-grid .event-chip', { hasText: 'Project Standup' });
+      await expect(standup).toHaveAccessibleName('10:00 Project Standup', { timeout: 10000 });
+      await expect(standup).not.toHaveAttribute('title');
+      const holiday = page.locator('.month-grid .event-chip', { hasText: 'Company Holiday' });
+      await expect(holiday).toHaveAccessibleName('Company Holiday');
+      await expect(holiday).not.toHaveAttribute('title');
+
+      await page.click('#view-week');
+      await expect(page.locator('.week-view .event-block', { hasText: 'Architecture Review' }))
+        .toHaveAccessibleName('14:00 – 15:00 Architecture Review');
+
+      await page.click('#view-agenda');
+      await expect(page.locator('.agenda-event', { hasText: '1-on-1 Sync' }))
+        .toHaveAccessibleName('16:00 – 16:30 1-on-1 Sync');
+      await expect(page.locator('.agenda-event', { hasText: 'Company Holiday' }))
+        .toHaveAccessibleName('Ganztägig Company Holiday');
+    });
+
+    test('Issue #275 — the mini-calendar month arrows are buttons named by what they do', async ({ page }) => {
+      await routeEvents(page, []);
+      await openAt(page, '2026-10-15');
+      const mini = page.locator('#mini-calendar');
+      const prev = mini.getByRole('button', { name: 'Vorheriger Monat', exact: true });
+      const next = mini.getByRole('button', { name: 'Nächster Monat', exact: true });
+      await expect(prev).toHaveText('‹');
+      await expect(next).toHaveText('›');
+      await next.click();
+      await expect(mini.locator('.mini-cal-title')).toHaveText('Nov 2026');
+      await prev.click();
+      await prev.click();
+      await expect(mini.locator('.mini-cal-title')).toHaveText('Sep 2026');
     });
   });
 
