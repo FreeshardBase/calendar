@@ -48,13 +48,5 @@ test('Issue #145 — Foreign Keys Enforcement & Connection Pragma Enabling', asy
     );
   });
 
-  await t.test('5. Foreign key table constraints exist for user-indexed tables', async () => {
-    const dbJsPath = path.join(__dirname, '../db.js');
-    const content = fs.readFileSync(dbJsPath, 'utf8');
-    assert.match(
-      content,
-      /FOREIGN KEY\s*\([a-z0-9_]+\)\s*REFERENCES\s*users\([a-z0-9_]+\)/i,
-      'db.js must declare FOREIGN KEY constraints referencing users table'
-    );
-  });
+  // The real constraints on a freshly booted database are checked in issue206_schema_from_boot.test.js.
 });
