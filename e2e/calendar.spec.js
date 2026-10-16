@@ -3084,6 +3084,51 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #189 — the exposed heading outline is a tree', () => {
+    // Headings as Chromium's accessibility tree exposes them, in document order.
+    async function exposedHeadings(page) {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Accessibility.enable');
+      const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+      await cdp.detach();
+      return nodes
+        .filter(n => !n.ignored && n.role && n.role.value === 'heading')
+        .map(n => ({
+          level: (n.properties || []).find(p => p.name === 'level').value.value,
+          name: n.name ? n.name.value : '',
+        }));
+    }
+
+    function expectTree(headings) {
+      expect(headings[0].level).toBe(1);
+      for (let i = 1; i < headings.length; i++) {
+        expect(headings[i].level, `${headings[i - 1].name} -> ${headings[i].name}`)
+          .toBeLessThanOrEqual(headings[i - 1].level + 1);
+      }
+    }
+
+    test('resting view exposes the h1 and then the toolbar title as h2', async ({ page }) => {
+      await page.goto('/?date=2037-05-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#toolbar-title')).toHaveText('Mai 2037');
+      expect(await exposedHeadings(page)).toEqual([
+        { level: 1, name: 'FreeShard Calendar' },
+        { level: 2, name: 'Mai 2037' },
+      ]);
+    });
+
+    test('the open settings drawer nests under the h1 without skipping levels', async ({ page }) => {
+      await page.goto('/?date=2037-05-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      const headings = await exposedHeadings(page);
+      expect(headings.find(h => h.name === 'Einstellungen').level).toBe(2);
+      expect(headings.find(h => h.name === 'Mai 2037').level).toBe(2);
+      expectTree(headings);
+    });
+  });
+
   test.describe('Issue #187 — loading and date changes reach the screen reader', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
