@@ -81,6 +81,7 @@ test.describe('Issue #333 — encryption key canary and fresh-install-only key g
     const keyFile = path.join(tmp, '.encryption_key');
     try {
       const first = bootDb(baseEnv(dbPath), `
+        await Db.upsertUser('testuser', 'testuser', 'testuser@example.com');
         await Db.addAccount('testuser', { url: 'https://caldav.example.com/', username: 'testuser', password: 'testuser-pass', displayName: 'Test User' });
       `);
       assert.equal(first.status, 0, `fresh install must boot: ${first.stdout}${first.stderr}`);

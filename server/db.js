@@ -480,9 +480,7 @@ db.serialize(() => {
     )
   `);
   // #343: the only place the schema changes after CREATE TABLE; server/index.js exits if it fails.
-  migrated = runMigrations(db).then(() => dbRun(db, `
-    INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('test', 'test', 'test@example.com'), ('testuser', 'testuser', 'testuser@example.com')
-  `));
+  migrated = runMigrations(db);
 });
 
 // scrypt costs tens of milliseconds; each value's key is derived once per process.
@@ -1710,22 +1708,24 @@ const Db = {
     });
   },
 
+  // null when no such user exists (#121).
   getUsernameByUserId(userId) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       db.get('SELECT username FROM users WHERE user_id = ?', [userId], (err, row) => {
-        if (err || !row) return resolve(userId);
-        resolve(row.username);
+        if (err) return reject(err);
+        resolve(row ? row.username : null);
       });
     });
   },
 
   getUserIdByUsername(username) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       db.get(
         'SELECT user_id FROM users WHERE username = ? OR user_id = ? OR username LIKE ?',
         [username, username, `${username}@%`],
         (err, row) => {
-          if (err || !row) return resolve(null);
+          if (err) return reject(err);
+          if (!row) return resolve(null);
           resolve(row.user_id);
         }
       );

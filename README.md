@@ -9,7 +9,7 @@
 
 A self-hosted CalDAV web calendar for [Freeshard](https://freeshard.net) shards.
 Month/week/day/agenda views, recurring events, calendar sharing between shard
-users, public ICS links, app-passwords for internal service integration, and optional
+users (once shards have an identity provider, see below), public ICS links, app-passwords for internal service integration, and optional
 two-way sync with Google Calendar and external CalDAV servers.
 
 ## Architecture
@@ -26,7 +26,17 @@ Three services around one shared SQLite database:
 The internal Radicale server (`caldav-server`) runs strictly as an unexposed backend container within the private container network. Direct connection from external CalDAV desktop or mobile clients (e.g. Thunderbird, iOS Calendar, DAVx5) is not exposed in the shipping topology. Users can link external CalDAV accounts (Nextcloud, Fastmail, etc.) inside the WebCalendar UI for background two-way synchronization.
 
 
-Users authenticate via generic OpenID Connect (OIDC) / identity headers or a single env-configured account.
+**Who signs in.** A shard ships with `AUTH_METHOD=env`: a single owner whose user id is
+`CALDAV_USERNAME` (the store template sets `owner`), authenticated by the platform proxy's
+`HTTP_HEADER_AUTH_SECRET`. `AUTH_METHOD=oidc` signs the shard's owner and members in through the
+shard's own OIDC provider — but `shard_core` does not provide one yet, so no shard has an issuer
+for `OIDC_ISSUER_URL`.
+
+**Decision (#121): multi-user features wait for the embedded OIDC provider in `shard_core`; they
+are not cut.** Sharing calendars between shard users (`user_calendar_shares`,
+`radicale_custom_rights`) is kept, because a shard has an owner and members (`CONCEPTS.md`), but
+on a shard today there is only the owner, so there is nobody to share with. A calendar can only be
+shared with a user who has signed in to this shard; any other name is 404.
 External CalDAV accounts (Nextcloud, …) can be linked per user; credentials are
 stored AES-encrypted. See `agents.md` for a deeper code map.
 

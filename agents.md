@@ -65,7 +65,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `server/index.js` — Express app. Session middleware injects accounts into `req.session.accounts`
   on every request: DB-stored linked accounts + `env-default` (from `CALDAVURL` env) +
   `internal-caldav` (Radicale at `INTERNAL_CALDAV_URL`, authed with `SYSTEM_SYNC_SECRET`).
-  Auth modes via `AUTH_METHOD`: `env` (default; userId = `CALDAV_USERNAME`) or `oidc` (Generic OpenID Connect / OIDC standard identity provider or reverse-proxy header auth).
+  Auth modes via `AUTH_METHOD`: `env` (default and the shipping mode; one owner, userId = `CALDAV_USERNAME`,
+  `owner` in the store template) or `oidc` (the shard's own OIDC provider, plus secret-gated proxy header identity).
+  `shard_core` has no OIDC provider yet, so no shard can run `oidc`; `oidc` without `OIDC_ISSUER_URL`,
+  `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` aborts boot (#121). Decision (#121): user-to-user sharing waits
+  for that provider and is not cut; until then a shard has only its owner. No users are seeded.
   In production (and staging) `env` mode answers 401 to every request without `X-Freeshard-Secret` =
   `HTTP_HEADER_AUTH_SECRET` (the platform proxy, timing-safe; exempt: `/health`, `/api/health`, `/internal/*`)
   and refuses to start without that secret (#246). Every such request outside `/api/public/` must also carry
@@ -93,7 +97,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   a tampered value fails to decrypt (#72)), `app_passwords`
   (PBKDF2-HMAC-SHA256, for internal service/app authentication), `calendar_shares` (public ICS tokens), `sync_queue`
   (worker jobs), `sync_job_progress` (events a running job has written so far, #174), `users` (OIDC uuid↔username),
-  `user_calendar_shares` (internal user-to-user shares).
+  `user_calendar_shares` (internal user-to-user shares; the sharee must be a row in `users`, otherwise
+  `POST`/`DELETE /api/calendars/:id/shares` answer 404 — multi-user, waits for the shard's OIDC provider, #121).
 - Long writes (#174): Radicale's create cost grows with the collection size (the `has_uid` scan on every new
   item), so big imports and first syncs take minutes. `POST /api/calendars/:id/import` answers 202 with a job
   (`utils/importJobs.js`, in-process, kept an hour after it ends) whose `processed`/`total` the import banner polls
@@ -126,7 +131,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)
-  and `radicale_custom_rights` (owner full access, others via `user_calendar_shares`).
+  and `radicale_custom_rights` (owner full access, others via `user_calendar_shares` — only reachable once
+  shards have an OIDC provider and thus a second user, #121).
 - `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph → Radicale import, the only Graph sync path).
   Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
   `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google

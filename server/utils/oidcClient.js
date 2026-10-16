@@ -6,6 +6,9 @@ const loadOpenidClient = () => import('openid-client');
 
 let oidcConfig = null;
 
+// #121: server/index.js checks the same variables at start-up.
+const OIDC_CONFIG_MISSING = 'AUTH_METHOD=oidc requires OIDC_ISSUER_URL, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET.';
+
 /**
  * Helper to discover the identity provider once and return the cached openid-client Configuration
  * together with the library's functions. Only https issuers are accepted (openid-client's default).
@@ -21,7 +24,7 @@ async function getOidcClient() {
   const clientSecret = process.env.OIDC_CLIENT_SECRET;
 
   if (!issuerUrl || !clientId || !clientSecret) {
-    throw new Error('OIDC-Konfiguration fehlt in den Umgebungsvariablen (.env)');
+    throw new Error(OIDC_CONFIG_MISSING);
   }
 
   oidcConfig = await client.discovery(new URL(issuerUrl), clientId, clientSecret);
@@ -36,6 +39,7 @@ function resetOidcClient() {
 }
 
 module.exports = {
+  OIDC_CONFIG_MISSING,
   getOidcClient,
   resetOidcClient
 };

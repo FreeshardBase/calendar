@@ -996,6 +996,12 @@ router.get('/:id/shares', async (req, res) => {
   }
 });
 
+// #121: an internal share names a user who has signed in to this shard (by user id or username);
+// null for anyone else, so no share is stored against a principal in no table.
+function resolveInternalSharee(sharee) {
+  return Db.getUserIdByUsername(String(sharee).replace(/\//g, ''));
+}
+
 // POST /api/calendars/:id/shares — add/update calendar share invitee
 router.post('/:id/shares', async (req, res) => {
   try {
@@ -1011,19 +1017,8 @@ router.post('/:id/shares', async (req, res) => {
     const { account } = await resolveCalendar(req, calendarId);
 
     if (account?.id === 'internal-caldav') {
-      let shareeUserId = sharee.replace(/\//g, '');
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(shareeUserId)) {
-        const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
-        if (resolvedUserId) {
-          shareeUserId = resolvedUserId;
-        } else {
-          const resolvedUsername = await Db.getUsernameByUserId(shareeUserId);
-          if (!resolvedUsername) {
-            return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
-          }
-        }
-      }
+      const shareeUserId = await resolveInternalSharee(sharee);
+      if (!shareeUserId) return res.status(404).json({ error: `User "${sharee}" not found.` });
       const shareRole = role || (readWrite ? 'WRITE' : 'READ');
       await Db.addUserShare(calendarId, shareeUserId, !!readWrite, 'PENDING', shareRole, !!canViewPrivate, !!canManageShares);
       return res.json({ message: 'Share invite sent.', sharee: shareeUserId, role: shareRole });
@@ -1090,19 +1085,8 @@ router.delete('/:id/shares', async (req, res) => {
     const { account } = await resolveCalendar(req, calendarId);
 
     if (account?.id === 'internal-caldav') {
-      let shareeUserId = sharee.replace(/\//g, '');
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(shareeUserId)) {
-        const resolvedUserId = await Db.getUserIdByUsername(shareeUserId);
-        if (resolvedUserId) {
-          shareeUserId = resolvedUserId;
-        } else {
-          const resolvedUsername = await Db.getUsernameByUserId(shareeUserId);
-          if (!resolvedUsername) {
-            return res.status(404).json({ error: `User "${shareeUserId}" not found.` });
-          }
-        }
-      }
+      const shareeUserId = await resolveInternalSharee(sharee);
+      if (!shareeUserId) return res.status(404).json({ error: `User "${sharee}" not found.` });
       await Db.removeUserShare(calendarId, shareeUserId);
       return res.json({ message: 'Share removed.' });
     }
