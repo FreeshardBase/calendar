@@ -27,8 +27,8 @@ test('Issue #254 — Non-Vacuous E2E Suite Changeover Day Assertion Suite', asyn
     assert.ok(playwrightConfig.use, 'playwright.config.js must contain a `use` configuration block');
     assert.equal(
       playwrightConfig.use.timezoneId,
-      process.env.TZ || 'Europe/Berlin',
-      'Playwright timezoneId must be pinned to Europe/Berlin or process.env.TZ'
+      'Europe/Berlin',
+      'Playwright timezoneId must be pinned to Europe/Berlin, the zone the changeover dates assume'
     );
   });
 

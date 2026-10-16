@@ -1,51 +1,79 @@
 'use strict';
 
 /**
- * Issue #239 — Browser Timezone Pinning & Non-Vacuous Timezone Test Assertion
+ * Issue #239 — the e2e browser and the e2e server must run in fixed, different time zones.
  *
- * Prevents vacuous timezone test execution by ensuring:
- * 1. playwright.config.js specifies explicit timezoneId under `use` configuration.
- * 2. critical_auth_timezone_assertions.test.js sets process.env.TZ deterministically.
- * 3. Process environment enforces a pinned timezone ('Europe/Berlin') for test runs.
+ * If both share a zone, every clock assertion in the Playwright suite passes vacuously. The guard
+ * resolves the zones the way a real run does: it loads playwright.config.js in a child process
+ * under a given ambient TZ (the browser zone is `use.timezoneId`), then spawns a node process with
+ * the env Playwright hands the webServer command (ambient env overlaid with `webServer.env`) and
+ * asks it which zone it resolved. Ambient values include the server-side zone itself, so a config
+ * that merely tracks the ambient env collapses the two and goes red.
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const path = require('node:path');
-const playwrightConfig = require('../../playwright.config.js');
 
-test('Issue #239 — Browser & Process Timezone Pinning Suite', async (t) => {
+const REPO_ROOT = path.join(__dirname, '..', '..');
+const CONFIG_PATH = path.join(REPO_ROOT, 'playwright.config.js');
+const AMBIENT_TZ = [undefined, 'UTC', 'Europe/Berlin', 'America/New_York', 'Australia/Lord_Howe'];
 
-  await t.test('Playwright Config: Enforces explicit timezoneId in browser context use settings', () => {
-    assert.ok(playwrightConfig.use, 'playwright.config.js must contain a `use` configuration object');
-    assert.ok(
-      playwrightConfig.use.timezoneId,
-      'playwright.config.js `use` block must explicitly pin `timezoneId` (e.g., Europe/Berlin)'
-    );
-    assert.equal(
-      playwrightConfig.use.timezoneId,
-      process.env.TZ || 'Europe/Berlin',
-      'Playwright `timezoneId` must default to Europe/Berlin or process.env.TZ'
-    );
+function ambientEnv(tz) {
+  const env = { ...process.env };
+  delete env.TZ;
+  if (tz !== undefined) env.TZ = tz;
+  return env;
+}
+
+function loadConfig(env) {
+  const script = [
+    `const c = require(${JSON.stringify(CONFIG_PATH)});`,
+    'process.stdout.write(JSON.stringify({ use: c.use, serverEnv: c.webServer.env || {} }));',
+  ].join('\n');
+  const out = execFileSync(process.execPath, ['-e', script], { cwd: REPO_ROOT, env, encoding: 'utf8' });
+  return JSON.parse(out);
+}
+
+function serverZone(env, serverEnv) {
+  return execFileSync(process.execPath, ['-e',
+    'process.stdout.write(Intl.DateTimeFormat().resolvedOptions().timeZone)'],
+  { cwd: REPO_ROOT, env: { ...env, ...serverEnv }, encoding: 'utf8' });
+}
+
+test('Issue #239: browser and server zones are pinned and differ under any ambient TZ', () => {
+  const seen = AMBIENT_TZ.map((tz) => {
+    const env = ambientEnv(tz);
+    const { use, serverEnv } = loadConfig(env);
+    return { ambient: tz, browser: use.timezoneId, server: serverZone(env, serverEnv) };
   });
 
-  await t.test('Critical Timezone Test: critical_auth_timezone_assertions.test.js pins process.env.TZ', () => {
-    const testFilePath = path.join(__dirname, 'critical_auth_timezone_assertions.test.js');
-    const content = fs.readFileSync(testFilePath, 'utf8');
-    assert.match(
-      content,
-      /process\.env\.TZ\s*=\s*/,
-      'critical_auth_timezone_assertions.test.js must set process.env.TZ at file initialization'
-    );
-  });
+  for (const s of seen) {
+    assert.ok(s.browser, `browser timezoneId unset (ambient TZ=${s.ambient})`);
+    assert.notEqual(s.browser, s.server,
+      `browser and server share zone ${s.server} under ambient TZ=${s.ambient}: clock assertions are vacuous`);
+  }
+  assert.equal(new Set(seen.map((s) => s.browser)).size, 1,
+    `browser zone tracks the ambient env: ${JSON.stringify(seen)}`);
+  assert.equal(new Set(seen.map((s) => s.server)).size, 1,
+    `server zone tracks the ambient env: ${JSON.stringify(seen)}`);
+});
 
-  await t.test('Environment Verification: Current test process operates under pinned timezone', () => {
-    const tz = process.env.TZ || 'Europe/Berlin';
-    assert.ok(tz, 'Process timezone must be defined');
-    const df = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' });
-    const formatted = df.format(new Date('2026-01-15T12:00:00Z'));
-    assert.ok(formatted, 'DateTimeFormat must execute successfully under pinned timezone');
-  });
+test('Issue #239: browser and server zones have different UTC offsets in summer and winter', () => {
+  const env = ambientEnv('UTC');
+  const { use, serverEnv } = loadConfig(env);
+  const server = serverZone(env, serverEnv);
+  const offset = (zone, iso) => new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+    .formatToParts(new Date(iso)).find((p) => p.type === 'timeZoneName').value;
+  for (const iso of ['2026-01-15T12:00:00Z', '2026-07-15T12:00:00Z']) {
+    assert.notEqual(offset(use.timezoneId, iso), offset(server, iso),
+      `browser ${use.timezoneId} and server ${server} share an offset at ${iso}`);
+  }
+});
 
+test('Issue #239: the browser runs the German locale the UI is written in', () => {
+  for (const tz of AMBIENT_TZ) {
+    assert.equal(loadConfig(ambientEnv(tz)).use.locale, 'de-DE', `ambient TZ=${tz}`);
+  }
 });
