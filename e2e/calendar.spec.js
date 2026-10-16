@@ -2047,6 +2047,57 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 5000 });
   });
 
+  test.describe('Issue #185 — group captions name their control groups', () => {
+    // A <label> must label a control; one that labels nothing is a caption with no programmatic tie.
+    async function orphanLabels(page, rootSelector) {
+      return page.locator(rootSelector).evaluate(root =>
+        Array.from(root.querySelectorAll('label')).filter(l => l.control === null).map(l => l.textContent.trim()));
+    }
+
+    test('recurrence and attendee captions are group names in the event dialog', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#new-event-btn');
+      const dialog = page.locator('#event-modal-backdrop');
+      await expect(dialog).not.toHaveClass(/hidden/);
+
+      expect(await orphanLabels(page, '#event-modal-backdrop')).toEqual([]);
+
+      await page.selectOption('#ev-recurrence', 'WEEKLY');
+      const weekly = dialog.getByRole('group', { name: 'Wiederholen am', exact: true });
+      await expect(weekly).toHaveCount(1);
+      await expect(weekly.getByRole('checkbox')).toHaveCount(7);
+      await expect(weekly.getByRole('checkbox', { name: 'Mo' })).toBeVisible();
+
+      const end = dialog.getByRole('group', { name: 'Ende der Wiederholung', exact: true });
+      await expect(end.getByRole('radio')).toHaveCount(3);
+      await expect(end.getByRole('spinbutton', { name: 'Anzahl Wiederholungen' })).toBeVisible();
+
+      await page.selectOption('#ev-recurrence', 'MONTHLY');
+      const monthly = dialog.getByRole('group', { name: 'Wiederholen am', exact: true });
+      await expect(monthly).toHaveCount(1);
+      await expect(monthly.getByRole('radio')).toHaveCount(2);
+      await expect(monthly.getByRole('combobox', { name: 'Wochentag' })).toBeVisible();
+
+      const attendees = dialog.getByRole('group', { name: 'Teilnehmende', exact: true });
+      await expect(attendees.getByRole('textbox', { name: 'Name des Teilnehmers' })).toBeVisible();
+      await expect(attendees.getByRole('textbox', { name: 'E-Mail des Teilnehmers' })).toBeVisible();
+    });
+
+    test('the working-days caption names the weekday checkboxes in settings', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      const drawer = page.locator('#settings-drawer');
+      await expect(drawer).not.toHaveClass(/hidden/);
+
+      expect(await orphanLabels(page, '#settings-drawer')).toEqual([]);
+      const days = drawer.getByRole('group', { name: 'Arbeitstage', exact: true });
+      await expect(days.getByRole('checkbox')).toHaveCount(7);
+      await expect(days.getByRole('checkbox', { name: 'Sa' })).toBeVisible();
+    });
+  });
+
   test('should render calendar non-vacuously on DST changeover day with pinned date context (Issue #254)', async ({ page }) => {
     // Navigate to DST autumn fall-back changeover date
     await page.goto('/?date=2026-10-25');

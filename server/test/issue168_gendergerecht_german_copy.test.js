@@ -9,10 +9,11 @@ test('Issue #168 - German copy: generic masculine "Teilnehmer" replaced with gen
   const indexHtml = fs.readFileSync(path.join(projectRoot, 'public/index.html'), 'utf8');
   const invitationsJs = fs.readFileSync(path.join(projectRoot, 'public/js/invitations.js'), 'utf8');
 
-  assert.ok(!indexHtml.includes('<label class="form-label">Teilnehmer</label>'), 'index.html should not contain generic masculine label "Teilnehmer"');
+  // #185: the attendee caption is a group name (div + aria-labelledby), not a <label>.
+  const attendeeCaption = indexHtml.match(/id="ev-attendees-caption">([^<]*)</);
+  assert.ok(attendeeCaption, 'index.html should contain the attendee group caption');
   assert.ok(
-    indexHtml.includes('<label class="form-label">Teilnehmer*innen</label>') ||
-    indexHtml.includes('<label class="form-label">Teilnehmende</label>'),
+    ['Teilnehmer*innen', 'Teilnehmende'].includes(attendeeCaption[1]),
     'index.html should contain gendergerecht label for attendees'
   );
 

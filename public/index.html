@@ -345,8 +345,8 @@
             </div>
           </div>
           <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" style="font-size:11px; display:block; margin-bottom:4px;">Arbeitstage</label>
-            <div style="display:flex; flex-wrap:wrap; gap:6px; font-size:11px;">
+            <div class="form-label" id="wh-days-caption" style="font-size:11px; display:block; margin-bottom:4px;">Arbeitstage</div>
+            <div role="group" aria-labelledby="wh-days-caption" style="display:flex; flex-wrap:wrap; gap:6px; font-size:11px;">
               <label><input type="checkbox" id="wh-day-1" checked /> Mo</label>
               <label><input type="checkbox" id="wh-day-2" checked /> Di</label>
               <label><input type="checkbox" id="wh-day-3" checked /> Mi</label>
@@ -619,8 +619,8 @@
 
         <!-- Weekly days selector (hidden by default) -->
         <div class="form-group hidden" id="recur-weekly-days">
-          <label class="form-label">Wiederholen am</label>
-          <div class="weekdays-checkgrid">
+          <div class="form-label" id="recur-weekly-caption">Wiederholen am</div>
+          <div class="weekdays-checkgrid" role="group" aria-labelledby="recur-weekly-caption">
             <label class="weekday-check"><input type="checkbox" value="MO" class="recur-byday"> Mo</label>
             <label class="weekday-check"><input type="checkbox" value="TU" class="recur-byday"> Di</label>
             <label class="weekday-check"><input type="checkbox" value="WE" class="recur-byday"> Mi</label>
@@ -633,8 +633,8 @@
 
         <!-- Monthly options selector (hidden by default) -->
         <div class="form-group hidden" id="recur-monthly-opts">
-          <label class="form-label">Wiederholen am</label>
-          <div class="radio-group">
+          <div class="form-label" id="recur-monthly-caption">Wiederholen am</div>
+          <div class="radio-group" role="group" aria-labelledby="recur-monthly-caption">
             <label class="radio-option">
               <input type="radio" name="recur-monthly-type" value="BYMONTHDAY" checked>
               <span id="recur-monthly-day-lbl">Am gleichen Kalendertag</span>
@@ -667,8 +667,8 @@
 
         <!-- Recurrence End Section (hidden by default) -->
         <div class="form-group hidden" id="recur-end-section">
-          <label class="form-label">Ende der Wiederholung</label>
-          <div class="radio-group">
+          <div class="form-label" id="recur-end-caption">Ende der Wiederholung</div>
+          <div class="radio-group" role="group" aria-labelledby="recur-end-caption">
             <label class="radio-option">
               <input type="radio" name="recur-end-type" value="NEVER" checked>
               <span>Nie</span>
@@ -720,8 +720,8 @@
 
         <!-- Attendees -->
         <div class="form-group">
-          <label class="form-label">Teilnehmende</label>
-          <div class="attendee-input-row">
+          <div class="form-label" id="ev-attendees-caption">Teilnehmende</div>
+          <div class="attendee-input-row" role="group" aria-labelledby="ev-attendees-caption">
             <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" aria-label="Name des Teilnehmers" />
             <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" aria-label="E-Mail des Teilnehmers" />
             <button type="button" class="btn btn-ghost" id="add-attendee-btn">Hinzufügen</button>
