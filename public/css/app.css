@@ -1116,6 +1116,18 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   outline-offset: 2px;
 }
 
+/* Alt-hold key-hint layer (design guide, #126): each shortcut target shows its letter */
+.key-hints-visible [data-key-hint] { position: relative; }
+.key-hints-visible [data-key-hint]::after {
+  content: attr(data-key-hint);
+  position: absolute; top: -6px; right: -6px; z-index: 5;
+  min-width: 16px; padding: 0 4px;
+  font-size: 10px; font-weight: 600; line-height: 16px; text-align: center;
+  color: var(--surface); background: var(--line);
+  border-radius: var(--radius-control);
+  pointer-events: none;
+}
+
 /* ── 20. Mobile / Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .menu-btn { display: flex; }
