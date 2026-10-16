@@ -52,9 +52,9 @@ test('Issue #189 — Heading hierarchy in main application view', async (t) => {
     }
   });
 
-  await t.test('The toolbar title is <h3>, not <h2>', () => {
-    assert.doesNotMatch(html, /<h2[^>]*class="[^"]*toolbar-title[^"]*"/);
-    assert.match(html, /<h3[^>]*class="[^"]*toolbar-title[^"]*"/);
+  await t.test('The toolbar title is <h2>, directly below the h1', () => {
+    assert.doesNotMatch(html, /<h3[^>]*class="[^"]*toolbar-title[^"]*"/);
+    assert.match(html, /<h2[^>]*class="[^"]*toolbar-title[^"]*"/);
   });
 
   await t.test('No heading in #app starts the outline at h4 or deeper without a preceding h1', () => {
