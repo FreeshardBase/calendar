@@ -93,6 +93,11 @@ export function checkAndTriggerAlarms() {
   const now = Date.now();
 
   for (const ev of events) {
+    // #174's optimistic preview of a save still in flight has a provisional uid, so its alarm key
+    // differs from the stored event's: reminding for it too would fire the same reminder twice
+    // (#357), and for a save that fails, about an event that does not exist. The stored event
+    // reminds once it has landed.
+    if (ev.pending) continue;
     if (!ev.alarms || !Array.isArray(ev.alarms) || ev.alarms.length === 0) continue;
     if (!ev.start) continue;
 

@@ -1,8 +1,8 @@
 name: CI
 
-# Private repo on the Free plan: Actions minutes are capped (2000/month), so CI
-# runs once per PR and not again on the squash-merge push to main. Doc-only
-# changes do not run it; a newer push to the same PR cancels the older run.
+# CI runs once per PR (the PR is squash-merged as tested, so the merge push to main
+# does not re-run it). Doc-only changes do not run it; a newer push to the same PR
+# cancels the older run. No job publishes anything: no image push, no artifact upload.
 on:
   pull_request:
     branches: [ main ]
@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
-      - name: Install dev tools (a unit test runs npm run lint, which needs ruff)
+      - name: Install dev tools (a unit test runs npm run lint, which needs ruff; #200 runs the Python suite, which needs PyYAML)
         run: pip install -r requirements-dev.txt
       - name: Install worker dependencies (several node tests execute the Python workers)
         run: pip install -r radicale/requirements.txt -r sync-worker/requirements.txt
@@ -61,8 +61,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install worker dependencies
-        run: pip install -r radicale/requirements.txt -r sync-worker/requirements.txt
+      - name: Install worker and test dependencies
+        run: pip install -r requirements-dev.txt -r radicale/requirements.txt -r sync-worker/requirements.txt
       - run: python3 -m unittest discover -s server/test/python -v
 
   e2e:
@@ -94,12 +94,6 @@ jobs:
           echo "Radicale did not become ready" >&2
           exit 1
       - run: npx playwright test
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-traces
-          path: test-results/
-          retention-days: 7
 
   image:
     runs-on: ubuntu-latest

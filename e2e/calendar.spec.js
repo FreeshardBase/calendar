@@ -1050,6 +1050,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    // The stored event reminds, not the optimistic preview of the save (#357).
+    await expectSavesLanded(page);
 
     // Trigger alarm check in application
     await page.evaluate(() => {
@@ -1068,6 +1070,63 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const targetNotif = notifications.find(n => n.title && n.title.includes(title));
     expect(targetNotif).toBeTruthy();
     expect(targetNotif.options.body).toContain('Ort: Conference Room B');
+  });
+
+  test('Issue #357 — a due reminder fires once, for the stored event, not for the preview of a save still in flight', async ({ page }) => {
+    // Hold the create request, so the dialog has closed and the optimistic preview (#174) is drawn
+    // while the save is still running.
+    let releaseSave;
+    const saveHeld = new Promise(resolve => { releaseSave = resolve; });
+    await page.route('**/api/events', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      await saveHeld;
+      return route.fallback();
+    });
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    await page.evaluate(() => {
+      window.desktopNotifications = [];
+      window.Notification = class {
+        constructor(title, options) { window.desktopNotifications.push({ title, options }); }
+        static permission = 'granted';
+        static requestPermission() { return Promise.resolve('granted'); }
+      };
+    });
+
+    const title = `Once Reminder ${Date.now()}`;
+    const today = new Date().toISOString().split('T')[0];
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    await page.selectOption('#ev-calendar', await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value'));
+    await page.fill('#ev-title', title);
+    await page.fill('#ev-start-date', today);
+    await page.fill('#ev-end-date', today);
+    await page.check('#ev-allday');
+    await page.selectOption('#ev-alarm', 'PT0S');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+
+    const reminderToasts = page.locator('#toast-container .toast', { hasText: `Erinnerung: ${title}` });
+    const desktopReminders = () => page.evaluate(t => window.desktopNotifications.filter(n => n.title === `Erinnerung: ${t}`).length, title);
+
+    // The preview is due, but a save in flight reminds of nothing.
+    await expect(page.locator('.event-pending', { hasText: title })).toHaveCount(1);
+    await page.evaluate(() => window.__checkAndTriggerAlarms());
+    // Counted once, not polled: a retrying toHaveCount(0) would pass as soon as a toast faded.
+    expect(await reminderToasts.count()).toBe(0);
+    expect(await desktopReminders()).toBe(0);
+
+    // Once the stored event has landed it reminds, exactly once, also across the 5 s check interval
+    // (toasts fade after 4 s, the desktop notifications are counted instead).
+    releaseSave();
+    await expectSavesLanded(page);
+    await page.evaluate(() => window.__checkAndTriggerAlarms());
+    await expect(reminderToasts).toHaveCount(1);
+    expect(await desktopReminders()).toBe(1);
+    await page.waitForTimeout(5500);
+    expect(await desktopReminders()).toBe(1);
   });
 
 
