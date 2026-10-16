@@ -16,7 +16,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToICS, parseICSToEvent, isTzidLossy } = require('../utils/ical');
+const { eventToICS, parseICSToEvent, isTzidLossy, getUtcDate } = require('../utils/ical');
 
 test('Issue #253 — Prevent DTEND collapse onto DTSTART on DST fall-back changeover day', async (t) => {
 
@@ -72,6 +72,61 @@ test('Issue #253 — Prevent DTEND collapse onto DTSTART on DST fall-back change
 
     const durationMs = new Date(parsed.end).getTime() - new Date(parsed.start).getTime();
     assert.equal(durationMs, 3600000, 'event duration must be exactly 1 hour (3600000 ms), not 0 ms zero-length');
+  });
+
+  // The form path from the issue: the user types a time, the client resolves it
+  // with getUtcDate, the server stores it and reads its own file back.
+  function wallClock(iso, tz) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date(iso));
+    const m = {};
+    for (const p of parts) m[p.type] = p.value;
+    return `${m.year}-${m.month}-${m.day} ${m.hour}:${m.minute}`;
+  }
+
+  const formCases = [
+    // [zone, date, start, end] — changeover days and the issue's controls
+    ['Europe/Berlin', '2026-10-25', '01:00', '02:00'],
+    ['Europe/Berlin', '2026-11-01', '01:00', '02:00'],
+    ['Europe/Berlin', '2026-10-25', '00:00', '01:00'],
+    ['Europe/Berlin', '2026-03-29', '03:00', '04:00'],
+    ['America/New_York', '2026-10-25', '03:00', '04:00'],
+    ['America/New_York', '2026-11-01', '00:30', '01:00'],
+    ['America/New_York', '2026-11-01', '03:00', '04:00'],
+    ['Australia/Sydney', '2026-04-05', '01:00', '01:30'],
+    ['Australia/Sydney', '2026-10-04', '03:00', '04:00'],
+  ];
+
+  for (const [tz, date, startTime, endTime] of formCases) {
+    await t.test(`form entry ${date} ${startTime}-${endTime} ${tz} reads back with the entered instants and wall clock`, () => {
+      const start = getUtcDate(date, startTime, tz).toISOString();
+      const end = getUtcDate(date, endTime, tz).toISOString();
+      const ics = eventToICS({
+        uid: `form-${tz}-${date}-${startTime}@example.com`, title: 'Form entry',
+        start, end, allDay: false, startTimeZone: tz, endTimeZone: tz
+      });
+      const parsed = parseICSToEvent(ics);
+
+      assert.equal(parsed.start, start, `start instant drifted on read-back:\n${ics}`);
+      assert.equal(parsed.end, end, `end instant drifted on read-back:\n${ics}`);
+      assert.ok(new Date(parsed.end) > new Date(parsed.start), 'event must not be zero-length');
+      assert.equal(parsed.startTimeZone, tz);
+      assert.equal(parsed.endTimeZone, tz, 'end must be shown in the event zone, not browser-local time');
+      assert.equal(wallClock(parsed.start, parsed.startTimeZone), `${date} ${startTime}`, 'reopened start field');
+    });
+  }
+
+  await t.test('a genuine hour wholly before the Berlin fall-back (23:00Z-00:00Z) round-trips as one hour', () => {
+    const event = {
+      uid: 'dst-before-fallback-253@example.com', title: 'Before fall-back',
+      start: '2026-10-24T23:00:00.000Z', end: '2026-10-25T00:00:00.000Z',
+      allDay: false, startTimeZone: 'Europe/Berlin', endTimeZone: 'Europe/Berlin'
+    };
+    const parsed = parseICSToEvent(eventToICS(event));
+    assert.equal(parsed.start, event.start);
+    assert.equal(parsed.end, event.end);
   });
 
 });

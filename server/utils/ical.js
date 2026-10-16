@@ -283,6 +283,10 @@ function parseVEventToEvent(vevent, meta = {}) {
       } else {
         console.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTEND`);
       }
+    } else if (startTimeZone && endProp.getFirstValue().zone === ICAL.Timezone.utcTimezone) {
+      // eventToICS writes an ambiguous changeover-day end as UTC; the instant is
+      // exact, so show it in the event's zone rather than browser-local time.
+      endTimeZone = startTimeZone;
     }
   } else if (startTimeZone) {
     endTimeZone = startTimeZone;
@@ -1618,20 +1622,17 @@ function _findExactTransitions(tzid, year = 2026) {
       if (testDate.getUTCMonth() !== m) break;
       const offset = _tzOffsetMinutes(tzid, testDate);
       if (offset !== prevOffset) {
-        for (let h = 0; h < 24; h++) {
-          const hourDate = new Date(Date.UTC(year, m, d, h, 0, 0));
-          const hOffset = _tzOffsetMinutes(tzid, hourDate);
-          if (hOffset !== prevOffset) {
-            transitions.push({
-              date: hourDate,
-              from: prevOffset,
-              to: hOffset,
-              rule: _getRuleForDate(hourDate)
-            });
-            prevOffset = hOffset;
-            break;
-          }
+        // The change happened within the 24 h before this noon sample (possibly
+        // on the previous UTC day); bisect down to the exact minute.
+        let lo = testDate.getTime() - 86400000;
+        let hi = testDate.getTime();
+        while (hi - lo > 60000) {
+          const mid = lo + Math.floor((hi - lo) / 120000) * 60000;
+          if (_tzOffsetMinutes(tzid, new Date(mid)) === prevOffset) lo = mid;
+          else hi = mid;
         }
+        transitions.push({ date: new Date(hi), from: prevOffset, to: offset });
+        prevOffset = offset;
       }
     }
   }
@@ -1672,12 +1673,19 @@ function buildVTimezoneBlock(tzid) {
   for (const tr of transitions) {
     const isDaylight = tr.to > tr.from;
     const type = isDaylight ? 'DAYLIGHT' : 'STANDARD';
-    const monthStr = String(tr.date.getUTCMonth() + 1).padStart(2, '0');
-    const dayStr = String(tr.date.getUTCDate()).padStart(2, '0');
-    const dtstart = `1970${monthStr}${dayStr}T020000`;
+    // RFC 5545: an observance's DTSTART is the local wall time in effect
+    // *before* the transition (TZOFFSETFROM). Zones differ (Berlin falls back
+    // at 03:00, New York at 02:00, Sydney's transition is on the previous UTC
+    // day), so derive date and time from the instant rather than assuming 02:00.
+    const wall = new Date(tr.date.getTime() + tr.from * 60000);
+    const monthStr = String(wall.getUTCMonth() + 1).padStart(2, '0');
+    const dayStr = String(wall.getUTCDate()).padStart(2, '0');
+    const hourStr = String(wall.getUTCHours()).padStart(2, '0');
+    const minuteStr = String(wall.getUTCMinutes()).padStart(2, '0');
+    const dtstart = `1970${monthStr}${dayStr}T${hourStr}${minuteStr}00`;
     lines.push(`BEGIN:${type}`);
     lines.push(`DTSTART:${dtstart}`);
-    lines.push(`RRULE:FREQ=YEARLY;${tr.rule}`);
+    lines.push(`RRULE:FREQ=YEARLY;${_getRuleForDate(wall)}`);
     lines.push(`TZOFFSETFROM:${_fmtOffset(tr.from)}`);
     lines.push(`TZOFFSETTO:${_fmtOffset(tr.to)}`);
     lines.push(`END:${type}`);
