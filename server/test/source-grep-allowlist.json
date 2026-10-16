@@ -3,8 +3,6 @@
   "server/test/issue170_calendars_unchanged.test.js",
   "server/test/issue181_keyboard_reachable_events.test.js",
   "server/test/issue208_unparseable_read_paths.test.js",
-  "server/test/issue212_playwright_reuse_server.test.js",
-  "server/test/issue214_non_vacuous_e2e_specs.test.js",
   "server/test/issue215_public_link_unsequenced_writers.test.js",
   "server/test/issue220_unsequenced_calendar_navigation.test.js",
   "server/test/issue226_failed_event_load_toolbar_sync.test.js",
