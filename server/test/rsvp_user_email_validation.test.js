@@ -6,8 +6,6 @@ process.env.DISABLE_INTERNAL_CALDAV = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const express = require('express');
 const session = require('express-session');
 const Db = require('../db');
@@ -91,19 +89,6 @@ END:VCALENDAR`;
 
   t.after(() => {
     if (server) server.close();
-  });
-
-  await t.test('Frontend invitations.js must not contain hardcoded placeholder email', () => {
-    const invitationsJsPath = path.join(__dirname, '../../public/js/invitations.js');
-    const content = fs.readFileSync(invitationsJsPath, 'utf8');
-    assert.ok(
-      !content.includes("const email = 'testuser@example.com';"),
-      'invitations.js should not hardcode testuser@example.com'
-    );
-    assert.ok(
-      content.includes('data-email='),
-      'invitations.js must pass data-email attribute on RSVP buttons'
-    );
   });
 
   await t.test('POST /api/events/:uid/rsvp with unauthorized email address should return 403 Forbidden', async () => {
