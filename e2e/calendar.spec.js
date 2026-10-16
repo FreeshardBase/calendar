@@ -3084,6 +3084,52 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #187 — loading and date changes reach the screen reader', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    test('the boot splash is a status region that says the calendar is loading', async ({ page }) => {
+      let releaseAccounts;
+      const accountsHeld = new Promise(resolve => { releaseAccounts = resolve; });
+      await page.route('**/api/accounts', async route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        await accountsHeld;
+        return route.continue();
+      });
+      await page.goto('/');
+      const splash = page.getByRole('status').filter({ hasText: 'Kalender wird geladen…' });
+      await expect(splash).toBeVisible({ timeout: 10000 });
+      await expect(splash).toHaveId('loading-screen');
+      releaseAccounts();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#loading-screen')).toBeHidden();
+    });
+
+    test('picking a day in the mini calendar announces that date', async ({ page }) => {
+      await page.goto('/?date=2029-03-04');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#status-bar')).toHaveText(/Termin/, { timeout: 10000 });
+      // Record every text the live region carries; later announcements (the event count) overwrite it.
+      await page.evaluate(() => {
+        window.__announced187 = [];
+        const region = document.getElementById('aria-announcer');
+        new MutationObserver(() => {
+          if (region.textContent) window.__announced187.push(region.textContent);
+        }).observe(region, { childList: true, characterData: true, subtree: true });
+      });
+
+      await page.locator('#mini-calendar [data-mini-day]', { hasText: /^20$/ }).click();
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('20');
+      await expect.poll(() => page.evaluate(() => window.__announced187), { timeout: 5000 })
+        .toContain('Datum: Dienstag, 20. März 2029');
+
+      await page.locator('#mini-calendar [data-mini-day]', { hasText: /^7$/ }).focus();
+      await page.keyboard.press('Enter');
+      await expect.poll(() => page.evaluate(() => window.__announced187), { timeout: 5000 })
+        .toContain('Datum: Mittwoch, 7. März 2029');
+    });
+  });
+
   test.describe('Issue #163 — errors are announced and a failed delete stays on screen', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
