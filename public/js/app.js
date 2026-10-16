@@ -1320,7 +1320,12 @@ function openShareCalendarDialog(cal) {
 
   document.body.appendChild(backdrop);
   openDialog(backdrop);
-  const close = () => { closeDialog(backdrop); backdrop.remove(); };
+  const closeCleanups = [];
+  const close = () => {
+    closeCleanups.forEach(cleanup => cleanup());
+    closeDialog(backdrop);
+    backdrop.remove();
+  };
   backdrop.querySelector('#share-cal-close').addEventListener('click', close);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
 
@@ -1463,11 +1468,14 @@ function openShareCalendarDialog(cal) {
       }, 300);
     });
 
-    document.addEventListener('click', e => {
+    // Issue #229: document outlives the dialog, so close() must take this handler back.
+    const hideDropdownOnOutsideClick = e => {
       if (!e.target.closest('.autocomplete-container')) {
         hideDropdown();
       }
-    });
+    };
+    document.addEventListener('click', hideDropdownOnOutsideClick);
+    closeCleanups.push(() => document.removeEventListener('click', hideDropdownOnOutsideClick));
 
     async function loadShares() {
       listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade...</div>';
