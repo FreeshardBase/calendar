@@ -72,17 +72,19 @@ export const AccountsAPI = {
 
 // ── Calendars ─────────────────────────────────────────────────────────────────
 export const CalendarsAPI = {
+  // Resolves to { calendars, errors }; only a complete list is kept for offline use (#402).
   list: async () => {
     try {
-      const cals = await request('GET', '/api/calendars');
-      if (typeof window !== 'undefined' && window.OfflineCache) {
-        window.OfflineCache.saveCalendars(cals);
+      const res = await request('GET', '/api/calendars');
+      if (typeof window !== 'undefined' && window.OfflineCache
+          && Array.isArray(res.calendars) && Array.isArray(res.errors) && res.errors.length === 0) {
+        window.OfflineCache.saveCalendars(res.calendars);
       }
-      return cals;
+      return res;
     } catch (err) {
       if (typeof window !== 'undefined' && window.OfflineCache && window.OfflineCache.isOffline()) {
         const cached = window.OfflineCache.getCalendars();
-        if (cached && cached.length > 0) return cached;
+        if (cached && cached.length > 0) return { calendars: cached, errors: [] };
       }
       throw err;
     }

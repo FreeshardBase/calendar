@@ -2067,6 +2067,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(card).toHaveCount(1, { timeout: 10000 });
       await expect(card.locator('.invitation-title')).toHaveText(title);
       await expect(card.locator('.invitation-organizer')).toHaveText(`Organisator*in: ${organizerName}`);
+      // #168: the attendee caption is gender-neutral.
+      await expect(card.locator('.invitation-attendees small')).toHaveText('Teilnehmende:');
       await expect(card.locator('.invitation-desc')).toHaveText(description);
       await expect(card.locator('img, svg, b')).toHaveCount(0);
       expect(await page.evaluate(() => document.body.dataset.xss216)).toBeUndefined();
@@ -3623,6 +3625,345 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       await page.goto('/?msgraph=error');
       await expect(page.locator('#toast-container .toast.error', { hasText: 'Verbindung mit Microsoft 365 fehlgeschlagen' })).toBeVisible({ timeout: 10000 });
+    });
+  });
+
+  // #402 (#358 part 4): what the markup and ARIA source greps of public/index.html were meant to protect.
+  test.describe('Issue #402 — markup and ARIA behave as the app shell promises', () => {
+    test.use({ serviceWorkers: 'block' });
+
+    async function boot(page, url = '/') {
+      await page.goto(url);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+    }
+
+    // Re-enables the one-time welcome dialog; registered after the suite's init script, so it runs later.
+    async function showWelcome(page) {
+      await page.addInitScript(() => {
+        if (window.origin !== 'null') window.localStorage.removeItem('welcome-popup-closed');
+      });
+    }
+
+    async function expectNamedModal(page, name) {
+      const dialog = page.getByRole('dialog', { name, exact: typeof name === 'string' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+    }
+
+    // Every resource the document loaded: elements, imported stylesheets and @font-face sources.
+    async function loadedUrls(page) {
+      return page.evaluate(() => {
+        const urls = Array.from(document.querySelectorAll('link[href], script[src], img[src], iframe[src]'))
+          .map(el => el.href || el.src);
+        for (const sheet of document.styleSheets) {
+          if (sheet.href && new URL(sheet.href).origin !== location.origin) { urls.push(sheet.href); continue; }
+          for (const rule of sheet.cssRules) {
+            if (rule instanceof CSSImportRule) urls.push(new URL(rule.href, sheet.href || location.href).href);
+            if (rule instanceof CSSFontFaceRule) {
+              for (const m of rule.style.getPropertyValue('src').matchAll(/url\(\s*["']?([^"')]+)/g)) {
+                urls.push(new URL(m[1], sheet.href || location.href).href);
+              }
+            }
+          }
+        }
+        return urls;
+      });
+    }
+
+    test('Issue #115 — app and booking page load nothing from another origin and fall back to system fonts', async ({ page, baseURL }) => {
+      const origin = new URL(baseURL).origin;
+      const foreignRequests = [];
+      page.on('request', r => {
+        const u = new URL(r.url());
+        if (/^https?:$/.test(u.protocol) && u.origin !== origin) foreignRequests.push(r.url());
+      });
+
+      await boot(page);
+      expect((await loadedUrls(page)).filter(u => new URL(u).origin !== origin)).toEqual([]);
+      const fonts = await page.evaluate(() => {
+        const root = getComputedStyle(document.documentElement);
+        return {
+          ui: root.getPropertyValue('--font-ui'),
+          mono: root.getPropertyValue('--font-mono'),
+          body: getComputedStyle(document.body).fontFamily,
+        };
+      });
+      expect(fonts.ui).toMatch(/system-ui|-apple-system/);
+      expect(fonts.mono).toMatch(/\bmonospace\b/);
+      expect(fonts.body).toMatch(/system-ui|-apple-system/);
+
+      await page.goto('/booking.html?slug=e2e-issue402-none');
+      await expect(page.locator('body')).toBeVisible();
+      expect((await loadedUrls(page)).filter(u => new URL(u).origin !== origin)).toEqual([]);
+      expect(foreignRequests).toEqual([]);
+    });
+
+    test('Issue #124 — an uncaught error or rejection renders no debug overlay and no stack', async ({ page }) => {
+      await boot(page);
+      const errors = [];
+      page.on('pageerror', e => errors.push(e.message));
+      await page.evaluate(() => {
+        setTimeout(() => { throw new Error('E2E-124 <b>boom</b>'); }, 0);
+        Promise.reject(new Error('E2E-124 rejected'));
+      });
+      await expect.poll(() => errors.some(m => m.includes('E2E-124 <b>boom</b>')), { timeout: 5000 }).toBe(true);
+
+      expect(await page.evaluate(() => window.onerror)).toBeNull();
+      const text = await page.locator('body').innerText();
+      expect(text).not.toContain('E2E-124');
+      expect(text).not.toContain('Laufzeitfehler');
+      expect(text).not.toMatch(/\bat .+:\d+:\d+/); // no stack frame on screen
+      await expect(page.locator('b', { hasText: 'boom' })).toHaveCount(0);
+    });
+
+    test('Issue #125 — one amber forward action: new event over new task, enter calendar over add account', async ({ page }) => {
+      await showWelcome(page);
+      await page.goto('/');
+      await expect(page.locator('#welcome-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const accent = await tokenColor(page, '--accent');
+      const look = sel => page.locator(sel).evaluate(el => {
+        const s = getComputedStyle(el);
+        return { color: s.color, border: s.borderTopColor };
+      });
+
+      expect(await look('#welcome-btn-close')).toEqual({ color: accent, border: accent });
+      const addAccount = await look('#welcome-btn-add-account');
+      expect(addAccount.color).not.toBe(accent);
+      expect(addAccount.border).not.toBe(accent);
+      await page.click('#welcome-btn-close');
+      await expect(page.locator('#welcome-modal-backdrop')).toHaveClass(/hidden/);
+
+      expect(await look('#new-event-btn')).toEqual({ color: accent, border: accent });
+      const newTask = await look('#new-task-btn');
+      expect(newTask.color).not.toBe(accent);
+      expect(newTask.border).not.toBe(accent);
+    });
+
+    test('Issue #168 — the share search and the delegation list speak gender-neutral German', async ({ page }) => {
+      await boot(page);
+      await page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]').click();
+      const dialog = page.locator('#share-cal-dialog-backdrop');
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator('#share-search-input')).not.toHaveAttribute('placeholder', /Benutzer/);
+      await dialog.locator('#share-add-btn').click();
+      await expect(page.locator('#toast-container .toast', { hasText: 'Bitte wähle eine/n Nutzer*in oder eine E-Mail-Adresse.' }))
+        .toBeVisible();
+      await expect(page.locator('#toast-container')).not.toContainText(/Benutzer/);
+
+      await page.addScriptTag({ url: '/js/delegates.js' });
+      const empty = await page.evaluate(() => {
+        const el = document.createElement('div');
+        window.DelegatesModule.renderDelegatesList([], el, () => {});
+        return el.textContent.trim();
+      });
+      expect(empty).toBe('Keine Stellvertretung eingerichtet.');
+    });
+
+    test('Issue #184 — exactly the active view tab is selected and pressed, at boot and after each switch', async ({ page }) => {
+      const views = ['month', 'week', 'workweek', 'day', 'agenda', 'kanban'];
+      async function expectActive(active) {
+        for (const v of views) {
+          const tab = page.locator(`#view-${v}`);
+          await expect(tab, `${v} while ${active} is active`).toHaveAttribute('aria-selected', String(v === active));
+          await expect(tab, `${v} while ${active} is active`).toHaveAttribute('aria-pressed', String(v === active));
+        }
+      }
+      await boot(page);
+      await expectActive('month');
+      for (const v of ['week', 'workweek', 'day', 'agenda', 'kanban', 'month']) {
+        await page.click(`#view-${v}`);
+        await expectActive(v);
+      }
+    });
+
+    test('Issue #185 — controls are named and the password toggle says what it will do', async ({ page }) => {
+      await boot(page);
+      await expect(page.locator('#search-input')).toHaveAccessibleName('Kalender durchsuchen');
+
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-title')).toHaveAccessibleName('Titel des Termins');
+      await page.selectOption('#ev-recurrence', 'MONTHLY');
+      await expect(page.locator('#recur-monthly-week-idx')).toHaveAccessibleName('Woche des Monats');
+      await expect(page.locator('#recur-monthly-weekday')).toHaveAccessibleName('Wochentag');
+      await expect(page.locator('#recur-end-date')).toHaveAccessibleName('Enddatum der Wiederholung');
+      await expect(page.locator('#recur-end-count')).toHaveAccessibleName('Anzahl Wiederholungen');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+      await page.click('#sidebar-settings-btn');
+      await page.click('#settings-add-account-btn');
+      await expect(page.locator('#account-modal-backdrop')).not.toHaveClass(/hidden/);
+      const password = page.locator('#acc-password');
+      const toggle = page.locator('#account-modal .toggle-password[data-target="acc-password"]');
+      await expect(toggle).toHaveAccessibleName('Passwort anzeigen');
+      await expect(password).toHaveAttribute('type', 'password');
+      await toggle.click();
+      await expect(password).toHaveAttribute('type', 'text');
+      await expect(toggle).toHaveAccessibleName('Passwort verbergen');
+      await toggle.click();
+      await expect(password).toHaveAttribute('type', 'password');
+      await expect(toggle).toHaveAccessibleName('Passwort anzeigen');
+    });
+
+    test('Issue #186 — the welcome dialog is announced by its title', async ({ page }) => {
+      await showWelcome(page);
+      await page.goto('/');
+      await expect(page.locator('#welcome-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expectNamedModal(page, 'Willkommen beim WebCalendar');
+      await page.click('#welcome-btn-close');
+    });
+
+    test('Issue #186 — scope, Microsoft 365, calendar and import dialogs are announced by their titles', async ({ page }) => {
+      await boot(page);
+      await page.evaluate(async () => {
+        // Not awaited: it resolves only once the user picks a scope.
+        (await import('/js/eventModal.js')).chooseRecurrenceScope('E2E 186?');
+      });
+      await expectNamedModal(page, 'Wiederkehrender Termin');
+      await page.click('#scope-cancel-btn');
+      await expect(page.locator('#scope-dialog-backdrop')).toHaveClass(/hidden/);
+
+      await page.click('#sidebar-settings-btn');
+      await page.click('#settings-add-account-btn');
+      await page.click('#btn-link-msgraph');
+      await expectNamedModal(page, 'Microsoft Office 365 / Outlook Sync');
+
+      await boot(page);
+      await page.locator('#calendar-list [data-edit-cal]').first().click();
+      await expectNamedModal(page, 'Kalender bearbeiten');
+
+      await boot(page);
+      const calName = (await page.locator('#calendar-list .calendar-item').first().locator('.calendar-name').textContent()).trim();
+      await page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]').click();
+      await expectNamedModal(page, `Freigabe & Sharing: ${calName}`);
+
+      await boot(page);
+      await page.click('#add-calendar-btn');
+      await expectNamedModal(page, 'Neuer Kalender');
+
+      await boot(page);
+      await page.evaluate(() => {
+        const dt = new DataTransfer();
+        dt.items.add(new File(['BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:e2e-402-import\r\nDTSTART;VALUE=DATE:20370514\r\nSUMMARY:E2E 402\r\nEND:VEVENT\r\nEND:VCALENDAR'],
+          'drop.ics', { type: 'text/calendar' }));
+        document.querySelector('.sidebar').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      });
+      await expectNamedModal(page, 'ICS importieren');
+    });
+
+    test('Issue #266 — opening the event popover announces its details', async ({ page }) => {
+      const title = 'E2E 266 Termin';
+      await page.route('**/api/events?**', route => route.fulfill({
+        json: {
+          events: [{
+            uid: 'e2e-402-popover', title, calendarId: `internal-caldav::/${E2E_USER}/personal/`,
+            start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T10:00:00+02:00', allDay: false,
+          }],
+          errors: [],
+        },
+      }));
+      await boot(page, '/?date=2037-05-14');
+      const chip = page.locator('.event-chip').filter({ hasText: title }).first();
+      await expect(chip).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#status-bar')).toHaveText(/Termin/, { timeout: 10000 });
+      // Record every text the live region carries; a later announcement would overwrite it.
+      await page.evaluate(() => {
+        window.__announced266 = [];
+        const region = document.getElementById('aria-announcer');
+        new MutationObserver(() => {
+          if (region.textContent) window.__announced266.push(region.textContent);
+        }).observe(region, { childList: true, characterData: true, subtree: true });
+      });
+      await chip.click();
+      await expect(page.getByRole('dialog', { name: title, exact: true })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.__announced266), { timeout: 5000 })
+        .toContain(`Termindetails: ${title}`);
+    });
+
+    test('Issue #26 — the linked manifest describes an installable standalone app', async ({ page, request }) => {
+      await boot(page);
+      const href = await page.locator('link[rel="manifest"]').evaluate(l => l.href);
+      const res = await request.get(href);
+      expect(res.status()).toBe(200);
+      const manifest = await res.json();
+      expect(manifest).toMatchObject({
+        name: 'FreeShard WebCalendar', short_name: 'WebCalendar', display: 'standalone', start_url: '/',
+      });
+      expect(manifest.theme_color).toBe(await page.locator('meta[name="theme-color"]').getAttribute('content'));
+      expect(manifest.background_color).toBeTruthy();
+      expect(manifest.icons.length).toBeGreaterThan(0);
+    });
+
+    test('Issue #26 — going offline shows the banner and the loaded calendars are still listed', async ({ page, context }) => {
+      await boot(page);
+      const banner = page.locator('#offline-status-banner');
+      await expect(banner).toBeHidden();
+      const calId = await page.locator('#calendar-list .calendar-item').first().getAttribute('data-cal-id');
+
+      await context.setOffline(true);
+      try {
+        await expect(banner).toBeVisible();
+        expect(await page.evaluate(() => window.OfflineCache.isOffline())).toBe(true);
+        // The request fails, so the list comes from what the boot cached, in the shape the app reads.
+        const offline = await page.evaluate(async () => (await import('/js/api.js')).CalendarsAPI.list());
+        expect(offline.errors).toEqual([]);
+        expect(offline.calendars.map(c => c.id)).toContain(calId);
+      } finally {
+        await context.setOffline(false);
+      }
+      await expect(banner).toBeHidden();
+    });
+
+    test('Issue #26 — the service worker precaches a shell that exists, drops stale caches and answers API calls offline', async ({ request, baseURL }) => {
+      const vm = require('vm');
+      const res = await request.get('/sw.js');
+      expect(res.status()).toBe(200);
+      expect(res.headers()['content-type']).toMatch(/javascript/);
+
+      // The worker runs against stand-ins for its global scope, with the network down.
+      const listeners = {};
+      const stores = new Map([['webcalendar-v0-e2e-stale', new Map()]]);
+      const precached = [];
+      const caches = {
+        open: async name => {
+          if (!stores.has(name)) stores.set(name, new Map());
+          return {
+            addAll: async urls => { precached.push(...urls); },
+            put: async () => {},
+          };
+        },
+        keys: async () => [...stores.keys()],
+        delete: async name => stores.delete(name),
+        match: async () => undefined,
+      };
+      const self = {
+        addEventListener: (type, fn) => { listeners[type] = fn; },
+        skipWaiting: async () => {},
+        clients: { claim: async () => {} },
+      };
+      const fetch = async () => { throw new TypeError('Failed to fetch'); };
+      vm.runInNewContext(await res.text(), { self, caches, fetch, URL, Response, console });
+      const dispatch = (type, extra = {}) => {
+        let pending;
+        listeners[type]({ ...extra, waitUntil: p => { pending = p; }, respondWith: p => { pending = p; } });
+        return pending;
+      };
+
+      await dispatch('install');
+      expect(precached).toEqual(expect.arrayContaining(['/', '/manifest.json', '/js/offlineCache.js', '/js/app.js']));
+      for (const url of precached) {
+        expect((await request.get(url)).status(), url).toBe(200);
+      }
+
+      await dispatch('activate');
+      expect([...stores.keys()]).toHaveLength(1);
+      expect([...stores.keys()][0]).not.toBe('webcalendar-v0-e2e-stale');
+
+      const offline = await dispatch('fetch', { request: { method: 'GET', url: `${baseURL}/api/events` } });
+      expect(offline.status).toBe(503);
+      expect(await offline.json()).toEqual({ error: 'Offline mode active', offline: true });
     });
   });
 

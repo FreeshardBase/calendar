@@ -1,53 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
 const path = require('node:path');
-const http = require('node:http');
 
-// Import OfflineCache if running in Node environment
+// The manifest, the service worker and the page wiring are exercised in e2e/calendar.spec.js (#402).
 const offlineCachePath = path.join(__dirname, '../../public/js/offlineCache.js');
 
-test('Issue #26 — Web App Manifest file presence and structure', (t) => {
-  const manifestPath = path.join(__dirname, '../../public/manifest.json');
-  assert.strictEqual(fs.existsSync(manifestPath), true, 'manifest.json must exist in public directory');
-
-  const content = fs.readFileSync(manifestPath, 'utf8');
-  const manifest = JSON.parse(content);
-
-  assert.strictEqual(manifest.name, 'FreeShard WebCalendar');
-  assert.strictEqual(manifest.short_name, 'WebCalendar');
-  assert.strictEqual(manifest.display, 'standalone');
-  assert.strictEqual(manifest.start_url, '/');
-  assert.ok(manifest.theme_color, 'manifest must specify theme_color');
-  assert.ok(manifest.background_color, 'manifest must specify background_color');
-  assert.ok(Array.isArray(manifest.icons) && manifest.icons.length > 0, 'manifest must specify icons array');
-});
-
-test('Issue #26 — Service Worker sw.js presence and caching logic', (t) => {
-  const swPath = path.join(__dirname, '../../public/sw.js');
-  assert.strictEqual(fs.existsSync(swPath), true, 'sw.js must exist in public directory');
-
-  const swContent = fs.readFileSync(swPath, 'utf8');
-  assert.ok(swContent.includes('CACHE_NAME'), 'sw.js must define CACHE_NAME');
-  assert.ok(swContent.includes('install'), 'sw.js must contain install event listener');
-  assert.ok(swContent.includes('activate'), 'sw.js must contain activate event listener');
-  assert.ok(swContent.includes('fetch'), 'sw.js must contain fetch event listener');
-  assert.ok(swContent.includes('/manifest.json'), 'sw.js pre-cache must include manifest.json');
-});
-
-test('Issue #26 — public/index.html PWA tags and Service Worker registration', (t) => {
-  const indexPath = path.join(__dirname, '../../public/index.html');
-  const indexHtml = fs.readFileSync(indexPath, 'utf8');
-
-  assert.ok(indexHtml.includes('rel="manifest"'), 'index.html must contain link rel="manifest"');
-  assert.ok(indexHtml.includes('manifest.json'), 'index.html must link to manifest.json');
-  assert.ok(indexHtml.includes('theme-color'), 'index.html must contain theme-color meta tag');
-  assert.ok(indexHtml.includes('offlineCache.js'), 'index.html must include offlineCache.js script');
-});
-
 test('Issue #26 — OfflineCache module methods', (t) => {
-  assert.strictEqual(fs.existsSync(offlineCachePath), true, 'offlineCache.js must exist');
-  
   // Mock localStorage for Node test environment
   const storage = {};
   global.localStorage = {
