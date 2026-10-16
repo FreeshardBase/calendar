@@ -492,6 +492,28 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
   });
 
+  test('Issue #168 — attendee fields and the share invitation are announced in gender-neutral German', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    const attendees = page.getByRole('group', { name: 'Teilnehmende' });
+    await expect(attendees.getByRole('textbox', { name: 'Name der teilnehmenden Person', exact: true })).toBeVisible();
+    await expect(attendees.getByRole('textbox', { name: 'E-Mail der teilnehmenden Person', exact: true })).toBeVisible();
+    await expect(page.locator('#event-modal-backdrop')).not.toContainText(/Teilnehmer\b|Teilnehmers/);
+    await page.click('#event-cancel-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+    await page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]').click();
+    const dialog = page.locator('#share-cal-dialog-backdrop');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.share-section-desc').first()).toContainText('den Namen einer Person');
+    await expect(dialog.locator('.share-section-desc').first()).toContainText('um sie einzuladen.');
+    await expect(dialog).not.toContainText(/\bihn\b|eines Benutzers|Benutzern\b/);
+  });
+
   test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
     page.on('console', msg => console.log('PAGE LOG:', msg.text()));
     page.on('pageerror', err => console.error('PAGE ERROR:', err.message));
@@ -2358,8 +2380,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(monthly.getByRole('combobox', { name: 'Wochentag' })).toBeVisible();
 
       const attendees = dialog.getByRole('group', { name: 'Teilnehmende', exact: true });
-      await expect(attendees.getByRole('textbox', { name: 'Name des Teilnehmers' })).toBeVisible();
-      await expect(attendees.getByRole('textbox', { name: 'E-Mail des Teilnehmers' })).toBeVisible();
+      await expect(attendees.getByRole('textbox', { name: 'Name der teilnehmenden Person' })).toBeVisible();
+      await expect(attendees.getByRole('textbox', { name: 'E-Mail der teilnehmenden Person' })).toBeVisible();
     });
 
     test('the working-days caption names the weekday checkboxes in settings', async ({ page }) => {
