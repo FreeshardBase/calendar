@@ -58,13 +58,14 @@ local recipe in `agents.md`, or point `CALDAVURL` at any external CalDAV server.
 ### Tests
 
 ```sh
-NODE_ENV=test SSL_KEY_PATH= SSL_CERT_PATH= node server/index.js &   # test server
-NODE_ENV=test npm test                                              # node:test suite
-npx playwright test                                                 # e2e (needs internal Radicale)
+npm test               # node:test suite, starts its own servers
+npx playwright test    # e2e (needs internal Radicale)
 ```
 
-CalDAV-dependent tests skip unless `CALDAVURL`/`CALDAV_USERNAME`/`CALDAV_PASSWORD`
-point at a real server.
+Do not start a server before `npm test`: each test file listens on its own fixed port and fails
+with `EADDRINUSE` if that port is taken. The suite uses `webcalendar.test.db` (or `DATABASE_PATH`)
+and empties it, and it must run inside a git checkout (one test runs `git ls-files`). CalDAV route
+tests use an in-process mock DAV server. Details in `agents.md`.
 
 ## Configuration
 
