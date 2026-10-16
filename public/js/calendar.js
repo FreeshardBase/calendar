@@ -181,12 +181,10 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
     });
   });
   container.querySelector('[data-mini-prev]')?.addEventListener('click', () => {
-    const d = new Date(currentDate); d.setMonth(d.getMonth() - 1);
-    onDayClick(d);
+    onDayClick(navigate('month', currentDate, -1));
   });
   container.querySelector('[data-mini-next]')?.addEventListener('click', () => {
-    const d = new Date(currentDate); d.setMonth(d.getMonth() + 1);
-    onDayClick(d);
+    onDayClick(navigate('month', currentDate, +1));
   });
 }
 

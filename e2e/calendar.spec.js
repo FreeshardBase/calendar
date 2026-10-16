@@ -1077,6 +1077,44 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #225 — mini-calendar paging from the 31st does not skip a month', () => {
+    async function openAt(page, date) {
+      await page.goto(`/?date=${date}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#mini-calendar [data-mini-next]')).toBeVisible({ timeout: 10000 });
+    }
+
+    test('› from 31 January shows February, then March, and ‹ returns to January', async ({ page }) => {
+      await openAt(page, '2026-01-31');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jan 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('31');
+
+      await page.locator('#mini-calendar [data-mini-next]').click();
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb 2026');
+      await expect(page.locator('#toolbar-title')).toHaveText('Februar 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('28');
+
+      await page.locator('#mini-calendar [data-mini-next]').click();
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Mär 2026');
+      await expect(page.locator('#toolbar-title')).toHaveText('März 2026');
+
+      await page.locator('#mini-calendar [data-mini-prev]').click();
+      await page.locator('#mini-calendar [data-mini-prev]').click();
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jan 2026');
+      await expect(page.locator('#toolbar-title')).toHaveText('Januar 2026');
+    });
+
+    test('‹ from 31 March shows February, not March again', async ({ page }) => {
+      await openAt(page, '2026-03-31');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Mär 2026');
+
+      await page.locator('#mini-calendar [data-mini-prev]').click();
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb 2026');
+      await expect(page.locator('#toolbar-title')).toHaveText('Februar 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('28');
+    });
+  });
+
   test.describe('Issue #183 — calendar grids reach the accessibility tree as grids', () => {
     // Fixed events so the counts in the accessible names are known; page.route
     // needs the service worker off.
