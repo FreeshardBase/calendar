@@ -14,64 +14,16 @@
  *         loopback included, whatever TRUST_PROXY says (no IP allow-list).
  */
 
+// That server/index.js guards its internal routes with this middleware is probed against the
+// real app in issue59_internal_webhook_proxy_bypass.test.js.
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '../..');
 
-// ── Test 1: internalAuth.js exists ───────────────────────────────────────────
-
-test('server/utils/internalAuth.js must exist', () => {
-  const filePath = path.join(ROOT, 'server/utils/internalAuth.js');
-  assert.ok(fs.existsSync(filePath), 'server/utils/internalAuth.js must exist');
-});
-
-// ── Test 2: source-level — requireInternal references INTERNAL_WEBHOOK_SECRET ─
-
-test('server/index.js requireInternal must reference INTERNAL_WEBHOOK_SECRET', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
-  assert.ok(
-    src.includes('INTERNAL_WEBHOOK_SECRET') || src.includes('internalAuth'),
-    'server/index.js must use INTERNAL_WEBHOOK_SECRET or import internalAuth'
-  );
-});
-
-// ── Test 3: source-level — no IP-only short-circuit in requireInternal ─────────
-
-test('requireInternal must not short-circuit via IP alone when secret is configured', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
-
-  const fnStart = src.indexOf('function requireInternal');
-  // If requireInternal is in index.js, check it; otherwise check internalAuth
-  if (fnStart === -1) {
-    // Logic delegated to internalAuth.js — acceptable
-    const authSrc = fs.readFileSync(path.join(ROOT, 'server/utils/internalAuth.js'), 'utf8');
-    // Must not have: if (isLocal || ... secret ...) return next()  [IP-first short-circuit]
-    const hasIpShortCircuit = /if\s*\(\s*isLocal\s*\|\|/.test(authSrc);
-    assert.ok(
-      !hasIpShortCircuit,
-      'createRequireInternalMiddleware must not short-circuit via IP-only (isLocal ||)'
-    );
-    return;
-  }
-
-  let depth = 0, fnEnd = fnStart, started = false;
-  for (let i = fnStart; i < src.length; i++) {
-    if (src[i] === '{') { depth++; started = true; }
-    if (src[i] === '}') { depth--; }
-    if (started && depth === 0) { fnEnd = i; break; }
-  }
-  const fnBody = src.slice(fnStart, fnEnd + 1);
-  const hasIpShortCircuit = /if\s*\(\s*isLocal\s*\|\|/.test(fnBody);
-  assert.ok(
-    !hasIpShortCircuit,
-    'requireInternal must not short-circuit via IP-only (isLocal ||)'
-  );
-});
-
-// ── Test 4: spoofed loopback IP blocked when secret is configured ───────────────
+// ── Test 1: spoofed loopback IP blocked when secret is configured ───────────────
 
 test('createRequireInternalMiddleware blocks spoofed 127.0.0.1 when secret is configured', async () => {
   const { createRequireInternalMiddleware } = require(path.join(ROOT, 'server/utils/internalAuth'));
@@ -99,7 +51,7 @@ test('createRequireInternalMiddleware blocks spoofed 127.0.0.1 when secret is co
   assert.strictEqual(statusCode, 403, 'Spoofed loopback IP with no secret must be blocked (403)');
 });
 
-// ── Test 5: correct secret header grants access ──────────────────────────────────
+// ── Test 2: correct secret header grants access ──────────────────────────────────
 
 test('createRequireInternalMiddleware allows request with correct secret header', async () => {
   const { createRequireInternalMiddleware } = require(path.join(ROOT, 'server/utils/internalAuth'));
@@ -127,7 +79,7 @@ test('createRequireInternalMiddleware allows request with correct secret header'
   assert.strictEqual(statusCode, 200, 'Correct secret must allow access (200)');
 });
 
-// ── Test 6: wrong secret is blocked ─────────────────────────────────────────────
+// ── Test 3: wrong secret is blocked ─────────────────────────────────────────────
 
 test('createRequireInternalMiddleware blocks wrong secret header', async () => {
   const { createRequireInternalMiddleware } = require(path.join(ROOT, 'server/utils/internalAuth'));
@@ -155,7 +107,7 @@ test('createRequireInternalMiddleware blocks wrong secret header', async () => {
   assert.strictEqual(statusCode, 403, 'Wrong secret must be blocked (403)');
 });
 
-// ── Test 7: no secret + trust proxy off + true loopback → still blocked ─────────
+// ── Test 4: no secret + trust proxy off + true loopback → still blocked ─────────
 
 test('createRequireInternalMiddleware blocks true loopback when no secret configured and trust proxy off', async () => {
   const { createRequireInternalMiddleware } = require(path.join(ROOT, 'server/utils/internalAuth'));
@@ -183,7 +135,7 @@ test('createRequireInternalMiddleware blocks true loopback when no secret config
   assert.strictEqual(statusCode, 403, 'Loopback without a configured secret must be blocked (403)');
 });
 
-// ── Test 8: no secret + trust proxy on → all non-test requests blocked ───────────
+// ── Test 5: no secret + trust proxy on → all non-test requests blocked ───────────
 
 test('createRequireInternalMiddleware blocks all requests when no secret and trust proxy on', async () => {
   const { createRequireInternalMiddleware } = require(path.join(ROOT, 'server/utils/internalAuth'));

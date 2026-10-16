@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { execSync } = require('child_process');
+const { bootProductionServer, TERMINAL, SYSTEM_SYNC_SECRET } = require('./helpers/productionServer');
 
 test('No hardcoded super-secret-bypass in docker-compose.yml', () => {
   const content = fs.readFileSync(path.join(__dirname, '../../docker-compose.yml'), 'utf8');
@@ -25,12 +27,50 @@ test('No hardcoded super-secret-bypass in sync-worker sync_worker.py', () => {
   assert.ok(!content.includes('super-secret-bypass'), 'Should not contain super-secret-bypass');
 });
 
-test('No hardcoded super-secret-bypass in server routes', () => {
-  const index = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
-  assert.ok(!index.includes('super-secret-bypass'), 'index.js should not contain super-secret-bypass');
-  
-  const calendars = fs.readFileSync(path.join(__dirname, '../routes/calendars.js'), 'utf8');
-  assert.ok(!calendars.includes('super-secret-bypass'), 'calendars.js should not contain super-secret-bypass');
+// The server signs in to the internal Radicale as the user with SYSTEM_SYNC_SECRET, both for the
+// signed-in session (server/index.js) and for an anonymous public share (resolveShareAccount in
+// routes/calendars.js). In production the secret is mandatory (#82), so the observable promise is
+// that every such request carries exactly the configured secret, never a built-in one.
+test('production server authenticates to the internal Radicale with the configured SYSTEM_SYNC_SECRET only', async (t) => {
+  const requests = [];
+  const radicale = http.createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
+      res.end('<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"/>');
+    });
+  });
+  await new Promise((resolve) => radicale.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => radicale.close(resolve)));
+
+  const { base, stderr } = await bootProductionServer(t, { INTERNAL_CALDAV_URL: `http://127.0.0.1:${radicale.address().port}` });
+  const expected = 'Basic ' + Buffer.from(`testuser:${SYSTEM_SYNC_SECRET}`).toString('base64');
+  const assertAllSignedWithSecret = (label) => {
+    assert.ok(requests.length > 0, `${label} must reach the internal Radicale; stderr: ${stderr()}`);
+    for (const r of requests) assert.equal(r.authorization, expected, `${label}: ${r.method} ${r.url}`);
+    requests.length = 0;
+  };
+
+  const session = await fetch(`${base}/api/auth/session`, { headers: TERMINAL });
+  assert.equal(session.status, 200);
+  const cookie = session.headers.getSetCookie()[0].split(';')[0];
+  await fetch(`${base}/api/calendars`, { headers: { ...TERMINAL, cookie } });
+  assertAllSignedWithSecret('the session calendar list');
+
+  const calendarId = encodeURIComponent('internal-caldav::/testuser/personal/');
+  const link = await fetch(`${base}/api/calendars/${calendarId}/public-link`, {
+    method: 'POST',
+    headers: { ...TERMINAL, cookie, Origin: 'https://calendar.shard.example', 'Sec-Fetch-Site': 'same-origin' },
+  });
+  assert.equal(link.status, 200, await link.clone().text());
+  const token = new URL((await link.json()).url).pathname.split('/').pop();
+  requests.length = 0;
+
+  await fetch(`${base}/api/public/calendars/share/${token}`, {
+    headers: { 'X-Freeshard-Secret': TERMINAL['X-Freeshard-Secret'], 'X-Ptl-Client-Type': 'anonymous' },
+  });
+  assertAllSignedWithSecret('the anonymous public share');
 });
 
 test('docker-compose.yml supplies no default :- fallbacks for SYSTEM_SYNC_SECRET and ENCRYPTION_KEY', () => {
