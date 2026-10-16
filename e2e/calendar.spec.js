@@ -905,7 +905,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#view-month');
     await expect(page.locator('.month-grid')).toBeVisible({ timeout: 10000 });
 
-    const title = `Special & Critical Meeting Q3 ${Date.now()}`;
+    // Issue #216: `;`, `,` and `\` must be escaped on write, or the title read back differs.
+    const title = `Special & Critical; Meeting, Q3 C:\\new ${Date.now()}`;
     const location = 'Room #101 (Bldg B; Floor 2, Zone 3)';
     const description = 'Notes:\n- Feature A; test\n- Feature B, ok';
     const startTime = '09:30';
@@ -933,35 +934,44 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    await expectSavesLanded(page);
 
-    // Verify chip rendered
     const eventChip = page.locator('.event-chip, [data-event-uid]').filter({ hasText: title }).first();
-    await expect(eventChip).toBeVisible({ timeout: 15000 });
 
-    // Open popover
-    await eventChip.click();
-    await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+    // Everything below is read back from the server after a reload, never from what was typed.
+    // The second pass saves the loaded event unchanged (issue #216, assertion 4): a write path that
+    // shifts DTSTART or drops a field on every save shows up only there.
+    for (const pass of ['after create', 'after a second, unchanged save']) {
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(eventChip, pass).toBeVisible({ timeout: 15000 });
 
-    // Assert popover meta includes clock time, stored location, description, and escaped special characters
-    const popoverText = await page.locator('#event-popover').textContent();
-    expect(popoverText).toContain('09:30');
-    expect(popoverText).toContain('10:30');
+      await eventChip.click();
+      await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#popover-title'), pass).toHaveText(title);
+      await expect(page.locator('#event-popover'), pass).toContainText(`${startTime}`);
+      await expect(page.locator('#event-popover'), pass).toContainText(`${endTime}`);
+      await expect(page.locator('.popover-location'), pass).toContainText(location);
+      await expect(page.locator('.popover-description'), pass).toContainText('Feature A; test');
 
-    await expect(page.locator('.popover-location')).toContainText('Room #101 (Bldg B; Floor 2, Zone 3)');
-    await expect(page.locator('.popover-description')).toContainText('Notes:');
-    await expect(page.locator('.popover-description')).toContainText('Feature A; test');
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-title'), pass).toHaveValue(title);
+      await expect(page.locator('#ev-start-date'), pass).toHaveValue('2038-11-20');
+      await expect(page.locator('#ev-start-time'), pass).toHaveValue(startTime);
+      await expect(page.locator('#ev-end-time'), pass).toHaveValue(endTime);
+      await expect(page.locator('#ev-location'), pass).toHaveValue(location);
+      await expect(page.locator('#ev-description'), pass).toHaveValue(description);
 
-    // Click edit in popover and assert form fields preserve exact un-shifted clock times and stored field values
-    await page.click('#popover-edit-btn');
-    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
-
-    expect(await page.inputValue('#ev-start-time')).toBe('09:30');
-    expect(await page.inputValue('#ev-end-time')).toBe('10:30');
-    expect(await page.inputValue('#ev-location')).toBe(location);
-    expect(await page.inputValue('#ev-description')).toBe(description);
-
-    await page.click('#event-cancel-btn');
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      if (pass === 'after create') {
+        await page.click('#event-save-btn');
+        await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+        await expectSavesLanded(page);
+      } else {
+        await page.click('#event-cancel-btn');
+        await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      }
+    }
 
     // Clean up created test event — wait for the DELETE API response
     const deleteResponsePromise = page.waitForResponse(
@@ -1626,6 +1636,62 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#invitations-modal-backdrop')).toHaveClass(/hidden/);
   });
 
+  test('Issue #216 / #76 — markup in a stored invitation is shown as text, never parsed into the inbox', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.click('#new-event-btn');
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const calendarId = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+    await page.keyboard.press('Escape');
+
+    const stamp = Date.now();
+    const title = `<img src=x onerror="document.body.dataset.xss216='title'"> Invite ${stamp}`;
+    const organizerName = `<img src=x onerror="document.body.dataset.xss216='organizer'">Test User`;
+    const description = `<svg onload="document.body.dataset.xss216='description'"></svg><b>bold</b>`;
+    const start = new Date(stamp + 2 * 24 * 3600 * 1000);
+    start.setUTCHours(9, 0, 0, 0);
+    // The env-auth session identifies as E2E_USER, so this attendee row is "us" and the event
+    // lands in the inbox as an open invitation from testuser@example.com.
+    const created = await page.request.post('/api/events', {
+      headers: SAME_ORIGIN,
+      data: {
+        calendarId, title, description,
+        start: start.toISOString(),
+        end: new Date(start.getTime() + 3600 * 1000).toISOString(),
+        organizer: { name: organizerName, email: 'testuser@example.com' },
+        attendees: [{ name: 'Test User', email: E2E_USER, status: 'NEEDS-ACTION', rsvp: true }]
+      }
+    });
+    expect(created.status()).toBe(201);
+    const ev = await created.json();
+
+    try {
+      const invitationsLoaded = page.waitForResponse(r => new URL(r.url()).pathname === '/api/events/invitations');
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await invitationsLoaded;
+      await page.click('#invitations-btn');
+      await expect(page.locator('#invitations-modal-backdrop')).not.toHaveClass(/hidden/);
+
+      const card = page.locator('#invitations-list-body .invitation-card').filter({ hasText: `Invite ${stamp}` });
+      await expect(card).toHaveCount(1, { timeout: 10000 });
+      await expect(card.locator('.invitation-title')).toHaveText(title);
+      await expect(card.locator('.invitation-organizer')).toHaveText(`Organisator*in: ${organizerName}`);
+      await expect(card.locator('.invitation-desc')).toHaveText(description);
+      await expect(card.locator('img, svg, b')).toHaveCount(0);
+      expect(await page.evaluate(() => document.body.dataset.xss216)).toBeUndefined();
+
+      await page.click('#invitations-modal-close');
+      await expect(page.locator('#invitations-modal-backdrop')).toHaveClass(/hidden/);
+    } finally {
+      const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+        headers: SAME_ORIGIN,
+        data: { calendarId, href: ev.href, etag: ev.etag }
+      });
+      expect(del.ok()).toBeTruthy();
+    }
+  });
+
   test('should trigger PDF vector export download via export-pdf-btn', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
@@ -1904,8 +1970,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#event-save-btn');
     const res = await save;
     expect(res.status()).toBe(200);
-    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
     const calendarId = res.request().postDataJSON().calendarId;
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
     expect(await storedTriggers(page, calendarId, title)).toEqual(['TRIGGER;VALUE=DATE-TIME:20360422T180000Z']);
 
     await chip.click();
@@ -1927,9 +1993,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#event-save-btn');
     const res = await save;
     expect(res.status()).toBe(200);
+    // Read the request now: the response handle can be released once the page refetches.
+    const calendarId = res.request().postDataJSON().calendarId;
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
-    const exported = await page.request.get(`/api/calendars/${encodeURIComponent(res.request().postDataJSON().calendarId)}/export`);
+    const exported = await page.request.get(`/api/calendars/${encodeURIComponent(calendarId)}/export`);
     const block = (await exported.text()).split('BEGIN:VEVENT').find(b => b.includes(`SUMMARY:${title}`));
     const valarm = block.slice(block.indexOf('BEGIN:VALARM'), block.indexOf('END:VALARM'));
     expect(valarm).toContain('ACTION:AUDIO');
