@@ -5,7 +5,9 @@
  *
  * Validates that docker-compose.yml and documentation match the shipping topology:
  *   1. caldav-server service does NOT expose host ports (e.g. 5232:5232), keeping Radicale unexposed on the host.
- *   2. webcalendar and sync-worker services reference internal container URL https://caldav-server:5232.
+ *   2. webcalendar and sync-worker services reference internal container URL http://caldav-server:5232
+ *      (plain HTTP on the private network, as on a shard).
+ * The other topology axes are checked in server/test/python/test_issue118_dev_compose_shipping_topology.py.
  *   3. README.md accurately reflects that caldav-server is an unexposed backend service on the container network.
  */
 
@@ -47,12 +49,12 @@ test.describe('Issue #118 — Dev Compose & Shipping Topology Alignment', () => 
     const content = fs.readFileSync(composePath, 'utf8');
 
     assert.ok(
-      content.includes('INTERNAL_CALDAV_URL: https://caldav-server:5232'),
-      'webcalendar service must configure INTERNAL_CALDAV_URL pointing to caldav-server:5232'
+      content.includes('INTERNAL_CALDAV_URL: http://caldav-server:5232'),
+      'webcalendar service must configure INTERNAL_CALDAV_URL pointing to http://caldav-server:5232'
     );
     assert.ok(
-      content.includes('LOCAL_CALDAV_URL: https://caldav-server:5232'),
-      'sync-worker service must configure LOCAL_CALDAV_URL pointing to caldav-server:5232'
+      content.includes('LOCAL_CALDAV_URL: http://caldav-server:5232'),
+      'sync-worker service must configure LOCAL_CALDAV_URL pointing to http://caldav-server:5232'
     );
   });
 

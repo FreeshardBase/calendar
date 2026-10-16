@@ -4,8 +4,8 @@
  * Issue #259 — Docker Quick Start & Compose Environment Fixes
  *
  * Validates Docker Quick Start configuration and container environment alignment:
- *   1. docker-compose.yml uses named volume `shared-data` across services instead of unprivileged bind mounts.
- *   2. docker-compose.yml includes env_file in caldav-server service.
+ *   1. docker-compose.yml mounts one ./data bind mount into every service, like the store template (#118).
+ *   2. no service reads an env_file: settings come from compose variables, like the store template (#118).
  *   3. sync-worker/sync_worker.py aligns default ENCRYPTION_KEY fallback with db.js and docker-compose.yml.
  *   4. sync-worker/sync_worker.py sets SSL fallback verify = false when fingerprint is missing for local HTTPS Radicale.
  *   5. radicale/Dockerfile includes openssl and entrypoint script for missing SSL cert auto-generation.
@@ -21,30 +21,24 @@ const ROOT_DIR = path.join(__dirname, '../..');
 
 test.describe('Issue #259 — Docker Quick Start & Compose Environment Fixes', () => {
 
-  test('docker-compose.yml mounts shared-data volume across all services', () => {
+  test('docker-compose.yml mounts the single ./data bind mount across all services', () => {
     const composePath = path.join(ROOT_DIR, 'docker-compose.yml');
     assert.ok(fs.existsSync(composePath), 'docker-compose.yml must exist');
     const content = fs.readFileSync(composePath, 'utf8');
 
-    assert.ok(content.includes('shared-data:/app/data'),
-      'webcalendar service must mount shared-data to /app/data');
-    assert.ok(content.includes('shared-data:/data'),
-      'caldav-server and sync-worker services must mount shared-data to /data');
-    assert.ok(!content.includes('./data:/app/data'),
-      'webcalendar service must not use host ./data bind mount');
-    assert.ok(!content.includes('./data:/data'),
-      'caldav-server and sync-worker services must not use host ./data bind mount');
+    assert.ok(content.includes('./data:/app/data'),
+      'webcalendar service must mount ./data to /app/data');
+    assert.ok(content.includes('./data:/data'),
+      'caldav-server and sync-worker services must mount ./data to /data');
+    assert.ok(!content.includes('shared-data'),
+      'docker-compose.yml must not use a named shared-data volume');
   });
 
-  test('docker-compose.yml includes .env file in caldav-server service', () => {
+  test('docker-compose.yml reads no env_file in any service', () => {
     const composePath = path.join(ROOT_DIR, 'docker-compose.yml');
     const content = fs.readFileSync(composePath, 'utf8');
 
-    const caldavStartIndex = content.indexOf('caldav-server:');
-    const syncWorkerIndex = content.indexOf('sync-worker:');
-    const caldavSection = content.substring(caldavStartIndex, syncWorkerIndex > -1 ? syncWorkerIndex : content.length);
-    assert.ok(caldavSection.includes('env_file:'), 'caldav-server must include env_file');
-    assert.ok(caldavSection.includes('- .env'), 'caldav-server must reference .env');
+    assert.ok(!content.includes('env_file:'), 'services must take settings from compose variables, not env_file');
   });
 
   test('sync_worker.py fallback ENCRYPTION_KEY matches db.js and docker-compose.yml', () => {

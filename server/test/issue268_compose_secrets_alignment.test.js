@@ -4,10 +4,9 @@
  * Issue #268 — Docker Compose Secrets Alignment
  *
  * Verifies that docker-compose.yml aligns environment variable definitions for shared secrets:
- *   1. SYSTEM_SYNC_SECRET is explicitly declared with identical default fallback (`${SYSTEM_SYNC_SECRET:-super-secret-bypass}`)
+ *   1. SYSTEM_SYNC_SECRET is declared as the same required variable (`${SYSTEM_SYNC_SECRET:?...}`, no default)
  *      across webcalendar, caldav-server, and sync-worker services.
- *   2. ENCRYPTION_KEY is explicitly declared with identical default fallback
- *      (`${ENCRYPTION_KEY:-${ENCRYPTION_SECRET:-freeshard-default-encryption-key-do-not-use-in-prod}}`)
+ *   2. ENCRYPTION_KEY is declared as the same required variable (`${ENCRYPTION_KEY:?...}`, no default)
  *      across webcalendar and sync-worker services.
  *   3. SESSION_SECRET is explicitly declared in webcalendar service.
  */
@@ -36,16 +35,16 @@ test.describe('Issue #268 — Docker Compose Secrets Alignment', () => {
     const syncWorkerSection = content.substring(syncWorkerIdx, volumesIdx > -1 ? volumesIdx : content.length);
 
     assert.ok(
-      webcalendarSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
-      'webcalendar service in docker-compose.yml must declare SYSTEM_SYNC_SECRET without default fallback'
+      webcalendarSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?'),
+      'webcalendar service in docker-compose.yml must declare SYSTEM_SYNC_SECRET as a required variable'
     );
     assert.ok(
-      caldavSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
-      'caldav-server service in docker-compose.yml must declare SYSTEM_SYNC_SECRET without default fallback'
+      caldavSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?'),
+      'caldav-server service in docker-compose.yml must declare SYSTEM_SYNC_SECRET as a required variable'
     );
     assert.ok(
-      syncWorkerSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}'),
-      'sync-worker service in docker-compose.yml must declare SYSTEM_SYNC_SECRET without default fallback'
+      syncWorkerSection.includes('SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?'),
+      'sync-worker service in docker-compose.yml must declare SYSTEM_SYNC_SECRET as a required variable'
     );
   });
 
@@ -61,15 +60,15 @@ test.describe('Issue #268 — Docker Compose Secrets Alignment', () => {
     const webcalendarSection = content.substring(webcalendarIdx, caldavIdx);
     const syncWorkerSection = content.substring(syncWorkerIdx, volumesIdx > -1 ? volumesIdx : content.length);
 
-    const expectedExpr = 'ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}';
+    const expectedExpr = 'ENCRYPTION_KEY: ${ENCRYPTION_KEY:?';
 
     assert.ok(
       webcalendarSection.includes(expectedExpr),
-      'webcalendar service in docker-compose.yml must declare ENCRYPTION_KEY with fallback expression'
+      'webcalendar service in docker-compose.yml must declare ENCRYPTION_KEY as a required variable'
     );
     assert.ok(
       syncWorkerSection.includes(expectedExpr),
-      'sync-worker service in docker-compose.yml must declare ENCRYPTION_KEY with fallback expression'
+      'sync-worker service in docker-compose.yml must declare ENCRYPTION_KEY as a required variable'
     );
   });
 
