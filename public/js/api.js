@@ -19,6 +19,13 @@ export async function responseErrorMessage(res, fallback) {
   return fallback ? `${fallback} (HTTP ${res.status})` : (res.statusText || `HTTP ${res.status}`);
 }
 
+// #224: a 401 means the session is gone. The app registers one handler that asks the user to sign in
+// again, so no caller renders the failure as "no accounts" or "no calendars".
+let unauthorizedHandler = null;
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = handler;
+}
+
 async function request(method, path, body, onResponse) {
   const opts = {
     method,
@@ -30,6 +37,7 @@ async function request(method, path, body, onResponse) {
   if (onResponse) onResponse(res);
 
   if (!res.ok) {
+    if (res.status === 401 && unauthorizedHandler) unauthorizedHandler();
     const err = new Error(await responseErrorMessage(res));
     err.status = res.status;
     throw err;

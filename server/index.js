@@ -268,6 +268,15 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── OIDC Authentication Enforcer for the page ─────────────────────────────────
+// Ahead of the static files (#224): served without a session, the SPA would only collect 401s.
+app.get(['/', '/index.html'], (req, res, next) => {
+  if ((process.env.AUTH_METHOD || 'env') === 'oidc' && !req.session.userId) {
+    return res.redirect('/api/auth/login');
+  }
+  next();
+});
+
 const serveStatic = express.static(path.join(__dirname, '../public'));
 app.use((req, res, next) => (isApiPath(req) ? next() : serveStatic(req, res, next)));
 
@@ -542,15 +551,6 @@ function requireSessionIdentity(req, res, next) {
   }
   next();
 }
-
-// ── OIDC Authentication Enforcer for Page Root ────────────────────────────────
-app.get('/', (req, res, next) => {
-  const authMethod = process.env.NODE_ENV === 'test' ? 'env' : (process.env.AUTH_METHOD || 'env');
-  if (authMethod === 'oidc' && !req.session.userId) {
-    return res.redirect('/api/auth/login');
-  }
-  next();
-});
 
 // ── Static files ──────────────────────────────────────────────────────────────
 // Mounted after the session middleware, which skips every non-API path except the page (#172).
