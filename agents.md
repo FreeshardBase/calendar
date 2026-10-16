@@ -10,6 +10,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `npm run dev` — same with `--watch`.
 - `NODE_ENV=test npm test` — node:test integration suite (`server/test/*.test.js`).
   Tests are self-contained and spin up isolated Express instances on ephemeral ports. No pre-started server is required.
+  Requiring `server/index.js` never binds a port (#255): only `node server/index.js` listens. A test that needs HTTP
+  calls `server.listen(process.env.PORT)` itself, and sets `process.env.PORT` to its own fixed literal (never
+  `process.env.PORT || …`), so an exported `PORT` (e.g. `PORT=3000` from `.env.example`) cannot make files collide.
   Tests isolate database state using `webcalendar.test.db` when `DATABASE_PATH` is unset to protect developer databases.
   A test becomes a user with `await loginAs(userId, { username, email })` from `server/test/helpers/testSession.js`:
   it writes a real session row and returns a signed `cookie` header value. No request header asserts an identity,

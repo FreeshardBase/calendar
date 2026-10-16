@@ -13,7 +13,7 @@ require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: sa
 
 process.env.NODE_ENV = 'test';
 process.env.TZ = process.env.TZ || 'Europe/Berlin';
-process.env.PORT = process.env.PORT || '3130';
+process.env.PORT = '3130';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';

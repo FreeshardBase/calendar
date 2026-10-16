@@ -13,6 +13,7 @@ const { checkResourceAvailability, bookResource, cancelResourceBooking, suggestA
 
 test('Resource & Room Booking System Suite', async (t) => {
   const { app, server } = require('../index');
+  server.listen(process.env.PORT);
   const { loginAs } = require('./helpers/testSession');
 
   t.after(() => {

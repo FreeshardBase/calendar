@@ -12,6 +12,7 @@ const Db = require('../db');
 
 test('MS Graph account storage and REST API Suite', async (t) => {
   const { app, server } = require('../index');
+  server.listen(process.env.PORT);
   const { loginAs } = require('./helpers/testSession');
 
   t.after(() => {

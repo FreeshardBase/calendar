@@ -5,7 +5,7 @@ require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: sa
 // The suite's multi-identity mechanism is a real session (helpers/testSession.js).
 
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3185';
+process.env.PORT = '3185';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 // #337: the in-process mock-dav stands in for a remote CalDAV server.
 process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1,localhost';
@@ -17,6 +17,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 const IDENTITY_HEADERS = {

@@ -53,6 +53,7 @@ describe('Issue #158 — Satisfiable search-users assertions across internal and
     await Db.upsertUser(TEST_USER, TEST_USER);
 
     const index = require('../index');
+    index.server.listen(process.env.PORT);
     appServer = index.server;
     if (!appServer.listening) {
       await new Promise((resolve, reject) => {

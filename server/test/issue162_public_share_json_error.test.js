@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3132';
+process.env.PORT = '3132';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const Db = require('../db');
 const { server } = require('../index');
+server.listen(process.env.PORT);
 
 // The one answer an anonymous subscriber gets when the export fails, whatever the cause.
 const PUBLIC_SHARE_ERROR = 'Der freigegebene Kalender kann gerade nicht abgerufen werden. Bitte versuche es später erneut.';

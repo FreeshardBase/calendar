@@ -1,7 +1,7 @@
 'use strict';
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3243';
+process.env.PORT = '3243';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -17,6 +17,7 @@ const ICAL = require('ical.js');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 const { updateWholeSeries, parseAndExpandEvent } = require('../caldav/parser');
 

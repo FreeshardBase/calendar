@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3172';
+process.env.PORT = '3172';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -12,6 +12,7 @@ const http = require('node:http');
 const Db = require('../db');
 const { SqliteSessionStore } = require('../utils/sessionStore');
 const { app, server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 after(() => {
