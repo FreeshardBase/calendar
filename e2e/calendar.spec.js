@@ -514,6 +514,74 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(dialog).not.toContainText(/\bihn\b|eines Benutzers|Benutzern\b/);
   });
 
+  test('Issue #229 — renders and share-dialog cycles leave no click listener behind', async ({ page }) => {
+    // Tally live click listeners per target: add/remove pairs cancel, so a count that grows is a leak.
+    await page.addInitScript(() => {
+      const live = new Map();
+      const add = EventTarget.prototype.addEventListener;
+      const remove = EventTarget.prototype.removeEventListener;
+      EventTarget.prototype.addEventListener = function (type, listener, options) {
+        if (type === 'click' && listener) {
+          if (!live.has(this)) live.set(this, new Set());
+          live.get(this).add(listener);
+        }
+        return add.call(this, type, listener, options);
+      };
+      EventTarget.prototype.removeEventListener = function (type, listener, options) {
+        if (type === 'click') live.get(this)?.delete(listener);
+        return remove.call(this, type, listener, options);
+      };
+      window.__clickListenerCount = target => live.get(target)?.size || 0;
+    });
+
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    const counts = () => page.evaluate(() => ({
+      document: window.__clickListenerCount(document),
+      container: window.__clickListenerCount(document.getElementById('calendar-container')),
+      prevBtn: window.__clickListenerCount(document.getElementById('prev-btn')),
+    }));
+
+    // Renders: navigating re-renders into the stable #calendar-container.
+    const afterBoot = await counts();
+    expect(afterBoot.prevBtn).toBe(1);
+    for (const view of ['#view-month', '#view-agenda']) {
+      await page.click(view);
+      for (let i = 0; i < 5; i++) await page.click('#next-btn');
+    }
+    const afterRenders = await counts();
+    expect(afterRenders.container).toBe(afterBoot.container);
+    expect(afterRenders.prevBtn).toBe(1);
+
+    // Share dialog: each open/close cycle must give back the document handler it added.
+    const shareBtn = page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]');
+    const backdrop = page.locator('#share-cal-dialog-backdrop');
+    for (let i = 0; i < 4; i++) {
+      await shareBtn.click();
+      await expect(backdrop).toBeVisible();
+      await expect(page.locator('#share-search-input')).toBeVisible();
+      if (i % 2) await page.keyboard.press('Escape');
+      else await page.click('#share-cal-close');
+      await expect(backdrop).not.toBeAttached();
+    }
+    expect((await counts()).document).toBe(afterRenders.document);
+
+    // While the dialog is open the outside-click handler still closes the autocomplete.
+    await runSql(
+      "INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('testuser-id', 'testuser@example.com', 'testuser@example.com')"
+    );
+    await shareBtn.click();
+    await page.locator('#share-search-input').fill('testuser');
+    const dropdown = page.locator('#share-autocomplete-dropdown');
+    await expect(dropdown).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.click('#share-cal-dialog-title');
+    await expect(dropdown).toHaveClass(/hidden/);
+    await page.click('#share-cal-close');
+    await expect(backdrop).not.toBeAttached();
+    expect((await counts()).document).toBe(afterRenders.document);
+  });
+
   test('should open share dialog, autocomplete user, add share, and revoke share', async ({ page }) => {
     page.on('console', msg => console.log('PAGE LOG:', msg.text()));
     page.on('pageerror', err => console.error('PAGE ERROR:', err.message));
