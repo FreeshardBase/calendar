@@ -8,6 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
@@ -26,6 +27,24 @@ function freePort() {
       srv.close(() => resolve(port));
     });
   });
+}
+
+// #357: the server's readiness (GET /api/health) includes a PROPFIND on INTERNAL_CALDAV_URL. The
+// suite's Radicale is not what this test measures, so it stands in for it with a loopback DAV
+// root that answers the healthcheck's PROPFIND, and only when it carries the system credentials.
+async function startCalDAVStub(t, systemSecret) {
+  const expected = `Basic ${Buffer.from(`healthcheck:${systemSecret}`).toString('base64')}`;
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    if (req.method !== 'PROPFIND' || req.url !== '/') { res.writeHead(404); return res.end(); }
+    if (req.headers.authorization !== expected) { res.writeHead(401); return res.end(); }
+    res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end('<?xml version="1.0"?><multistatus xmlns="DAV:"><response><href>/</href>'
+      + '<propstat><prop/><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>');
+  });
+  await new Promise(resolve => srv.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => srv.close(resolve)));
+  return `http://127.0.0.1:${srv.address().port}`;
 }
 
 // Only PATH/HOME are inherited, so the developer's shell cannot change what is measured.
@@ -92,7 +111,8 @@ test('Issue #211 — the Playwright webServer runs the shipping auth configurati
 
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const srv = bootServer(t, { PORT: String(port) });
+  const caldavUrl = await startCalDAVStub(t, suiteEnv.SYSTEM_SYNC_SECRET);
+  const srv = bootServer(t, { PORT: String(port), INTERNAL_CALDAV_URL: caldavUrl });
   await waitForHealth(baseUrl, srv);
 
   // A spoofed test identity header must not log the caller in as someone else — neither via the

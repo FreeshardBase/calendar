@@ -1,7 +1,8 @@
 name: Mutation testing
 
-# Manual only: this repo is private, so Actions minutes are capped, and a
-# Stryker pass takes about 45 minutes. Run it on demand from the Actions tab.
+# Manual only: a Stryker pass takes about 45 minutes (the routes pass far longer),
+# too long to gate every PR. Run it on demand from the Actions tab. The results are
+# in the job log (clear-text reporter); nothing is uploaded.
 on:
   workflow_dispatch:
 
@@ -24,13 +25,6 @@ jobs:
       - name: Run mutation tests
         run: npm run test:mutation
 
-      - name: Upload mutation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mutation-report
-          path: reports/mutation/
-
   mutation-routes:
     # Security boundaries (auth, accounts). Not on pull_request yet: a long job there would stall every
     # fix PR. Break threshold is 0 until the first run gives a baseline; raise it then (see #357).
@@ -48,9 +42,3 @@ jobs:
       - run: npm ci
       - run: pip install -r requirements-dev.txt -r radicale/requirements.txt -r sync-worker/requirements.txt
       - run: npm run test:mutation:routes
-      - name: Upload mutation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mutation-report-routes
-          path: reports/mutation-routes/

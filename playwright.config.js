@@ -30,6 +30,13 @@ module.exports = defineConfig({
     // Issue #143: the proxy also renders the client type; a paired terminal is "terminal".
     extraHTTPHeaders: { 'X-Freeshard-Secret': E2E_PROXY_SECRET, 'X-Ptl-Client-Type': 'terminal' },
     ignoreHTTPSErrors: true,
+    // #357: the service worker cannot register here: Chromium fetches /sw.js from the worker
+    // target, which extraHTTPHeaders do not reach, so the proxy-secret gate answers 401 (the real
+    // platform proxy adds the header to every request). Each such failed registration races the
+    // test's own network events, and on a slow host Playwright then aborts the test with "Object
+    // with guid response@… was not bound in the connection" or "Target page … has been closed".
+    // No spec exercises the worker, so it is blocked for all of them, not only per describe.
+    serviceWorkers: 'block',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     // Issue #239: the browser zone is a literal, not the ambient TZ, and differs from the server's

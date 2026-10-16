@@ -77,7 +77,9 @@ function loadApp() {
     openCreateModal: () => {},
     openEditModal: () => {},
     checkAndTriggerAlarms: () => {},
-    AccountsAPI: {},
+    setUnauthorizedHandler: () => {},
+    // boot() runs on load; its account load never settles, so it leaves the state these tests set alone.
+    AccountsAPI: { list: () => new Promise(() => {}) },
     CalendarsAPI: {},
     EventsAPI: {},
     TasksAPI: {},
