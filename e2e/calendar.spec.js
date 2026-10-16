@@ -5968,4 +5968,442 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       });
     });
   });
+
+  // #404: what the source-grep tests of the smaller frontend modules (tasks, invitations,
+  // notifications, account dialog, availability, delegates, dialog focus) were meant to protect,
+  // driven in the browser. Server answers are routed where a test needs a failure or a fixed record.
+  test.describe('Issue #404 — tasks, invitations, reminders, typography, escaping and dialog focus in the browser', () => {
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const task = fields => ({
+      calendarId, href: `/${E2E_USER}/personal/${fields.uid}.ics`, etag: '"e2e-404"', status: 'NEEDS-ACTION', ...fields,
+    });
+    const timedEvent = (uid, title, start, extra = {}) => ({
+      uid, title, calendarId, start, end: new Date(Date.parse(start) + 30 * 60 * 1000).toISOString(), allDay: false,
+      href: `/${E2E_USER}/personal/${uid}.ics`, etag: '"e2e-404"', ...extra,
+    });
+
+    async function openApp(page, path = '/') {
+      await page.goto(path);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+    }
+
+    // A native alert()/confirm() opens a browser dialog; the app must report through toasts and its own dialog.
+    function nativeDialogs(page) {
+      const seen = [];
+      page.on('dialog', d => { seen.push(d.message()); d.dismiss(); });
+      return seen;
+    }
+
+    // Exactly one toast of `type` says `text`; it is closed so the next one is counted alone.
+    async function takeToast(page, type, text) {
+      const t = page.locator(`#toast-container .toast.${type}`, { hasText: text });
+      await expect(t).toHaveCount(1);
+      await expect(t.locator('.toast-msg')).toHaveText(text);
+      await t.locator('.toast-close').click();
+      await expect(t).toHaveCount(0);
+    }
+
+    // `tasks` is the stored list; every create or update is captured and answered with `answer(body)`.
+    async function serveTasks(page, tasks, answer = body => body) {
+      const saves = [];
+      await page.route('**/api/tasks', route => {
+        if (route.request().method() === 'GET') return route.fulfill({ json: tasks });
+        const body = route.request().postDataJSON();
+        saves.push({ method: route.request().method(), body });
+        return route.fulfill({ status: 201, json: { ...body, uid: 'e2e-404-new' } });
+      });
+      await page.route('**/api/tasks/*', route => {
+        if (route.request().method() !== 'PUT') return route.fallback();
+        const body = route.request().postDataJSON();
+        saves.push({ method: 'PUT', body });
+        return route.fulfill({ json: answer(body) });
+      });
+      return saves;
+    }
+
+    async function serveEvents(page, events) {
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events, errors: [] } }));
+    }
+
+    test('Issue #165 — failed task and invitation loads show an error, never an empty list', async ({ page }) => {
+      const failure = route => route.fulfill({ status: 500, json: { error: 'Server error 500' } });
+      await page.route('**/api/tasks', failure);
+      await page.route('**/api/events/invitations', failure);
+      await openApp(page);
+
+      const taskCount = page.locator('#sidebar-task-count');
+      await expect(taskCount).toHaveText('!');
+      await expect(taskCount).toHaveAttribute('title', 'Fehler beim Laden der Aufgaben');
+      await expect(page.locator('#sidebar-task-list')).toHaveText('Fehler beim Laden der Aufgaben.');
+
+      const inviteBadge = page.locator('#invitations-badge');
+      await expect(inviteBadge).toBeVisible();
+      await expect(inviteBadge).toHaveText('!');
+      await expect(inviteBadge).toHaveAttribute('title', 'Fehler beim Laden der Einladungen');
+      await page.click('#invitations-btn');
+      await expect(page.locator('#invitations-list-body')).toHaveText('Fehler beim Laden der Einladungen.');
+      await page.click('#invitations-modal-close');
+
+      await page.click('#view-kanban');
+      await expect(page.locator('.kanban-error-state')).toBeVisible();
+      await expect(page.locator('.kanban-error-state .kanban-empty-title')).toHaveText('Fehler beim Laden der Aufgaben');
+      await expect(page.getByText('Keine Aufgaben vorhanden')).toHaveCount(0);
+    });
+
+    test('Issues #89 / #167 — the board names rules in German and every task action answers with a toast, never alert()', async ({ page }) => {
+      const dialogs = nativeDialogs(page);
+      const tasks = [
+        task({ uid: 'e2e-404-standup', title: 'E2E 404 Standup', due: '2037-08-14T00:00:00.000Z', dueIsDate: true, recurrence: 'FREQ=WEEKLY' }),
+        task({ uid: 'e2e-404-review', title: 'E2E 404 Review', status: 'IN-PROCESS', due: '2037-08-13T00:00:00.000Z', dueIsDate: true, recurrence: 'FREQ=WEEKLY' }),
+        task({ uid: 'e2e-404-prep', title: 'E2E 404 Prep', due: '2037-08-12T00:00:00.000Z', dueIsDate: true, recurrence: 'RRULE:FREQ=DAILY' }),
+        task({ uid: 'e2e-404-report', title: 'E2E 404 Report', recurrence: 'FREQ=MONTHLY' }),
+        task({ uid: 'e2e-404-audit', title: 'E2E 404 Audit', recurrence: 'FREQ=YEARLY' }),
+        task({ uid: 'e2e-404-single', title: 'E2E 404 Single', due: '2037-08-14T00:00:00.000Z' }),
+        task({ uid: 'e2e-404-last', title: 'E2E 404 Last', due: '2037-08-14T00:00:00.000Z', dueIsDate: true, recurrence: 'FREQ=WEEKLY;UNTIL=20370814T000000Z' }),
+      ];
+      // Stand-in for PUT /api/tasks/:uid, which owns the roll-forward (#95): a series with a next
+      // occurrence moves on one week, a one-off task or the last occurrence is completed.
+      const saves = await serveTasks(page, tasks, body => (body.recurrence && !body.recurrence.includes('UNTIL'))
+        ? { ...body, status: 'NEEDS-ACTION', percentComplete: 0, due: new Date(Date.parse(body.due) + 7 * 864e5).toISOString() }
+        : { ...body, status: 'COMPLETED' });
+      await page.route('**/api/tasks/*', route => route.request().method() === 'DELETE'
+        ? route.fulfill({ status: 500, json: { error: 'API delete failed' } })
+        : route.fallback());
+      await openApp(page);
+
+      const lastSave = () => saves[saves.length - 1].body;
+      await page.locator('#sidebar-task-list .sidebar-task-item', { hasText: 'E2E 404 Standup' }).locator('.sidebar-task-checkbox').click();
+      await takeToast(page, 'success', 'Aufgabe auf 21.08.2037 verschoben.');
+      // The client hands completion to the server instead of advancing the series itself.
+      expect(lastSave()).toMatchObject({ uid: 'e2e-404-standup', status: 'COMPLETED', percentComplete: 100, due: '2037-08-14T00:00:00.000Z' });
+
+      await page.click('#view-kanban');
+      const card = title => page.locator('.kanban-card', { hasText: title });
+      await expect(card('E2E 404 Standup').locator('.kanban-recurrence-badge')).toHaveText('Wöchentlich');
+      await expect(card('E2E 404 Prep').locator('.kanban-recurrence-badge')).toHaveText('Täglich');
+      await expect(card('E2E 404 Report').locator('.kanban-recurrence-badge')).toHaveText('Monatlich');
+      await expect(card('E2E 404 Audit').locator('.kanban-recurrence-badge')).toHaveText('Jährlich');
+      await expect(page.locator('.kanban-board')).not.toContainText('FREQ=');
+
+      await card('E2E 404 Review').locator('.btn-status-next').click();
+      await takeToast(page, 'success', 'Aufgabe auf 20.08.2037 verschoben.');
+      expect(lastSave()).toMatchObject({ uid: 'e2e-404-review', status: 'COMPLETED', percentComplete: 100 });
+
+      await card('E2E 404 Prep').locator('.btn-complete').click();
+      await takeToast(page, 'success', 'Aufgabe auf 19.08.2037 verschoben.');
+      expect(lastSave()).toMatchObject({ uid: 'e2e-404-prep', status: 'COMPLETED', percentComplete: 100 });
+
+      await card('E2E 404 Single').locator('.btn-complete').click();
+      await takeToast(page, 'success', 'Aufgabe als erledigt markiert.');
+      await card('E2E 404 Last').locator('.btn-complete').click();
+      await takeToast(page, 'success', 'Aufgabe als erledigt markiert.');
+      expect(saves.map(s => s.body.uid)).toEqual(['e2e-404-standup', 'e2e-404-review', 'e2e-404-prep', 'e2e-404-single', 'e2e-404-last']);
+
+      // #167: the title in the confirmation is quoted with „…“.
+      await card('E2E 404 Single').locator('.btn-delete').click();
+      await expect(page.locator('#confirm-dialog-text')).toHaveText('Aufgabe „E2E 404 Single“ wirklich löschen?');
+      await page.click('#confirm-dialog-ok');
+      await takeToast(page, 'error', 'Fehler beim Löschen: API delete failed');
+      expect(dialogs).toEqual([]);
+    });
+
+    test('Issue #273 — editing a task keeps DTSTART, PERCENT-COMPLETE and its completions; a new task starts empty', async ({ page }) => {
+      const stored = task({
+        uid: 'e2e-404-progress', title: 'E2E 404 Fortgang', description: 'Testbeschreibung', status: 'IN-PROCESS',
+        due: '2037-09-15T18:00:00.000Z', dtstart: '2037-09-01T09:00:00.000Z', priority: 2, percentComplete: 65,
+        completed: null, completedHistory: ['2037-08-15T10:00:00.000Z'], recurrence: 'FREQ=MONTHLY',
+      });
+      const saves = await serveTasks(page, [stored]);
+      await openApp(page);
+
+      await page.locator('#sidebar-task-list .sidebar-task-info', { hasText: stored.title }).click();
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#task-title')).toHaveValue(stored.title);
+      await expect(page.locator('#task-status')).toHaveValue('IN-PROCESS');
+      await expect(page.locator('#task-dtstart')).toHaveValue('2037-09-01T11:00');
+      await expect(page.locator('#task-percent-complete')).toHaveValue('65');
+      await page.fill('#task-title', `${stored.title} (Aktualisiert)`);
+      await page.click('#task-save-btn');
+      await expect.poll(() => saves.length).toBe(1);
+      expect(saves[0].method).toBe('PUT');
+      expect(saves[0].body).toMatchObject({
+        title: `${stored.title} (Aktualisiert)`, dtstart: stored.dtstart, percentComplete: 65,
+        completed: null, completedHistory: stored.completedHistory,
+      });
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
+
+      await page.click('#new-task-btn');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#task-title')).toHaveValue('');
+      await expect(page.locator('#task-dtstart')).toHaveValue('');
+      await expect(page.locator('#task-percent-complete')).toHaveValue('');
+      await page.fill('#task-title', 'E2E 404 Neu');
+      await page.click('#task-save-btn');
+      await expect.poll(() => saves.length).toBe(2);
+      expect(saves[1].method).toBe('POST');
+      const created = saves[1].body;
+      expect(created.title).toBe('E2E 404 Neu');
+      expect(created).not.toHaveProperty('completed');
+      expect(created).not.toHaveProperty('completedHistory');
+      expect(created.dtstart ?? null).toBeNull();
+      expect(created.percentComplete ?? null).toBeNull();
+    });
+
+    test('Issues #77 / #89 — an RSVP sends the address the server named for the user; a failed one is an error toast', async ({ page }) => {
+      const dialogs = nativeDialogs(page);
+      // Not the address the client once hard-coded (testuser@example.com), so only the server's value can reach the request.
+      const invitation = {
+        uid: 'e2e-404-invite', title: 'E2E 404 Team Sync', calendarId, href: `/${E2E_USER}/personal/e2e-404-invite.ics`,
+        start: '2037-06-10T07:00:00.000Z', userEmail: 'testuser2@example.com',
+        organizer: { name: 'Test User', email: 'testuser@example.com' },
+        attendees: [{ name: 'Test User', email: 'testuser2@example.com', status: 'NEEDS-ACTION' }],
+      };
+      await page.route('**/api/events/invitations', route => route.fulfill({ json: [invitation] }));
+      const rsvps = [];
+      let failRsvp = false;
+      await page.route('**/api/events/*/rsvp', route => {
+        rsvps.push(route.request().postDataJSON());
+        return failRsvp
+          ? route.fulfill({ status: 500, json: { error: 'CalDAV 500 Internal Server Error' } })
+          : route.fulfill({ json: { success: true, status: 'ACCEPTED' } });
+      });
+      await openApp(page);
+      await expect(page.locator('#invitations-badge')).toHaveText('1');
+      await page.click('#invitations-btn');
+      const card = page.locator('#invitations-list-body .invitation-card', { hasText: invitation.title });
+
+      await card.getByRole('button', { name: 'Zusagen' }).click();
+      await expect.poll(() => rsvps.length).toBe(1);
+      expect(rsvps[0]).toEqual({ calendarId, href: invitation.href, email: 'testuser2@example.com', status: 'ACCEPTED' });
+
+      failRsvp = true;
+      await card.getByRole('button', { name: 'Absagen' }).click();
+      await takeToast(page, 'error', 'RSVP konnte nicht gespeichert werden: CalDAV 500 Internal Server Error');
+      expect(rsvps[1].status).toBe('DECLINED');
+      expect(dialogs).toEqual([]);
+    });
+
+    test('Issue #202 — calendar, booking page and delegate fields from the server render as text and keep their values', async ({ page }) => {
+      const markup = sink => `<img src=x onerror="document.body.dataset.xss404='${sink}'">`;
+      const calendar = { id: 'e2e-404-cal" data-pwn="calendar', name: `${markup('calendar')}Test User`, color: '#3b82f6' };
+      const bookingPage = {
+        id: 'e2e-404-page" data-pwn="page', slug: 'e2e-404"slug', title: `${markup('page')}Sprechstunde`,
+        calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, startHour: 9, endHour: 17,
+      };
+      await openApp(page);
+      await page.route('**/api/calendars', route => route.fulfill({ json: { calendars: [calendar], errors: [] } }));
+      await page.route('**/api/availability-slots', route => route.fulfill({ json: [bookingPage] }));
+      const deleted = [];
+      await page.route('**/api/availability-slots/*', route => {
+        deleted.push(new URL(route.request().url()).pathname);
+        return route.fulfill({ json: { success: true } });
+      });
+
+      await page.click('#availability-btn');
+      const modal = page.locator('#availability-modal-backdrop');
+      const option = page.locator('#ap-calendar option');
+      await expect(option).toHaveCount(1);
+      expect(await option.evaluate(o => [o.value, o.textContent.trim()])).toEqual([calendar.id, calendar.name]);
+      await expect(page.locator('#ap-busy-calendars input[type="checkbox"]')).toHaveAttribute('value', calendar.id);
+      const card = page.locator('#availability-pages-list .availability-page-card');
+      await expect(card.locator('strong')).toHaveText(bookingPage.title);
+      const origin = new URL(page.url()).origin;
+      await expect(card.locator('.copy-link-btn')).toHaveAttribute('data-url', `${origin}/booking.html?slug=${encodeURIComponent(bookingPage.slug)}`);
+      await expect(card.locator('.delete-page-btn')).toHaveAttribute('data-id', bookingPage.id);
+      await expect(modal.locator('img, [data-pwn]')).toHaveCount(0);
+
+      await card.locator('.delete-page-btn').click();
+      await page.click('#confirm-dialog-ok');
+      await expect.poll(() => deleted).toEqual([`/api/availability-slots/${encodeURIComponent(bookingPage.id)}`]);
+
+      // The delegate list module is served but no page loads it yet; its renderer is exercised directly.
+      await page.addScriptTag({ url: '/js/delegates.js' });
+      const delegate = {
+        id: 'e2e-404-delegate" data-pwn="delegate', delegate_user_id: `${markup('delegate')}testuser`,
+        role: '<b>DELEGATE_WRITE</b>', can_manage_invitations: 1, can_view_private: 0,
+      };
+      const revokedId = await page.evaluate(d => {
+        const box = document.createElement('div');
+        box.id = 'e2e-404-delegates';
+        document.body.appendChild(box);
+        let revoked = null;
+        window.DelegatesModule.renderDelegatesList([d], box, async id => { revoked = id; });
+        box.querySelector('.revoke-delegate-btn').click();
+        return revoked;
+      }, delegate);
+      expect(revokedId).toBe(delegate.id);
+      const item = page.locator('#e2e-404-delegates .delegate-item');
+      await expect(item).toHaveAttribute('data-id', delegate.id);
+      await expect(item.locator('.font-semibold')).toHaveText(delegate.delegate_user_id);
+      await expect(item).toContainText(`Rolle: ${delegate.role}`);
+      await expect(page.locator('#e2e-404-delegates').locator('img, b, [data-pwn]')).toHaveCount(0);
+      expect(await page.evaluate(() => document.body.dataset.xss404)).toBeUndefined();
+    });
+
+    test.describe('in an English-speaking browser', () => {
+      test.use({ locale: 'en-US' });
+
+      test('Issue #166 — a reminder names the start time on the 24-hour clock', async ({ page }) => {
+        const start = new Date(Date.now() + 10 * 60 * 1000);
+        const title = `E2E 404 Reminder ${start.getTime()}`;
+        await serveEvents(page, [timedEvent(`e2e-404-reminder-${start.getTime()}`, title, start.toISOString(), {
+          alarms: [{ action: 'DISPLAY', trigger: '-PT30M' }],
+        })]);
+        await openApp(page);
+        await page.evaluate(() => window.__checkAndTriggerAlarms());
+
+        const clock = start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+        expect(clock).toMatch(/^\d{2}:\d{2}$/);
+        const reminder = page.locator('#toast-container .toast.info', { hasText: title });
+        await expect(reminder).toHaveCount(1);
+        await expect(reminder.locator('.toast-msg')).toHaveText(`Erinnerung: ${title} — Zeit: ${clock}`);
+      });
+    });
+
+    test('Issue #167 — German counts, range titles and „…“ quotes in the views, search and account dialog', async ({ page }) => {
+      const day = (date, n) => Array.from({ length: n }, (_, i) =>
+        timedEvent(`e2e-404-busy-${date}-${i}`, `E2E 404 Busy ${i}`, new Date(`${date}T09:00:00+02:00`).toISOString()));
+      await serveEvents(page, [...day('2037-06-10', 13), ...day('2037-06-11', 14)]);
+      await openApp(page, '/?date=2037-06-10');
+      await expect(page.locator('.month-more')).toHaveText(['+1 weiterer', '+2 weitere']);
+
+      await page.click('#view-week');
+      await expect(page.locator('#toolbar-title')).toHaveText('8. – 14. Juni 2037');
+      await openApp(page, '/?date=2037-06-30');
+      await page.click('#view-week');
+      await expect(page.locator('#toolbar-title')).toHaveText(/^29\. Jun\.? – 5\. Jul\.? 2037$/);
+
+      await page.click('#view-month');
+      await page.fill('#search-input', 'zzz-e2e-404');
+      await expect(page.locator('.search-empty-banner')).toContainText('Keine Termine für „zzz-e2e-404“ gefunden.');
+      await page.fill('#search-input', '');
+
+      await page.route('**/api/accounts', route => route.request().method() === 'POST'
+        ? route.fulfill({ status: 201, json: { id: 'e2e-404-account', ...route.request().postDataJSON() } })
+        : route.fallback());
+      await page.click('#sidebar-settings-btn');
+      await page.click('#settings-add-account-btn');
+      await expect(page.locator('#account-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.fill('#acc-url', 'https://dav.example.com/calendars/testuser/');
+      await page.fill('#acc-username', 'testuser');
+      await page.fill('#acc-password', 'e2e-404-password');
+      await page.fill('#acc-displayname', 'Test User');
+      await page.click('#account-save-btn');
+      await takeToast(page, 'success', 'Account „Test User“ hinzugefügt.');
+    });
+
+    test('Issue #87 — Tab stays inside the dialog on visible controls, wraps both ways, and Escape closes each dialog back to its opener', async ({ page }) => {
+      await openApp(page);
+      await page.click('#new-event-btn');
+      await expect(page.locator('#ev-title')).toBeFocused();
+
+      // Walk the Tab order until it comes back to the first stop.
+      const step = () => page.evaluate(() => {
+        const el = document.activeElement;
+        const stops = (window.__e2e404Stops ||= []);
+        const wrapped = stops.length > 0 && el === stops[0];
+        if (!wrapped) stops.push(el);
+        return {
+          wrapped, id: el.id, inside: document.getElementById('event-modal-backdrop').contains(el),
+          visible: el.checkVisibility(), enabled: !el.disabled, tabindex: el.getAttribute('tabindex'), type: el.getAttribute('type'),
+        };
+      });
+      const stops = [];
+      for (let stop = await step(); !stop.wrapped; stop = await step()) {
+        stops.push(stop);
+        expect(stops.length).toBeLessThan(100);
+        await page.keyboard.press('Tab');
+      }
+      expect(stops.length).toBeGreaterThan(3);
+      for (const s of stops) {
+        expect(s, `Tab stop ${s.id}`).toMatchObject({ inside: true, visible: true, enabled: true });
+        expect(s.tabindex).not.toBe('-1');
+        expect(s.type).not.toBe('hidden');
+      }
+      await page.keyboard.press('Shift+Tab');
+      expect(await page.evaluate(() => document.activeElement === window.__e2e404Stops.at(-1))).toBe(true);
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#ev-title')).toBeFocused();
+
+      // Controls the user cannot reach (hidden group, hidden input, disabled, tabindex=-1) after the
+      // last visible one must not count as the dialog's edge: Tab still wraps from the last visible control.
+      await page.evaluate(() => {
+        const tail = document.createElement('div');
+        tail.id = 'e2e-404-unreachable';
+        tail.innerHTML = '<div class="form-group hidden"><input id="e2e-404-in-hidden-group"></div>'
+          + '<input type="hidden" id="e2e-404-hidden-input"><button disabled>x</button><button tabindex="-1">y</button>';
+        document.getElementById('event-modal').appendChild(tail);
+      });
+      // The dialog's edges: the close button comes first, the save button last.
+      await page.locator('#event-save-btn').focus();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#event-modal-close')).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(page.locator('#event-save-btn')).toBeFocused();
+      await page.evaluate(() => document.getElementById('e2e-404-unreachable').remove());
+      await page.locator('#ev-title').focus();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      await expect(page.locator('#new-event-btn')).toBeFocused();
+
+      for (const [opener, dialog] of [
+        ['#new-task-btn', '#task-modal-backdrop'],
+        ['#invitations-btn', '#invitations-modal-backdrop'],
+        ['#availability-btn', '#availability-modal-backdrop'],
+        ['#add-webcal-btn', '#webcal-modal-backdrop'],
+      ]) {
+        await page.click(opener);
+        await expect(page.locator(dialog)).not.toHaveClass(/hidden/);
+        await expect(page.locator(`${dialog} :focus`)).toHaveCount(1);
+        await page.keyboard.press('Escape');
+        await expect(page.locator(dialog), dialog).toHaveClass(/hidden/);
+        await expect(page.locator(opener), opener).toBeFocused();
+      }
+
+      // A dialog opened from the settings drawer closes first; the next Escape closes the drawer.
+      await page.click('#sidebar-settings-btn');
+      const drawer = page.locator('#settings-drawer');
+      await expect(drawer).toHaveClass(/\bopen\b/);
+      await page.click('#settings-add-account-btn');
+      await expect(page.locator('#account-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#account-modal-backdrop')).toHaveClass(/hidden/);
+      await expect(drawer).toHaveClass(/\bopen\b/);
+      await page.keyboard.press('Escape');
+      await expect(drawer).not.toHaveClass(/\bopen\b/);
+      await expect(page.locator('#sidebar-settings-btn')).toBeFocused();
+
+      // Shortcuts are not taken from a focused button, so the key goes to the page itself.
+      await page.evaluate(() => document.activeElement.blur());
+      await page.keyboard.press('Alt+h');
+      await expect(page.locator('#shortcuts-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#shortcuts-modal-backdrop')).toHaveClass(/hidden/);
+    });
+
+    test('Issue #87 — Escape on a confirmation cancels it, so a later confirmation does not also run the cancelled action', async ({ page }) => {
+      await serveTasks(page, [task({ uid: 'e2e-404-keep', title: 'E2E 404 Keep' }), task({ uid: 'e2e-404-drop', title: 'E2E 404 Drop' })]);
+      const deleted = [];
+      await page.route('**/api/tasks/*', route => {
+        if (route.request().method() !== 'DELETE') return route.fallback();
+        deleted.push(decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()));
+        return route.fulfill({ json: { success: true } });
+      });
+      await openApp(page);
+      await page.click('#view-kanban');
+      const confirm = page.locator('#confirm-dialog-backdrop');
+
+      await page.locator('.kanban-card', { hasText: 'E2E 404 Keep' }).locator('.btn-delete').click();
+      await expect(confirm).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(confirm).toHaveClass(/hidden/);
+
+      await page.locator('.kanban-card', { hasText: 'E2E 404 Drop' }).locator('.btn-delete').click();
+      await expect(page.locator('#confirm-dialog-text')).toHaveText('Aufgabe „E2E 404 Drop“ wirklich löschen?');
+      await page.click('#confirm-dialog-ok');
+      await takeToast(page, 'info', 'Aufgabe gelöscht.');
+      expect(deleted).toEqual(['e2e-404-drop']);
+    });
+  });
 });
