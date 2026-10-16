@@ -3761,4 +3761,77 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#sync-error-text')).toContainText('vdirsyncer sync failed: Test User');
     });
   });
+
+  test.describe('Issue #227 — all-day events appear in week, work-week and day views', () => {
+    // Fixed events in the week Mon 11 – Sun 17 May 2037; page.route needs the
+    // service worker off.
+    test.use({ serviceWorkers: 'block' });
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const fixedEvents = [
+      { uid: 'e2e-issue227-holiday', title: 'Feiertag', calendarId, start: '2037-05-14', end: '2037-05-15', allDay: true },
+      { uid: 'e2e-issue227-leave', title: 'Urlaub', calendarId, start: '2037-05-11', end: '2037-05-16', allDay: true },
+      { uid: 'e2e-issue227-timed', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
+    ];
+
+    test.beforeEach(async ({ page }) => {
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events: fixedEvents, errors: [] } }));
+      await page.goto('/?date=2037-05-14');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('.month-grid .event-chip', { hasText: 'Standup' })).toBeVisible({ timeout: 10000 });
+    });
+
+    const headerColumn = (page, container, dayNum) =>
+      container.locator('.week-day-header').filter({ has: page.locator('.week-day-num', { hasText: new RegExp(`^${dayNum}$`) }) });
+
+    for (const [view, viewClass, gridBody, leaveDays] of [
+      ['week', '.week-view', '.week-grid-body', [11, 12, 13, 14, 15]],
+      ['workweek', '.week-view', '.week-grid-body', [11, 12, 13, 14, 15]],
+      ['day', '.day-view', '.day-grid-body', [14]],
+    ]) {
+      test(`${view} view: all-day chips sit in the header strip of their days, not in the hour grid`, async ({ page }) => {
+        await page.click(`#view-${view}`);
+        const container = page.locator(`#calendar-container ${viewClass}`);
+        await expect(container).toBeVisible();
+
+        const strip = container.locator('.all-day-events');
+        const holiday = strip.locator('[data-event-uid="e2e-issue227-holiday"]');
+        const leave = strip.locator('[data-event-uid="e2e-issue227-leave"]');
+        await expect(holiday).toHaveCount(1);
+        await expect(holiday).toBeVisible();
+        await expect(holiday).toHaveText('Feiertag');
+        await expect(leave).toHaveCount(leaveDays.length);
+
+        // Each chip is in the column of its own day.
+        await expect(headerColumn(page, container, 14).locator('[data-event-uid="e2e-issue227-holiday"]')).toHaveCount(1);
+        for (const d of leaveDays) {
+          await expect(headerColumn(page, container, d).locator('[data-event-uid="e2e-issue227-leave"]')).toBeVisible();
+        }
+        if (view !== 'day') {
+          await expect(headerColumn(page, container, 16).locator('.all-day-events')).toHaveCount(0);
+        }
+
+        // All-day events stay out of the hour grid; timed events stay out of the strip.
+        const grid = container.locator(gridBody);
+        await expect(grid.locator('[data-event-uid^="e2e-issue227-"]', { hasText: 'Standup' })).toHaveCount(1);
+        await expect(grid.locator('[data-event-uid="e2e-issue227-holiday"], [data-event-uid="e2e-issue227-leave"]')).toHaveCount(0);
+        await expect(strip.locator('[data-event-uid="e2e-issue227-timed"]')).toHaveCount(0);
+
+        // The header chip is interactive: clicking opens the event popover.
+        await holiday.click();
+        await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+        await expect(page.locator('#event-popover .popover-title')).toHaveText('Feiertag');
+      });
+    }
+
+    test('the all-day event is in the DOM of all five views', async ({ page }) => {
+      for (const view of ['month', 'week', 'workweek', 'day', 'agenda']) {
+        await page.click(`#view-${view}`);
+        await expect(page.locator(`#view-${view}`)).toHaveAttribute('aria-pressed', 'true');
+        await expect(
+          page.locator('#calendar-container [data-event-uid="e2e-issue227-holiday"]').first(),
+          `${view} view must show the all-day event`,
+        ).toBeVisible();
+      }
+    });
+  });
 });
