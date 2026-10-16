@@ -1543,7 +1543,16 @@ function _registerEmbeddedTimezones(comp) {
   for (const vtz of vtimezones) {
     try {
       const tzid = vtz.getFirstPropertyValue('tzid');
-      if (tzid && !ICAL.TimezoneService.has(tzid)) {
+      // An IANA zone is defined from tzdata: embedded blocks often carry only
+      // the current rule (#292), and ical.js resolves a TZID against the
+      // document's own VTIMEZONE before the registry, so swap it out. The
+      // embedded block is used only for zones tzdata does not know.
+      if (tzid && isValidTimezone(tzid)) {
+        const block = buildVTimezoneBlock(tzid);
+        _registerVTimezoneBlock(tzid, block);
+        comp.removeSubcomponent(vtz);
+        comp.addSubcomponent(new ICAL.Component(ICAL.parse(`BEGIN:VCALENDAR\r\n${block}\r\nEND:VCALENDAR`)).getFirstSubcomponent('vtimezone'));
+      } else if (tzid && !ICAL.TimezoneService.has(tzid)) {
         ICAL.TimezoneService.register(vtz);
       }
     } catch (e) {
@@ -1572,14 +1581,20 @@ function _registerEmbeddedTimezones(comp) {
  * @param {Date}   date - reference date
  * @returns {number} offset in minutes (positive = east of UTC)
  */
+const _offsetFormatters = new Map();
+
 function _tzOffsetMinutes(tzid, date) {
   try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzid,
-      timeZoneName: 'longOffset',
-      year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric'
-    });
+    let fmt = _offsetFormatters.get(tzid);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: tzid,
+        timeZoneName: 'longOffset',
+        year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric'
+      });
+      _offsetFormatters.set(tzid, fmt);
+    }
     const tzPart = fmt.formatToParts(date).find(p => p.type === 'timeZoneName')?.value || 'GMT';
     if (tzPart === 'GMT' || tzPart === 'UTC') return 0;
     const m = tzPart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
@@ -1605,63 +1620,83 @@ function _fmtOffset(offsetMins) {
   return `${sign}${h}${m}`;
 }
 
-/**
- * Build a RFC 5545-compliant VTIMEZONE component for the given IANA timezone.
- *
- * Strategy: Use two reference dates (mid-January for standard/winter time,
- * mid-July for daylight/summer time) to determine DST offsets via
- * Intl.DateTimeFormat.  If both offsets are identical the timezone has no DST
- * and only a STANDARD sub-component is emitted.  When DST exists, both a
- * STANDARD and a DAYLIGHT sub-component are emitted.
- *
- * The DTSTART and TZOFFSET values are derived from actual Intl data, preventing
- * cumulative timezone drift when ical.js parses the resulting ICS.
- *
- * @param {string} tzid - IANA timezone identifier (e.g., 'Europe/Berlin')
- * @returns {string|null} Multi-line VTIMEZONE block (lines joined with \r\n) or null if invalid
- */
-function _getRuleForDate(date) {
-  const month = date.getUTCMonth() + 1;
-  const day = date.getUTCDate();
-  let nth;
-  if (day <= 7) nth = '1SU';
-  else if (day <= 14) nth = '2SU';
-  else if (day <= 21) nth = '3SU';
-  else nth = '-1SU';
-  return `BYMONTH=${month};BYDAY=${nth}`;
-}
+// The VTIMEZONE built for an IANA zone carries every transition the platform
+// tzdata reports in this window, so an event is read with the rule in force in
+// its own year (#292). The last rule seen is projected past the window's end.
+const VTIMEZONE_FIRST_YEAR = 1970;
+const VTIMEZONE_LAST_YEAR = 2037;
+const DAY_MS = 86400000;
+const BYDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
-function _findExactTransitions(tzid, year = 2026) {
-  let prevOffset = _tzOffsetMinutes(tzid, new Date(Date.UTC(year, 0, 1, 0, 0)));
+/**
+ * Find every UTC-offset change of an IANA zone between the start of fromYear
+ * and the end of toYear, to the minute.
+ * @returns {Array<{date: Date, from: number, to: number}>}
+ */
+function _findTransitions(tzid, fromYear, toYear) {
+  const endMs = Date.UTC(toYear + 1, 0, 1, 0, 0);
+  let prevMs = Date.UTC(fromYear, 0, 1, 0, 0);
+  let prevOffset = _tzOffsetMinutes(tzid, new Date(prevMs));
   const transitions = [];
-  for (let m = 0; m < 12; m++) {
-    for (let d = 1; d <= 31; d++) {
-      const testDate = new Date(Date.UTC(year, m, d, 12, 0, 0));
-      if (testDate.getUTCMonth() !== m) break;
-      const offset = _tzOffsetMinutes(tzid, testDate);
-      if (offset !== prevOffset) {
-        // The change happened within the 24 h before this noon sample (possibly
-        // on the previous UTC day); bisect down to the exact minute.
-        let lo = testDate.getTime() - 86400000;
-        let hi = testDate.getTime();
-        while (hi - lo > 60000) {
-          const mid = lo + Math.floor((hi - lo) / 120000) * 60000;
-          if (_tzOffsetMinutes(tzid, new Date(mid)) === prevOffset) lo = mid;
-          else hi = mid;
-        }
-        transitions.push({ date: new Date(hi), from: prevOffset, to: offset });
-        prevOffset = offset;
+  for (let ms = Date.UTC(fromYear, 0, 1, 12, 0); ms < endMs; ms += DAY_MS) {
+    const offset = _tzOffsetMinutes(tzid, new Date(ms));
+    if (offset !== prevOffset) {
+      // The change happened since the previous sample; bisect to the minute.
+      let lo = prevMs;
+      let hi = ms;
+      while (hi - lo > 60000) {
+        const mid = lo + Math.floor((hi - lo) / 120000) * 60000;
+        if (_tzOffsetMinutes(tzid, new Date(mid)) === prevOffset) lo = mid;
+        else hi = mid;
       }
+      transitions.push({ date: new Date(hi), from: prevOffset, to: offset });
+      prevOffset = offset;
     }
+    prevMs = ms;
   }
   return transitions;
 }
 
+function _fmtLocalDateTime(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${String(d.getUTCFullYear()).padStart(4, '0')}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `T${p(d.getUTCHours())}${p(d.getUTCMinutes())}00`;
+}
+
+/**
+ * Describe a transition as a yearly rule: month, nth (or last) weekday and the
+ * local wall time before the change (RFC 5545: an observance's DTSTART is in
+ * TZOFFSETFROM time; zones differ in hour and Sydney's change falls on the
+ * previous UTC day, so everything is derived from the instant).
+ */
+function _transitionRule(tr) {
+  const wall = new Date(tr.date.getTime() + tr.from * 60000);
+  const month = wall.getUTCMonth() + 1;
+  const day = wall.getUTCDate();
+  const daysInMonth = new Date(Date.UTC(wall.getUTCFullYear(), month, 0)).getUTCDate();
+  const nth = day + 7 > daysInMonth ? -1 : Math.ceil(day / 7);
+  const byday = `${nth}${BYDAY_CODES[wall.getUTCDay()]}`;
+  const time = _fmtLocalDateTime(wall).slice(9);
+  return {
+    wall,
+    year: wall.getUTCFullYear(),
+    key: `${tr.from}|${tr.to}|${month}|${byday}|${time}`,
+    rrule: `BYMONTH=${month};BYDAY=${byday}`
+  };
+}
+
+const _vtimezoneBlockCache = new Map();
+
 /**
  * Build an RFC 5545-compliant VTIMEZONE component for the given IANA timezone.
  *
- * Dynamically computes exact DST transition dates, offsets, and RRULE expressions
- * using Intl.DateTimeFormat data to prevent timezone drift across DST boundaries.
+ * Transitions come from the platform tzdata (Intl) for every year from
+ * VTIMEZONE_FIRST_YEAR to VTIMEZONE_LAST_YEAR, so an event is read with the
+ * rule of its own year rather than one probe year's rule projected over all
+ * time (#292). Consecutive years following the same weekday rule collapse into
+ * one observance with a yearly RRULE, bounded by COUNT unless the rule is still
+ * in force at the window's end; transitions that follow no such rule become
+ * single-instance observances.
  *
  * @param {string} tzid - IANA timezone identifier (e.g., 'Europe/Berlin')
  * @returns {string|null} Multi-line VTIMEZONE block (lines joined with \r\n) or null if invalid
@@ -1671,46 +1706,53 @@ function buildVTimezoneBlock(tzid) {
     console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}"`);
     return null;
   }
+  if (_vtimezoneBlockCache.has(tzid)) return _vtimezoneBlockCache.get(tzid);
 
-  const transitions = _findExactTransitions(tzid, 2026);
-  if (transitions.length === 0) {
-    const offset = _tzOffsetMinutes(tzid, new Date('2026-01-15T12:00:00Z'));
-    return [
-      'BEGIN:VTIMEZONE',
-      `TZID:${tzid}`,
-      'BEGIN:STANDARD',
-      'DTSTART:19700101T000000',
-      `TZOFFSETFROM:${_fmtOffset(offset)}`,
-      `TZOFFSETTO:${_fmtOffset(offset)}`,
-      'END:STANDARD',
-      'END:VTIMEZONE'
-    ].join('\r\n');
+  const initialOffset = _tzOffsetMinutes(tzid, new Date(Date.UTC(VTIMEZONE_FIRST_YEAR, 0, 1, 0, 0)));
+  const lines = [
+    'BEGIN:VTIMEZONE',
+    `TZID:${tzid}`,
+    'BEGIN:STANDARD',
+    `DTSTART:${VTIMEZONE_FIRST_YEAR}0101T000000`,
+    `TZOFFSETFROM:${_fmtOffset(initialOffset)}`,
+    `TZOFFSETTO:${_fmtOffset(initialOffset)}`,
+    'END:STANDARD'
+  ];
+
+  // Group transitions into runs of consecutive years sharing one rule.
+  const runs = [];
+  const openRuns = new Map();
+  for (const tr of _findTransitions(tzid, VTIMEZONE_FIRST_YEAR, VTIMEZONE_LAST_YEAR)) {
+    const rule = _transitionRule(tr);
+    const run = openRuns.get(rule.key);
+    if (run && run.lastYear === rule.year - 1) {
+      run.count++;
+      run.lastYear = rule.year;
+    } else {
+      const fresh = { tr, rule, count: 1, lastYear: rule.year };
+      runs.push(fresh);
+      openRuns.set(rule.key, fresh);
+    }
   }
 
-  const lines = ['BEGIN:VTIMEZONE', `TZID:${tzid}`];
-  for (const tr of transitions) {
-    const isDaylight = tr.to > tr.from;
-    const type = isDaylight ? 'DAYLIGHT' : 'STANDARD';
-    // RFC 5545: an observance's DTSTART is the local wall time in effect
-    // *before* the transition (TZOFFSETFROM). Zones differ (Berlin falls back
-    // at 03:00, New York at 02:00, Sydney's transition is on the previous UTC
-    // day), so derive date and time from the instant rather than assuming 02:00.
-    const wall = new Date(tr.date.getTime() + tr.from * 60000);
-    const monthStr = String(wall.getUTCMonth() + 1).padStart(2, '0');
-    const dayStr = String(wall.getUTCDate()).padStart(2, '0');
-    const hourStr = String(wall.getUTCHours()).padStart(2, '0');
-    const minuteStr = String(wall.getUTCMinutes()).padStart(2, '0');
-    const dtstart = `1970${monthStr}${dayStr}T${hourStr}${minuteStr}00`;
+  for (const { tr, rule, count, lastYear } of runs) {
+    const type = tr.to > tr.from ? 'DAYLIGHT' : 'STANDARD';
     lines.push(`BEGIN:${type}`);
-    lines.push(`DTSTART:${dtstart}`);
-    lines.push(`RRULE:FREQ=YEARLY;${_getRuleForDate(wall)}`);
+    lines.push(`DTSTART:${_fmtLocalDateTime(rule.wall)}`);
+    if (lastYear === VTIMEZONE_LAST_YEAR) {
+      lines.push(`RRULE:FREQ=YEARLY;${rule.rrule}`);
+    } else if (count > 1) {
+      lines.push(`RRULE:FREQ=YEARLY;${rule.rrule};COUNT=${count}`);
+    }
     lines.push(`TZOFFSETFROM:${_fmtOffset(tr.from)}`);
     lines.push(`TZOFFSETTO:${_fmtOffset(tr.to)}`);
     lines.push(`END:${type}`);
   }
   lines.push('END:VTIMEZONE');
 
-  return lines.join('\r\n');
+  const block = lines.join('\r\n');
+  _vtimezoneBlockCache.set(tzid, block);
+  return block;
 }
 
 /**
