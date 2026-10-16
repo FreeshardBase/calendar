@@ -5,7 +5,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 
 ## Run / test
 
-- `npm ci` — install (Node >= 20).
+- `npm ci` — install (Node >= 22).
 - `npm start` — serve on :3000 (HTTPS if `ssl/key.pem`+`ssl/cert.pem` exist or `SSL_*_PATH` set, else HTTP).
 - `npm run dev` — same with `--watch`.
 - `npm test` — node:test integration suite: `scripts/test-unit.sh` runs `NODE_ENV=test node --test
