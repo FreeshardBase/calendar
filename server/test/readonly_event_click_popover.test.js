@@ -124,6 +124,9 @@ function loadAppPopoverLogic(mockDom, mockStore) {
     location: mockDom.window.location,
     showToast: () => {},
     closeModal: () => {},
+    // The popover opens and closes through the dialog manager (issue #266).
+    openDialog: (el) => el.classList.remove('hidden'),
+    closeDialog: (el) => el.classList.add('hidden'),
     chooseRecurrenceScope: () => Promise.resolve('series'),
     initAccountModal: () => {},
     openAccountModal: () => {},

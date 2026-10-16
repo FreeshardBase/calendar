@@ -2184,7 +2184,6 @@ function showEventPopover(ev, mouseEvent) {
     </div>`;
 
   // Position near mouse or target element if keyboard activated
-  popover.classList.remove('hidden');
   _popoverUid = ev.uid;
   announce(`Termindetails: ${ev.title}`);
 
@@ -2215,7 +2214,6 @@ function showEventPopover(ev, mouseEvent) {
       closePopover();
       openEditModal(ev, EVENT_MODAL_CALLBACKS);
     };
-    if (typeof editBtn.focus === 'function') editBtn.focus();
   }
 
   const deleteBtn = $('popover-delete-btn');
@@ -2242,10 +2240,14 @@ function showEventPopover(ev, mouseEvent) {
       } catch(err) { showToast(err.message, 'error'); }
     };
   }
+
+  // Through the dialog manager (#266): it records the chip for focus return, clears the
+  // `inert` the last close left, and makes Escape and the Tab trap reach the popover.
+  openDialog(popover, editBtn);
 }
 
-function closePopover() {
-  $('event-popover').classList.add('hidden');
+function closePopover({ restoreFocus = true } = {}) {
+  closeDialog($('event-popover'), { restoreFocus });
   _popoverUid = null;
 }
 
@@ -2562,7 +2564,9 @@ function attachListeners() {
   // Close popover on outside click
   document.addEventListener('click', e => {
     if (_popoverUid && !e.target.closest('.event-popover') && !e.target.closest('[data-event-uid]')) {
-      closePopover();
+      // A click that focused another control keeps that focus; only a click on nothing returns it to the chip.
+      const active = document.activeElement;
+      closePopover({ restoreFocus: !active || active === document.body || $('event-popover').contains(active) });
     }
   });
 

@@ -59,9 +59,10 @@ export function openDialog(containerEl, focusTarget = null) {
 }
 
 /**
- * Closes a modal dialog, hides backdrop, and restores focus to previous activeElement.
+ * Closes a modal dialog, hides backdrop, and restores focus to previous activeElement
+ * unless `restoreFocus` is false (the user already put focus somewhere else).
  */
-export function closeDialog(containerEl) {
+export function closeDialog(containerEl, { restoreFocus = true } = {}) {
   if (!containerEl) return;
 
   containerEl.classList.add('hidden');
@@ -74,7 +75,7 @@ export function closeDialog(containerEl) {
   if (idx !== -1) {
     const item = activeModalStack[idx];
     activeModalStack.splice(idx, 1);
-    if (item.previousFocus && typeof item.previousFocus.focus === 'function') {
+    if (restoreFocus && item.previousFocus && typeof item.previousFocus.focus === 'function') {
       const inDoc = typeof document !== 'undefined' && document.body &&
         (typeof document.body.contains === 'function' ? document.body.contains(item.previousFocus) : true);
       if (inDoc) {
