@@ -7,6 +7,7 @@
 const ICAL = require('ical.js');
 const { v4: uuidv4 } = require('uuid');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
+const { userError } = require('./errorSanitizer');
 
 /**
  * Attachment URLs end up as clickable links, so only http(s)/mailto may be
@@ -1210,6 +1211,23 @@ function occurrenceTime(master, recurrenceId) {
   return time;
 }
 
+const RECURRENCE_ID_FORMAT = /^\d{4}-?\d{2}-?\d{2}(T\d{2}:?\d{2}:?\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/i;
+
+// The occurrence of the master's series that `recurrenceId` names. An id that
+// is malformed, or resolves to no instance of the series (out of range values
+// ICAL.js would normalise to another day included), is refused, so a write
+// never targets an occurrence nobody asked for (#317). EXDATE is ignored:
+// deleting an already deleted occurrence again stays harmless.
+function seriesOccurrenceTime(master, recurrenceId) {
+  const recStr = String(recurrenceId || '').trim();
+  const refuse = () => userError(`Ungültige recurrenceId: „${recStr.slice(0, 40)}“ ist kein Termin dieser Serie.`, 400);
+  if (!RECURRENCE_ID_FORMAT.test(recStr)) throw refuse();
+  const time = occurrenceTime(master, recStr);
+  const unix = time.toUnixTime();
+  if (isNaN(unix) || !_seriesInstants(master, unix).has(unix)) throw refuse();
+  return time;
+}
+
 function removeOverride(comp, recurrenceId) {
   _registerEmbeddedTimezones(comp);
   const normTarget = String(recurrenceId || '').replace(/[-:]/g, '').toUpperCase();
@@ -1245,9 +1263,9 @@ function addOccurrenceException(icsString, recurrenceId) {
   _registerEmbeddedTimezones(comp);
   const master = getMasterVEvent(comp);
 
+  const time = seriesOccurrenceTime(master, recurrenceId);
   removeOverride(comp, recurrenceId);
 
-  const time = occurrenceTime(master, recurrenceId);
   const prop = new ICAL.Property('exdate', master);
   const dtstartProp = master.getFirstProperty('dtstart');
   const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
@@ -1268,6 +1286,7 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   const master = getMasterVEvent(comp);
   const masterUid = master.getFirstPropertyValue('uid');
 
+  const ridTime = seriesOccurrenceTime(master, recurrenceId);
   removeOverride(comp, recurrenceId);
 
   const overrideIcs = eventToICS({ ...eventData, uid: masterUid, recurrence: null });
@@ -1285,7 +1304,6 @@ function upsertOccurrenceOverride(icsString, recurrenceId, eventData) {
   const rid = new ICAL.Property('recurrence-id', override);
   const dtstartProp = master.getFirstProperty('dtstart');
   const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
-  const ridTime = occurrenceTime(master, recurrenceId);
   if (tzid && !ridTime.isUtc && isValidTimezone(tzid)) {
     rid.setParameter('tzid', tzid);
   } else {
@@ -1311,7 +1329,7 @@ function cloneOccurrenceOverride(comp, recurrenceId) {
   for (const name of ['rrule', 'rdate', 'exdate']) override.removeAllProperties(name);
 
   const masterEvent = new ICAL.Event(master);
-  const start = occurrenceTime(master, recurrenceId);
+  const start = seriesOccurrenceTime(master, recurrenceId);
   const dtstartProp = master.getFirstProperty('dtstart');
   const tzid = dtstartProp ? dtstartProp.getParameter('tzid') : null;
   const keepTzid = tzid && !start.isUtc && isValidTimezone(tzid);
