@@ -427,6 +427,13 @@ function createKanbanCard(task, callbacks) {
   const card = document.createElement('div');
   card.className = `kanban-card status-${(task.status || 'NEEDS-ACTION').toLowerCase()}`;
   card.setAttribute('data-task-id', task.uid);
+  // A finished occurrence of a recurring task (#264) shares uid and href with
+  // its series, so edit, reopen and delete would act on the whole series: it
+  // is shown without actions.
+  if (task.recurrenceId) {
+    card.setAttribute('data-recurrence-id', task.recurrenceId);
+    card.title = 'Erledigtes Vorkommen einer wiederkehrenden Aufgabe';
+  }
 
   let dueBadge = '';
   if (task.due) {
@@ -456,7 +463,7 @@ function createKanbanCard(task, callbacks) {
         ${recurBadge}
       </div>
     </div>
-    <div class="kanban-card-actions">
+    ${task.recurrenceId ? '' : `<div class="kanban-card-actions">
       ${task.status !== 'COMPLETED' ? `
         <button class="kanban-btn btn-status-next" title="Status weiterschalten" aria-label="Status weiterschalten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
         <button class="kanban-btn btn-complete" title="Als erledigt markieren" aria-label="Als erledigt markieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
@@ -465,7 +472,7 @@ function createKanbanCard(task, callbacks) {
       `}
       <button class="kanban-btn btn-edit" title="Bearbeiten" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
       <button class="kanban-btn btn-delete" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg></button>
-    </div>
+    </div>`}
   `;
 
   card.querySelector('.btn-edit')?.addEventListener('click', () => openTaskModal(task));
