@@ -1056,8 +1056,13 @@
               <option value="FREQ=WEEKLY">Wöchentlich</option>
               <option value="FREQ=MONTHLY">Monatlich</option>
               <option value="FREQ=YEARLY">Jährlich</option>
+              <option value="CUSTOM">Eigene Regel…</option>
             </select>
           </div>
+        </div>
+        <div class="form-group hidden" id="task-recurrence-custom-group">
+          <label class="form-label" for="task-recurrence-custom">Eigene Regel (RRULE, RFC 5545)</label>
+          <input class="form-input" id="task-recurrence-custom" type="text" placeholder="z. B. FREQ=MONTHLY;INTERVAL=2;BYDAY=1MO;COUNT=10" />
         </div>
       </div>
       <div class="modal-footer">

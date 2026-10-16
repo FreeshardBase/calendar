@@ -946,6 +946,71 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator(`.kanban-card:has-text("${taskTitle}")`)).not.toBeVisible({ timeout: 10000 });
   });
 
+  test('Issue #309 — the task create modal authors DTSTART, DURATION, PERCENT-COMPLETE and a rule outside the preset list', async ({ page }) => {
+    const rule = 'FREQ=MONTHLY;INTERVAL=2;BYDAY=1MO,-1FR;BYMONTHDAY=15;COUNT=10';
+    const storedTask = (title) => page.evaluate(async (t) => {
+      const res = await fetch('/api/tasks');
+      const body = await res.json();
+      const list = Array.isArray(body) ? body : body.tasks;
+      const found = list.find(x => x.title === t);
+      return found ? { recurrence: found.recurrence, rawIcs: found.rawIcs.replace(/\r?\n[ \t]/g, '') } : null;
+    }, title);
+
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    await page.click('#new-task-btn');
+    await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#task-calendar-id option').first()).toBeAttached({ timeout: 10000 });
+
+    // The rule field only appears once the custom option is chosen.
+    await expect(page.locator('#task-recurrence-custom')).toBeHidden();
+    const taskTitle = `E2E Custom RRULE Task ${Date.now()}`;
+    await page.fill('#task-title', taskTitle);
+    await page.fill('#task-dtstart', '2036-09-01T09:00');
+    await page.fill('#task-duration', 'PT2H');
+    await page.fill('#task-percent-complete', '40');
+    await page.selectOption('#task-recurrence', 'CUSTOM');
+    await expect(page.locator('#task-recurrence-custom')).toBeVisible();
+    await page.fill('#task-recurrence-custom', rule);
+    await page.click('#task-save-btn');
+    await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+
+    await expect.poll(() => storedTask(taskTitle), { timeout: 10000 }).not.toBeNull();
+    const created = await storedTask(taskTitle);
+    expect(created.rawIcs).toMatch(new RegExp(`^RRULE:${rule}\\r?$`, 'm'));
+    expect(created.rawIcs).toContain(`DTSTART:${new Date(2036, 8, 1, 9, 0).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}`);
+    expect(created.rawIcs).toContain('DURATION:PT2H');
+    expect(created.rawIcs).toContain('PERCENT-COMPLETE:40');
+
+    // Reopening shows the stored rule in the custom field, and saving without edits keeps it.
+    await page.click('#view-kanban');
+    const card = page.locator('.kanban-card', { hasText: taskTitle });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await card.locator('.btn-edit').click();
+    await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#task-recurrence')).toHaveValue('CUSTOM');
+    await expect(page.locator('#task-recurrence-custom')).toBeVisible();
+    await expect(page.locator('#task-recurrence-custom')).toHaveValue(created.recurrence);
+    await page.click('#task-save-btn');
+    await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    const saved = await storedTask(taskTitle);
+    expect(saved.recurrence).toBe(created.recurrence);
+
+    // The next create starts without a rule and with the field hidden again.
+    await page.click('#new-task-btn');
+    await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#task-recurrence')).toHaveValue('');
+    await expect(page.locator('#task-recurrence-custom')).toBeHidden();
+    await expect(page.locator('#task-recurrence-custom')).toHaveValue('');
+    await page.click('#task-cancel-btn');
+
+    await card.locator('.btn-delete').click();
+    await page.click('#confirm-dialog-ok');
+    await expect(page.locator('.kanban-card', { hasText: taskTitle })).toHaveCount(0, { timeout: 10000 });
+  });
+
   test.describe('Issue #182 — sidebar controls are keyboard operable', () => {
     // The sidebar shows only the first 10 pending tasks, so a task created on
     // the shared Radicale could be pushed out by leftovers from other runs.
