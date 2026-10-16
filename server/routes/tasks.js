@@ -265,7 +265,7 @@ router.put('/:uid', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const taskUrl = buildAbsoluteUrl(account.url, href);
-    let task = reconcileTaskStatus({ uid: req.params.uid, ...taskData });
+    let task = reconcileTaskStatus({ ...taskData, uid: req.params.uid });
 
     let current = null;
     try {
@@ -345,7 +345,7 @@ router.put('/:uid', async (req, res) => {
     }
 
     if (task.status === 'COMPLETED' && (task.recurrence || (existingIcs && existingIcs.includes('RRULE:')))) {
-      const fullTask = parseICSToTask(existingIcs || '', { uid: req.params.uid, ...taskData });
+      const fullTask = parseICSToTask(existingIcs || '', { ...taskData, uid: req.params.uid });
       const targetTask = { ...(fullTask || {}), ...task, status: 'COMPLETED' };
       const advanced = advanceRecurringTask(targetTask);
       if (advanced) {

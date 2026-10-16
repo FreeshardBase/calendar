@@ -289,6 +289,12 @@ function parseEventDataList(xml) {
 
 // ── Utility Functions ─────────────────────────────────────────────────────────
 
+// X-COMPLETED-DATES holds ISO timestamps; anything else (e.g. a CRLF that would
+// start a new property, or a comma that would split the list) is dropped (#308).
+function cleanCompletedHistory(history) {
+  return history.filter(d => typeof d === 'string' && /^[0-9TZ:.+-]+$/.test(d) && !isNaN(Date.parse(d)));
+}
+
 function escIcal(str) {
   return String(str)
     .replace(/\\/g, '\\\\')
@@ -866,8 +872,9 @@ function taskToICS(rawTask, existingIcs = null) {
         }
 
         if ('completedHistory' in task && Array.isArray(task.completedHistory)) {
-          if (task.completedHistory.length > 0) {
-            setProp('x-completed-dates', task.completedHistory.join(','));
+          const history = cleanCompletedHistory(task.completedHistory);
+          if (history.length > 0) {
+            setProp('x-completed-dates', history.join(','));
           } else {
             vtodo.removeAllProperties('x-completed-dates');
           }
@@ -897,7 +904,7 @@ function taskToICS(rawTask, existingIcs = null) {
     'PRODID:-//Freeshard//WebCalendar 1.0//EN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VTODO',
-    `UID:${uid}`,
+    `UID:${escIcal(uid)}`,
     `DTSTAMP:${dtstamp}`,
     `LAST-MODIFIED:${dtstamp}`,
     `SUMMARY:${escIcal(task.title || 'Untitled')}`
@@ -966,8 +973,9 @@ function taskToICS(rawTask, existingIcs = null) {
       lines.push(`PERCENT-COMPLETE:${pct}`);
     }
   }
-  if (Array.isArray(task.completedHistory) && task.completedHistory.length > 0) {
-    lines.push(`X-COMPLETED-DATES:${task.completedHistory.join(',')}`);
+  const history = Array.isArray(task.completedHistory) ? cleanCompletedHistory(task.completedHistory) : [];
+  if (history.length > 0) {
+    lines.push(`X-COMPLETED-DATES:${history.join(',')}`);
   }
   if (task.categories) {
     const rawCats = Array.isArray(task.categories)
