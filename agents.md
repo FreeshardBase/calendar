@@ -28,6 +28,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   guard (#340) refuses requests without a same-origin `Origin`/`Sec-Fetch-Site`, which Node's fetch never sends.
 - `python3 -m unittest discover -s server/test/python` — Python test suite (`radicale_custom_auth`, `radicale_custom_rights`, `sync_worker`, `msgraph_worker`).
 - `npm run lint` — syntax check JS files (`node --check`) and compile Python modules (`py_compile`).
+  ESLint also rejects a test in `server/test/` that reads app sources (`.js`/`.css`/`.html`) instead of
+  testing behaviour (#358/#398); today's offenders are listed in `server/test/source-grep-allowlist.json`.
+  That list may only shrink: when you rewrite such a test with supertest, jsdom or Playwright, remove its
+  entry (`server/test/source_grep_lint_rule.test.js` fails otherwise). `node scripts/list-source-grep-tests.js`
+  prints every test the rule matches, ignoring the allowlist.
 - `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
 - `npx playwright test` — e2e (`e2e/calendar.spec.js`), starts its own server via `playwright.config.js`
   (`reuseExistingServer` outside CI). That server runs the shipping configuration (`NODE_ENV=production`,

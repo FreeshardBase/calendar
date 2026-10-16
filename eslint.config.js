@@ -7,7 +7,7 @@ module.exports = [
   { ignores: ['node_modules/**', 'reports/**', 'test-results/**', 'playwright-report/**', 'data/**', '.stryker-tmp/**'] },
   js.configs.recommended,
   {
-    files: ['server/**/*.js', 'e2e/**/*.js', '*.js'],
+    files: ['server/**/*.js', 'e2e/**/*.js', 'scripts/**/*.js', '*.js'],
     languageOptions: { sourceType: 'commonjs', ecmaVersion: 2023, globals: { ...globals.node, ...globals.browser } },
   },
   {
@@ -46,4 +46,14 @@ module.exports.push({
     // rejecting control characters in user input is intentional (see #334)
     'no-control-regex': 'off',
   },
+});
+
+// #398 (#358): a test must test behaviour, not read app sources (.js/.css/.html) and match strings.
+// Today's offenders are allowlisted in server/test/source-grep-allowlist.json; the list may only
+// shrink (server/test/source_grep_lint_rule.test.js), so area issues remove their entries.
+module.exports.push({
+  files: ['server/test/**/*.js'],
+  ignores: require('./server/test/source-grep-allowlist.json'),
+  plugins: { local: { rules: { 'no-source-grep': require('./scripts/eslint-rules/no-source-grep') } } },
+  rules: { 'local/no-source-grep': 'error' },
 });
