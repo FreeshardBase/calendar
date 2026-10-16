@@ -253,9 +253,14 @@ def _sync_account(user_id, conn, acc_id):
             # The delta link is not advanced, so the next sync fetches the same changes again.
             return False, f"Microsoft Graph fetch failed for account {acc_id}: {fe}"
 
+        written = 0
         for item in resp_data.get("value", []):
-            _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms)
-        # Mappings are committed per page, so the database is not write-locked for a whole round.
+            if _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
+                written += 1
+        # Mappings (and the job's progress, #174) are committed per page, so the database is not
+        # write-locked for a whole round.
+        import sync_worker
+        sync_worker.record_sync_progress(cursor, written)
         conn.commit()
 
         if resp_data.get("@odata.nextLink"):
@@ -274,9 +279,10 @@ def _sync_account(user_id, conn, acc_id):
 
 
 def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
+    """Writes or deletes the local copy of one Graph event; True if a local event was changed."""
     graph_id = item.get("id")
     if not graph_id:
-        return
+        return False
     auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
 
     if item.get("@removed"):
@@ -294,7 +300,8 @@ def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
                 if del_err.code not in (404, 410):
                     raise
             cursor.execute("DELETE FROM msgraph_event_mappings WHERE graph_id = ?", (graph_id,))
-        return
+            return True
+        return False
 
     local_uid = f"msgraph-event-{graph_id}"
     subject = item.get("subject") or "(Ohne Titel)"
@@ -343,6 +350,7 @@ def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
         " VALUES (?, ?, ?, ?, ?)",
         (local_uid, graph_id, acc_id, now_ms, etag)
     )
+    return True
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

@@ -95,6 +95,7 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       'invalidateEventCache',
       'loadCalendars',
       'renderCalendarList',
+      'showEvents',
       `
       ${loadEventsFnMatch[0]}
       return loadEvents;
@@ -126,7 +127,8 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       async () => false, // delta check reports a change: full fetch (#170)
       () => {},
       () => {},
-      () => {}
+      () => {},
+      (events) => mockStore.set({ events }) // #174: the loaded events, plus any optimistic save previews
     );
 
     // 1. Navigation 1 (March 2026): req1 triggered

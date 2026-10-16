@@ -71,7 +71,17 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   random per-value salt); `iv` = salt‖nonce, ciphertext = ciphertext‖tag, same format in `sync-worker/sync_worker.py`;
   a tampered value fails to decrypt (#72)), `app_passwords`
   (PBKDF2-HMAC-SHA256, for internal service/app authentication), `calendar_shares` (public ICS tokens), `sync_queue`
-  (worker jobs), `users` (OIDC uuid↔username), `user_calendar_shares` (internal user-to-user shares).
+  (worker jobs), `sync_job_progress` (events a running job has written so far, #174), `users` (OIDC uuid↔username),
+  `user_calendar_shares` (internal user-to-user shares).
+- Long writes (#174): Radicale's create cost grows with the collection size (the `has_uid` scan on every new
+  item), so big imports and first syncs take minutes. `POST /api/calendars/:id/import` answers 202 with a job
+  (`utils/importJobs.js`, in-process, kept an hour after it ends) whose `processed`/`total` the import banner polls
+  at `GET /api/calendars/import-jobs/:jobId` (owner only). The sync worker counts every event it writes
+  (vdirsyncer's "Copying (uploading|updating) item" log lines, read live; Graph items per committed page)
+  into `sync_job_progress`; `GET /api/accounts/sync-status` returns it as `itemsDone` and the app polls every
+  2 s while a job is RUNNING. Event saves are optimistic: the dialog closes and the event is drawn (dashed,
+  "wird gespeichert") while the request runs; on failure it is removed or rolled back, an error toast says
+  so, and the dialog reopens with the entries.
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).

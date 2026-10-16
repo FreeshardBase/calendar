@@ -5,11 +5,16 @@
 import { store, calendarById } from './store.js';
 import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
-import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
+import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFocus.js';
 import { requestNotificationPermission } from './notifications.js';
 
 let _onSaved  = null;
 let _onDeleted = null;
+// Issue #174: onPending(preview, replacesUid) shows an event while its save runs
+// and returns a token; onSettled(token) removes that preview after a failure.
+let _onPending = null;
+let _onSettled = null;
+let _formGeneration = 0; // counts openings, so a failed save knows the form still holds its entries
 let _currentEvent = null; // null = create mode, object = edit mode
 let _recurrenceTouched = false;
 // Issue #128: the reminder select edits only the first alarm. The original
@@ -124,8 +129,7 @@ function populateTimezoneSelects(selectedStartTz, selectedEndTz) {
 
 export function openCreateModal(defaultDate, callbacks) {
   _currentEvent = null;
-  _onSaved   = callbacks?.onSaved;
-  _onDeleted = callbacks?.onDeleted;
+  setCallbacks(callbacks);
 
   resetForm();
   $('event-modal-title').textContent = 'Neuer Termin';
@@ -171,8 +175,7 @@ export function openCreateModal(defaultDate, callbacks) {
 
 export function openEditModal(event, callbacks) {
   _currentEvent = event;
-  _onSaved   = callbacks?.onSaved;
-  _onDeleted = callbacks?.onDeleted;
+  setCallbacks(callbacks);
 
   $('event-modal-title').textContent = 'Termin bearbeiten';
 
@@ -394,6 +397,14 @@ export function chooseRecurrenceScope(question) {
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
+
+function setCallbacks(callbacks) {
+  _formGeneration++;
+  _onSaved   = callbacks?.onSaved;
+  _onDeleted = callbacks?.onDeleted;
+  _onPending = callbacks?.onPending;
+  _onSettled = callbacks?.onSettled;
+}
 
 function show() {
   openDialog(backdrop(), $('ev-title'));
@@ -793,32 +804,68 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     setButtonLoading('event-save-btn', true);
   }
 
-  try {
-    if (_currentEvent) {
-      // Update
-      const targetUid = _currentEvent.masterUid || (_currentEvent.uid ? _currentEvent.uid.split('::')[0] : '');
-      payload.uid  = targetUid;
-      payload.href = _currentEvent.href;
-      payload.etag = _currentEvent.etag;
-      const saved = await EventsAPI.update(targetUid, payload);
-      closeModal();
-      showToast('Termin gespeichert.', 'success');
-      _onSaved?.(saved);
-    } else {
-      // Create
-      const created = await EventsAPI.create(payload);
-      closeModal();
-      showToast('Termin erstellt.', 'success');
-      _onSaved?.(created);
-    }
-  } catch (err) {
-    if (err.status === 409) {
-      showError('Konflikt: Der Termin wurde von einem anderen Client geändert. Seite neu laden.');
-    } else {
-      showError(err.message);
-    }
-    setButtonLoading('event-save-btn', false);
+  // Issue #174: optimistic save. Saving into a large Radicale collection takes a
+  // noticeable moment, so the dialog closes and the event shows at once while
+  // the request runs. On failure the preview is removed again, a toast says
+  // what was not saved, and the dialog reopens with the entries kept.
+  const original  = _currentEvent;
+  const callbacks = { onSaved: _onSaved, onDeleted: _onDeleted, onPending: _onPending, onSettled: _onSettled };
+  const formGeneration = _formGeneration;
+  if (original) {
+    payload.uid  = original.masterUid || (original.uid ? original.uid.split('::')[0] : '');
+    payload.href = original.href;
+    payload.etag = original.etag;
   }
+  const token = callbacks.onPending?.(previewEvent(payload, original), original ? original.uid : null);
+  closeModal();
+  setButtonLoading('event-save-btn', false);
+
+  try {
+    const saved = original ? await EventsAPI.update(payload.uid, payload) : await EventsAPI.create(payload);
+    showToast(original ? 'Termin gespeichert.' : 'Termin erstellt.', 'success');
+    callbacks.onSaved?.(saved, token);
+  } catch (err) {
+    callbacks.onSettled?.(token);
+    const reason = err.status === 409
+      ? 'Konflikt: Der Termin wurde von einem anderen Client geändert. Seite neu laden.'
+      : err.message;
+    const title = `„${payload.title || 'Ohne Titel'}“`;
+    showToast(original
+      ? `Die Änderung an ${title} wurde nicht gespeichert und ist zurückgenommen. ${reason}`
+      : `Der Termin ${title} wurde nicht gespeichert und ist wieder entfernt. ${reason}`, 'error');
+    // The form still holds the entries unless another event was opened since.
+    if (formGeneration === _formGeneration && !isDialogOpen(backdrop())) {
+      _currentEvent = original;
+      _onSaved = callbacks.onSaved;
+      _onDeleted = callbacks.onDeleted;
+      _onPending = callbacks.onPending;
+      _onSettled = callbacks.onSettled;
+      show();
+      showError(reason);
+    }
+  }
+}
+
+// The event as the views draw it, from the payload being saved.
+function previewEvent(payload, original) {
+  return {
+    ...(original || {}),
+    uid: original ? original.uid : `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    calendarId: payload.calendarId,
+    title: payload.title,
+    start: payload.start,
+    end: payload.end,
+    allDay: payload.allDay,
+    location: payload.location,
+    description: payload.description,
+    categories: payload.categories,
+    attendees: payload.attendees,
+    recurrence: payload.recurrence,
+    alarms: payload.alarms,
+    attachments: payload.attachments,
+    startTimeZone: payload.startTimeZone,
+    endTimeZone: payload.endTimeZone
+  };
 }
 
 async function handleDelete() {

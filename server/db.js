@@ -206,6 +206,14 @@ db.serialize(() => {
       FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     )
   `);
+  // #174: events the sync worker has written in a job's current run, shown as sync progress.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sync_job_progress (
+      job_id TEXT PRIMARY KEY,
+      items_done INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (job_id) REFERENCES sync_queue(id) ON DELETE CASCADE
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS user_calendar_shares (
       id TEXT PRIMARY KEY,
@@ -1245,7 +1253,9 @@ const Db = {
   getSyncJobById(id) {
     return new Promise((resolve, reject) => {
       db.get(
-        'SELECT id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at FROM sync_queue WHERE id = ?',
+        // A job without a progress row has written nothing in its current run yet.
+        'SELECT q.id, q.user_id, q.status, q.error_message, q.attempts, q.max_attempts, q.next_retry_at, q.retry_state, COALESCE(p.items_done, 0) AS items_done, q.created_at, q.updated_at' +
+        ' FROM sync_queue q LEFT JOIN sync_job_progress p ON p.job_id = q.id WHERE q.id = ?',
         [id],
         (err, row) => {
           if (err) return reject(err);
@@ -1259,6 +1269,7 @@ const Db = {
             maxAttempts: row.max_attempts ?? 3,
             nextRetryAt: row.next_retry_at ?? null,
             retryState: row.retry_state ?? 'IDLE',
+            itemsDone: row.items_done,
             createdAt: row.created_at,
             updatedAt: row.updated_at
           });
@@ -1270,7 +1281,8 @@ const Db = {
   getSyncJobs(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        'SELECT id, user_id, status, error_message, attempts, max_attempts, next_retry_at, retry_state, created_at, updated_at FROM sync_queue WHERE user_id = ? ORDER BY created_at DESC',
+        'SELECT q.id, q.user_id, q.status, q.error_message, q.attempts, q.max_attempts, q.next_retry_at, q.retry_state, COALESCE(p.items_done, 0) AS items_done, q.created_at, q.updated_at' +
+        ' FROM sync_queue q LEFT JOIN sync_job_progress p ON p.job_id = q.id WHERE q.user_id = ? ORDER BY q.created_at DESC',
         [userId],
         (err, rows) => {
           if (err) return reject(err);
@@ -1283,6 +1295,8 @@ const Db = {
             maxAttempts: row.max_attempts ?? 3,
             nextRetryAt: row.next_retry_at ?? null,
             retryState: row.retry_state ?? 'IDLE',
+            // Events the sync worker has written in this run so far (#174).
+            itemsDone: row.items_done,
             createdAt: row.created_at,
             updatedAt: row.updated_at
           })));

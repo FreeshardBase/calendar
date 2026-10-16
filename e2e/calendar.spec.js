@@ -17,6 +17,12 @@ function mondayWeeksAhead(weeks) {
   return d.toISOString().slice(0, 10);
 }
 
+// Event saves are optimistic (#174): the dialog closes before the server answered. A pending
+// preview is drawn until the reload after the save brings the stored event (or series).
+async function expectSavesLanded(page) {
+  await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+}
+
 function runSql(sql, params = []) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(E2E_DATABASE_PATH);
@@ -194,6 +200,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.selectOption('#ev-recurrence', 'WEEKLY');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    // The optimistic preview is the first occurrence only; the series shows once the save has landed (#174).
+    await expectSavesLanded(page);
 
     const chips = page.locator(`.event-chip:has-text("${title}")`);
     await expect(chips.first()).toBeVisible({ timeout: 10000 });
@@ -277,6 +285,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('.recur-byday:checked')).toHaveValue('MO');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    await expectSavesLanded(page);
 
     const instances = await seriesInstances(page, title);
     expect(instances.length).toBeGreaterThanOrEqual(3);
@@ -328,6 +337,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
     await page.click('#scope-series-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    await expectSavesLanded(page);
 
     const instances = await seriesInstances(page, title);
     expect(instances.length).toBeGreaterThanOrEqual(3);
@@ -3173,6 +3183,251 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(toast).toBeVisible({ timeout: 10000 });
       await expect(toast).toContainText('/api/calendars');
       await expect(toast).toContainText('text/html');
+    });
+  });
+
+  test.describe('Issue #174 — optimistic save and real progress for long imports and syncs', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    const DAY = '2029-03-14';
+
+    async function openApp(page) {
+      await page.goto(`/?date=${DAY}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      // Other specs of the run may have added calendars.
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+    }
+
+    async function fillNewAllDayEvent(page, title) {
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      await page.fill('#ev-title', title);
+      await page.fill('#ev-start-date', DAY);
+      await page.fill('#ev-end-date', DAY);
+      await page.check('#ev-allday');
+    }
+
+    async function deleteByTitle(page, title) {
+      const res = await page.request.get(`/api/events?start=${DAY}T00:00:00Z&end=2029-03-16T00:00:00Z`);
+      expect(res.ok()).toBeTruthy();
+      for (const ev of (await res.json()).events.filter(e => e.title === title)) {
+        const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          headers: SAME_ORIGIN, data: { calendarId: ev.calendarId, href: ev.href, etag: ev.etag }
+        });
+        expect(del.ok()).toBeTruthy();
+      }
+    }
+
+    // Holds every request of `method` on `pattern` until release() — a slow Radicale.
+    async function holdRequests(page, pattern, method) {
+      let release;
+      const released = new Promise(resolve => { release = resolve; });
+      await page.route(pattern, async route => {
+        if (route.request().method() !== method) return route.continue();
+        await released;
+        return route.continue();
+      });
+      return release;
+    }
+
+    // Answers `method` on `pattern` with a 500 after a delay — a slow, then failing Radicale.
+    async function failRequests(page, pattern, method, message) {
+      await page.route(pattern, async route => {
+        if (route.request().method() !== method) return route.continue();
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: message }) });
+      });
+    }
+
+    test('a new event shows at once while its save is still running', async ({ page }) => {
+      const title = `E2E 174 Optimistic ${Date.now()}`;
+      await openApp(page);
+      const release = await holdRequests(page, '**/api/events', 'POST');
+      try {
+        await fillNewAllDayEvent(page, title);
+        await page.click('#event-save-btn');
+
+        // The dialog closes and the event is drawn while the POST is still held.
+        await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 2000 });
+        const pending = page.locator('.event-chip.event-pending', { hasText: title });
+        await expect(pending).toBeVisible({ timeout: 2000 });
+        await expect(pending).toHaveAttribute('aria-label', /wird gespeichert/);
+        // Clicked while saving, it opens the stored event's popover once the save has landed.
+        await pending.click();
+        await expect(page.locator('#event-popover')).toHaveClass(/hidden/);
+
+        release();
+        await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/, { timeout: 15000 });
+        await expect(page.locator('#event-popover .popover-title')).toHaveText(title);
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.event-chip:not(.event-pending)', { hasText: title })).toBeVisible({ timeout: 15000 });
+        await expect(pending).toHaveCount(0);
+        await expect(page.locator('#toast-container .toast', { hasText: 'Termin erstellt.' })).toBeVisible();
+      } finally {
+        release();
+        await deleteByTitle(page, title);
+      }
+    });
+
+    test('a failed create removes the shown event, says so in German and reopens the dialog with the entries', async ({ page }) => {
+      const title = `E2E 174 Failing ${Date.now()}`;
+      await openApp(page);
+      await failRequests(page, '**/api/events', 'POST', 'Radicale nicht erreichbar');
+      await fillNewAllDayEvent(page, title);
+      await page.click('#event-save-btn');
+
+      const chip = page.locator('.event-chip', { hasText: title });
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 1000 });
+      await expect(chip).toBeVisible({ timeout: 1000 });
+
+      const toast = page.locator('#toast-container .toast.error', { hasText: title });
+      await expect(toast).toBeVisible({ timeout: 10000 });
+      await expect(toast).toContainText('wurde nicht gespeichert und ist wieder entfernt');
+      await expect(toast).toContainText('Radicale nicht erreichbar');
+      await expect(toast).toHaveAttribute('role', 'alert');
+      await expect(chip).toHaveCount(0);
+      // Nothing typed is lost: the dialog is back with the title and the server's reason.
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-title')).toHaveValue(title);
+      await expect(page.locator('#event-form-error')).toHaveText('Radicale nicht erreichbar');
+    });
+
+    test('a failed edit rolls the event back to its saved state', async ({ page }) => {
+      const oldTitle = `E2E 174 Saved ${Date.now()}`;
+      const newTitle = `${oldTitle} geändert`;
+      await openApp(page);
+      await page.click('#new-event-btn');
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      const calendarId = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+      await page.keyboard.press('Escape');
+      const created = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: { calendarId, title: oldTitle, start: `${DAY}T00:00:00.000Z`, end: '2029-03-15T00:00:00.000Z', allDay: true }
+      });
+      expect(created.status()).toBe(201);
+
+      try {
+        await openApp(page);
+        await failRequests(page, '**/api/events/*', 'PUT', 'Radicale nicht erreichbar');
+        await page.locator('.event-chip', { hasText: oldTitle }).first().click();
+        await page.click('#popover-edit-btn');
+        await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+        await page.fill('#ev-title', newTitle);
+        await page.click('#event-save-btn');
+
+        const edited = page.locator('.event-chip.event-pending', { hasText: newTitle });
+        await expect(edited).toBeVisible({ timeout: 1000 });
+        await expect(page.locator('.event-chip', { hasText: oldTitle }).filter({ hasNotText: 'geändert' })).toHaveCount(0);
+
+        const toast = page.locator('#toast-container .toast.error', { hasText: newTitle });
+        await expect(toast).toBeVisible({ timeout: 10000 });
+        await expect(toast).toContainText('wurde nicht gespeichert und ist zurückgenommen');
+        await expect(edited).toHaveCount(0);
+        await expect(page.locator('.event-chip', { hasText: oldTitle }).first()).toBeVisible();
+        await expect(page.locator('#event-form-error')).toHaveText('Radicale nicht erreichbar');
+      } finally {
+        await page.unroute('**/api/events/*');
+        await deleteByTitle(page, oldTitle);
+      }
+    });
+
+    async function dropIcs(page) {
+      const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', `UID:e2e-174-${Date.now()}`,
+        'DTSTART;VALUE=DATE:20290314', 'SUMMARY:Test User import', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+      await page.evaluate((icsText) => {
+        const dt = new DataTransfer();
+        dt.items.add(new File([icsText], 'export.ics', { type: 'text/calendar' }));
+        document.querySelector('.sidebar').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      }, ics);
+      await expect(page.locator('#import-dialog-backdrop')).toBeVisible();
+      await page.click('#import-confirm');
+      await expect(page.locator('#import-dialog-backdrop')).toBeHidden({ timeout: 5000 });
+    }
+
+    // The import job as the server reports it; the test moves it along.
+    async function serveImportJob(page, state) {
+      await page.route('**/api/calendars/*/import', route =>
+        route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(state.job) }));
+      await page.route('**/api/calendars/import-jobs/job-174', route =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify(state.job) }));
+    }
+
+    const importJob = fields => ({ id: 'job-174', status: 'running', total: 5000, processed: 0, imported: 0, skipped: 0, failed: 0, error: null, ...fields });
+
+    test('a long ICS import shows the job\'s real progress and that the calendar is usable', async ({ page }) => {
+      const state = { job: importJob({}) };
+      await openApp(page);
+      await serveImportJob(page, state);
+      await dropIcs(page);
+
+      const banner = page.locator('#import-progress');
+      await expect(banner).toBeVisible();
+      await expect(banner).toHaveAttribute('role', 'status');
+      await expect(page.locator('#import-progress-text')).toHaveText('Import läuft: 0 von 5.000 Terminen. Der Kalender ist schon nutzbar.');
+
+      state.job = importJob({ processed: 1200, imported: 1200 });
+      await expect(page.locator('#import-progress-text')).toHaveText('Import läuft: 1.200 von 5.000 Terminen. Der Kalender ist schon nutzbar.');
+      await expect(page.locator('#import-progress-bar')).toHaveJSProperty('value', 1200);
+      // Usable meanwhile: a new event can be started.
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+
+      state.job = importJob({ status: 'done', processed: 5000, imported: 4990, skipped: 10 });
+      await expect(banner).toBeHidden({ timeout: 5000 });
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Import abgeschlossen: 4990 importiert, 10 übersprungen.' })).toBeVisible();
+    });
+
+    test('an aborted ICS import hides the progress and reports how far it got', async ({ page }) => {
+      const state = { job: importJob({ processed: 1200, imported: 1200 }) };
+      await openApp(page);
+      await serveImportJob(page, state);
+      await dropIcs(page);
+      await expect(page.locator('#import-progress-text')).toContainText('1.200 von 5.000');
+
+      state.job = importJob({ status: 'error', processed: 1200, imported: 1200, error: 'Der Import wurde abgebrochen.' });
+      await expect(page.locator('#import-progress')).toBeHidden({ timeout: 5000 });
+      const toast = page.locator('#toast-container .toast.error', { hasText: 'Import abgebrochen nach 1.200 von 5.000 Terminen' });
+      await expect(toast).toBeVisible();
+      await expect(toast).toContainText('Der Import wurde abgebrochen.');
+    });
+
+    async function serveSyncJobs(page, state) {
+      await page.route('**/api/accounts/sync-status', route =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: state.jobs }) }));
+    }
+
+    test('a running account sync shows how many events the worker has written', async ({ page }) => {
+      const state = { jobs: [{ id: 'sync-174', status: 'RUNNING', itemsDone: 1200, errorMessage: null, createdAt: 1, updatedAt: 1 }] };
+      await serveSyncJobs(page, state);
+      await openApp(page);
+
+      const banner = page.locator('#sync-progress');
+      await expect(banner).toBeVisible({ timeout: 10000 });
+      await expect(banner).toHaveAttribute('role', 'status');
+      await expect(page.locator('#sync-progress-text')).toHaveText('Synchronisierung läuft: 1.200 Termine übertragen. Der Kalender ist schon nutzbar.');
+
+      // Polled again while the job runs, without waiting for the minute poll.
+      state.jobs = [{ ...state.jobs[0], itemsDone: 2500 }];
+      await expect(page.locator('#sync-progress-text')).toContainText('2.500 Termine übertragen', { timeout: 6000 });
+
+      state.jobs = [{ ...state.jobs[0], status: 'SUCCESS' }];
+      await expect(banner).toBeHidden({ timeout: 6000 });
+      await expect(page.locator('#sync-error-banner')).toBeHidden();
+    });
+
+    test('a sync that fails while running replaces the progress with the error banner', async ({ page }) => {
+      const state = { jobs: [{ id: 'sync-174', status: 'RUNNING', itemsDone: 300, errorMessage: null, createdAt: 1, updatedAt: 1 }] };
+      await serveSyncJobs(page, state);
+      await openApp(page);
+      await expect(page.locator('#sync-progress')).toBeVisible({ timeout: 10000 });
+
+      state.jobs = [{ ...state.jobs[0], status: 'ERROR', errorMessage: 'vdirsyncer sync failed: Test User' }];
+      await expect(page.locator('#sync-progress')).toBeHidden({ timeout: 6000 });
+      await expect(page.locator('#sync-error-banner')).toBeVisible();
+      await expect(page.locator('#sync-error-text')).toContainText('vdirsyncer sync failed: Test User');
     });
   });
 });

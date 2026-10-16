@@ -20,6 +20,7 @@ import signal
 import traceback
 import shutil
 import tempfile
+import threading
 import uuid
 import unicodedata
 from xml.sax.saxutils import escape as xml_escape
@@ -559,18 +560,72 @@ def write_private_config(config_dir, content):
     return path
 
 
-def run_vdirsyncer(config_path, command, stdin=None):
+PROGRESS_UPSERT = (
+    "INSERT INTO sync_job_progress (job_id, items_done) VALUES (?, ?)"
+    " ON CONFLICT(job_id) DO UPDATE SET items_done = items_done + excluded.items_done"
+)
+
+
+def record_sync_progress(cursor, items):
+    """Adds `items` written events to the running job's progress (#174), which the web app shows.
+
+    Outside a job (the worker run by hand) there is no progress to record.
+    """
+    if active_job_id is not None and items:
+        cursor.execute(PROGRESS_UPSERT, (active_job_id, items))
+
+
+# vdirsyncer logs one of these lines (stderr, INFO) for every item it writes to either side.
+VDIRSYNCER_ITEM_MARKERS = ("Copying (uploading) item ", "Copying (updating) item ")
+
+
+def _drain_vdirsyncer_log(read_fd, lines, job_id, db_path):
+    conn = sqlite3.connect(db_path, timeout=30.0) if job_id is not None else None
     try:
-        return subprocess.run(
+        with os.fdopen(read_fd, "r", encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                lines.append(line)
+                if conn is None or not any(marker in line for marker in VDIRSYNCER_ITEM_MARKERS):
+                    continue
+                try:
+                    conn.execute(PROGRESS_UPSERT, (job_id, 1))
+                    conn.commit()
+                except sqlite3.OperationalError as progress_err:
+                    # Only the progress display loses its count (logged here); the pipe must keep
+                    # draining, or vdirsyncer would block on a full pipe.
+                    print(f"[Sync-Worker] Sync progress of job {job_id} not recorded: {progress_err}", file=sys.stderr)
+                    conn.close()
+                    conn = None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def run_vdirsyncer(config_path, command, stdin=None):
+    # stderr goes through a pipe that a reader thread drains line by line, so the running job counts
+    # the copied items while vdirsyncer is still at work (#174).
+    read_fd, write_fd = os.pipe()
+    lines = []
+    reader = threading.Thread(target=_drain_vdirsyncer_log,
+                              args=(read_fd, lines, active_job_id, active_job_db_path), daemon=True)
+    reader.start()
+    try:
+        result = subprocess.run(
             ["vdirsyncer", "-c", config_path, command],
             input=stdin,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=write_fd,
             text=True,
             timeout=VDIRSYNCER_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         raise SyncTimeout(f"vdirsyncer {command} timed out after {VDIRSYNCER_TIMEOUT_SECONDS}s")
+    finally:
+        os.close(write_fd)
+        reader.join()
+    if result.stderr is None:
+        result.stderr = "".join(lines)
+    return result
 
 
 def sync_basic_caldav_accounts(user_id, conn):
@@ -920,8 +975,11 @@ def process_next_job(db_path=None):
         "UPDATE sync_queue SET status = 'RUNNING', updated_at = ? WHERE id = ? AND status = 'PENDING'",
         (int(time.time() * 1000), job_id)
     )
-    conn.commit()
     claimed = cursor.rowcount > 0
+    if claimed:
+        # A retried job counts its progress anew (#174).
+        cursor.execute("DELETE FROM sync_job_progress WHERE job_id = ?", (job_id,))
+    conn.commit()
     conn.close()
 
     if not claimed:

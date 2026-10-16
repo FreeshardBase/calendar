@@ -46,6 +46,7 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
                 next_retry_at INTEGER, retry_state TEXT, created_at INTEGER, updated_at INTEGER
             )
         """)
+        conn.execute("CREATE TABLE sync_job_progress (job_id TEXT PRIMARY KEY, items_done INTEGER NOT NULL DEFAULT 0)")
         conn.execute("""
             CREATE TABLE linked_accounts (
                 id TEXT PRIMARY KEY, user_id TEXT NOT NULL, account_type TEXT, url TEXT, username TEXT,
