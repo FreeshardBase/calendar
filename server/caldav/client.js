@@ -2,6 +2,7 @@
 
 const { dispatcherFor, isInternalUrl } = require('../utils/tlsDispatcher');
 const { assertPublicUrl, getGuardedDispatcher } = require('../utils/outboundFetch');
+const { DOMParser } = require('@xmldom/xmldom');
 
 // Headers that carry credentials and must not follow a redirect to another
 // origin (scheme, host or port) — same rule as browsers / undici (#336).
@@ -23,15 +24,79 @@ function escapeXML(str) {
     .replace(/'/g, '&apos;');
 }
 
+// Statuses of a sharing PROPFIND that mean "this server has no sharing", not "it failed".
+const SHARING_UNSUPPORTED_STATUSES = new Set([404, 405, 501]);
+
+const NS_DAV = 'DAV:';
+const NS_CALENDARSERVER = 'http://calendarserver.org/ns/';
+const NS_OWNCLOUD = 'http://owncloud.org/ns';
+
+function childElements(node, ns, localName) {
+  const out = [];
+  for (let c = node.firstChild; c; c = c.nextSibling) {
+    if (c.nodeType === 1 && c.namespaceURI === ns && c.localName === localName) out.push(c);
+  }
+  return out;
+}
+
+function firstChildText(node, ns, localName) {
+  const el = childElements(node, ns, localName)[0];
+  return el ? el.textContent.trim() : null;
+}
+
+/**
+ * Classify a sharing PROPFIND (cs:invite + o:invite) multistatus body (#269).
+ * An invite property only counts inside a propstat whose status is 2xx: a server
+ * that supports one dialect reports the other under a separate 404 propstat
+ * (RFC 4918 §9.1), so neither a "404 Not Found" elsewhere in the body nor a bare
+ * namespace declaration may decide the outcome. Returns the dialect and its
+ * invite element, or type 'none' when the server offers neither.
+ */
+function classifySharingPropfind(text) {
+  if (!isDavMultistatus(text)) {
+    const err = new Error('Sharing PROPFIND did not return a DAV multistatus document');
+    err.status = 502;
+    throw err;
+  }
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  let owncloud = null;
+  let standard = null;
+  const propstats = doc.getElementsByTagNameNS(NS_DAV, 'propstat');
+  for (let i = 0; i < propstats.length; i++) {
+    const status = firstChildText(propstats[i], NS_DAV, 'status') || '';
+    if (!/^\S+\s+2\d\d\b/.test(status)) continue;
+    for (const prop of childElements(propstats[i], NS_DAV, 'prop')) {
+      owncloud = owncloud || childElements(prop, NS_OWNCLOUD, 'invite')[0] || null;
+      standard = standard || childElements(prop, NS_CALENDARSERVER, 'invite')[0] || null;
+    }
+  }
+  if (owncloud) return { type: 'owncloud', invite: owncloud };
+  if (standard) return { type: 'standard', invite: standard };
+  return { type: 'none', invite: null };
+}
+
+/** Share entries (the `user` children) of a supported invite element. */
+function parseInviteUsers(invite) {
+  const ns = invite.namespaceURI;
+  return childElements(invite, ns, 'user').map((user) => {
+    let href = firstChildText(user, NS_DAV, 'href') || '';
+    if (href.startsWith('mailto:')) href = href.slice(7);
+    const commonName = firstChildText(user, ns, 'common-name') || firstChildText(user, ns, 'commonname') || '';
+    const access = childElements(user, ns, 'access')[0];
+    const readWrite = !!access && childElements(access, ns, 'read-write').length > 0;
+    const status = childElements(user, ns, 'invite-accepted').length ? 'ACCEPTED'
+                 : childElements(user, ns, 'invite-declined').length ? 'DECLINED'
+                 : 'NO_RESPONSE';
+    return { href, commonName, readWrite, status };
+  });
+}
+
 /**
  * True if `xml` is a WebDAV multistatus document (root element `multistatus`
  * in the `DAV:` namespace). A 2xx status alone cannot tell a CalDAV server from
  * a captive portal, webmail landing page or misconfigured vhost that answers
  * every request with `200 text/html` (#157).
  */
-// Statuses of a sharing PROPFIND that mean "this server has no sharing", not "it failed".
-const SHARING_UNSUPPORTED_STATUSES = new Set([404, 405, 501]);
-
 function isDavMultistatus(xml) {
   // Skip a BOM (matched by \s), XML declaration / processing instructions and comments; the
   // first element must be the multistatus root.
@@ -575,45 +640,12 @@ class CalDAVClient {
       throw new Error(`PROPFIND ${res.status}: ${res.statusText}`);
     }
 
-    const text = await res.text();
-    
-    // Cache sharing type based on response property namespace
+    const { type, invite } = classifySharingPropfind(await res.text());
     if (!this._sharingTypes) {
       this._sharingTypes = {};
     }
-    if ((text.includes('oc:invite') || text.includes('o:invite')) && !text.includes('404 Not Found')) {
-      this._sharingTypes[calendarUrl] = 'owncloud';
-    } else if (text.includes('cs:invite') && !text.includes('404 Not Found')) {
-      this._sharingTypes[calendarUrl] = 'standard';
-    } else {
-      this._sharingTypes[calendarUrl] = 'none';
-    }
-
-    const userBlocks = text.match(/<([^:>]*:)?user[^>]*>([\s\S]*?)<\/([^:>]*:)?user>/gi) || [];
-    const shares = [];
-
-    const extractTagValue = (xml, tagName) => {
-      const regex = new RegExp(`<([^:]+:)?${tagName}[^>]*>([\\s\\S]*?)<\\/([^:]+:)?${tagName}>`, 'i');
-      const match = xml.match(regex);
-      return match ? match[2].trim() : null;
-    };
-
-    for (const block of userBlocks) {
-      let href = extractTagValue(block, 'href') || '';
-      if (href.startsWith('mailto:')) href = href.slice(7);
-      const commonName = extractTagValue(block, 'common-name') || extractTagValue(block, 'commonname') || '';
-      
-      const accessBlock = extractTagValue(block, 'access') || '';
-      const readWrite = accessBlock.includes('read-write');
-      
-      const status = block.includes('invite-accepted') ? 'ACCEPTED'
-                   : block.includes('invite-declined') ? 'DECLINED'
-                   : 'NO_RESPONSE';
-
-      shares.push({ href, commonName, readWrite, status });
-    }
-
-    return shares;
+    this._sharingTypes[calendarUrl] = type;
+    return invite ? parseInviteUsers(invite) : [];
   }
 
   async _detectSharingType(calendarUrl) {
@@ -632,27 +664,23 @@ class CalDAVClient {
   </d:prop>
 </d:propfind>`;
 
-    try {
-      const res = await this._request('PROPFIND', calendarUrl, {
-        body,
-        headers: { Depth: '0' }
-      });
-      if (res.ok || res.status === 207) {
-        const text = await res.text();
-        if ((text.includes('oc:invite') || text.includes('o:invite')) && !text.includes('404 Not Found')) {
-          this._sharingTypes[calendarUrl] = 'owncloud';
-          return 'owncloud';
-        } else if (text.includes('cs:invite') && !text.includes('404 Not Found')) {
-          this._sharingTypes[calendarUrl] = 'standard';
-          return 'standard';
-        }
-      }
-    } catch (e) {
-      console.error('[detectSharingType] Failed to detect sharing type:', e);
+    const res = await this._request('PROPFIND', calendarUrl, {
+      body,
+      headers: { Depth: '0' }
+    });
+    let type;
+    if (res.ok || res.status === 207) {
+      type = classifySharingPropfind(await res.text()).type;
+    } else if (SHARING_UNSUPPORTED_STATUSES.has(res.status)) {
+      type = 'none';
+    } else {
+      // A 5xx or auth failure says nothing about sharing support (#65): fail, cache nothing.
+      const err = new Error(`PROPFIND ${res.status}: ${res.statusText}`);
+      err.status = res.status;
+      throw err;
     }
-    
-    this._sharingTypes[calendarUrl] = 'none';
-    return 'none';
+    this._sharingTypes[calendarUrl] = type;
+    return type;
   }
 
   async resolveNextcloudPrincipal(href) {
