@@ -5,7 +5,6 @@ const router = express.Router();
 const crypto = require('crypto');
 const Db = require('../db');
 const { sendError } = require('../utils/errorSanitizer');
-const { generators } = require('openid-client');
 const { getOidcClient } = require('../utils/oidcClient');
 const { getBaseUrl } = require('../utils/baseUrl');
 const { verifyLogoutToken } = require('../utils/oidcLogout');
@@ -41,19 +40,19 @@ const googleRedirectUri = (req) => `${getBaseUrl(req)}/api/auth/google/callback`
 // #340: authorization code flow with PKCE (S256), nonce and state, all bound to this session.
 router.get('/login', async (req, res) => {
   try {
-    const client = await getOidcClient();
-    const codeVerifier = generators.codeVerifier();
-    const transaction = { state: generators.state(), nonce: generators.nonce(), codeVerifier };
+    const { client, config } = await getOidcClient();
+    const codeVerifier = client.randomPKCECodeVerifier();
+    const transaction = { state: client.randomState(), nonce: client.randomNonce(), codeVerifier };
     req.session.oidc = transaction;
-    const authUrl = client.authorizationUrl({
+    const authUrl = client.buildAuthorizationUrl(config, {
       scope: 'openid profile email',
       redirect_uri: oidcRedirectUri(req),
       state: transaction.state,
       nonce: transaction.nonce,
-      code_challenge: generators.codeChallenge(codeVerifier),
+      code_challenge: await client.calculatePKCECodeChallenge(codeVerifier),
       code_challenge_method: 'S256'
     });
-    res.redirect(authUrl);
+    res.redirect(authUrl.href);
   } catch (err) {
     console.error('[OIDC login error]', err.message);
     res.status(500).type('text/plain').send('OIDC-Initialisierung fehlgeschlagen: ' + err.message);
@@ -71,15 +70,19 @@ router.get('/callback', async (req, res) => {
       return res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: keine laufende Anmeldung.');
     }
 
-    const client = await getOidcClient();
-    const params = client.callbackParams(req);
-    const tokenSet = await client.callback(oidcRedirectUri(req), params, {
-      state: transaction.state,
-      nonce: transaction.nonce,
-      code_verifier: transaction.codeVerifier
+    const { client, config } = await getOidcClient();
+    // The callback URL as the IdP called it, rebuilt on BASE_URL (#340): openid-client reads the
+    // response parameters from it and sends it without the query as redirect_uri.
+    const callbackUrl = new URL(oidcRedirectUri(req));
+    callbackUrl.search = new URL(req.originalUrl, callbackUrl).search;
+    const tokens = await client.authorizationCodeGrant(config, callbackUrl, {
+      expectedState: transaction.state,
+      expectedNonce: transaction.nonce,
+      pkceCodeVerifier: transaction.codeVerifier,
+      idTokenExpected: true
     });
 
-    const claims = tokenSet.claims();
+    const claims = tokens.claims();
     const userId = claims.sub; // Generic OIDC unique user subject
     // #144: the sub is the storage identity (Radicale collection root); refuse, never rewrite.
     if (!isSafeStorageId(userId)) {
@@ -89,9 +92,10 @@ router.get('/callback', async (req, res) => {
     let userEmail = claims.email;
 
     // Fetch userinfo if preferred_username is missing from the ID Token claims (typical for generic OIDC default policy)
-    if ((username === userId || !userEmail) && tokenSet.access_token) {
+    if ((username === userId || !userEmail) && tokens.access_token) {
       try {
-        const userinfo = await client.userinfo(tokenSet.access_token);
+        // The subject check refuses a UserInfo response about a different user.
+        const userinfo = await client.fetchUserInfo(config, tokens.access_token, userId);
         username = userinfo.preferred_username || userinfo.username || userinfo.email || userinfo.name || userinfo.sub || username;
         userEmail = userEmail || userinfo.email;
       } catch (uiErr) {
@@ -113,8 +117,10 @@ router.get('/callback', async (req, res) => {
     console.log(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
     res.redirect('/');
   } catch (err) {
-    console.error('[OIDC callback error]', err.message);
-    res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: ' + err.message);
+    // openid-client v6 names the failed check (e.g. a missing nonce claim) in the wrapped cause.
+    const reason = err.cause instanceof Error ? `${err.message}: ${err.cause.message}` : err.message;
+    console.error('[OIDC callback error]', reason);
+    res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: ' + reason);
   }
 });
 

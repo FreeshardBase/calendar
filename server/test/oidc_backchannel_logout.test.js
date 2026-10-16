@@ -6,7 +6,6 @@ const assert = require('node:assert/strict');
 const http = require('http');
 const express = require('express');
 const session = require('express-session');
-const { SignJWT, generateKeyPair } = require('jose');
 
 const Db = require('../db');
 const authRouter = require('../routes/auth');
@@ -26,9 +25,12 @@ test.describe('OIDC Back-Channel Logout 1.0 Suite', () => {
   let server;
   let baseUrl;
   let rsaKeys;
+  let SignJWT;
+  let generateKeyPair;
 
   test.before(async () => {
     // Generate RSA key pair for testing RS256 token verification
+    ({ SignJWT, generateKeyPair } = await import('jose'));
     rsaKeys = await generateKeyPair('RS256');
 
     const app = express();

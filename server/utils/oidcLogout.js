@@ -1,6 +1,7 @@
 'use strict';
 
-const { jwtVerify, decodeProtectedHeader, createRemoteJWKSet } = require('jose');
+// jose v6 is ESM-only; loaded with a dynamic import like openid-client (#179).
+const loadJose = () => import('jose');
 const { getOidcClient } = require('./oidcClient');
 
 /**
@@ -22,6 +23,7 @@ async function verifyLogoutToken(logoutToken, options = {}) {
     throw new Error('OIDC configuration missing');
   }
 
+  const { jwtVerify, decodeProtectedHeader, createRemoteJWKSet } = await loadJose();
   const header = decodeProtectedHeader(logoutToken);
   if (!header || !header.alg || header.alg === 'none') {
     throw new Error('Invalid or missing algorithm in token header');
@@ -37,9 +39,10 @@ async function verifyLogoutToken(logoutToken, options = {}) {
       if (options.jwksUri) {
         verificationKey = createRemoteJWKSet(new URL(options.jwksUri));
       } else {
-        const client = await getOidcClient();
-        if (client && client.issuer && client.issuer.jwks_uri) {
-          verificationKey = createRemoteJWKSet(new URL(client.issuer.jwks_uri));
+        const { config } = await getOidcClient();
+        const { jwks_uri: jwksUri } = config.serverMetadata();
+        if (jwksUri) {
+          verificationKey = createRemoteJWKSet(new URL(jwksUri));
         } else {
           throw new Error('Unable to determine JWKS endpoint for token verification');
         }
