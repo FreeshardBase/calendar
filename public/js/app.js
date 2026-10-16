@@ -2628,35 +2628,36 @@ function attachListeners() {
     });
   }
 
+  // Holding Alt shows the key-hint layer (design guide); see [data-key-hint] in app.css.
+  const setKeyHints = visible => document.documentElement.classList.toggle('key-hints-visible', visible);
+  document.addEventListener('keyup', e => {
+    if (e.key === 'Alt') setKeyHints(false);
+  });
+  window.addEventListener('blur', () => setKeyHints(false));
+
   document.addEventListener('keydown', e => {
+    if (e.key === 'Alt') {
+      if (!e.repeat) setKeyHints(true);
+      return;
+    }
+
     const isModalOpen = Array.from(document.querySelectorAll('.modal-backdrop'))
-      .some(m => !m.classList.contains('hidden'));
+      .some(m => !m.classList.contains('hidden')) || !$('event-popover').classList.contains('hidden');
 
     const targetEl = e.target;
-    const tagName = targetEl ? (targetEl.tagName || '').toUpperCase() : '';
-    const role = targetEl && typeof targetEl.getAttribute === 'function' ? (targetEl.getAttribute('role') || '').toLowerCase() : '';
-    const isButton = Boolean(
-      targetEl && (
-        tagName === 'BUTTON' ||
-        tagName === 'SUMMARY' ||
-        role === 'button' ||
-        (typeof targetEl.closest === 'function' && targetEl.closest('button, [role="button"], summary') !== null)
-      )
-    );
-    const isEditable = Boolean(
-      targetEl && (
-        targetEl.isContentEditable ||
-        (typeof targetEl.getAttribute === 'function' && targetEl.getAttribute('contenteditable') === 'true') ||
-        ['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName)
-      )
-    );
+    const tagName = (targetEl.tagName || '').toUpperCase();
+    const role = typeof targetEl.getAttribute === 'function' ? (targetEl.getAttribute('role') || '').toLowerCase() : '';
+    const isEditable = Boolean(targetEl.isContentEditable) || ['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName);
+    // Anything focused other than the page itself owns the arrow keys (#126).
+    const isInteractive = targetEl !== document.body && targetEl !== document.documentElement && targetEl !== document;
 
     const eventPayload = {
       key: e.key,
+      code: e.code,
       targetTagName: tagName,
       targetRole: role,
       isTargetEditable: isEditable,
-      isTargetButton: isButton,
+      isTargetInteractive: isInteractive,
       ctrlKey: e.ctrlKey,
       altKey: e.altKey,
       metaKey: e.metaKey
@@ -2667,6 +2668,11 @@ function attachListeners() {
       : null;
 
     if (!action) return;
+    if (e.altKey) {
+      // Keep Alt+letter away from browser menus and accesskeys.
+      e.preventDefault();
+      setKeyHints(false);
+    }
 
     switch (action) {
       case 'CLOSE_MODAL':

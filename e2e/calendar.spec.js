@@ -3981,4 +3981,112 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       }
     });
   });
+
+  test.describe('Issue #126 — letter shortcuts need Alt, arrows stay off interactive elements', () => {
+    // Fixed events so the popover with an attachment link is known; page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const fixedEvents = [{
+      uid: 'e2e-issue126-a', title: 'Shortcut Probe', calendarId,
+      start: '2037-06-10', end: '2037-06-11', allDay: true,
+      attachments: [{ name: 'Agenda.pdf', url: 'https://example.com/agenda.pdf' }],
+    }];
+    const createModal = '#event-modal-backdrop';
+
+    test.beforeEach(async ({ page }) => {
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events: fixedEvents, errors: [] } }));
+      await page.goto('/?date=2037-06-10');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('.month-grid .event-chip', { hasText: 'Shortcut Probe' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+    });
+
+    async function blurToBody(page) {
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    }
+
+    test('plain n / t / m do nothing on a focused button or on the page body', async ({ page }) => {
+      await page.locator('#today-btn').focus();
+      for (const key of ['n', 't', 'w', 'c']) await page.keyboard.press(key);
+      await blurToBody(page);
+      for (const key of ['n', 't', 'w', 'c']) await page.keyboard.press(key);
+
+      await expect(page.locator(createModal)).toHaveClass(/hidden/);
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+      await expect(page.locator('#view-month')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('Alt+W, Alt+T and Alt+N trigger their actions, also from a focused button', async ({ page }) => {
+      await page.locator('#view-month').focus();
+      await page.keyboard.press('Alt+KeyW');
+      await expect(page.locator('#view-week')).toHaveAttribute('aria-pressed', 'true');
+
+      await page.keyboard.press('Alt+KeyT');
+      await expect(page.locator('#toolbar-title')).not.toContainText('2037');
+
+      await page.keyboard.press('Alt+KeyN');
+      await expect(page.locator(createModal)).not.toHaveClass(/hidden/);
+    });
+
+    test('typing into a contenteditable never opens a dialog', async ({ page }) => {
+      await page.evaluate(() => {
+        const el = document.createElement('div');
+        el.id = 'e2e-issue126-editable';
+        el.contentEditable = 'true';
+        document.querySelector('.toolbar').appendChild(el);
+      });
+      await page.locator('#e2e-issue126-editable').focus();
+      await page.keyboard.type('nt');
+      await expect(page.locator('#e2e-issue126-editable')).toHaveText('nt');
+      await expect(page.locator(createModal)).toHaveClass(/hidden/);
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+    });
+
+    test('arrow keys page only while nothing interactive has focus', async ({ page }) => {
+      await page.locator('#today-btn').focus();
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+
+      await blurToBody(page);
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('#toolbar-title')).toHaveText('Juli 2037');
+      await page.keyboard.press('ArrowLeft');
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+    });
+
+    test('with the event popover open, its link and the body swallow arrows and Alt+N', async ({ page }) => {
+      await page.locator('.month-grid .event-chip', { hasText: 'Shortcut Probe' }).click();
+      await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+
+      const link = page.locator('#event-popover .attachment-drive-link');
+      await link.focus();
+      await expect(link).toBeFocused();
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('Alt+KeyN');
+      await page.keyboard.press('n');
+
+      await blurToBody(page);
+      await page.keyboard.press('ArrowRight');
+
+      await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+      await expect(page.locator(createModal)).toHaveClass(/hidden/);
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+    });
+
+    test('holding Alt shows the key-hint layer, releasing it hides the layer', async ({ page }) => {
+      const hint = id => page.evaluate(sel => getComputedStyle(document.querySelector(sel), '::after').content, id);
+      expect(await hint('#today-btn')).toBe('none');
+
+      await page.keyboard.down('Alt');
+      expect(await hint('#today-btn')).toBe('"T"');
+      expect(await hint('#new-event-btn')).toBe('"N"');
+      expect(await hint('#view-week')).toBe('"W"');
+      await expect(page.locator('#today-btn')).toHaveAttribute('aria-keyshortcuts', 'Alt+T');
+
+      await page.keyboard.up('Alt');
+      expect(await hint('#today-btn')).toBe('none');
+    });
+  });
 });

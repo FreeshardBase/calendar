@@ -7,81 +7,64 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  // Design guide: letter shortcuts live behind Alt; a plain key never triggers one (#126).
+  const ALT_BINDINGS = {
+    m: 'NAV_MONTH', 1: 'NAV_MONTH',
+    w: 'NAV_WEEK', 2: 'NAV_WEEK',
+    d: 'NAV_DAY', 3: 'NAV_DAY',
+    a: 'NAV_AGENDA', 4: 'NAV_AGENDA',
+    k: 'NAV_KANBAN', 5: 'NAV_KANBAN',
+    t: 'NAV_TODAY',
+    j: 'NAV_NEXT',
+    p: 'NAV_PREV',
+    n: 'CREATE_EVENT', c: 'CREATE_EVENT',
+    s: 'FOCUS_SEARCH', '/': 'FOCUS_SEARCH',
+    h: 'TOGGLE_HELP', '?': 'TOGGLE_HELP'
+  };
+
+  const ARROW_BINDINGS = {
+    ArrowRight: 'NAV_NEXT',
+    ArrowLeft: 'NAV_PREV'
+  };
+
+  // Physical key first: Alt (Option on macOS) changes e.key into another character.
+  function altBindingKey(e) {
+    const code = e.code || '';
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+    return e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  }
+
   /**
-   * Evaluates a keydown event against power-user navigation rules.
-   * @param {Object} e Event-like object { key, targetTagName, isTargetEditable, isTargetButton, ctrlKey, altKey, metaKey }
-   * @param {boolean} isModalOpen Whether a modal dialog is currently active
+   * Evaluates a keydown event against the shortcut rules.
+   * @param {Object} e Event-like object { key, code, targetTagName, targetRole, isTargetEditable,
+   *   isTargetInteractive, ctrlKey, altKey, metaKey }
+   * @param {boolean} isModalOpen Whether a modal dialog or the event popover is open
    * @returns {string|null} Action type or null
    */
   function parseShortcutAction(e, isModalOpen = false) {
     if (!e || !e.key) return null;
 
-    // Ignore modifier key combinations (Ctrl, Alt, Meta)
-    if (e.ctrlKey || e.altKey || e.metaKey) return null;
+    // Escape always closes modal/popover, even when focused on an input or button
+    if (e.key === 'Escape') return 'CLOSE_MODAL';
 
-    const key = e.key;
+    if (e.ctrlKey || e.metaKey || isModalOpen) return null;
+
     const tagName = (e.targetTagName || '').toUpperCase();
     const role = (e.targetRole || '').toLowerCase();
-    const isEditable = e.isTargetEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
-    const isButton = e.isTargetButton || tagName === 'BUTTON' || role === 'button' || tagName === 'SUMMARY';
+    const isEditable = Boolean(e.isTargetEditable) || ['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName);
+    const isInteractive = isEditable || Boolean(e.isTargetInteractive) ||
+      ['BUTTON', 'SUMMARY', 'A'].includes(tagName) || role === 'button' || role === 'link';
 
-    // Escape always closes modal/popover, even when focused on an input or button
-    if (key === 'Escape') {
-      return 'CLOSE_MODAL';
+    if (e.altKey) {
+      // Option+letter types characters on macOS, so an editable field keeps the key.
+      if (isEditable) return null;
+      return ALT_BINDINGS[altBindingKey(e)] || null;
     }
 
-    // Suppress all plain-letter navigation shortcuts when typing in inputs or focusing buttons or when modal is open
-    if (isEditable || isButton || isModalOpen) {
-      return null;
-    }
-
-    switch (key) {
-      case 'm':
-      case '1':
-        return 'NAV_MONTH';
-
-      case 'w':
-      case '2':
-        return 'NAV_WEEK';
-
-      case 'd':
-      case '3':
-        return 'NAV_DAY';
-
-      case 'a':
-      case '4':
-        return 'NAV_AGENDA';
-
-      case 'k':
-      case '5':
-        return 'NAV_KANBAN';
-
-      case 't':
-        return 'NAV_TODAY';
-
-      case 'j':
-      case 'ArrowRight':
-        return 'NAV_NEXT';
-
-      case 'p':
-      case 'ArrowLeft':
-        return 'NAV_PREV';
-
-      case 'n':
-      case 'c':
-        return 'CREATE_EVENT';
-
-      case '/':
-      case 's':
-        return 'FOCUS_SEARCH';
-
-      case '?':
-      case 'h':
-        return 'TOGGLE_HELP';
-
-      default:
-        return null;
-    }
+    // Arrows belong to whatever interactive element has focus.
+    if (isInteractive) return null;
+    return ARROW_BINDINGS[e.key] || null;
   }
 
   /**
@@ -90,17 +73,19 @@
    */
   function getShortcutHelpList() {
     return [
-      { key: 'n / c', desc: 'Neuen Termin erstellen' },
-      { key: 'm / 1', desc: 'Monatsansicht' },
-      { key: 'w / 2', desc: 'Wochenansicht' },
-      { key: 'd / 3', desc: 'Tagesansicht' },
-      { key: 'a / 4', desc: 'Agendaansicht' },
-      { key: 'k / 5', desc: 'Kanban-Board' },
-      { key: 't', desc: 'Heute (Aktueller Tag)' },
-      { key: 'j / →', desc: 'Nächster Zeitraum' },
-      { key: 'p / ←', desc: 'Vorheriger Zeitraum' },
-      { key: ' / s', desc: 'Suchfeld fokussieren' },
-      { key: '? / h', desc: 'Tastaturkürzel-Hilfe anzeigen' },
+      { key: 'Alt+N / Alt+C', desc: 'Neuen Termin erstellen' },
+      { key: 'Alt+M / Alt+1', desc: 'Monatsansicht' },
+      { key: 'Alt+W / Alt+2', desc: 'Wochenansicht' },
+      { key: 'Alt+D / Alt+3', desc: 'Tagesansicht' },
+      { key: 'Alt+A / Alt+4', desc: 'Agendaansicht' },
+      { key: 'Alt+K / Alt+5', desc: 'Kanban-Board' },
+      { key: 'Alt+T', desc: 'Heute (Aktueller Tag)' },
+      { key: 'Alt+J', desc: 'Nächster Zeitraum' },
+      { key: 'Alt+P', desc: 'Vorheriger Zeitraum' },
+      { key: '← / →', desc: 'Zeitraum wechseln (wenn kein Bedienelement fokussiert ist)' },
+      { key: 'Alt+S / Alt+/', desc: 'Suchfeld fokussieren' },
+      { key: 'Alt+H / Alt+?', desc: 'Tastaturkürzel-Hilfe anzeigen' },
+      { key: 'Alt halten', desc: 'Tastenhinweise einblenden' },
       { key: 'Esc', desc: 'Dialog / Modal schließen' }
     ];
   }

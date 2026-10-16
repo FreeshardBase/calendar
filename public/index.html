@@ -161,7 +161,7 @@
     <div class="sidebar-content">
       <!-- New buttons -->
       <div style="display:flex; gap:8px; margin-bottom:12px;">
-        <button class="sidebar-new-btn" id="new-event-btn" style="flex:1;">
+        <button class="sidebar-new-btn" id="new-event-btn" data-key-hint="N" aria-keyshortcuts="Alt+N" style="flex:1;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -425,13 +425,13 @@
       </button>
 
       <div class="toolbar-nav">
-        <button class="toolbar-btn" id="prev-btn" aria-label="Zurück">
+        <button class="toolbar-btn" id="prev-btn" data-key-hint="P" aria-keyshortcuts="Alt+P" aria-label="Zurück">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M15 18l-6-6 6-6"/>
           </svg>
         </button>
-        <button class="toolbar-today-btn" id="today-btn">Heute</button>
-        <button class="toolbar-btn" id="next-btn" aria-label="Vor">
+        <button class="toolbar-today-btn" id="today-btn" data-key-hint="T" aria-keyshortcuts="Alt+T">Heute</button>
+        <button class="toolbar-btn" id="next-btn" data-key-hint="J" aria-keyshortcuts="Alt+J" aria-label="Vor">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M9 18l6-6-6-6"/>
           </svg>
@@ -441,12 +441,12 @@
       <h2 class="toolbar-title" id="toolbar-title"></h2>
 
       <div class="view-tabs" role="group" aria-label="Ansicht wählen" style="margin-left:auto">
-        <button class="view-tab active" data-view="month"     id="view-month" aria-selected="true" aria-pressed="true">Monat</button>
-        <button class="view-tab"        data-view="week"      id="view-week" aria-selected="false" aria-pressed="false">Woche</button>
+        <button class="view-tab active" data-view="month"     id="view-month" data-key-hint="M" aria-keyshortcuts="Alt+M" aria-selected="true" aria-pressed="true">Monat</button>
+        <button class="view-tab"        data-view="week"      id="view-week" data-key-hint="W" aria-keyshortcuts="Alt+W" aria-selected="false" aria-pressed="false">Woche</button>
         <button class="view-tab"        data-view="workweek"  id="view-workweek" aria-selected="false" aria-pressed="false">Arbeitswoche</button>
-        <button class="view-tab"        data-view="day"       id="view-day" aria-selected="false" aria-pressed="false">Tag</button>
-        <button class="view-tab"        data-view="agenda"    id="view-agenda" aria-selected="false" aria-pressed="false">Agenda</button>
-        <button class="view-tab"        data-view="kanban"    id="view-kanban" aria-selected="false" aria-pressed="false">Aufgaben (Kanban)</button>
+        <button class="view-tab"        data-view="day"       id="view-day" data-key-hint="D" aria-keyshortcuts="Alt+D" aria-selected="false" aria-pressed="false">Tag</button>
+        <button class="view-tab"        data-view="agenda"    id="view-agenda" data-key-hint="A" aria-keyshortcuts="Alt+A" aria-selected="false" aria-pressed="false">Agenda</button>
+        <button class="view-tab"        data-view="kanban"    id="view-kanban" data-key-hint="K" aria-keyshortcuts="Alt+K" aria-selected="false" aria-pressed="false">Aufgaben (Kanban)</button>
       </div>
 
       <button class="toolbar-btn" id="invitations-btn" title="Einladungen" style="margin-left: 8px; position: relative;">
@@ -484,13 +484,13 @@
       </div>
 
 
-      <div class="search-wrapper">
+      <div class="search-wrapper" data-key-hint="S">
         <span class="search-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
-        <input type="text" id="search-input" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" />
+        <input type="text" id="search-input" aria-keyshortcuts="Alt+S" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" />
       </div>
     </header>
 
