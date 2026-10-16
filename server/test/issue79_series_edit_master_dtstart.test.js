@@ -9,8 +9,6 @@ require('dotenv').config();
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
 const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { app, server } = require('../index');
@@ -52,20 +50,8 @@ test('Issue #79 — Editing a series from a later occurrence rewrites master DTS
 
   await Db.clearAll();
 
-  await t.test('1. Frontend eventModal.js assigns recurrenceId on series scope saves', () => {
-    const modalJsPath = path.resolve(__dirname, '../../public/js/eventModal.js');
-    const code = fs.readFileSync(modalJsPath, 'utf8');
-
-    assert.ok(
-      code.includes("else if (scope === 'series')"),
-      "Must handle scope === 'series' explicitly"
-    );
-    assert.ok(
-      code.includes("payload.recurrenceId = _currentEvent.recurrenceId;") ||
-      code.includes("payload.recurrenceId = recurrenceId;"),
-      "Must assign recurrenceId to payload"
-    );
-  });
+  // The dialog's side (a series save from an occurrence sends its recurrenceId) is the
+  // Playwright test "Issues #222 / #79" in e2e/calendar.spec.js.
 
   await t.test('2. updateWholeSeries preserves master DTSTART and all occurrences on title-only edit of later occurrence', () => {
     const existingIcs = [

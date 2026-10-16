@@ -435,6 +435,215 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await deleteSeries(page, title);
   });
 
+  // #403: what the event dialog sends when a recurring event is saved. The events are routed and
+  // every save is captured instead of stored, so each test reads the exact payload of one save.
+  test.describe('Issue #403 — the event dialog saves recurrence and series edits as the user left them', () => {
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const series = (masterUid, title, recurrence, instances) => instances.map(([start, end, recurrenceId]) => ({
+      uid: `${masterUid}::${recurrenceId}`, masterUid, recurrenceId, title, calendarId, start, end, allDay: false,
+      recurrence, startTimeZone: 'Europe/Berlin', endTimeZone: 'Europe/Berlin',
+      href: `/${E2E_USER}/personal/${masterUid}.ics`, etag: '"e2e-403"',
+    }));
+
+    async function serve(page, events) {
+      const saves = [];
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events, errors: [] } }));
+      const capture = route => {
+        const method = route.request().method();
+        if (method !== 'PUT' && method !== 'POST') return route.fallback();
+        const body = route.request().postDataJSON();
+        saves.push({ method, body });
+        return route.fulfill({ json: { ...body, uid: body.uid || 'e2e-403-new' } });
+      };
+      await page.route('**/api/events', capture);
+      await page.route('**/api/events/*', capture);
+      return saves;
+    }
+
+    async function openAt(page, date) {
+      await page.goto(`/?date=${date}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+    }
+
+    async function openEdit(page, title, nth = 0) {
+      await page.locator('.event-chip').filter({ hasText: title }).nth(nth).click();
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    }
+
+    async function saveSeries(page, saves) {
+      const before = saves.length;
+      await page.click('#event-save-btn');
+      await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+      await page.click('#scope-series-btn');
+      await expect.poll(() => saves.length).toBe(before + 1);
+      return saves[before].body;
+    }
+
+    async function openCreate(page) {
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    }
+
+    async function setStartDate(page, date) {
+      await page.fill('#ev-start-date', date);
+      await page.dispatchEvent('#ev-start-date', 'change');
+    }
+
+    const checkedDays = page => page.locator('.recur-byday:checked').evaluateAll(cbs => cbs.map(cb => cb.value));
+
+    // A rule the dialog's controls would write back in another order (and #79: a series edit opened
+    // from a later occurrence names that occurrence, so the server keeps the master DTSTART).
+    const weeklyRule = 'FREQ=WEEKLY;WKST=SU;INTERVAL=2;BYDAY=MO,WE;COUNT=6';
+    const weekly = title => series('e2e-403-weekly', title, weeklyRule, [
+      ['2037-06-01T09:00:00+02:00', '2037-06-01T10:00:00+02:00', '2037-06-01T09:00:00'],
+      ['2037-06-03T09:00:00+02:00', '2037-06-03T10:00:00+02:00', '2037-06-03T09:00:00'],
+    ]);
+
+    test('Issues #222 / #79 — a zero-edit series save from a later occurrence sends the rule verbatim and names the occurrence', async ({ page }) => {
+      const title = 'E2E 403 Zero Edit';
+      const saves = await serve(page, weekly(title));
+      await openAt(page, '2037-06-03');
+      await openEdit(page, title, 1);
+      expect(await checkedDays(page)).toEqual(['MO', 'WE']);
+
+      const payload = await saveSeries(page, saves);
+      expect(saves[0].method).toBe('PUT');
+      expect(payload.recurrence).toBe(weeklyRule);
+      expect(payload.scope).toBe('series');
+      expect(payload.recurrenceId).toBe('2037-06-03T09:00:00');
+      expect(payload.uid).toBe('e2e-403-weekly');
+    });
+
+    test('Issue #222 — ticking another weekday counts as a recurrence edit and keeps the parts the controls do not show', async ({ page }) => {
+      const title = 'E2E 403 Touched';
+      const saves = await serve(page, weekly(title));
+      await openAt(page, '2037-06-03');
+      await openEdit(page, title);
+      await page.check('.recur-byday[value="FR"]');
+
+      const parts = (await saveSeries(page, saves)).recurrence.split(';');
+      expect(parts).toContain('BYDAY=MO,WE,FR');
+      expect(parts).toEqual(expect.arrayContaining(['FREQ=WEEKLY', 'WKST=SU', 'INTERVAL=2', 'COUNT=6']));
+      expect(parts).toHaveLength(5);
+    });
+
+    test('Issue #91 — opening a monthly "last Friday" series keeps its week and weekday selects', async ({ page }) => {
+      const title = 'E2E 403 Last Friday';
+      const rule = 'FREQ=MONTHLY;BYDAY=-1FR';
+      const saves = await serve(page, series('e2e-403-monthly', title, rule, [
+        ['2037-06-26T09:00:00+02:00', '2037-06-26T10:00:00+02:00', '2037-06-26T09:00:00'],
+      ]));
+      await openAt(page, '2037-06-26');
+      await openEdit(page, title);
+      await expect(page.locator('input[name="recur-monthly-type"][value="BYDAY"]')).toBeChecked();
+      await expect(page.locator('#recur-monthly-week-idx')).toHaveValue('-1');
+      await expect(page.locator('#recur-monthly-weekday')).toHaveValue('FR');
+      expect((await saveSeries(page, saves)).recurrence).toBe(rule);
+    });
+
+    test('Issue #299 — a timed UNTIL survives a recurrence edit that keeps its date; a new date ends that day', async ({ page }) => {
+      const title = 'E2E 403 Until';
+      const saves = await serve(page, series('e2e-403-until', title, 'FREQ=DAILY;UNTIL=20370615T120000Z', [
+        ['2037-06-10T09:00:00+02:00', '2037-06-10T10:00:00+02:00', '2037-06-10T09:00:00'],
+      ]));
+      await openAt(page, '2037-06-10');
+      const untilRadio = page.locator('input[name="recur-end-type"][value="UNTIL"]');
+
+      await openEdit(page, title);
+      await expect(page.locator('#recur-end-date')).toHaveValue('2037-06-15');
+      await expect(untilRadio).toBeChecked();
+      // Switching the end type away and back is a recurrence edit, the UNTIL date stays the same.
+      await page.check('input[name="recur-end-type"][value="COUNT"]');
+      await page.check('input[name="recur-end-type"][value="UNTIL"]');
+      expect((await saveSeries(page, saves)).recurrence).toBe('FREQ=DAILY;UNTIL=20370615T120000Z');
+
+      await openEdit(page, title);
+      await page.fill('#recur-end-date', '2037-06-20');
+      expect((await saveSeries(page, saves)).recurrence).toBe('FREQ=DAILY;UNTIL=20370620T235959Z');
+    });
+
+    test('Issue #91 — in a new event the single weekday follows the start date, a multi-day choice stays', async ({ page }) => {
+      await serve(page, []);
+      await openAt(page, '2037-06-03');
+      await openCreate(page);
+      await setStartDate(page, '2037-06-03');
+      await page.selectOption('#ev-recurrence', 'WEEKLY');
+      expect(await checkedDays(page)).toEqual(['WE']);
+      await setStartDate(page, '2037-06-01');
+      expect(await checkedDays(page)).toEqual(['MO']);
+      await page.check('.recur-byday[value="FR"]');
+      await setStartDate(page, '2037-06-02');
+      expect(await checkedDays(page)).toEqual(['MO', 'FR']);
+    });
+
+    test.describe('west of UTC', () => {
+      test.use({ timezoneId: 'America/Los_Angeles' });
+
+      test('Issue #291 — a start date reads as the same day of month and weekday in Los Angeles', async ({ page }) => {
+        const saves = await serve(page, []);
+        await openAt(page, '2037-06-15');
+        await openCreate(page);
+        await page.fill('#ev-title', 'E2E 403 West of UTC');
+        await setStartDate(page, '2037-06-15'); // a Monday
+        await page.fill('#ev-end-date', '2037-06-15');
+        await page.selectOption('#ev-recurrence', 'WEEKLY');
+        expect(await checkedDays(page)).toEqual(['MO']);
+        await page.selectOption('#ev-recurrence', 'MONTHLY');
+        await expect(page.locator('#recur-monthly-day-lbl')).toHaveText('Jeden Monat am 15. Tag');
+        await expect(page.locator('#recur-monthly-week-idx')).toHaveValue('3');
+        await expect(page.locator('#recur-monthly-weekday')).toHaveValue('MO');
+
+        await page.click('#event-save-btn');
+        await expect.poll(() => saves.length).toBe(1);
+        expect(saves[0].method).toBe('POST');
+        expect(saves[0].body.recurrence).toBe('FREQ=MONTHLY;BYMONTHDAY=15');
+      });
+    });
+
+    test('Issue #231 — calendar names and attendee names are shown as text in the event and task dialogs', async ({ page }) => {
+      const evil = `Team"><img src=x onerror="document.body.dataset.xss403='cal'"> 'Kalender'`;
+      const calendars = [
+        { id: calendarId, accountId: 'internal-caldav', name: evil, color: '#6366f1', href: `/${E2E_USER}/personal/`,
+          isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: true },
+        { id: `internal-caldav::/${E2E_USER}/e2e-403'x/`, accountId: 'internal-caldav', name: 'Zweiter Kalender', color: '#123456',
+          href: `/${E2E_USER}/e2e-403'x/`, isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: true },
+      ];
+      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { calendars, errors: [] } })
+        : route.fallback()));
+      const evilAttendee = `<img src=x onerror="document.body.dataset.xss403='att'"> O'Neil`;
+      const [event] = series('e2e-403-xss', 'E2E 403 Escaping', 'FREQ=DAILY;COUNT=1', [
+        ['2037-06-10T09:00:00+02:00', '2037-06-10T10:00:00+02:00', '2037-06-10T09:00:00'],
+      ]);
+      event.attendees = [{ name: evilAttendee, email: 'testuser@example.com', partstat: 'NEEDS-ACTION' }];
+      await serve(page, [event]);
+      await openAt(page, '2037-06-10');
+
+      const optionsOf = sel => page.locator(`${sel} option`).evaluateAll(os => os.map(o => [o.value, o.textContent]));
+      const expected = calendars.map(c => [c.id, c.name]);
+
+      await openEdit(page, 'E2E 403 Escaping');
+      expect(await optionsOf('#ev-calendar')).toEqual(expected);
+      await expect(page.locator('#ev-calendar')).toHaveValue(calendarId);
+      await expect(page.locator('#ev-attendee-list .attendee-name')).toHaveText(evilAttendee);
+      await page.fill('#ev-attendee-name', evilAttendee);
+      await page.fill('#ev-attendee-email', 'testuser@example.com');
+      await page.click('#add-attendee-btn');
+      await expect(page.locator('#ev-attendee-list .attendee-name')).toHaveText([evilAttendee, evilAttendee]);
+      await page.click('#event-cancel-btn');
+
+      await page.click('#new-task-btn');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await optionsOf('#task-calendar-id')).toEqual(expected);
+
+      await expect(page.locator('#event-modal img, #task-modal-backdrop img')).toHaveCount(0);
+      expect(await page.evaluate(() => document.body.dataset.xss403)).toBeUndefined();
+    });
+  });
+
   test('should import a dropped ICS file and export a calendar as download', async ({ page }) => {
     await page.goto('/?date=2027-07-15');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
