@@ -4,7 +4,7 @@ require('dotenv').config();
 process.env.NODE_ENV = 'test';
 // #337: the in-process mock-dav stands in for a remote CalDAV server — allow it explicitly.
 process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1,localhost';
-process.env.PORT = process.env.PORT || '3125';
+process.env.PORT = '3125';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -16,6 +16,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 const baseUrl = `http://localhost:${process.env.PORT}`;

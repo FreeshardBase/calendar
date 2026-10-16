@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3117';
+process.env.PORT = '3117';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -9,6 +9,7 @@ const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const Db = require('../db');
 const { app, server: appServer } = require('../index');
+appServer.listen(process.env.PORT);
 
 function baseUrl() {
   return `http://localhost:${process.env.PORT}`;

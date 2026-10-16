@@ -1,7 +1,7 @@
 'use strict';
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3099';
+process.env.PORT = '3099';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';

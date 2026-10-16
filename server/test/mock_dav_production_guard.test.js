@@ -69,11 +69,9 @@ test('Issue #70 — /mock-dav* endpoint production guard', async (t) => {
     delete process.env.ENABLE_MOCK_DAV;
     const { app, server } = require('../index');
     activeServer = server;
-    
-    // Wait for server to be listening
-    if (!server.listening) {
-      await new Promise(resolve => server.once('listening', resolve));
-    }
+
+    server.listen(0);
+    await new Promise(resolve => server.once('listening', resolve));
     const port = server.address().port;
 
     const res = await new Promise((resolve, reject) => {

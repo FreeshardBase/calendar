@@ -654,9 +654,9 @@ let server;
 const keyPath = process.env.SSL_KEY_PATH === '' ? '' : (process.env.SSL_KEY_PATH || path.join(__dirname, '../ssl/key.pem'));
 const certPath = process.env.SSL_CERT_PATH === '' ? '' : (process.env.SSL_CERT_PATH || path.join(__dirname, '../ssl/cert.pem'));
 
+// Issue #255: only `node server/index.js` binds a port. Importing this module (tests, tooling)
+// yields the app and the unbound server; whoever imports it calls server.listen() itself.
 const runAsMain = require.main === module;
-// Embedded in the test suites: they talk to the exported server right after require().
-const listenWhenEmbedded = !runAsMain && process.env.NODE_ENV === 'test' && !process.env.PREVENT_AUTO_LISTEN;
 
 let scheme = 'http';
 if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
@@ -678,13 +678,13 @@ function listen() {
 
 // Issue #333 / #343: the server process binds its port only after the schema migrations have run
 // and the encryption key is proven to belong to the database (Db.ready); if either fails, it exits.
-// An embedded server may bind earlier, but the Db.ready middleware above holds every request.
+// An imported server may be bound earlier, but the Db.ready middleware above holds every request.
 // The webcal worker reads migrated columns, so it never starts before Db.ready.
-if (listenWhenEmbedded) listen();
 Db.ready.then(() => {
-  if (runAsMain) listen();
-  if (runAsMain || listenWhenEmbedded) module.exports.webcalWorker = startWebcalSyncWorker();
-  if (runAsMain) module.exports.dbBackupWorker = startDbBackupWorker();
+  if (!runAsMain) return;
+  listen();
+  module.exports.webcalWorker = startWebcalSyncWorker();
+  module.exports.dbBackupWorker = startDbBackupWorker();
 }).catch((err) => {
   console.error(`[startup] ${err.message}`);
   process.exit(1);

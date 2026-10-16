@@ -22,6 +22,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const Db = require('../db');
 const { server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 const OWNER = 'testuser-174';

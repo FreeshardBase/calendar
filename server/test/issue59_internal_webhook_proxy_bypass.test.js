@@ -86,7 +86,6 @@ test('Issue #59: Live probe against server/index.js app in production rejects sp
   process.env.SESSION_SECRET = 'test-prod-session-secret-9876543210123456';
   process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   process.env.TRUST_PROXY = 'true';
-  process.env.PREVENT_AUTO_LISTEN = 'true';
   delete process.env.INTERNAL_WEBHOOK_SECRET;
 
   // Clear module cache to ensure clean load with production environment
@@ -156,7 +155,6 @@ test('Issue #59: Live probe against server/index.js app with INTERNAL_WEBHOOK_SE
   process.env.SESSION_SECRET = 'test-prod-session-secret-9876543210123456';
   process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   process.env.TRUST_PROXY = 'true';
-  process.env.PREVENT_AUTO_LISTEN = 'true';
   process.env.INTERNAL_WEBHOOK_SECRET = secret;
 
   delete require.cache[require.resolve('../index.js')];
@@ -238,7 +236,6 @@ async function startProductionApp(t, { trustProxy, secret }) {
   process.env.SESSION_SECRET = 'test-prod-session-secret-9876543210123456';
   process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   process.env.TRUST_PROXY = trustProxy;
-  process.env.PREVENT_AUTO_LISTEN = 'true';
   if (secret) process.env.INTERNAL_WEBHOOK_SECRET = secret;
   else delete process.env.INTERNAL_WEBHOOK_SECRET;
 

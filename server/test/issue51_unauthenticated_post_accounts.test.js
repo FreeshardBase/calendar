@@ -8,7 +8,6 @@ const express = require('express');
 const session = require('express-session');
 
 process.env.NODE_ENV = 'test';
-process.env.PREVENT_AUTO_LISTEN = 'true';
 
 const Db = require('../db');
 const accountsRouter = require('../routes/accounts');

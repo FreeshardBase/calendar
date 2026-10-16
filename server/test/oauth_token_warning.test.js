@@ -28,6 +28,7 @@ const { encryptForSecret } = require('./helpers/storedCiphertext');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { server: appServer } = require('../index');
+appServer.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 const PORT = process.env.PORT || 3106;

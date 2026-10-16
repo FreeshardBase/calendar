@@ -2,7 +2,7 @@
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3184';
+process.env.PORT = '3184';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -12,6 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 test('Issue #244 — Node test suite enforcement of #234 ownership check', async (t) => {

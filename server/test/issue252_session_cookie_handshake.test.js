@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
 const { app, server } = require('../index');
+server.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
 
 test('Issue #252 — Non-Decorative Session-Cookie Handshake & Auth Enforcement', async (t) => {

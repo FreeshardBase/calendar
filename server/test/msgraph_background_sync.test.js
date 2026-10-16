@@ -1,7 +1,7 @@
 'use strict';
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3397';
+process.env.PORT = '3397';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
@@ -15,6 +15,7 @@ const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
 test('Issue #10 — M365 / Outlook Background Synchronization Suite', async (t) => {
   const { app, server } = require('../index');
+  server.listen(process.env.PORT);
   const { loginAs } = require('./helpers/testSession');
   await new Promise(r => setTimeout(r, 100));
   await Db.clearAll();

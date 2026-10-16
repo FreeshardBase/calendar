@@ -1,6 +1,6 @@
 'use strict';
 process.env.NODE_ENV = 'test';
-process.env.PORT = process.env.PORT || '3093';
+process.env.PORT = '3093';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 
 const { test, describe, before, after, beforeEach } = require('node:test');

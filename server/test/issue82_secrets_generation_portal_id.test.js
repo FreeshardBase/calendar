@@ -20,7 +20,6 @@ const { execSync, spawnSync } = require('node:child_process');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 process.env.NODE_ENV = 'test';
-process.env.PREVENT_AUTO_LISTEN = 'true';
 const { getSessionConfig, resolveSessionSecret } = require('../utils/sessionConfig');
 const { validateEncryptionKey, resolveEncryptionKey } = require('../db');
 const { validateSystemSyncSecret } = require('../index');
