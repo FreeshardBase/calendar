@@ -9,6 +9,7 @@
  *   3. Production guard throws error when SESSION_SECRET is missing or default fallback in production.
  *   4. docker-compose.yml configures TRUST_PROXY, COOKIE_SECURE, COOKIE_SAME_SITE, and SESSION_SECRET for webcalendar.
  *   5. .env.example documents TRUST_PROXY, COOKIE_SECURE, and COOKIE_SAME_SITE.
+ *   6. The booted production server applies both settings to its session cookie.
  */
 
 const test = require('node:test');
@@ -16,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { getTrustProxySetting, getSessionConfig } = require('../utils/sessionConfig');
+const { bootProductionServer, TERMINAL } = require('./helpers/productionServer');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 
@@ -99,12 +101,33 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
     assert.ok(content.includes('COOKIE_SAME_SITE'), '.env.example must document COOKIE_SAME_SITE');
   });
 
-  test('server/index.js correctly imports and applies sessionConfig', () => {
-    const indexContent = fs.readFileSync(path.join(ROOT_DIR, 'server/index.js'), 'utf8');
+  // The booted production server applies getTrustProxySetting() and getSessionConfig(): the
+  // cookie is HttpOnly and SameSite=Strict, and 'auto' Secure follows the proxy's
+  // X-Forwarded-Proto only when the proxy hop is trusted.
+  async function sessionCookie(base, headers) {
+    const res = await fetch(`${base}/api/auth/session`, { headers: { ...TERMINAL, ...headers } });
+    assert.equal(res.status, 200);
+    const [cookie] = res.headers.getSetCookie();
+    assert.ok(cookie, 'the session handshake sets a cookie');
+    return cookie;
+  }
 
-    assert.ok(indexContent.includes("require('./utils/sessionConfig')"), 'server/index.js must import sessionConfig');
-    assert.ok(indexContent.includes('getTrustProxySetting()'), 'server/index.js must invoke getTrustProxySetting()');
-    assert.ok(indexContent.includes('getSessionConfig()'), 'server/index.js must invoke getSessionConfig()');
+  test('production server issues an HttpOnly, SameSite=Strict cookie, Secure behind the trusted https proxy', async (t) => {
+    const { base } = await bootProductionServer(t, { TRUST_PROXY: undefined });
+    const proxied = await sessionCookie(base, { 'X-Forwarded-Proto': 'https' });
+    assert.match(proxied, /;\s*HttpOnly/i);
+    assert.match(proxied, /;\s*SameSite=Strict/i);
+    assert.match(proxied, /;\s*Secure/i, 'one trusted hop by default: the https proxy makes the cookie Secure');
+
+    const plain = await sessionCookie(base, {});
+    assert.doesNotMatch(plain, /;\s*Secure/i, 'a cookie issued over plain http is not Secure');
+  });
+
+  test('production server honours TRUST_PROXY=false and COOKIE_SAME_SITE', async (t) => {
+    const { base } = await bootProductionServer(t, { TRUST_PROXY: 'false', COOKIE_SAME_SITE: 'lax' });
+    const cookie = await sessionCookie(base, { 'X-Forwarded-Proto': 'https' });
+    assert.doesNotMatch(cookie, /;\s*Secure/i, 'an untrusted X-Forwarded-Proto must not make the cookie Secure');
+    assert.match(cookie, /;\s*SameSite=Lax/i);
   });
 
 });

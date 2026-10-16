@@ -4,44 +4,66 @@
  * Issue #57 — HIGH: NODE_TLS_REJECT_UNAUTHORIZED=0 set process-wide
  *
  * Verifies:
- *   1. server/index.js does NOT set process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' globally.
- *   2. server/utils/tlsDispatcher.js exists and exports getInternalDispatcher().
- *   3. getInternalDispatcher() returns an undici Agent with rejectUnauthorized: false for
- *      the internal Radicale URL, and undefined for external URLs (full TLS).
- *   4. CalDAVClient._request passes the internal dispatcher only for INTERNAL_CALDAV_URL hosts.
- *   5. External CalDAV clients (e.g. Google) are constructed without the bypass dispatcher.
+ *   1. The booted production server reaches the self-signed internal Radicale (with
+ *      Accept-Encoding: identity) but keeps full TLS verification for every other CalDAV host,
+ *      so nothing disables verification process-wide.
+ *   2. getInternalDispatcher() returns an undici Agent with rejectUnauthorized: false for
+ *      the internal Radicale URL, and dispatcherFor() undefined for external URLs (full TLS).
+ *   3. docker-compose.yml does not set NODE_TLS_REJECT_UNAUTHORIZED.
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const https = require('node:https');
 const path = require('node:path');
+const { createTestCertificate } = require('./helpers/testTls');
+const { bootProductionServer, TERMINAL } = require('./helpers/productionServer');
 
 const ROOT = path.join(__dirname, '../..');
 const SERVER_DIR = path.join(ROOT, 'server');
 
-// ── Test 1: Global flag absent from server/index.js ──────────────────────────
+// ── Test 1: the production server skips verification for internal Radicale only ─
 
-test('server/index.js must not set NODE_TLS_REJECT_UNAUTHORIZED=0 globally', () => {
-  const indexSrc = fs.readFileSync(path.join(SERVER_DIR, 'index.js'), 'utf8');
-  const lines = indexSrc.split('\n');
-  for (const line of lines) {
-    const stripped = line.replace(/\/\/.*/, '').trim();
-    assert.ok(
-      !stripped.includes("NODE_TLS_REJECT_UNAUTHORIZED = '0'"),
-      `index.js must not set NODE_TLS_REJECT_UNAUTHORIZED=0 globally. Offending line: "${line.trim()}"`
-    );
+// A CalDAV backend with a self-signed certificate that records what reaches it.
+async function selfSignedCalDAV(t, cert) {
+  const requests = [];
+  const server = https.createServer(cert, (req, res) => {
+    requests.push({ method: req.method, url: req.url, headers: req.headers });
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(207, { 'Content-Type': 'application/xml; charset=utf-8' });
+      res.end('<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"/>');
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { url: `https://127.0.0.1:${server.address().port}`, requests };
+}
+
+test('production server reaches the self-signed internal Radicale, but refuses a self-signed external CalDAV host', async (t) => {
+  const cert = createTestCertificate();
+  const internal = await selfSignedCalDAV(t, cert);
+  const external = await selfSignedCalDAV(t, cert);
+  const { base, stderr } = await bootProductionServer(t, {
+    INTERNAL_CALDAV_URL: internal.url,
+    CALDAVURL: `${external.url}/testuser/`,
+    CALDAV_PASSWORD: 'testuser-external-password',
+  });
+
+  const session = await fetch(`${base}/api/auth/session`, { headers: TERMINAL });
+  assert.equal(session.status, 200);
+  const cookie = session.headers.getSetCookie()[0].split(';')[0];
+  await fetch(`${base}/api/calendars`, { headers: { ...TERMINAL, cookie } });
+
+  assert.ok(internal.requests.length > 0, `the internal Radicale must be reached despite its self-signed certificate; stderr: ${stderr()}`);
+  for (const r of internal.requests) {
+    assert.equal(r.headers['accept-encoding'], 'identity', `${r.method} ${r.url} must ask Radicale for identity encoding`);
   }
+  assert.deepEqual(external.requests, [], 'TLS verification must stay on for every other host: no request may complete the handshake');
 });
 
-// ── Test 2: tlsDispatcher module exists ──────────────────────────────────────
-
-test('server/utils/tlsDispatcher.js must exist', () => {
-  const filePath = path.join(SERVER_DIR, 'utils', 'tlsDispatcher.js');
-  assert.ok(fs.existsSync(filePath), 'server/utils/tlsDispatcher.js must exist');
-});
-
-// ── Test 3: getInternalDispatcher returns an Agent for internal URLs ──────────
+// ── Test 2: getInternalDispatcher returns an Agent for internal URLs ──────────
 
 test('getInternalDispatcher() returns an undici Agent instance', () => {
   const { getInternalDispatcher } = require(path.join(SERVER_DIR, 'utils', 'tlsDispatcher.js'));
@@ -50,7 +72,7 @@ test('getInternalDispatcher() returns an undici Agent instance', () => {
   assert.strictEqual(typeof dispatcher.dispatch, 'function', 'returned dispatcher must have dispatch()');
 });
 
-// ── Test 4: isInternalUrl correctly classifies URLs ──────────────────────────
+// ── Test 3: isInternalUrl correctly classifies URLs ──────────────────────────
 
 test('isInternalUrl() correctly identifies internal Radicale URLs', () => {
   const { isInternalUrl } = require(path.join(SERVER_DIR, 'utils', 'tlsDispatcher.js'));
@@ -76,7 +98,7 @@ test('isInternalUrl() correctly identifies internal Radicale URLs', () => {
   }
 });
 
-// ── Test 5: dispatcherFor() returns dispatcher only for internal URLs ─────────
+// ── Test 4: dispatcherFor() returns dispatcher only for internal URLs ─────────
 
 test('dispatcherFor() returns dispatcher for internal URL, undefined for external', () => {
   const { dispatcherFor } = require(path.join(SERVER_DIR, 'utils', 'tlsDispatcher.js'));
@@ -100,23 +122,7 @@ test('dispatcherFor() returns dispatcher for internal URL, undefined for externa
   }
 });
 
-// ── Test 6: CalDAVClient source references tlsDispatcher ─────────────────────
-
-test('CalDAVClient source references tlsDispatcher for per-request dispatcher injection', () => {
-  const clientSrc = fs.readFileSync(
-    path.join(SERVER_DIR, 'caldav', 'client.js'), 'utf8'
-  );
-  assert.ok(
-    clientSrc.includes('tlsDispatcher') || clientSrc.includes('dispatcherFor'),
-    'CalDAVClient must import/use tlsDispatcher or dispatcherFor'
-  );
-  assert.ok(
-    clientSrc.includes('dispatcher'),
-    'CalDAVClient._request must pass dispatcher option to fetch()'
-  );
-});
-
-// ── Test 7: docker-compose.yml must NOT set NODE_TLS_REJECT_UNAUTHORIZED=0 ──
+// ── Test 5: docker-compose.yml must NOT set NODE_TLS_REJECT_UNAUTHORIZED=0 ──
 
 test('docker-compose.yml must not set NODE_TLS_REJECT_UNAUTHORIZED: "0"', () => {
   const composePath = path.join(ROOT, 'docker-compose.yml');

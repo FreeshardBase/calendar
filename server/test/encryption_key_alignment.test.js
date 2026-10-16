@@ -4,7 +4,8 @@
  * Issue #322 — App & Sync-Worker Encryption Key Alignment
  *
  * Verifies that Node.js app (server/db.js) and Python daemon (sync-worker/sync_worker.py):
- *   1. Support both ENCRYPTION_KEY and ENCRYPTION_SECRET environment variables with identical precedence.
+ *   1. Resolve ENCRYPTION_KEY and ENCRYPTION_SECRET with identical precedence, and both refuse the
+ *      old built-in default key in production.
  *   2. Shared docker-compose.yml configuration passes ENCRYPTION_KEY into both webcalendar and sync-worker.
  *   3. Stored values (AES-256-GCM under scrypt(secret, per-value salt), see #72) are interoperable
  *      across Node.js and Python.
@@ -13,9 +14,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
-const { execSync } = require('node:child_process');
+const { execSync, spawnSync } = require('node:child_process');
 const { encryptForSecret } = require('./helpers/storedCiphertext');
+const sharedTestDbKeyEnv = require('./helpers/sharedTestDbKeyEnv');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 
@@ -43,27 +46,63 @@ test.describe('Issue #322 — App & Sync-Worker Encryption Key Alignment', () =>
     );
   });
 
-  test('sync_worker.py checks ENCRYPTION_KEY and ENCRYPTION_SECRET before falling back', () => {
-    const workerPath = path.join(ROOT_DIR, 'sync-worker/sync_worker.py');
-    assert.ok(fs.existsSync(workerPath), 'sync_worker.py must exist');
-    const content = fs.readFileSync(workerPath, 'utf8');
+  // Each case resolves the install secret on a fresh install under NODE_ENV=production, in
+  // server/db.js and in sync_worker.py; both must pick the same secret or refuse alike.
+  const KEY = 'testuser-encryption-key-0123456789abcdef0123456789';
+  const SECRET = 'testuser-encryption-secret-fedcba9876543210fedcba';
+  const KEY_CASES = [
+    { label: 'ENCRYPTION_SECRET alone', env: { ENCRYPTION_SECRET: SECRET }, expected: SECRET },
+    { label: 'ENCRYPTION_KEY alone', env: { ENCRYPTION_KEY: KEY }, expected: KEY },
+    { label: 'both, ENCRYPTION_KEY wins', env: { ENCRYPTION_KEY: KEY, ENCRYPTION_SECRET: SECRET }, expected: KEY },
+    { label: 'the old built-in default key', env: { ENCRYPTION_KEY: 'freeshard-default-encryption-key-do-not-use-in-prod' }, expected: 'REJECTED' },
+    { label: 'the old built-in default as ENCRYPTION_SECRET', env: { ENCRYPTION_SECRET: 'freeshard-default-encryption-key-do-not-use-in-prod' }, expected: 'REJECTED' },
+  ];
 
-    assert.ok(
-      content.includes('os.environ.get("ENCRYPTION_KEY")') && content.includes('os.environ.get("ENCRYPTION_SECRET")'),
-      'sync_worker.py must inspect both ENCRYPTION_KEY and ENCRYPTION_SECRET environment variables'
-    );
-  });
+  function freshInstall(t) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'key-alignment-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    return { dbPath: path.join(dir, 'webcalendar.db'), keyFile: path.join(dir, '.encryption_key') };
+  }
 
-  test('server/db.js checks process.env.ENCRYPTION_KEY and process.env.ENCRYPTION_SECRET', () => {
-    const dbPath = path.join(ROOT_DIR, 'server/db.js');
-    assert.ok(fs.existsSync(dbPath), 'server/db.js must exist');
-    const content = fs.readFileSync(dbPath, 'utf8');
+  function nodeResolve(env, dbPath) {
+    const { resolveEncryptionKey } = require('../db');
+    try {
+      return resolveEncryptionKey(env, dbPath);
+    } catch (err) {
+      assert.match(err.message, /ENCRYPTION_KEY must be explicitly configured/);
+      return 'REJECTED';
+    }
+  }
 
-    assert.ok(
-      content.includes('process.env.ENCRYPTION_KEY') && content.includes('process.env.ENCRYPTION_SECRET'),
-      'server/db.js must inspect both process.env.ENCRYPTION_KEY and process.env.ENCRYPTION_SECRET'
-    );
-  });
+  function pythonResolve(env, dbPath) {
+    const script = [
+      'import json, sys',
+      `sys.path.insert(0, ${JSON.stringify(path.join(ROOT_DIR, 'sync-worker'))})`,
+      'import sync_worker',
+      'env, db_path = json.loads(sys.argv[1]), sys.argv[2]',
+      'try:',
+      '    print(sync_worker.resolve_encryption_secret(env, db_path))',
+      'except ValueError as e:',
+      '    print("REJECTED")',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', script, JSON.stringify(env), dbPath], {
+      env: { ...process.env, ...sharedTestDbKeyEnv }, encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim().split('\n').pop();
+  }
+
+  for (const { label, env, expected } of KEY_CASES) {
+    test(`server/db.js and sync_worker.py resolve the same secret: ${label}`, (t) => {
+      const node = freshInstall(t);
+      const nodeEnv = { NODE_ENV: 'production', ENCRYPTION_KEY_FILE: node.keyFile, ...env };
+      assert.equal(nodeResolve(nodeEnv, node.dbPath), expected, 'server/db.js');
+
+      const py = freshInstall(t);
+      const pyEnv = { NODE_ENV: 'production', ENCRYPTION_KEY_FILE: py.keyFile, ...env };
+      assert.equal(pythonResolve(pyEnv, py.dbPath), expected, 'sync_worker.py');
+    });
+  }
 
   test('a value in the shared AES-256-GCM format is decrypted by the Python sync_worker decrypt routine', () => {
     const secret = 'custom-test-secret-key-32-chars!!';
@@ -86,18 +125,6 @@ print(decrypted)
     }).trim();
 
     assert.equal(pythonOutput, plaintext, 'Python sync_worker must correctly decrypt Node.js encrypted credentials');
-  });
-
-  test('default fallback encryption key literal matches identically across server/db.js and sync_worker.py', () => {
-    const dbPath = path.join(ROOT_DIR, 'server/db.js');
-    const workerPath = path.join(ROOT_DIR, 'sync-worker/sync_worker.py');
-    const defaultLiteral = 'freeshard-default-encryption-key-do-not-use-in-prod';
-
-    const dbContent = fs.readFileSync(dbPath, 'utf8');
-    const workerContent = fs.readFileSync(workerPath, 'utf8');
-
-    assert.ok(dbContent.includes(defaultLiteral), 'server/db.js must contain default encryption key fallback literal');
-    assert.ok(workerContent.includes(defaultLiteral), 'sync_worker.py must contain default encryption key fallback literal');
   });
 
   test('Python sync_worker raises exception on encryption key mismatch instead of returning empty string', () => {

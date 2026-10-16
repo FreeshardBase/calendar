@@ -12,7 +12,7 @@ require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: sa
  *
  * This test suite asserts that:
  * 1. Both internal routes (/internal/webhooks/user-deleted and /internal/db/quiesce)
- *    in server/index.js are protected by createRequireInternalMiddleware.
+ *    of the real server/index.js app refuse callers without the secret (live probes below).
  * 2. Under production config without INTERNAL_WEBHOOK_SECRET, X-Forwarded-For loopback
  *    spoofing attempts are strictly rejected with HTTP 403.
  * 3. With INTERNAL_WEBHOOK_SECRET set, access is granted ONLY with matching secret header
@@ -35,28 +35,6 @@ const ROOT = path.join(__dirname, '../..');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue59-'));
 process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
 process.env.DATABASE_PATH = path.join(tmpDir, 'issue59.db');
-
-test('Issue #59: server/index.js wires createRequireInternalMiddleware and has no local requireInternal bypass', () => {
-  const indexSrc = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
-
-  // Verify createRequireInternalMiddleware is imported and called
-  assert.ok(
-    indexSrc.includes("createRequireInternalMiddleware"),
-    'server/index.js must import and reference createRequireInternalMiddleware'
-  );
-  assert.ok(
-    /createRequireInternalMiddleware\s*\(/.test(indexSrc),
-    'server/index.js must invoke createRequireInternalMiddleware()'
-  );
-
-  // Verify that the legacy vulnerable function requireInternal is NOT defined in server/index.js
-  const hasLocalFn = /function\s+requireInternal\s*\(/.test(indexSrc);
-  assert.strictEqual(
-    hasLocalFn,
-    false,
-    'server/index.js must not define a local function requireInternal (must use createRequireInternalMiddleware)'
-  );
-});
 
 test('Issue #59: safeCompare performs constant-time comparison on secrets', () => {
   const { safeCompare } = require(path.join(ROOT, 'server/utils/internalAuth'));
