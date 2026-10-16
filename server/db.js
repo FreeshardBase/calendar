@@ -7,6 +7,12 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { v4: uuidv4 } = require('uuid');
 const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = require('./utils/migrations');
+const { canonicalAccountUrl } = require('./utils/accountUrl');
+
+// #248: params (userId, username, key, key, key). Stored basic-auth URLs are canonical
+// and end their path in "/", so a string prefix is a path-segment prefix.
+const OVERLAPPING_ACCOUNT =
+  'user_id = ? AND username = ? AND (substr(?, 1, length(url)) = url OR substr(url, 1, length(?)) = ?)';
 
 const defaultDbFilename = process.env.NODE_ENV === 'test' ? '../webcalendar.test.db' : '../webcalendar.db';
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, defaultDbFilename);
@@ -844,14 +850,16 @@ const Db = {
 
   /**
    * Issue #248: DB-authoritative duplicate check for POST /api/accounts.
-   * Returns the existing row's id + display_name if (user_id, url, username)
-   * already exists, null otherwise. Never decrypts credentials.
+   * Returns the user's existing account for `username` whose canonical URL equals
+   * or path-prefixes (either way) the canonical form of `url`, null otherwise.
+   * Never decrypts credentials.
    */
   findAccountByUrlAndUsername(userId, url, username) {
+    const key = canonicalAccountUrl(url);
     return new Promise((resolve, reject) => {
       db.get(
-        'SELECT id, url, username, display_name FROM linked_accounts WHERE user_id = ? AND url = ? AND username = ?',
-        [userId, url, username],
+        `SELECT id, url, username, display_name FROM linked_accounts WHERE ${OVERLAPPING_ACCOUNT}`,
+        [userId, username, key, key, key],
         (err, row) => {
           if (err) return reject(err);
           resolve(row ? { id: row.id, url: row.url, username: row.username, displayName: row.display_name } : null);
@@ -860,15 +868,29 @@ const Db = {
     });
   },
 
+  /**
+   * Stores the URL in canonical form (#248). Check and insert are one statement, so
+   * a concurrent POST with another spelling of the same server cannot slip in a
+   * second row; that case rejects with err.code === 'ACCOUNT_EXISTS'.
+   */
   addAccount(userId, { url, username, password, displayName }) {
+    const key = canonicalAccountUrl(url);
     return new Promise((resolve, reject) => {
       const id = uuidv4();
       const { encrypted, iv } = encrypt(password);
       db.run(
-        'INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name, auth_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, userId, url, username, encrypted, iv, displayName || username, 'basic'],
-        (err) => {
+        `INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, display_name, auth_type)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM linked_accounts WHERE ${OVERLAPPING_ACCOUNT})`,
+        [id, userId, key, username, encrypted, iv, displayName || username, 'basic',
+          userId, username, key, key, key],
+        function (err) {
           if (err) return reject(err);
+          if (this.changes === 0) {
+            const exists = new Error(`Account ${username} at ${key} is already linked`);
+            exists.code = 'ACCOUNT_EXISTS';
+            return reject(exists);
+          }
           resolve({ id, displayName: displayName || username });
         }
       );
