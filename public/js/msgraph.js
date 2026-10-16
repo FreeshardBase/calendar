@@ -138,11 +138,5 @@ export function initMSGraphModal() {
     });
   }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && backdrop && !backdrop.classList.contains('hidden')) {
-      closeMSGraphModal();
-    }
-  });
-
   reportAuthorizationResult();
 }

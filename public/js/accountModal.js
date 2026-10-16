@@ -118,12 +118,6 @@ export function initAccountModal() {
   $('account-modal-backdrop').addEventListener('click', e => {
     if (e.target === $('account-modal-backdrop')) closeAccountModal();
   });
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !$('account-modal-backdrop').classList.contains('hidden')) {
-      closeAccountModal();
-    }
-  });
 }
 
 function showError(msg) {

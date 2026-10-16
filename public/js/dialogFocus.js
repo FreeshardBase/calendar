@@ -154,12 +154,18 @@ export function handleTabKey(e) {
   return false;
 }
 
+// Escape events that already closed a dialog. Both the global listener and the shortcut handler
+// call handleEscapeKey for the same keypress; it must close only the topmost dialog once.
+const handledEscapes = new WeakSet();
+
 /**
  * Keyboard Escape handler: closes top-most active dialog or drawer.
  */
 export function handleEscapeKey(e) {
+  if (handledEscapes.has(e)) return true;
   const top = getTopDialog();
   if (!top || !top.element) return false;
+  handledEscapes.add(e);
 
   const el = top.element;
 
