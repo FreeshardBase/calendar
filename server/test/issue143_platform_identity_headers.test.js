@@ -159,8 +159,12 @@ for (const NODE_ENV of ['production', 'staging']) test(`Issue #143 — ${NODE_EN
   });
 
   await t.test('the container healthcheck needs no client type', async () => {
+    // The health handler answers, not the gate's 401. This server has no CalDAV backend for its
+    // secrets, so the handler itself may report 503 (#270).
     for (const p of ['/health', '/api/health']) {
-      assert.equal((await fetch(`${base}${p}`)).status, 200, p);
+      const res = await fetch(`${base}${p}`);
+      assert.notEqual(res.status, 401, p);
+      assert.equal((await res.json()).database, 'connected', p);
     }
   });
 });

@@ -3123,11 +3123,18 @@ const Db = {
     });
   },
 
+  // Issue #270: a fresh read-only connection, so the check reads the file as it is on disk now.
+  // The long-lived connection keeps working on a deleted or replaced file and would stay green.
   checkHealth() {
     return new Promise((resolve, reject) => {
-      db.get('SELECT 1', (err, row) => {
-        if (err) return reject(err);
-        resolve(true);
+      const probe = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (openErr) => {
+        if (openErr) return reject(openErr);
+        probe.get('SELECT count(*) AS n FROM sqlite_master', (err) => {
+          probe.close((closeErr) => {
+            if (err || closeErr) return reject(err || closeErr);
+            resolve(true);
+          });
+        });
       });
     });
   },
