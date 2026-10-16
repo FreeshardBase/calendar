@@ -3,12 +3,12 @@
 /**
  * Issue #271 (Claim 2a) — agents.md's "Full stack" procedure must work on a fresh checkout.
  *
- * `.env` is gitignored, and every service in docker-compose.yml declares `env_file: - .env`
- * (required by default in Compose). The test runs the shell commands that agents.md's
- * "Full stack" entry documents, in order, in a scratch copy of a fresh checkout (no `.env`),
- * with a `docker` stub on PATH that enforces the compose file's env_file requirement the
- * way Compose does. Without a `cp .env.example .env` step the procedure fails exactly as
- * reported: "env file .../.env not found".
+ * `.env` is gitignored, and docker-compose.yml takes every secret from a required variable
+ * (`${VAR:?...}`, #118) that Compose resolves from `.env`. The test runs the shell commands that
+ * agents.md's "Full stack" entry documents, in order, in a scratch copy of a fresh checkout (no
+ * `.env`), with a `docker` stub on PATH that enforces those required variables the way Compose
+ * does. Without a `cp .env.example .env` step the procedure fails:
+ * "required variable ... is missing a value".
  */
 
 const test = require('node:test');
@@ -31,21 +31,25 @@ function fullStackCommands() {
   return [...entry.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
 }
 
-// Stand-in for `docker compose`: every env_file listed in ./docker-compose.yml must exist.
+// Stand-in for `docker compose`: every required ${VAR:?err} in ./docker-compose.yml must have a
+// non-empty value in ./.env, as Compose's interpolation demands. The shell environment is
+// ignored so the test runner's own variables cannot stand in for a missing .env.
 const DOCKER_STUB = `#!/usr/bin/env node
 'use strict';
 const fs = require('node:fs');
-const path = require('node:path');
 if (process.argv[2] !== 'compose') { console.error('stub supports only docker compose'); process.exit(2); }
-const lines = fs.readFileSync('docker-compose.yml', 'utf8').split('\\n');
-for (let i = 0; i < lines.length; i++) {
-  if (!/^\\s+env_file:\\s*$/.test(lines[i])) continue;
-  for (let j = i + 1; j < lines.length && /^\\s+-\\s/.test(lines[j]); j++) {
-    const file = path.resolve(lines[j].replace(/^\\s+-\\s+/, '').trim());
-    if (!fs.existsSync(file)) {
-      console.error('env file ' + file + ' not found: stat ' + file + ': no such file or directory');
-      process.exit(1);
-    }
+const vars = {};
+if (fs.existsSync('.env')) {
+  for (const line of fs.readFileSync('.env', 'utf8').split('\\n')) {
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (m) vars[m[1]] = m[2];
+  }
+}
+const compose = fs.readFileSync('docker-compose.yml', 'utf8');
+for (const [, name, message] of compose.matchAll(/\\$\\{([A-Za-z_][A-Za-z0-9_]*):\\?([^}]*)\\}/g)) {
+  if (!vars[name]) {
+    console.error('required variable ' + name + ' is missing a value: ' + message);
+    process.exit(1);
   }
 }
 fs.appendFileSync('compose-invocations.log', process.argv.slice(2).join(' ') + '\\n');
@@ -69,7 +73,7 @@ test('the docker stub reproduces the reported failure on a checkout without .env
       cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
     });
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /env file .*\.env not found/);
+    assert.match(r.stderr, /required variable [A-Z_]+ is missing a value/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

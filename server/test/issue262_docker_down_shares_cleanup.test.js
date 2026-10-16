@@ -13,7 +13,7 @@ require('dotenv').config();
  *
  * Certifies that:
  *   1. docker-compose.yml does NOT define a separate `radicale-collections` volume, ensuring
- *      Radicale collection files reside inside `shared-data` alongside `webcalendar.db`.
+ *      Radicale collection files reside inside the ./data bind mount alongside `webcalendar.db`.
  *   2. Creating a calendar via POST /api/calendars purges any stale/residual `user_calendar_shares`
  *      and `calendar_shares` rows matching the created calendarId.
  *   3. A recreated calendar with the same slug does not hand previous sharees read-write access.
@@ -45,7 +45,7 @@ test.describe('Issue #262 — Docker Volume Lifecycles & Recreated Calendar Shar
     }
   });
 
-  test('docker-compose.yml unifies storage inside shared-data volume without separate radicale-collections volume', () => {
+  test('docker-compose.yml unifies storage inside the ./data bind mount without separate radicale-collections volume', () => {
     const composePath = path.join(ROOT_DIR, 'docker-compose.yml');
     assert.ok(fs.existsSync(composePath), 'docker-compose.yml must exist');
     const content = fs.readFileSync(composePath, 'utf8');
@@ -59,8 +59,8 @@ test.describe('Issue #262 — Docker Volume Lifecycles & Recreated Calendar Shar
       'caldav-server must not mount separate radicale-collections volume'
     );
     assert.ok(
-      content.includes('shared-data:/data'),
-      'caldav-server must mount shared-data volume to /data'
+      content.includes('./data:/data'),
+      'caldav-server must mount ./data to /data'
     );
   });
 

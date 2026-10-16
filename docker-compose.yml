@@ -1,3 +1,9 @@
+# Dev stack in the shape of the store template (app-repository apps/webcalendar/
+# docker-compose.yml.template, issue #118): one bind-mounted data directory shared by all three
+# services, plain HTTP to Radicale on the compose network, no published Radicale port, and every
+# setting from a variable. Compose reads those variables from `.env` (cp .env.example .env);
+# secrets have no default, so a missing one stops `docker compose up` before anything starts.
+
 # Cap each container's json-file log (the daemon default is unbounded): 3 x 10 MB.
 x-logging: &default-logging
   driver: json-file
@@ -12,33 +18,34 @@ services:
     container_name: freeshard-webcalendar
     restart: unless-stopped
     logging: *default-logging
+    # Root only until drop-privileges.sh has handed ./data to uid 1000, as on a shard (#100).
+    user: "0:0"
     ports:
       - "${PORT:-3000}:3000"
     depends_on:
       caldav-server:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
       NODE_ENV: production
       DATABASE_PATH: /app/data/webcalendar.db
-      SESSION_SECRET: ${SESSION_SECRET}
-      BASE_URL: ${BASE_URL}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      BASE_URL: ${BASE_URL:?set BASE_URL in .env}
+      AUTH_METHOD: env
+      CALDAV_USERNAME: owner
       TRUST_PROXY: "1"
       COOKIE_SECURE: "auto"
       COOKIE_SAME_SITE: "strict"
       SSL_KEY_PATH: ""
       SSL_CERT_PATH: ""
-      INTERNAL_CALDAV_URL: https://caldav-server:5232
-      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}
-      INTERNAL_WEBHOOK_SECRET: ${INTERNAL_WEBHOOK_SECRET}
-      HTTP_HEADER_AUTH_SECRET: ${HTTP_HEADER_AUTH_SECRET}
+      INTERNAL_CALDAV_URL: http://caldav-server:5232
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?set SYSTEM_SYNC_SECRET in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
+      INTERNAL_WEBHOOK_SECRET: ${INTERNAL_WEBHOOK_SECRET:?set INTERNAL_WEBHOOK_SECRET in .env}
+      HTTP_HEADER_AUTH_SECRET: ${HTTP_HEADER_AUTH_SECRET:?set HTTP_HEADER_AUTH_SECRET in .env}
     volumes:
-      - shared-data:/app/data
-      - ./ssl:/app/ssl:ro
+      - ./data:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || wget -qO- --no-check-certificate https://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -50,20 +57,19 @@ services:
     container_name: freeshard-radicale
     restart: unless-stopped
     logging: *default-logging
-    env_file:
-      - .env
+    user: "0:0"
     environment:
       DATABASE_PATH: /data/webcalendar.db
-      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
+      RADICALE_SSL: "false"
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?set SYSTEM_SYNC_SECRET in .env}
     healthcheck:
-      test: ["CMD-SHELL", "curl -f -k https://localhost:5232/ || curl -f http://localhost:5232/ || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:5232/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     volumes:
-      - shared-data:/data
-      - ./ssl:/etc/radicale/ssl:ro
+      - ./data:/data
 
   sync-worker:
     build: ./sync-worker
@@ -71,24 +77,16 @@ services:
     container_name: freeshard-sync-worker
     restart: unless-stopped
     logging: *default-logging
+    user: "0:0"
     depends_on:
       caldav-server:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
       PYTHONUNBUFFERED: "1"
       DATABASE_PATH: /data/webcalendar.db
       STATUS_ROOT: /data/vdir_status
-      LOCAL_CALDAV_URL: https://caldav-server:5232
-      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${ENCRYPTION_SECRET}}
+      LOCAL_CALDAV_URL: http://caldav-server:5232
+      SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?set SYSTEM_SYNC_SECRET in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
     volumes:
-      - shared-data:/data
-      - vdir-status:/data/vdir_status
-      # If sync-worker needs to trust the self-signed certificate, we can mount it too
-      - ./ssl:/etc/ssl/certs/local:ro
-
-volumes:
-  shared-data:
-  vdir-status:
+      - ./data:/data

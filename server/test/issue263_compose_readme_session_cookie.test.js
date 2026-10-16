@@ -50,15 +50,17 @@ function parseDotenv(file) {
   return out;
 }
 
-// The `environment:` mapping of the `webcalendar` service, with ${VAR} / ${VAR:-default} resolved.
+// The `environment:` mapping of the `webcalendar` service, with ${VAR} / ${VAR:-default} /
+// ${VAR:?error} resolved.
 function composeEnvironment(dotenv) {
   const lines = fs.readFileSync(path.join(ROOT, 'docker-compose.yml'), 'utf8').split('\n');
   const svc = lines.findIndex((l) => /^ {2}webcalendar:\s*$/.test(l));
   assert.ok(svc >= 0, 'docker-compose.yml must define the webcalendar service');
   const envIdx = lines.findIndex((l, i) => i > svc && /^ {4}environment:\s*$/.test(l));
   assert.ok(envIdx > svc, 'webcalendar service must have an environment mapping');
-  const resolve = (v) => v.replace(/\$\{([A-Z0-9_]+)(?::-([^}]*\}?))?\}/g, (_, name, def) => {
+  const resolve = (v) => v.replace(/\$\{([A-Z0-9_]+)(?::([-?])([^}]*\}?))?\}/g, (_, name, op, def) => {
     if (dotenv[name] !== undefined && dotenv[name] !== '') return dotenv[name];
+    if (op === '?') throw new Error(`required variable ${name} is missing a value: ${def}`);
     if (def === undefined) return '';
     return resolve(def);
   });

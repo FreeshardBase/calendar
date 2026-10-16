@@ -52,10 +52,13 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
     DATABASE_PATH=/tmp/cal-data/webcalendar.db SSL_KEY_PATH= SSL_CERT_PATH= node server/index.js
   ```
   (self-signed certs: `openssl req -x509 -newkey rsa:2048 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes -subj "/CN=localhost"`)
-- Full stack: `cp .env.example .env` first (`.env` is gitignored and every service's `env_file` requires it; set
-  `SESSION_SECRET`, `ENCRYPTION_KEY`, `SYSTEM_SYNC_SECRET`, `BASE_URL`, `HTTP_HEADER_AUTH_SECRET`), then
-  `docker compose up --build` (webcalendar + caldav-server + sync-worker). All three mount the named volume
-  `shared-data` (app at `/app/data`, Radicale and sync-worker at `/data`) and open the same `webcalendar.db` in it.
+- Full stack: `cp .env.example .env` first (`.env` is gitignored and Compose fills the required secret variables
+  from it; set `SESSION_SECRET`, `ENCRYPTION_KEY`, `SYSTEM_SYNC_SECRET`, `INTERNAL_WEBHOOK_SECRET`, `BASE_URL`,
+  `HTTP_HEADER_AUTH_SECRET`), then `docker compose up --build` (webcalendar + caldav-server + sync-worker).
+  The compose file mirrors the store template (#118): no `env_file`, no published Radicale port, plain HTTP to
+  Radicale (`http://caldav-server:5232`, `RADICALE_SSL=false`), services started as `user: "0:0"`, and one bind
+  mount `./data` (app at `/app/data`, Radicale and sync-worker at `/data`, vdirsyncer status at
+  `/data/vdir_status`) holding the same `webcalendar.db`.
 
 ## Architecture
 
