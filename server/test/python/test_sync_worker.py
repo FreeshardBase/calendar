@@ -36,6 +36,7 @@ class TestSyncWorker(unittest.TestCase):
                 updated_at INTEGER
             )
         """)
+        cursor.execute("CREATE TABLE sync_job_progress (job_id TEXT PRIMARY KEY, items_done INTEGER NOT NULL DEFAULT 0)")
         cursor.execute("""
             CREATE TABLE linked_accounts (
                 id TEXT PRIMARY KEY,

@@ -1917,6 +1917,24 @@ textarea.form-input, .form-textarea {
   border-color: #5c2329;
 }
 .sync-error-banner .icon-btn { color: inherit; }
+/* Issue #174: long import / sync progress — calm, border + surface, no colour alarm */
+.progress-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: var(--surface);
+  color: var(--ink);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 10px 16px;
+  margin: 12px 16px 0 16px;
+  font-size: var(--fs-small);
+}
+.progress-banner-text { flex: 1; }
+.progress-banner-bar { width: 140px; height: 6px; accent-color: var(--line); }
+/* An event whose save is still running (optimistic save) */
+.event-chip.event-pending,
+.event-block.event-pending { opacity: 0.6; border-style: dashed; }
 .oauth-warning-content {
   display: flex;
   align-items: center;

@@ -508,6 +508,15 @@
       <button id="sync-error-dismiss" class="icon-btn" type="button" aria-label="Hinweis schließen">×</button>
     </div>
 
+    <!-- Progress of a long ICS import and of a running account sync (Issue #174) -->
+    <div id="import-progress" class="progress-banner hidden" role="status">
+      <span id="import-progress-text" class="progress-banner-text"></span>
+      <progress id="import-progress-bar" class="progress-banner-bar" max="1" value="0"></progress>
+    </div>
+    <div id="sync-progress" class="progress-banner hidden" role="status">
+      <span id="sync-progress-text" class="progress-banner-text"></span>
+    </div>
+
     <!-- Calendar View Container -->
     <div class="calendar-container" id="calendar-container">
       <!-- Rendered by JS -->

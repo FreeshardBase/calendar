@@ -90,6 +90,7 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
             CREATE TABLE sync_queue (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
                 error_message TEXT, attempts INTEGER DEFAULT 0, max_attempts INTEGER DEFAULT 5,
                 next_retry_at INTEGER, retry_state TEXT, created_at INTEGER, updated_at INTEGER);
+            CREATE TABLE sync_job_progress (job_id TEXT PRIMARY KEY, items_done INTEGER NOT NULL DEFAULT 0);
         """)
         # A fresh access token, so the job goes straight to Graph.
         conn.execute(

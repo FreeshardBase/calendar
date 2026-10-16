@@ -12,6 +12,7 @@ const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictRe
 const { detectTwoWayConflict, resolveTwoWayConflict } = require('../utils/twoWaySyncResolver');
 const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
+const { startImportJob, getImportJob } = require('../utils/importJobs');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
 const { sendError, describeError, userError, MESSAGES } = require('../utils/errorSanitizer');
@@ -790,7 +791,25 @@ router.post('/:id/import/detect', async (req, res) => {
   }
 });
 
-// POST /api/calendars/:id/import — import events from an uploaded ICS document with conflict resolution
+// GET /api/calendars/import-jobs/:jobId — progress of a running ICS import (#174)
+router.get('/import-jobs/:jobId', (req, res) => {
+  const job = getImportJob(req.params.jobId, req.session.userId);
+  if (!job) return res.status(404).json({ error: 'Import nicht gefunden.' });
+  res.json(job);
+});
+
+function importDocument(vtimezones, vevents) {
+  const doc = new ICAL.Component(['vcalendar', [], []]);
+  doc.updatePropertyWithValue('version', '2.0');
+  doc.updatePropertyWithValue('prodid', '-//Freeshard//WebCalendar 1.0//EN');
+  for (const tz of vtimezones) doc.addSubcomponent(tz);
+  for (const v of vevents) doc.addSubcomponent(v);
+  return doc.toString();
+}
+
+// POST /api/calendars/:id/import — import events from an uploaded ICS document with conflict resolution.
+// Radicale's create cost grows with the collection (#174), so the PUTs run as a background job:
+// the answer is 202 with the job, whose progress GET /api/calendars/import-jobs/:jobId reports.
 router.post('/:id/import', async (req, res) => {
   try {
     const calendarId = decodeURIComponent(req.params.id);
@@ -821,73 +840,42 @@ router.post('/:id/import', async (req, res) => {
     }
     const vtimezones = comp.getAllSubcomponents('vtimezone');
 
-    // If resolution strategy is provided, process conflicts explicitly
+    const items = [];
+    let skipped = 0;
     if (resolutions || defaultStrategy) {
+      // If resolution strategy is provided, process conflicts explicitly
       const existingEvents = await fetchExistingCalendarEvents(client, calendarId, account ? account.id : 'internal-caldav', calendarUrl);
-      const resolvedItems = resolveICSImport(ics, existingEvents, resolutions || defaultStrategy);
-
-      let imported = 0, skipped = 0, failed = 0;
-      for (const item of resolvedItems) {
+      for (const item of resolveICSImport(ics, existingEvents, resolutions || defaultStrategy)) {
         if (item.action === 'SKIP') {
           skipped++;
           continue;
         }
-
-        const doc = new ICAL.Component(['vcalendar', [], []]);
-        doc.updatePropertyWithValue('version', '2.0');
-        doc.updatePropertyWithValue('prodid', '-//Freeshard//WebCalendar 1.0//EN');
-        if (Array.isArray(item.vtimezones)) {
-          for (const tz of item.vtimezones) doc.addSubcomponent(tz);
-        } else {
-          for (const tz of vtimezones) doc.addSubcomponent(tz);
-        }
-        doc.addSubcomponent(item.veventComp);
-
-        const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(item.uid) + '.ics';
-        try {
+        items.push({
+          uid: item.uid,
+          ics: importDocument(Array.isArray(item.vtimezones) ? item.vtimezones : vtimezones, [item.veventComp]),
           // FORCE put for OVERWRITE (etag=undefined), or etag=null for NEW
-          const etagVal = item.action === 'OVERWRITE' ? undefined : null;
-          await client.put(resourceUrl, doc.toString(), etagVal);
-          imported++;
-        } catch (putErr) {
-          if (putErr.message === 'ETAG_CONFLICT') skipped++;
-          else { failed++; console.error(`[calendars import resolved] ${item.uid}:`, putErr.message); }
-        }
+          etag: item.action === 'OVERWRITE' ? undefined : null
+        });
       }
-
-      queueSyncForCalendar(calendarId, req.session.userId);
-      return res.json({ imported, skipped, failed, total: resolvedItems.length });
-    }
-
-    // Default import behavior (group by UID)
-    const byUid = new Map();
-    for (const v of vevents) {
-      const uid = v.getFirstPropertyValue('uid') || crypto.randomUUID();
-      if (!byUid.has(uid)) byUid.set(uid, []);
-      byUid.get(uid).push(v);
-    }
-
-    let imported = 0, skipped = 0, failed = 0;
-    for (const [uid, events] of byUid) {
-      const doc = new ICAL.Component(['vcalendar', [], []]);
-      doc.updatePropertyWithValue('version', '2.0');
-      doc.updatePropertyWithValue('prodid', '-//Freeshard//WebCalendar 1.0//EN');
-      for (const tz of vtimezones) doc.addSubcomponent(tz);
-      for (const v of events) doc.addSubcomponent(v);
-
-      const resourceUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
-      try {
-        await client.put(resourceUrl, doc.toString(), null);
-        imported++;
-      } catch (putErr) {
-        if (putErr.message === 'ETAG_CONFLICT') skipped++;
-        else { failed++; console.error(`[calendars import] ${uid}:`, putErr.message); }
+    } else {
+      // Default import behavior (group by UID)
+      const byUid = new Map();
+      for (const v of vevents) {
+        const uid = v.getFirstPropertyValue('uid') || crypto.randomUUID();
+        if (!byUid.has(uid)) byUid.set(uid, []);
+        byUid.get(uid).push(v);
+      }
+      for (const [uid, events] of byUid) {
+        items.push({ uid, ics: importDocument(vtimezones, events), etag: null });
       }
     }
 
-    queueSyncForCalendar(calendarId, req.session.userId);
-
-    res.json({ imported, skipped, failed, total: byUid.size });
+    const userId = req.session.userId;
+    const job = startImportJob({
+      userId, calendarId, calendarUrl, client, items, skipped,
+      onFinished: () => queueSyncForCalendar(calendarId, userId)
+    });
+    res.status(202).json(job);
   } catch (err) {
     return sendError(res, err, '[calendars import]');
   }

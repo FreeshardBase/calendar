@@ -240,7 +240,7 @@ async function loadEvents() {
   let cached = getCachedEvents(cacheKey);
   const activeSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
   if (cached && Array.isArray(cached)) {
-    store.set({ events: [...cached, ...activeSubs] });
+    showEvents([...cached, ...activeSubs]);
     renderCalendarView();
   } else {
     store.set({ loadingEvents: true });
@@ -260,7 +260,7 @@ async function loadEvents() {
       if (seq !== loadEventsSeq) return;
       webcalEvents = rangeWebcalEvents;
       const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
-      store.set({ events: [...cached, ...activeCurrentSubs] });
+      showEvents([...cached, ...activeCurrentSubs]);
       renderCalendarView();
       checkAndTriggerAlarms();
       return;
@@ -282,7 +282,8 @@ async function loadEvents() {
     // A partial result is not cached: the next load must ask the failed calendars again.
     if (errors.length === 0) cacheEvents(cacheKey, events);
     const activeCurrentSubs = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
-    store.set({ events: [...events, ...activeCurrentSubs], eventsError: null });
+    showEvents([...events, ...activeCurrentSubs]);
+    store.set({ eventsError: null });
     renderCalendarView();
     checkAndTriggerAlarms();
   } catch (err) {
@@ -382,11 +383,65 @@ async function loadWebcalEvents(start, end) {
 }
 
 function mergeAndRenderEvents() {
-  const currentEvents = store.get('events') || [];
-  const normalEvents = currentEvents.filter(e => !e.isSubscription);
+  const normalEvents = loadedEvents.filter(e => !e.isSubscription);
   const activeWebcal = webcalEvents.filter(ev => !hiddenWebcal.has(ev.subscriptionId));
-  store.set({ events: [...normalEvents, ...activeWebcal] });
+  showEvents([...normalEvents, ...activeWebcal]);
   renderCalendarView();
+}
+
+// ── Optimistic event saves (Issue #174) ──────────────────────────────────────
+// A saved event is shown at once while its request runs. The pending previews
+// overlay whatever loadEvents() brings, so a reload meanwhile does not hide
+// them; on failure the preview is dropped and the loaded state shows again.
+
+// token → { preview, replacesUid, resolve }; resolve() settles the save with the
+// uid of the stored event once it is loaded, or null if the save failed.
+const pendingSaves = new Map();
+// preview uid → its `settled` promise; kept until the reload after the save is done.
+const pendingClicks = new Map();
+let loadedEvents = [];
+
+function withPendingSaves(events) {
+  if (pendingSaves.size === 0) return events;
+  const saves = [...pendingSaves.values()];
+  const replaced = new Set(saves.map(s => s.replacesUid).filter(Boolean));
+  return [...events.filter(ev => !replaced.has(ev.uid)), ...saves.map(s => s.preview)];
+}
+
+function showEvents(events) {
+  loadedEvents = events;
+  store.set({ events: withPendingSaves(events) });
+}
+
+function onEventPending(preview, replacesUid) {
+  const token = Symbol('pending-save');
+  let resolve;
+  const settled = new Promise(r => { resolve = r; });
+  pendingSaves.set(token, { preview: { ...preview, pending: true }, replacesUid, resolve });
+  pendingClicks.set(preview.uid, settled);
+  settled.then(() => pendingClicks.delete(preview.uid));
+  showEvents(loadedEvents);
+  renderCalendarView();
+  return token;
+}
+
+// The save failed: the preview goes, the loaded state shows again.
+function settlePendingSave(token) {
+  const entry = pendingSaves.get(token);
+  pendingSaves.delete(token);
+  showEvents(loadedEvents);
+  renderCalendarView();
+  entry?.resolve(null);
+}
+
+// A click on a pending event opens the popover of the stored event once the
+// save has landed; after a failure the error toast has already said why not.
+async function openPendingEvent(preview, mouseEvent) {
+  const settled = pendingClicks.get(preview.uid);
+  const uid = settled ? await settled : null;
+  if (!uid) return;
+  const ev = (store.get('events') || []).find(x => x.uid === uid || x.uid.startsWith(`${uid}::`));
+  if (ev) showEventPopover(ev, mouseEvent);
 }
 
 function renderWebcalSidebar() {
@@ -649,10 +704,11 @@ function renderCalendarView() {
   });
 
   renderView(container, events, view, date, {
-    onDayClick:   (d) => openCreateModal(d, { onSaved: onEventSaved, onDeleted: onEventDeleted }),
+    onDayClick:   (d) => openCreateModal(d, EVENT_MODAL_CALLBACKS),
     onEventClick: (uid, e) => {
       const ev = (store.get('events') || []).find(x => x.uid === uid);
-      if (ev) showEventPopover(ev, e);
+      if (ev?.pending) openPendingEvent(ev, e);
+      else if (ev) showEventPopover(ev, e);
     }
   });
 
@@ -941,21 +997,95 @@ function openImportDialog(fileName, icsText) {
     const btn = backdrop.querySelector('#import-confirm');
     btn.disabled = true;
     btn.textContent = 'Importiere…';
+    let job;
     try {
-      const result = await CalendarsAPI.importICS(calId, icsText, null, strategy);
-      close();
-      const parts = [`${result.imported} importiert`];
-      if (result.skipped) parts.push(`${result.skipped} übersprungen`);
-      if (result.failed) parts.push(`${result.failed} fehlgeschlagen`);
-      showToast(`Import abgeschlossen: ${parts.join(', ')}.`, result.failed ? 'error' : 'success');
-      invalidateEventCache();
-      loadEvents();
+      job = await CalendarsAPI.importICS(calId, icsText, null, strategy);
     } catch (err) {
       btn.disabled = false;
       btn.textContent = 'Importieren';
       showToast(err.message, 'error');
+      return;
     }
+    close();
+    trackImportJob(job);
   });
+}
+
+// ── Import & sync progress (Issue #174) ──────────────────────────────────────
+// Radicale's create cost grows with the collection, so a large first import or
+// sync takes minutes. The banners show the worker's real counters; the calendar
+// stays usable meanwhile.
+
+const IMPORT_POLL_MS = 1000;
+const SYNC_POLL_MS = 2000;
+const formatCount = n => new Intl.NumberFormat('de-DE').format(n);
+
+function renderImportProgress(job) {
+  const banner = $('import-progress');
+  if (!job) {
+    banner.classList.add('hidden');
+    return;
+  }
+  $('import-progress-text').textContent =
+    `Import läuft: ${formatCount(job.processed)} von ${formatCount(job.total)} Terminen. Der Kalender ist schon nutzbar.`;
+  const bar = $('import-progress-bar');
+  bar.max = job.total;
+  bar.value = job.processed;
+  banner.classList.remove('hidden');
+}
+
+function finishImport(job) {
+  renderImportProgress(null);
+  if (job.status === 'error') {
+    showToast(`Import abgebrochen nach ${formatCount(job.processed)} von ${formatCount(job.total)} Terminen: ${job.error}`, 'error');
+  } else {
+    const parts = [`${job.imported} importiert`];
+    if (job.skipped) parts.push(`${job.skipped} übersprungen`);
+    if (job.failed) parts.push(`${job.failed} fehlgeschlagen`);
+    showToast(`Import abgeschlossen: ${parts.join(', ')}.`, job.failed ? 'error' : 'success');
+  }
+  invalidateEventCache();
+  loadEvents();
+}
+
+async function trackImportJob(job) {
+  while (job.status === 'running') {
+    renderImportProgress(job);
+    await new Promise(resolve => setTimeout(resolve, IMPORT_POLL_MS));
+    try {
+      job = await CalendarsAPI.getImportJob(job.id);
+    } catch (err) {
+      renderImportProgress(null);
+      showToast('Der Importfortschritt konnte nicht abgerufen werden: ' + err.message, 'error');
+      return;
+    }
+  }
+  finishImport(job);
+}
+
+let syncPollTimer = null;
+let syncWasRunning = false;
+
+// A running sync job shows how many events it has written; once it ends, the
+// calendar reloads so the synced events appear.
+function renderSyncProgress(jobs) {
+  const running = jobs.find(j => j.status === 'RUNNING');
+  const banner = $('sync-progress');
+  if (running && running.itemsDone > 0) {
+    $('sync-progress-text').textContent =
+      `Synchronisierung läuft: ${formatCount(running.itemsDone)} Termine übertragen. Der Kalender ist schon nutzbar.`;
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+  if (syncWasRunning && !running) {
+    invalidateEventCache();
+    loadEvents();
+  }
+  syncWasRunning = Boolean(running);
+  if (running && syncPollTimer === null) {
+    syncPollTimer = setTimeout(() => { syncPollTimer = null; checkSyncStatus(); }, SYNC_POLL_MS);
+  }
 }
 
 function openEditCalendarDialog(cal) {
@@ -2005,7 +2135,7 @@ function showEventPopover(ev, mouseEvent) {
   if (editBtn) {
     editBtn.onclick = () => {
       closePopover();
-      openEditModal(ev, { onSaved: onEventSaved, onDeleted: onEventDeleted });
+      openEditModal(ev, EVENT_MODAL_CALLBACKS);
     };
     if (typeof editBtn.focus === 'function') editBtn.focus();
   }
@@ -2043,15 +2173,27 @@ function closePopover() {
 
 // ── Event callbacks ───────────────────────────────────────────────────────────
 
-function onEventSaved(savedEvent) {
+// The preview stays on screen until the reload brings the saved event (#174).
+async function onEventSaved(savedEvent, pendingToken) {
+  const entry = pendingSaves.get(pendingToken);
+  pendingSaves.delete(pendingToken);
   invalidateEventCache();
-  loadEvents();
+  await loadEvents();
+  // An edited occurrence keeps its instance uid; a new event has the server's.
+  entry?.resolve(entry.replacesUid || savedEvent?.uid || null);
 }
 
 function onEventDeleted(uid) {
   invalidateEventCache();
   loadEvents();
 }
+
+const EVENT_MODAL_CALLBACKS = {
+  onSaved: onEventSaved,
+  onDeleted: onEventDeleted,
+  onPending: onEventPending,
+  onSettled: settlePendingSave
+};
 
 // ── UI Event Listeners ────────────────────────────────────────────────────────
 
@@ -2176,7 +2318,7 @@ function attachListeners() {
 
   // New event button
   $('new-event-btn').addEventListener('click', () => {
-    openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
+    openCreateModal(store.get('currentDate') || new Date(), EVENT_MODAL_CALLBACKS);
   });
 
   // Settings Drawer Toggle
@@ -2498,7 +2640,7 @@ function attachListeners() {
         break;
 
       case 'CREATE_EVENT':
-        openCreateModal(store.get('currentDate') || new Date(), { onSaved: onEventSaved, onDeleted: onEventDeleted });
+        openCreateModal(store.get('currentDate') || new Date(), EVENT_MODAL_CALLBACKS);
         break;
 
       case 'FOCUS_SEARCH': {
@@ -2671,10 +2813,12 @@ export async function checkSyncStatus() {
   } catch (err) {
     // Polled every minute — report in the banner rather than stacking toasts.
     textEl.textContent = 'Sync-Status konnte nicht geladen werden: ' + err.message;
+    $('sync-progress').classList.add('hidden');
     delete banner.dataset.jobId;
     banner.classList.remove('hidden');
     return;
   }
+  renderSyncProgress(jobs);
   // Server orders by created_at DESC.
   const latest = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
   if (latest && latest.status === 'ERROR' && latest.id !== dismissedSyncErrorId) {
