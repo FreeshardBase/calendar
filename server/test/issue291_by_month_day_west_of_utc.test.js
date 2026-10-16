@@ -2,55 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const { parseICSToEvent, eventToICS, isNoOpEventSave, parseAndExpandEvent } = require('../utils/ical');
 
-const eventModalJsPath = path.resolve(__dirname, '../../public/js/eventModal.js');
-
+// The dialog's side (the start date reads as the same day and weekday west of UTC) is the
+// Playwright test "Issue #291" in e2e/calendar.spec.js, run in America/Los_Angeles.
 test('Issue #291 — BYMONTHDAY Preservation Across Zero-Edit Saves West of UTC', async (t) => {
   const origTz = process.env.TZ;
   const testTimezones = ['America/New_York', 'America/Los_Angeles', 'Pacific/Honolulu', 'Europe/Berlin', 'UTC'];
-
-  await t.test('eventModal.js parses dateVal in updateRecurrenceOptions using UTC date getters', () => {
-    const content = fs.readFileSync(eventModalJsPath, 'utf8');
-    const updateRecurrenceFnMatch = content.match(/function updateRecurrenceOptions[\s\S]*?^}/m);
-    assert.ok(updateRecurrenceFnMatch, 'updateRecurrenceOptions function must exist in eventModal.js');
-    const fnBody = updateRecurrenceFnMatch[0];
-
-    assert.ok(
-      /getUTCDate/.test(fnBody),
-      'updateRecurrenceOptions in eventModal.js must use getUTCDate'
-    );
-    assert.ok(
-      /getUTCDay/.test(fnBody),
-      'updateRecurrenceOptions in eventModal.js must use getUTCDay'
-    );
-  });
-
-  await t.test('updateRecurrenceOptions date parsing logic returns correct day and weekday in timezones west of UTC', () => {
-    try {
-      for (const tz of testTimezones) {
-        process.env.TZ = tz;
-
-        const dateVal = '2026-06-15'; // Monday, June 15th, 2026
-        const parts = dateVal.split('-').map(Number);
-        const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-
-        const day = date.getUTCDate();
-        const dayName = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][date.getUTCDay()];
-        const weekNum = Math.ceil(day / 7);
-        const wd = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getUTCDay()];
-
-        assert.equal(day, 15, `In ${tz}: day must be 15`);
-        assert.equal(dayName, 'Montag', `In ${tz}: dayName must be Montag`);
-        assert.equal(weekNum, 3, `In ${tz}: weekNum must be 3`);
-        assert.equal(wd, 'MO', `In ${tz}: weekday code must be MO`);
-      }
-    } finally {
-      process.env.TZ = origTz;
-    }
-  });
 
   await t.test('BYMONTHDAY is preserved across consecutive zero-edit saves and series retains occurrences', () => {
     try {
