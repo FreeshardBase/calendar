@@ -7,6 +7,7 @@ const CalDAVClient = require('../caldav/client');
 const Db = require('../db');
 const { getPresets, resolvePreset, resolveCalDAVUrl } = require('../utils/caldavPresets');
 const { assertPublicUrl } = require('../utils/outboundFetch');
+const { sameAccountUrl } = require('../utils/accountUrl');
 
 const BLOCKED_TARGET_ERROR = 'Diese Adresse ist nicht erlaubt: interne oder private Netzwerkziele können nicht verknüpft werden.';
 
@@ -140,16 +141,19 @@ router.post('/', async (req, res) => {
     return res.status(401).json({ error: 'Ungültige Zugangsdaten.' });
   }
 
-  // Issue #248: check both session accounts (env-default) and the DB directly (authoritative DB check
-  // in case req.session.accounts was cold or stale).
+  // Issue #248: one server has many spellings (base domain vs. calendar home, trailing
+  // slash, host case, ...), so URLs are compared canonically and a path prefix counts as
+  // the same account. The session holds env-default/internal accounts that are not in
+  // the DB; the DB check covers a cold session; Db.addAccount re-checks atomically.
+  const duplicateMessage = 'Dieses Konto ist bereits eingerichtet.';
   const sessionAccounts = req.session?.accounts || [];
   const existsInSession = sessionAccounts.some(
-    a => a.url === discoveredUrl && a.username === username
+    a => a.username === username && sameAccountUrl(a.url, discoveredUrl)
   );
   const existsInDb = await Db.findAccountByUrlAndUsername(userId, discoveredUrl, username);
 
   if (existsInSession || existsInDb) {
-    return res.status(409).json({ error: 'Dieses Konto ist bereits eingerichtet.' });
+    return res.status(409).json({ error: duplicateMessage });
   }
 
   try {
@@ -162,6 +166,9 @@ router.post('/', async (req, res) => {
     await Db.addSyncJob(userId);
     res.status(201).json({ id, displayName: finalDisplayName, message: 'Account added.' });
   } catch (err) {
+    if (err.code === 'ACCOUNT_EXISTS') {
+      return res.status(409).json({ error: duplicateMessage });
+    }
     return sendError(res, err);
   }
 });
