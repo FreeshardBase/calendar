@@ -23,6 +23,18 @@ async function expectSavesLanded(page) {
   await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
 }
 
+// Computed value of a design token, as an rgb() string comparable to getComputedStyle colours.
+async function tokenColor(page, token) {
+  return page.evaluate(t => {
+    const probe = document.createElement('span');
+    probe.style.color = `var(${t})`;
+    document.body.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  }, token);
+}
+
 function runSql(sql, params = []) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(E2E_DATABASE_PATH);
@@ -544,6 +556,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('.month-grid')).toBeVisible({ timeout: 10000 });
   });
 
+  // Issue #85: on a short window the task dialog's footer stays on screen and the form scrolls.
   test('should allow saving and cancelling a task on a short viewport', async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 400 });
     await page.goto('/');
@@ -555,8 +568,21 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     const cancelBtn = page.locator('#task-cancel-btn');
     const saveBtn = page.locator('#task-save-btn');
-    await expect(cancelBtn).toBeVisible();
-    await expect(saveBtn).toBeVisible();
+    // Wholly on screen and not covered or clipped: the topmost element at each button's centre.
+    for (const btn of [cancelBtn, saveBtn]) {
+      await expect(btn).toBeInViewport({ ratio: 1 });
+      expect(await btn.evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+      })).toBe(true);
+    }
+    // The fields that do not fit are reached by scrolling the dialog body, not cut off.
+    const body = page.locator('#task-modal .modal-body');
+    expect(await body.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+    const lastField = page.locator('#task-modal .modal-body :is(input, select, textarea):visible').last();
+    await lastField.scrollIntoViewIfNeeded();
+    await expect(lastField).toBeInViewport();
+    await expect(saveBtn).toBeInViewport({ ratio: 1 });
 
     await cancelBtn.click();
     await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
@@ -3345,18 +3371,6 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test.describe('Issue #110 — stylesheet and markup agree', () => {
-    // Computed value of a design token, as an rgb() string comparable to getComputedStyle colours.
-    async function tokenColor(page, token) {
-      return page.evaluate(t => {
-        const probe = document.createElement('span');
-        probe.style.color = `var(${t})`;
-        document.body.appendChild(probe);
-        const c = getComputedStyle(probe).color;
-        probe.remove();
-        return c;
-      }, token);
-    }
-
     test('a warning toast carries its own glyph and the warning border colour', async ({ page }) => {
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
@@ -3525,6 +3539,18 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await card.evaluate(flat)).toEqual({ shadow: 'none', transform: 'none' });
       await card.hover();
       expect(await card.evaluate(flat)).toEqual({ shadow: 'none', transform: 'none' });
+    });
+
+    test('the key badges in the shortcut help are flat', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.keyboard.press('Alt+KeyH');
+      await expect(page.locator('#shortcuts-modal-backdrop')).not.toHaveClass(/hidden/);
+      const badges = page.locator('#shortcuts-modal .shortcut-badge');
+      await expect(badges.first()).toBeVisible();
+      const shadows = await badges.evaluateAll(els => els.map(el => getComputedStyle(el).boxShadow));
+      expect(shadows.length).toBeGreaterThan(5);
+      expect(shadows.filter(s => s !== 'none')).toEqual([]);
     });
   });
 
@@ -4469,6 +4495,563 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       await page.keyboard.up('Alt');
       expect(await hint('#today-btn')).toBe('none');
+    });
+  });
+
+  // Issue #86: destructive and confirming buttons are outlined — a plain button whose border and
+  // label take the status colour — never a solid fill.
+  test.describe('Issue #86 — danger and success buttons are outlined in their status colour', () => {
+    for (const theme of ['light', 'dark']) {
+      test(`${theme} theme: the confirm dialog's OK button and an RSVP accept button`, async ({ page }) => {
+        await page.goto('/');
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await page.evaluate(async theme => {
+          document.documentElement.setAttribute('data-theme', theme);
+          // The plain button and the accept button invitations.js renders, as reference and subject.
+          const host = document.createElement('div');
+          host.innerHTML = '<button class="btn btn-sm" id="e2e86-plain">Vorläufig</button>'
+            + '<button class="btn btn-sm btn-success" id="e2e86-success">Zusagen</button>';
+          document.body.appendChild(host);
+          const { confirmDialog } = await import('/js/dialogFocus.js');
+          confirmDialog('E2E 86 löschen?');
+        }, theme);
+        await expect(page.locator('#confirm-dialog-backdrop')).toBeVisible();
+
+        const look = sel => page.locator(sel).evaluate(el => {
+          const s = getComputedStyle(el);
+          return { border: s.borderTopColor, borderStyle: s.borderTopStyle, color: s.color, background: s.backgroundColor };
+        });
+        const plain = await look('#e2e86-plain');
+        const danger = await tokenColor(page, '--danger');
+        const success = await tokenColor(page, '--success');
+        expect(await look('#confirm-dialog-ok')).toEqual({ border: danger, borderStyle: 'solid', color: danger, background: plain.background });
+        expect(await look('#e2e86-success')).toEqual({ border: success, borderStyle: 'solid', color: success, background: plain.background });
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#confirm-dialog-backdrop')).toBeHidden();
+      });
+    }
+  });
+
+  // Issue #104: the theme select in the settings drawer switches the painted palette at runtime,
+  // the choice survives a reload, and "system" follows the operating system's colour scheme.
+  test.describe('Issue #104 — the theme setting repaints the app and is remembered', () => {
+    // Relative luminance (WCAG) of the painted page background, sidebar surface and body text.
+    async function painted(page) {
+      return page.evaluate(() => {
+        const luminance = color => {
+          const [r, g, b] = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+          });
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const html = getComputedStyle(document.documentElement);
+        const body = getComputedStyle(document.body);
+        return {
+          theme: document.documentElement.getAttribute('data-theme'),
+          scheme: html.colorScheme,
+          bg: luminance(body.backgroundColor),
+          ink: luminance(body.color),
+          surface: luminance(getComputedStyle(document.querySelector('.sidebar')).backgroundColor),
+        };
+      });
+    }
+    function expectDark(p) {
+      expect(p.theme).toBe('dark');
+      expect(p.scheme).toBe('dark');
+      expect(p.bg).toBeLessThan(0.05);
+      expect(p.surface).toBeLessThan(0.05);
+      expect(p.ink).toBeGreaterThan(0.6);
+    }
+    function expectLight(p) {
+      expect(p.theme).toBe('light');
+      expect(p.scheme).not.toBe('dark');
+      expect(p.bg).toBeGreaterThan(0.8);
+      expect(p.surface).toBeGreaterThan(0.8);
+      expect(p.ink).toBeLessThan(0.1);
+    }
+    async function chooseTheme(page, value) {
+      if (!(await page.locator('#settings-drawer').evaluate(el => el.classList.contains('open')))) {
+        await page.click('#sidebar-settings-btn');
+      }
+      const select = page.locator('#settings-drawer #theme-select');
+      await expect(select).toBeVisible();
+      await select.selectOption(value);
+    }
+
+    test('dark and light are applied at once and survive a reload', async ({ page }) => {
+      await page.emulateMedia({ colorScheme: 'light' });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expectLight(await painted(page));
+
+      await page.click('#sidebar-settings-btn');
+      expect(await page.locator('#theme-select option').evaluateAll(os => os.map(o => o.value)))
+        .toEqual(['system', 'light', 'dark']);
+      await chooseTheme(page, 'dark');
+      expectDark(await painted(page));
+
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expectDark(await painted(page));
+      await expect(page.locator('#theme-select')).toHaveValue('dark');
+
+      await chooseTheme(page, 'light');
+      expectLight(await painted(page));
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expectLight(await painted(page));
+    });
+
+    test('system follows the operating system, also when it changes while the app is open', async ({ page }) => {
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await chooseTheme(page, 'system');
+      expectDark(await painted(page));
+      await page.emulateMedia({ colorScheme: 'light' });
+      await expect.poll(async () => (await painted(page)).theme).toBe('light');
+      expectLight(await painted(page));
+    });
+  });
+
+  // Issue #90: a 30-minute event is about 30 px tall in the week grid; its start time and title
+  // must both be drawn inside the block, not pushed below its clipped edge.
+  test('Issue #90 — a 30-minute event in the week grid shows its time and title inside the block', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    // As in Issue #112: wait until boot has gone quiet, then render into a host of our own.
+    await page.waitForLoadState('networkidle');
+    await page.evaluate(async () => {
+      const { store } = await import('/js/store.js');
+      const { renderView } = await import('/js/calendar.js');
+      store.get('calendars').push({ id: 'e2e90-cal', name: 'E2E 90', color: '#007080' });
+      const host = document.createElement('div');
+      host.id = 'e2e90-week';
+      host.style.cssText = 'position:fixed;inset:0;z-index:100000;overflow:auto;background:var(--bg);display:flex;flex-direction:column;';
+      document.body.appendChild(host);
+      const events = [{
+        uid: 'e2e90-ev', calendarId: 'e2e90-cal', title: 'Kurz', allDay: false,
+        start: new Date(2026, 2, 11, 10, 0).toISOString(), end: new Date(2026, 2, 11, 10, 30).toISOString(),
+      }];
+      renderView(host, events, 'week', new Date(2026, 2, 11), new Proxy({}, { get: () => () => {} }));
+    });
+
+    const block = page.locator('#e2e90-week [data-event-uid="e2e90-ev"]');
+    await expect(block.locator('.event-block-title')).toHaveText('Kurz');
+    const parts = await block.evaluate(el => {
+      const b = el.getBoundingClientRect();
+      const inner = sel => {
+        const r = el.querySelector(sel).getBoundingClientRect();
+        return { height: r.height, inside: r.top >= b.top && r.bottom <= b.bottom, width: r.width, scrollWidth: el.querySelector(sel).scrollWidth };
+      };
+      return { blockHeight: b.height, time: inner('.event-block-time'), title: inner('.event-block-title') };
+    });
+    expect(parts.blockHeight).toBeLessThanOrEqual(36);
+    for (const part of [parts.time, parts.title]) {
+      expect(part.height).toBeGreaterThan(8);
+      expect(part.inside).toBe(true);
+    }
+    // "Kurz" is short enough to be shown whole, not ellipsised away.
+    expect(parts.title.scrollWidth).toBeLessThanOrEqual(Math.ceil(parts.title.width));
+  });
+
+  // Issue #113: with "reduce motion" asked for by the system nothing in the app animates.
+  test.describe('Issue #113 — prefers-reduced-motion stops transitions and animations', () => {
+    // Every element (and its ::before/::after) whose transition or animation lasts longer than 1 ms.
+    function moving() {
+      const seconds = list => Math.max(...list.split(',').map(v => {
+        v = v.trim();
+        return v.endsWith('ms') ? parseFloat(v) / 1000 : parseFloat(v);
+      }));
+      const out = [];
+      for (const el of document.querySelectorAll('*')) {
+        for (const pseudo of [null, '::before', '::after']) {
+          const s = getComputedStyle(el, pseudo);
+          const t = seconds(s.transitionDuration);
+          const a = s.animationName !== 'none' ? seconds(s.animationDuration) : 0;
+          if (t > 0.001 || a > 0.001) out.push(`${el.id || el.className}${pseudo || ''}: ${s.transitionDuration} / ${s.animationName} ${s.animationDuration}`);
+        }
+      }
+      return out;
+    }
+
+    async function openEverything(page) {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      // The drawer and a modal are on screen, so their own transitions and animations are measured too.
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).toHaveClass(/open/);
+    }
+
+    test('without the preference the app does animate (the measurement can see motion)', async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await openEverything(page);
+      expect((await page.evaluate(moving)).length).toBeGreaterThan(10);
+    });
+
+    test('with the preference no element transitions or animates and the time tokens are zero', async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await openEverything(page);
+      expect(await page.evaluate(moving)).toEqual([]);
+      const tokens = await page.evaluate(() => {
+        const s = getComputedStyle(document.documentElement);
+        return { t: s.getPropertyValue('--t').trim(), tSlow: s.getPropertyValue('--t-slow').trim(), scroll: s.scrollBehavior };
+      });
+      expect(tokens).toEqual({ t: '0s', tSlow: '0s', scroll: 'auto' });
+    });
+  });
+
+  // Issues #114 and #188: kanban cards and the popover carry no emoji glyphs, and their buttons,
+  // the calendar row actions and the event chips are big enough to hit (44 px for touch-first
+  // controls, WCAG 2.5.8's 24 px floor for the dense ones).
+  test.describe('Issues #114 / #188 — no emoji glyphs, and targets large enough to hit', () => {
+    test.use({ serviceWorkers: 'block' });
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const EMOJI = /\p{Extended_Pictographic}/u;
+    const boxes = locator => locator.evaluateAll(els => els.map(el => {
+      const r = el.getBoundingClientRect();
+      return { name: el.getAttribute('aria-label') || el.id || el.className, width: r.width, height: r.height };
+    }));
+
+    test.beforeEach(async ({ page }) => {
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events: [{
+        uid: 'e2e-issue188-ev', title: 'Target Probe', calendarId,
+        start: '2037-06-10T10:00:00.000Z', end: '2037-06-10T11:00:00.000Z', allDay: false,
+      }], errors: [] } }));
+      await page.route('**/api/tasks', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ json: [
+          { uid: 'e2e-issue114-todo', calendarId, title: 'Kanban Probe', status: 'NEEDS-ACTION', priority: 1,
+            due: '2037-06-12T15:00:00.000Z', recurrence: 'FREQ=WEEKLY' },
+          { uid: 'e2e-issue114-done', calendarId, title: 'Kanban Done', status: 'COMPLETED', due: '2037-06-11T15:00:00.000Z' },
+        ] });
+      });
+      await page.goto('/?date=2037-06-10');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    });
+
+    test('event chips and the calendar row actions are at least 24 px square', async ({ page }) => {
+      const chip = page.locator('.month-grid .event-chip', { hasText: 'Target Probe' });
+      await expect(chip).toBeVisible({ timeout: 10000 });
+      const [chipBox] = await boxes(chip);
+      expect(chipBox.height).toBeGreaterThanOrEqual(24);
+
+      const row = page.locator('#calendar-list .calendar-item').first();
+      await row.hover();
+      const actions = await boxes(row.locator('.cal-action-btn'));
+      expect(actions.length).toBeGreaterThan(0);
+      expect(actions.filter(a => a.width < 24 || a.height < 24)).toEqual([]);
+    });
+
+    test('the popover\'s small buttons are 44 px touch targets', async ({ page }) => {
+      await page.locator('.month-grid .event-chip', { hasText: 'Target Probe' }).click();
+      await expect(page.locator('#event-popover')).not.toHaveClass(/hidden/);
+      const buttons = await boxes(page.locator('#event-popover .btn-sm'));
+      expect(buttons.length).toBeGreaterThanOrEqual(2);
+      expect(buttons.filter(b => b.width < 44 || b.height < 44)).toEqual([]);
+      expect(await page.locator('#event-popover').textContent()).not.toMatch(EMOJI);
+    });
+
+    test('kanban cards show due date and recurrence without emoji, with 44 px action buttons', async ({ page }) => {
+      await page.click('#view-kanban');
+      const card = page.locator('.kanban-card', { hasText: 'Kanban Probe' });
+      await expect(card).toBeVisible({ timeout: 10000 });
+      await expect(card.locator('.kanban-due-date')).toContainText('12.06.');
+      await expect(card.locator('.kanban-recurrence-badge')).toBeVisible();
+      await expect(page.locator('.kanban-card', { hasText: 'Kanban Done' }).locator('.btn-reopen')).toBeVisible();
+
+      expect(await page.locator('.kanban-board').textContent()).not.toMatch(EMOJI);
+      const buttons = await boxes(page.locator('.kanban-board .kanban-btn'));
+      // Status, complete, edit, delete on the open task; reopen, edit, delete on the finished one.
+      expect(buttons.length).toBeGreaterThanOrEqual(7);
+      expect(buttons.filter(b => b.width < 44 || b.height < 44)).toEqual([]);
+    });
+
+    test('the welcome dialog carries no emoji', async ({ page }) => {
+      await page.addInitScript(() => {
+        if (window.origin !== 'null') window.localStorage.removeItem('welcome-popup-closed');
+      });
+      await page.reload();
+      await expect(page.locator('#welcome-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const text = await page.locator('#welcome-modal').textContent();
+      expect(text).toContain('Willkommen');
+      expect(text).not.toMatch(EMOJI);
+      await page.click('#welcome-btn-close');
+    });
+  });
+
+  // Issue #190: the share dialog's person search is an ARIA 1.2 combobox with a listbox popup,
+  // operated with the arrow keys, Enter and Escape.
+  test('Issue #190 — the share search is a combobox driven by arrow keys, Enter and Escape', async ({ page }) => {
+    await runSql(
+      "INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('testuser-id', 'testuser@example.com', 'testuser@example.com')"
+    );
+    await runSql(
+      "INSERT OR IGNORE INTO users (user_id, username, email) VALUES ('testuser2-id', 'testuser2@example.com', 'testuser2@example.com')"
+    );
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]').click();
+    const dialog = page.locator('#share-cal-dialog-backdrop');
+    await expect(dialog).toBeVisible();
+
+    const input = dialog.getByRole('combobox', { name: /suchen/ });
+    await expect(input).toHaveAttribute('aria-autocomplete', 'list');
+    await expect(input).toHaveAttribute('aria-haspopup', 'listbox');
+    await expect(input).toHaveAttribute('aria-expanded', 'false');
+    const listboxId = await input.getAttribute('aria-controls');
+    const listbox = page.locator(`#${listboxId}`);
+    await expect(listbox).toHaveAttribute('role', 'listbox');
+
+    await input.fill('testuser');
+    await expect(listbox).toBeVisible({ timeout: 10000 });
+    await expect(input).toHaveAttribute('aria-expanded', 'true');
+    const options = listbox.getByRole('option');
+    await expect(options).toHaveCount(2);
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'false');
+    const restingBg = await options.nth(0).evaluate(el => getComputedStyle(el).backgroundColor);
+
+    const active = async () => {
+      const id = await input.getAttribute('aria-activedescendant');
+      return id && page.locator(`#${id}`).textContent();
+    };
+    await input.press('ArrowDown');
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
+    expect(await active()).toContain('testuser@example.com');
+    // The active option is shown, not only announced.
+    expect(await options.nth(0).evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(restingBg);
+    await input.press('ArrowDown');
+    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'false');
+    expect(await active()).toContain('testuser2@example.com');
+    await input.press('ArrowDown');
+    expect(await active()).toContain('testuser@example.com');
+    await input.press('ArrowUp');
+    expect(await active()).toContain('testuser2@example.com');
+
+    await input.press('Enter');
+    await expect(input).toHaveValue('testuser2@example.com');
+    await expect(listbox).toBeHidden();
+    await expect(input).toHaveAttribute('aria-expanded', 'false');
+    await expect(input).not.toHaveAttribute('aria-activedescendant', /.*/);
+    await expect(dialog).toBeVisible();
+
+    // Escape first closes the popup only; a second Escape closes the dialog.
+    await input.fill('testuser');
+    await expect(listbox).toBeVisible({ timeout: 10000 });
+    await input.press('Escape');
+    await expect(listbox).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await input.press('Escape');
+    await expect(dialog).not.toBeAttached();
+  });
+
+  // Issue #87: every dialog is a named modal dialog, Escape closes the topmost one, and the
+  // settings drawer — off screen while closed — is out of the tab order until it is opened.
+  test.describe('Issue #87 — dialogs: names, focus trap, Escape and the inert settings drawer', () => {
+    async function boot(page) {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+    }
+    const focusIn = (page, sel) => page.evaluate(s => document.querySelector(s).contains(document.activeElement), sel);
+    // The text of the element the dialog's aria-labelledby points at.
+    const dialogName = (page, sel) => page.evaluate(s => {
+      const id = document.querySelector(s).getAttribute('aria-labelledby');
+      return ((id && document.getElementById(id)?.textContent) || '').trim();
+    }, sel);
+
+    test('the closed settings drawer is inert, out of view and never reached by Tab', async ({ page }) => {
+      await boot(page);
+      const drawer = page.locator('#settings-drawer');
+      await expect(drawer).toHaveAttribute('inert', '');
+      await expect(drawer).toBeHidden();
+      await page.locator('#new-event-btn').focus();
+      for (let i = 0; i < 60; i++) {
+        await page.keyboard.press('Tab');
+        expect(await focusIn(page, '#settings-drawer'), `Tab stop ${i}`).toBe(false);
+      }
+      // With nothing open, Escape changes nothing and keeps focus where it is.
+      await page.locator('#new-event-btn').focus();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#new-event-btn')).toBeFocused();
+      await expect(drawer).toHaveAttribute('inert', '');
+    });
+
+    test('the open settings drawer is a named modal dialog that traps Tab and gives focus back on Escape', async ({ page }) => {
+      await boot(page);
+      await page.click('#sidebar-settings-btn');
+      const drawer = page.getByRole('dialog', { name: await dialogName(page, '#settings-drawer'), exact: true });
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toHaveAttribute('aria-modal', 'true');
+      await expect(drawer).not.toHaveAttribute('inert', /.*/);
+      expect(await focusIn(page, '#settings-drawer')).toBe(true);
+
+      const stops = await drawer.evaluate(el => el.querySelectorAll('button, select, input, a[href], [tabindex="0"]').length);
+      for (let i = 0; i < stops + 3; i++) {
+        await page.keyboard.press('Tab');
+        expect(await focusIn(page, '#settings-drawer'), `Tab ${i}`).toBe(true);
+      }
+      for (let i = 0; i < 3; i++) {
+        await page.keyboard.press('Shift+Tab');
+        expect(await focusIn(page, '#settings-drawer'), `Shift+Tab ${i}`).toBe(true);
+      }
+
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#settings-drawer')).toBeHidden();
+      await expect(page.locator('#settings-drawer')).toHaveAttribute('inert', '');
+      await expect(page.locator('#sidebar-settings-btn')).toBeFocused();
+    });
+
+    test('every dialog is a named modal that takes focus and closes on Escape', async ({ page }) => {
+      await boot(page);
+      const dialogs = [
+        { open: () => page.click('#new-task-btn'), backdrop: '#task-modal-backdrop', dialog: '#task-modal' },
+        { open: () => page.click('#invitations-btn'), backdrop: '#invitations-modal-backdrop', dialog: '#invitations-modal' },
+        { open: () => page.click('#availability-btn'), backdrop: '#availability-modal-backdrop', dialog: '#availability-modal' },
+        { open: () => page.keyboard.press('Alt+KeyH'), backdrop: '#shortcuts-modal-backdrop', dialog: '#shortcuts-modal' },
+        { open: () => page.click('#add-webcal-btn'), backdrop: '#webcal-modal-backdrop', dialog: '#webcal-modal' },
+        {
+          open: () => page.evaluate(async () => { (await import('/js/dialogFocus.js')).confirmDialog('E2E 87?'); }),
+          backdrop: '#confirm-dialog-backdrop', dialog: '#confirm-dialog',
+        },
+      ];
+      for (const d of dialogs) {
+        await d.open();
+        const backdrop = page.locator(d.backdrop);
+        await expect(backdrop, d.dialog).not.toHaveClass(/hidden/);
+        const name = await dialogName(page, d.dialog);
+        expect(name, `${d.dialog} is named`).not.toBe('');
+        await expect(page.getByRole('dialog', { name, exact: true }), d.dialog).toHaveAttribute('aria-modal', 'true');
+        expect(await focusIn(page, d.dialog), `${d.dialog} takes focus`).toBe(true);
+        await page.keyboard.press('Escape');
+        await expect(backdrop, `${d.dialog} closes on Escape`).toHaveClass(/hidden/);
+      }
+
+    });
+
+    // One Escape closes one dialog: the one on top, never the one beneath it as well.
+    test('stacked dialogs close one per Escape, topmost first', async ({ page }) => {
+      await boot(page);
+      const drawer = page.locator('#settings-drawer');
+
+      // The account dialog over the settings drawer.
+      await page.click('#sidebar-settings-btn');
+      await expect(drawer).toBeVisible();
+      await page.click('#settings-add-account-btn');
+      await expect(page.locator('#account-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.getByRole('dialog', { name: await dialogName(page, '#account-modal'), exact: true }))
+        .toHaveAttribute('aria-modal', 'true');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#account-modal-backdrop')).toHaveClass(/hidden/);
+      await expect(drawer).toBeVisible();
+
+      // The Microsoft 365 dialog over the settings drawer.
+      await page.click('#settings-add-account-btn');
+      await page.click('#btn-link-msgraph');
+      await expect(page.locator('#msgraph-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#msgraph-modal-backdrop')).toHaveClass(/hidden/);
+      await expect(drawer).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(drawer).toBeHidden();
+
+      // The confirm dialog over the event dialog.
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.evaluate(async () => { (await import('/js/dialogFocus.js')).confirmDialog('E2E 87?'); });
+      await expect(page.locator('#confirm-dialog-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#confirm-dialog-backdrop')).toHaveClass(/hidden/);
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    });
+  });
+
+  // Issue #83: on a phone the toolbar is three rows — title and navigation, the view tabs across the
+  // full width, the search — and the desktop-only buttons leave the title room.
+  test('Issue #83 — the mobile toolbar keeps the title whole and spans the view tabs across a row', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/?date=2026-09-25');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#toolbar-title')).toHaveText('September 2026');
+
+    const layout = await page.evaluate(() => {
+      const box = sel => document.querySelector(sel).getBoundingClientRect();
+      const title = document.getElementById('toolbar-title');
+      return {
+        toolbar: box('.toolbar'),
+        title: box('#toolbar-title'),
+        titleClipped: title.scrollWidth > title.clientWidth,
+        tabs: box('.toolbar .view-tabs'),
+        tab: Array.from(document.querySelectorAll('.toolbar .view-tab')).map(el => el.getBoundingClientRect()),
+        search: box('.toolbar .search-wrapper'),
+      };
+    });
+    expect(layout.titleClipped).toBe(false);
+    // Row 2: the tabs sit below the title and take the toolbar's whole content width.
+    expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.title.bottom);
+    expect(layout.tabs.width).toBeGreaterThan(layout.toolbar.width - 40);
+    expect(layout.tab).toHaveLength(6);
+    for (const t of layout.tab) {
+      expect(t.left).toBeGreaterThanOrEqual(0);
+      expect(t.right).toBeLessThanOrEqual(375);
+      expect(Math.abs(t.top - layout.tab[0].top)).toBeLessThan(1);
+    }
+    // Row 3: the search below the tabs.
+    expect(layout.search.top).toBeGreaterThanOrEqual(layout.tabs.bottom);
+    for (const sel of ['#export-pdf-btn', '#invitations-btn', '#availability-btn']) {
+      await expect(page.locator(sel), sel).toBeHidden();
+    }
+  });
+
+  // Issue #22: printing shows the calendar alone — black on white, nothing scrolled away, no
+  // navigation, buttons or open dialogs, and day cells and events kept whole across pages.
+  test.describe('Issue #22 — print', () => {
+    test.use({ serviceWorkers: 'block' });
+    test('the print stylesheet prints the calendar alone, black on white and unclipped', async ({ page }) => {
+      await page.route('**/api/events?**', route => route.fulfill({ json: { events: [{
+        uid: 'e2e-issue22-ev', title: 'Print Probe', calendarId: `internal-caldav::/${E2E_USER}/personal/`,
+        start: '2026-09-25T10:00:00.000Z', end: '2026-09-25T11:00:00.000Z', allDay: false,
+      }], errors: [] } }));
+      await page.goto('/?date=2026-09-25');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('.month-grid .event-chip', { hasText: 'Print Probe' })).toBeVisible({ timeout: 10000 });
+      // A dialog left open must not end up on paper either.
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+
+      const HIDDEN = ['.sidebar', '.toolbar-nav', '.view-tabs', '.search-wrapper', '#export-pdf-btn', '#invitations-btn',
+        '#availability-btn', '#sidebar-settings-btn', '.status-bar', '#event-modal-backdrop'];
+      const shown = () => page.evaluate(sels => sels.map(sel => {
+        const els = Array.from(document.querySelectorAll(sel));
+        return `${sel}: ${els.length ? els.some(el => el.checkVisibility()) : 'missing'}`;
+      }), HIDDEN);
+      // On screen they are there and visible, so hiding them in print is the stylesheet's doing.
+      expect(await shown()).toEqual(HIDDEN.map(sel => `${sel}: true`));
+
+      await page.emulateMedia({ media: 'print' });
+      expect(await shown()).toEqual(HIDDEN.map(sel => `${sel}: false`));
+      await expect(page.locator('#toolbar-title')).toBeVisible();
+      await expect(page.locator('.month-grid')).toBeVisible();
+
+      const print = await page.evaluate(() => {
+        const s = sel => getComputedStyle(document.querySelector(sel));
+        return {
+          bg: s('body').backgroundColor,
+          ink: s('body').color,
+          overflow: ['.app', '.main', '.calendar-container', '.month-grid'].map(sel => `${sel} ${s(sel).overflowY}`),
+          unbroken: ['.month-day', '.event-chip'].map(sel => `${sel} ${s(sel).breakInside}`),
+        };
+      });
+      expect(print).toEqual({
+        bg: 'rgb(255, 255, 255)',
+        ink: 'rgb(0, 0, 0)',
+        overflow: ['.app visible', '.main visible', '.calendar-container visible', '.month-grid visible'],
+        unbroken: ['.month-day avoid', '.event-chip avoid'],
+      });
     });
   });
 });

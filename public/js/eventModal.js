@@ -1000,11 +1000,6 @@ export function initEventModal() {
   backdrop().addEventListener('click', e => {
     if (e.target === backdrop()) closeModal();
   });
-
-  // Close on Escape
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !backdrop().classList.contains('hidden')) closeModal();
-  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
