@@ -206,6 +206,25 @@ function icalTimeToISO(icalTime) {
   return icalTime.toJSDate().toISOString();
 }
 
+/**
+ * End instant (ISO) of a component whose end is a DURATION on a DATE-TIME start.
+ * RFC 5545 §3.3.6: the week/day part is nominal (same wall clock N days later),
+ * the hour/minute/second part is exact elapsed time. ICAL.Time.addDuration is
+ * all-nominal, which stretches or shrinks events across a DST changeover (#293).
+ * Returns null when the component's end is not expressed that way.
+ */
+function exactDurationEndISO(component, startTime) {
+  if (!startTime || startTime.isDate || component.getFirstProperty('dtend')) return null;
+  const durProp = component.getFirstProperty('duration');
+  if (!durProp) return null;
+  const dur = durProp.getFirstValue();
+  const sign = dur.isNegative ? -1 : 1;
+  const wall = startTime.clone();
+  wall.adjust(sign * (dur.weeks * 7 + dur.days), 0, 0, 0);
+  const exactMs = sign * (dur.hours * 3600 + dur.minutes * 60 + dur.seconds) * 1000;
+  return new Date(wall.toJSDate().getTime() + exactMs).toISOString();
+}
+
 function parseVEventToEvent(vevent, meta = {}) {
   if (vevent && typeof vevent.getAllProperties === 'function') {
     const datePropNames = ['dtstart', 'dtend', 'due', 'recurrence-id', 'exdate', 'rdate'];
@@ -340,7 +359,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     uid:         ev.uid,
     title:       ev.summary   || '(No title)',
     start:       dtstart      ? icalTimeToISO(dtstart) : null,
-    end:         dtend        ? icalTimeToISO(dtend)   : null,
+    end:         exactDurationEndISO(vevent, dtstart) || (dtend ? icalTimeToISO(dtend) : null),
     duration:    duration     || null,
     allDay:      isAllDay,
     location:    ev.location  || null,
@@ -580,7 +599,8 @@ function expandVEventGroup(vevents, rangeStart, rangeEnd, meta = {}) {
       continue;
     }
     const occStartIso = details.startDate.isDate ? icalTimeToISO(details.startDate) : details.startDate.toJSDate().toISOString();
-    const occEndIso = details.endDate.isDate ? icalTimeToISO(details.endDate) : details.endDate.toJSDate().toISOString();
+    const occEndIso = exactDurationEndISO(details.item.component, details.startDate)
+      || (details.endDate.isDate ? icalTimeToISO(details.endDate) : details.endDate.toJSDate().toISOString());
 
     const occStart = details.startDate.toJSDate();
     const occEnd = details.endDate.toJSDate();
