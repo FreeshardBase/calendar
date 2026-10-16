@@ -184,7 +184,8 @@ async function calendarsUnchanged() {
     const hadToken = Boolean(getCalendarSyncCache(cal.id)?.syncToken);
     const res = await syncCalendarDelta(cal.id);
     return hadToken && Boolean(res?.syncToken) && !res.fallbackPerformed &&
-      (res.updated || []).length === 0 && (res.deleted || []).length === 0;
+      (res.updated || []).length === 0 && (res.deleted || []).length === 0 &&
+      (res.unparseable || []).length === 0;
   }));
   return results.every(Boolean);
 }
@@ -302,10 +303,25 @@ async function loadEvents() {
   }
 }
 
+let lastUnparseableTaskNotice = '';
+
+// Tasks the server could not parse are missing from the list — say so once
+// per distinct set instead of on every reload (#208).
+function reportUnparseableTasks(info) {
+  const key = JSON.stringify(info);
+  if (key === lastUnparseableTaskNotice) return;
+  lastUnparseableTaskNotice = key;
+  const n = info.count;
+  showToast(n === 1
+    ? '1 gespeicherte Aufgabe konnte nicht gelesen werden und wird nicht angezeigt.'
+    : `${n} gespeicherte Aufgaben konnten nicht gelesen werden und werden nicht angezeigt.`, 'error');
+  console.error('[loadTasks] Unparseable CalDAV resources:', info.resources);
+}
+
 async function loadTasks() {
   store.set({ loadingTasks: true });
   try {
-    const tasks = await TasksAPI.list();
+    const tasks = await TasksAPI.list(reportUnparseableTasks);
     store.set({ tasks, tasksError: null });
     renderTaskSidebar();
     if (store.get('view') === 'kanban') {

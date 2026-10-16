@@ -1,5 +1,6 @@
 'use strict';
 const { sendError, describeError } = require('../utils/errorSanitizer');
+const { setUnparseableHeader } = require('../utils/unparseableReport');
 
 const express = require('express');
 const router = express.Router();
@@ -21,6 +22,7 @@ router.get('/', async (req, res) => {
 
     const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
     const errors = [];
+    const unparseable = [];
     let successfulCalendars = 0;
 
     const hasCalDAVEnv = Boolean(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
@@ -65,8 +67,10 @@ router.get('/', async (req, res) => {
             calendars.map(async (cal) => {
               try {
                 const tasksXml = await client.getTasks(cal.url);
-                const tasks = parseTaskList(tasksXml, cal.id, account.id, cal.url);
+                const parseErrors = [];
+                const tasks = parseTaskList(tasksXml, cal.id, account.id, cal.url, parseErrors);
                 allTasks.push(...tasks);
+                for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
                 successfulCalendars++;
               } catch (taskErr) {
                 console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
@@ -86,6 +90,7 @@ router.get('/', async (req, res) => {
     if (errors.length > 0) {
       res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
     }
+    setUnparseableHeader(res, unparseable);
 
     const specificCalendarFailed = req.query.calendarId && errors.some(e => e.calendarId === req.query.calendarId);
     const allAccountsFailed = activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0;
