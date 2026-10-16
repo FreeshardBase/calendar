@@ -171,15 +171,6 @@ test('Issue #144 — the OIDC sub is the storage identity (NODE_ENV=production)'
     assert.equal(acc.username, '1', 'Radicale login is the sub, which the rights plugin compares to the path');
   });
 
-  await t.test('the proxy header identity also keys the collection root on the sub', async () => {
-    const res = await fetch(`${origin}/api/accounts`, {
-      headers: { 'x-freeshard-secret': HEADER_SECRET, 'x-forwarded-user': '1' }
-    });
-    assert.equal(res.status, 200);
-    const acc = (await res.json()).find((a) => a.id === 'internal-caldav');
-    assert.equal(acc.url, `${RADICALE}/1/`);
-  });
-
   await t.test('sub "1" owns, and can share, its own calendars', async () => {
     const req = { session: { userId: '1' } };
     const own = await checkCalendarAccess(req, 'internal-caldav::/1/personal/', 'owner');
@@ -210,11 +201,28 @@ test('Issue #144 — the OIDC sub is the storage identity (NODE_ENV=production)'
     }
   });
 
-  await t.test('a sub that is not a safe path segment is refused with 401 from the proxy header', async () => {
+  // #523: the proxy header identity exists only in env mode with HTTP_HEADER_AUTH=true.
+  const viaProxy = (user) => fetch(`${origin}/api/accounts`, {
+    headers: { 'x-freeshard-secret': HEADER_SECRET, 'x-ptl-client-type': 'terminal', 'x-forwarded-user': user }
+  });
+  function useEnvHeaderAuth(tt) {
+    process.env.AUTH_METHOD = 'env';
+    process.env.HTTP_HEADER_AUTH = 'true';
+    tt.after(() => { process.env.AUTH_METHOD = 'oidc'; delete process.env.HTTP_HEADER_AUTH; });
+  }
+
+  await t.test('the env-mode proxy header identity also keys the collection root on the user id', async (tt) => {
+    useEnvHeaderAuth(tt);
+    const res = await viaProxy('1');
+    assert.equal(res.status, 200);
+    const acc = (await res.json()).find((a) => a.id === 'internal-caldav');
+    assert.equal(acc.url, `${RADICALE}/1/`);
+  });
+
+  await t.test('a user id that is not a safe path segment is refused with 401 from the proxy header', async (tt) => {
+    useEnvHeaderAuth(tt);
     for (const sub of ['../2', '2/personal', '..', 'a b']) {
-      const res = await fetch(`${origin}/api/accounts`, {
-        headers: { 'x-freeshard-secret': HEADER_SECRET, 'x-forwarded-user': sub }
-      });
+      const res = await viaProxy(sub);
       assert.equal(res.status, 401, `header identity ${JSON.stringify(sub)} must be refused`);
     }
   });

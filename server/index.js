@@ -60,6 +60,10 @@ function validateSecurityConfig(env = process.env) {
   if (authMethod !== 'env' && authMethod !== 'oidc') {
     throw new Error(`AUTH_METHOD must be 'env' or 'oidc', got '${authMethod}'.`);
   }
+  // #523: in oidc mode the identity comes only from the OIDC callback; a header identity is never read.
+  if (authMethod === 'oidc' && env.HTTP_HEADER_AUTH === 'true') {
+    throw new Error('HTTP_HEADER_AUTH=true is only valid with AUTH_METHOD=env; AUTH_METHOD=oidc takes the identity from the OIDC login.');
+  }
   // #121: a missing issuer stops the start-up, not the first login.
   if (authMethod === 'oidc' && !(env.OIDC_ISSUER_URL && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET)) {
     throw new Error(OIDC_CONFIG_MISSING);
@@ -172,12 +176,23 @@ app.use(async (req, res, next) => {
   if (!usesSession(req)) return next();
   const authMethod = process.env.AUTH_METHOD || 'env';
   // #50/#245: identity comes only from the session or the secret-gated proxy headers below.
+  // #523: in oidc mode only the OIDC callback sets the identity; the proxy headers are env-mode only.
   let newUserId = req.session.userId;
-  if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
+  let fromHeader = false;
+  if (authMethod === 'env' && process.env.HTTP_HEADER_AUTH === 'true') {
     if (hasProxySecret(req)) {
       const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'];
       if (headerUser) {
         newUserId = String(headerUser).trim();
+        fromHeader = true;
+        // #523: a new identity never inherits the previous (or an anonymous) session.
+        if (req.session.userId !== newUserId) {
+          try {
+            await new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())));
+          } catch (err) {
+            return next(err);
+          }
+        }
       }
       const headerEmail = req.headers['x-forwarded-email'] || req.headers['remote-email'] || req.headers['x-user-email'];
       if (headerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(headerEmail).trim())) {
@@ -195,8 +210,9 @@ app.use(async (req, res, next) => {
     }
   }
 
-  // #144: in oidc mode the user id is the storage identity and names the Radicale collection root.
-  if (authMethod === 'oidc' && newUserId && !isSafeStorageId(newUserId)) {
+  // #144: the user id is the storage identity and names the Radicale collection root. From the OIDC
+  // session or the proxy header it is refused unless it is a safe path segment.
+  if ((authMethod === 'oidc' || fromHeader) && newUserId && !isSafeStorageId(newUserId)) {
     delete req.session.userId;
     req.session.accounts = [];
     return res.status(401).json({ error: 'Authentication required' });

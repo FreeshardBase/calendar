@@ -23,7 +23,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `process.env.PORT || …`), so an exported `PORT` (e.g. `PORT=3000` from `.env.example`) cannot make files collide.
   A test becomes a user with `await loginAs(userId, { username, email })` from `server/test/helpers/testSession.js`:
   it writes a real session row and returns a signed `cookie` header value. No request header asserts an identity,
-  under any `NODE_ENV` (#50/#245); the only header identity is the secret-gated proxy auth (`HTTP_HEADER_AUTH`/`oidc`).
+  under any `NODE_ENV` (#50/#245); the only header identity is the secret-gated proxy auth (`AUTH_METHOD=env` with `HTTP_HEADER_AUTH=true`, #523).
   A suite that sends POST/PUT/PATCH/DELETE with `fetch` requires `./helpers/sameOriginFetch` first: the CSRF
   guard (#340) refuses requests without a same-origin `Origin`/`Sec-Fetch-Site`, which Node's fetch never sends.
 - `python3 -m unittest discover -s server/test/python` — Python test suite (`radicale_custom_auth`, `radicale_custom_rights`, `sync_worker`, `msgraph_worker`).
@@ -71,7 +71,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   on every request: DB-stored linked accounts + `env-default` (from `CALDAVURL` env) +
   `internal-caldav` (Radicale at `INTERNAL_CALDAV_URL`, authed with `SYSTEM_SYNC_SECRET`).
   Auth modes via `AUTH_METHOD`: `env` (default and the shipping mode; one owner, userId = `CALDAV_USERNAME`,
-  `owner` in the store template) or `oidc` (the shard's own OIDC provider, plus secret-gated proxy header identity).
+  `owner` in the store template) or `oidc` (the shard's own OIDC provider; the identity comes only from the OIDC callback, never from
+  proxy headers, and `oidc` with `HTTP_HEADER_AUTH=true` aborts boot, #523). With `env` and `HTTP_HEADER_AUTH=true`, `X-Forwarded-User`/`X-User-Id`/`Remote-User` plus the
+  proxy secret set the user id (refused with 401 unless a safe path segment, #144); a changed identity regenerates the session.
   `shard_core` has no OIDC provider yet, so no shard can run `oidc`; `oidc` without `OIDC_ISSUER_URL`,
   `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` aborts boot (#121). Decision (#121): user-to-user sharing waits
   for that provider and is not cut; until then a shard has only its owner. No users are seeded.
