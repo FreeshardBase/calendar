@@ -146,9 +146,14 @@ export const InvitationsAPI = {
 
 // ── Tasks (VTODO) ─────────────────────────────────────────────────────────────
 export const TasksAPI = {
-  list: async () => {
+  // onUnparseable({ count, resources }) is called when the server could not
+  // read some stored tasks and left them out of the list (#208).
+  list: async (onUnparseable) => {
     try {
-      const tasks = await request('GET', '/api/tasks');
+      const tasks = await request('GET', '/api/tasks', undefined, (res) => {
+        const header = res.headers.get('x-caldav-unparseable');
+        if (header && onUnparseable) onUnparseable(JSON.parse(decodeURIComponent(header)));
+      });
       if (typeof window !== 'undefined' && window.OfflineCache) {
         window.OfflineCache.saveTasks(tasks);
       }

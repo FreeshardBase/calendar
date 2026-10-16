@@ -475,28 +475,34 @@ function reconcileTaskStatus(task) {
 
 function parseICSToTask(icsString, meta = {}) {
   try {
-    const jcal = ICAL.parse(icsString);
-    const comp = new ICAL.Component(jcal);
-    const vtimezones = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtimezone') : [];
-    for (const vtz of vtimezones) {
-      const tzid = vtz.getFirstPropertyValue('tzid');
-      if (tzid && !ICAL.TimezoneService.has(tzid)) {
-        // A malformed VTIMEZONE from an external server costs its timezone, not the whole task.
-        try {
-          ICAL.TimezoneService.register(vtz);
-        } catch (err) {
-          console.warn(`[parser] Ignoring unusable VTIMEZONE ${tzid}: ${err.message}`);
-        }
-      }
-    }
-    const vtodos = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtodo') : [];
-    if (vtodos.length === 0) return null;
-    const masterVtodo = vtodos.find(v => !v.getFirstProperty('recurrence-id')) || vtodos[0];
-    return parseVTodoToTask(masterVtodo, { rawIcs: icsString, allVtodos: vtodos, ...meta });
+    return parseICSToTaskOrThrow(icsString, meta);
   } catch (e) {
     console.warn('[parser] Failed to parse ICS string to task:', e.message);
     return null;
   }
+}
+
+// Like parseICSToTask, but an unreadable payload throws so a list parser can
+// report the resource instead of dropping it (#208).
+function parseICSToTaskOrThrow(icsString, meta = {}) {
+  const jcal = ICAL.parse(icsString);
+  const comp = new ICAL.Component(jcal);
+  const vtimezones = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtimezone') : [];
+  for (const vtz of vtimezones) {
+    const tzid = vtz.getFirstPropertyValue('tzid');
+    if (tzid && !ICAL.TimezoneService.has(tzid)) {
+      // A malformed VTIMEZONE from an external server costs its timezone, not the whole task.
+      try {
+        ICAL.TimezoneService.register(vtz);
+      } catch (err) {
+        console.warn(`[parser] Ignoring unusable VTIMEZONE ${tzid}: ${err.message}`);
+      }
+    }
+  }
+  const vtodos = comp.getAllSubcomponents ? comp.getAllSubcomponents('vtodo') : [];
+  if (vtodos.length === 0) return null;
+  const masterVtodo = vtodos.find(v => !v.getFirstProperty('recurrence-id')) || vtodos[0];
+  return parseVTodoToTask(masterVtodo, { rawIcs: icsString, allVtodos: vtodos, ...meta });
 }
 
 function parseVTodoToTask(vtodo, meta = {}) {
@@ -636,14 +642,14 @@ function parseVTodoToTask(vtodo, meta = {}) {
   });
 }
 
-function parseTaskList(xml, calendarId, accountId, calendarUrl) {
-  let doc;
-  try {
-    doc = xmlParser.parseFromString(xml, 'text/xml');
-  } catch (e) {
-    console.error('[parser] XML parse error:', e.message);
-    return [];
-  }
+/**
+ * Parse a REPORT (calendar-query) response into an array of task objects.
+ *
+ * @param {Array} [parseErrors] receives { href, error } for every resource that
+ *   could not be parsed; such resources are left out of the returned list.
+ */
+function parseTaskList(xml, calendarId, accountId, calendarUrl, parseErrors = null) {
+  const doc = parseMultistatus(xml, 'Task list');
 
   const responses = getByLocalName(doc, 'response');
   const tasks = [];
@@ -668,7 +674,7 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl) {
     if (!calendarData) continue;
 
     try {
-      const task = parseICSToTask(calendarData, {
+      const task = parseICSToTaskOrThrow(calendarData, {
         calendarId,
         accountId,
         href,
@@ -678,6 +684,7 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl) {
       if (task) tasks.push(task);
     } catch (e) {
       console.warn(`[parser] Failed to parse task ${href}:`, e.message);
+      if (parseErrors) parseErrors.push({ href, error: e.message });
     }
   }
 
@@ -1379,17 +1386,19 @@ function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl) {
     doc = xmlParser.parseFromString(xml, 'text/xml');
   } catch (e) {
     console.error('[parser] XML parse error:', e.message);
-    return { syncToken: null, updated: [], deleted: [] };
+    return { syncToken: null, updated: [], deleted: [], unparseable: [] };
   }
 
   const syncToken = firstText(doc, 'sync-token');
   const hasValidSyncTokenError = (xml && (xml.includes('valid-sync-token') || xml.includes('invalid-sync-token')));
   if (hasValidSyncTokenError && !syncToken) {
-    return { syncToken: null, updated: [], deleted: [], invalidSyncToken: true };
+    return { syncToken: null, updated: [], deleted: [], unparseable: [], invalidSyncToken: true };
   }
   const responses = getByLocalName(doc, 'response');
   const updated = [];
   const deleted = [];
+  // Changed resources that could not be parsed: still a change (#208).
+  const unparseable = [];
 
   for (const response of responses) {
     const href = firstText(response, 'href');
@@ -1437,11 +1446,12 @@ function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl) {
         }));
       } catch (e) {
         console.warn(`[parser] Failed to parse delta event ${href}:`, e.message);
+        unparseable.push(href);
       }
     }
   }
 
-  return { syncToken: syncToken || null, updated, deleted };
+  return { syncToken: syncToken || null, updated, deleted, unparseable };
 }
 
 module.exports = {

@@ -23,6 +23,7 @@ const Db = require('../db');
 const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
 const { sendError, describeError } = require('../utils/errorSanitizer');
+const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
 const { assertValidAlarms } = require('../utils/ical');
 
@@ -36,8 +37,6 @@ function hasUnsafeAttachment(attachments) {
   });
 }
 const UNSAFE_ATTACHMENT_ERROR = 'Unsafe attachment URL rejected: only http, https and mailto URLs are allowed';
-
-const UNPARSEABLE_REPORT_LIMIT = 5;
 
 // Issue #128: a malformed TRIGGER is rejected by the CalDAV server (or, on a
 // lenient one, stored and then unreadable) — refuse it before it is serialised.
@@ -260,16 +259,7 @@ router.get('/', async (req, res) => {
     if (errors.length > 0) {
       res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
     }
-    // Resources the server returned but that could not be parsed are left out of
-    // the list; name them so the loss is visible rather than silent (#128).
-    // Percent-encoded so any href or message stays a legal header value; the
-    // list is capped, the count is not (the parser logs every failure).
-    if (unparseable.length > 0) {
-      res.setHeader('X-CalDAV-Unparseable', encodeURIComponent(JSON.stringify({
-        count: unparseable.length,
-        resources: unparseable.slice(0, UNPARSEABLE_REPORT_LIMIT).map(u => ({ calendarId: u.calendarId, href: u.href }))
-      })));
-    }
+    setUnparseableHeader(res, unparseable);
 
     const specificCalendarFailed = calendarId && errors.some(e => e.calendarId === calendarId);
     const allAccountsFailed = activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0;

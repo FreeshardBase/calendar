@@ -1632,6 +1632,23 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
     });
 
+    test('Issue #208 — tasks the server could not parse are reported in a toast, not silently missing', async ({ page }) => {
+      const report = encodeURIComponent(JSON.stringify({
+        count: 3,
+        resources: [{ calendarId: 'internal-caldav::/testuser/tasks/', href: '/testuser/tasks/broken.ics' }]
+      }));
+      await page.route('**/api/tasks', async (route) => {
+        if (route.request().method() !== 'GET') return route.continue();
+        const response = await route.fetch();
+        await route.fulfill({ response, headers: { ...response.headers(), 'x-caldav-unparseable': report } });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#toast-container .toast.error', {
+        hasText: '3 gespeicherte Aufgaben konnten nicht gelesen werden und werden nicht angezeigt.'
+      })).toBeVisible({ timeout: 10000 });
+    });
+
     test('Issue #65 — a calendar that could not be loaded gets a warning badge and a toast, not an empty week', async ({ page }) => {
       const okId = 'internal-caldav::/testuser/issue65-ok/';
       const badId = 'internal-caldav::/testuser/issue65-bad/';

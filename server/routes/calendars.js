@@ -1348,15 +1348,16 @@ router.post('/:id/delta-sync', async (req, res) => {
       throw new Error('[delta-sync] Server rejected a sync-collection REPORT without a sync token');
     }
 
-    const { syncToken, updated, deleted } = parsed;
+    const { syncToken, updated, deleted, unparseable } = parsed;
 
     if (syncToken) {
       await Db.upsertCalendarSyncCache(calendarId, ctag, syncToken);
     }
 
-    // Unchanged only when the server confirmed an existing token and reported an empty delta.
+    // Unchanged only when the server confirmed an existing token and reported an
+    // empty delta; a changed resource that could not be parsed is a change too (#208).
     const ctagChanged = !tokenToUse || fallbackPerformed || !syncToken ||
-      updated.length > 0 || deleted.length > 0;
+      updated.length > 0 || deleted.length > 0 || unparseable.length > 0;
 
     res.json({
       calendarId,
@@ -1364,6 +1365,7 @@ router.post('/:id/delta-sync', async (req, res) => {
       syncToken,
       updated,
       deleted,
+      unparseable,
       fallbackPerformed
     });
   } catch (err) {
