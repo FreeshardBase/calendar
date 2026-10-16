@@ -52,7 +52,10 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
     DATABASE_PATH=/tmp/cal-data/webcalendar.db SSL_KEY_PATH= SSL_CERT_PATH= node server/index.js
   ```
   (self-signed certs: `openssl req -x509 -newkey rsa:2048 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes -subj "/CN=localhost"`)
-- Full stack: `docker compose up --build` (webcalendar + caldav-server + sync-worker, shared SQLite volume).
+- Full stack: `cp .env.example .env` first (`.env` is gitignored and every service's `env_file` requires it; set
+  `SESSION_SECRET`, `ENCRYPTION_KEY`, `SYSTEM_SYNC_SECRET`, `BASE_URL`, `HTTP_HEADER_AUTH_SECRET`), then
+  `docker compose up --build` (webcalendar + caldav-server + sync-worker). All three mount the named volume
+  `shared-data` (app at `/app/data`, Radicale and sync-worker at `/data`) and open the same `webcalendar.db` in it.
 
 ## Architecture
 
