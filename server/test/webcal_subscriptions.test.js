@@ -10,7 +10,6 @@ process.env.SSL_CERT_PATH = '';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
 const http = require('node:http');
 
 const Db = require('../db');
@@ -361,26 +360,6 @@ test('Webcal Read-Only Calendar Subscriptions Suite (Issue #24)', async (t) => {
       await new Promise((resolve) => periodicServer.close(resolve));
     }
   });
-
-  await t.test('UI & Client Integration - frontend modules consume api/webcal and expose overlay controls', () => {
-    const fs = require('fs');
-    const apiJs = fs.readFileSync(path.join(__dirname, '../../public/js/api.js'), 'utf-8');
-    const appJs = fs.readFileSync(path.join(__dirname, '../../public/js/app.js'), 'utf-8');
-    const indexHtml = fs.readFileSync(path.join(__dirname, '../../public/index.html'), 'utf-8');
-    const calendarJs = fs.readFileSync(path.join(__dirname, '../../public/js/calendar.js'), 'utf-8');
-    const eventModalJs = fs.readFileSync(path.join(__dirname, '../../public/js/eventModal.js'), 'utf-8');
-
-    // Requirement 1: WebcalAPI exists in public/js/api.js
-    assert.ok(apiJs.includes('WebcalAPI') || apiJs.includes('/api/webcal'), 'public/js/api.js must define Webcal API endpoints');
-
-    // Requirement 1: UI for adding webcal feed by URL
-    assert.ok(indexHtml.includes('add-webcal-btn') || indexHtml.includes('webcal-modal') || indexHtml.includes('Abonnement') || indexHtml.includes('webcal-list'), 'index.html must include Webcal subscription UI elements');
-    assert.ok(appJs.includes('/api/webcal') || appJs.includes('WebcalAPI'), 'public/js/app.js must consume Webcal API');
-
-    // Requirement 3: Overlay with toggle, isSubscription, subscriptionId, readOnly
-    assert.ok(appJs.includes('isSubscription') || calendarJs.includes('isSubscription'), 'Frontend must consume isSubscription flag');
-    assert.ok(appJs.includes('subscriptionId') || calendarJs.includes('subscriptionId'), 'Frontend must consume subscriptionId');
-    assert.ok(eventModalJs.includes('isSubscription') || eventModalJs.includes('Webcal') || eventModalJs.includes('Abonnement'), 'Event modal must handle Webcal subscription read-only state');
-  });
+  // The UI (add dialog, overlay, toggle, read-only popover) is driven in e2e/calendar.spec.js (#24, #342).
 });
 
