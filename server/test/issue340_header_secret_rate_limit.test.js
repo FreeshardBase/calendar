@@ -27,8 +27,8 @@ const INTERNAL_SECRET = 'issue340-internal-webhook-secret-0123456789';
 test('Issue #340 — header secret & rate limits (NODE_ENV=production)', async (t) => {
   const origEnv = { ...process.env };
   process.env.NODE_ENV = 'production';
-  // oidc, so the #246 env-mode proxy gate does not answer first and the header identity is measured alone.
-  process.env.AUTH_METHOD = 'oidc';
+  // #523: the proxy header identity exists only in env mode with HTTP_HEADER_AUTH=true.
+  process.env.AUTH_METHOD = 'env';
   process.env.BASE_URL = 'https://calendar.shard.example';
   process.env.DATABASE_PATH = path.join(tmpDir, 'issue340.db');
   process.env.SESSION_SECRET = 'issue340-prod-session-secret-0123456789abcdef';
@@ -51,7 +51,10 @@ test('Issue #340 — header secret & rate limits (NODE_ENV=production)', async (
 
   function asProxiedUser(secret) {
     return fetch(`${origin}/api/accounts`, {
-      headers: { 'x-freeshard-secret': secret, 'x-forwarded-user': 'testuser', 'x-forwarded-email': 'testuser@example.com' }
+      headers: {
+        'x-freeshard-secret': secret, 'x-ptl-client-type': 'terminal',
+        'x-forwarded-user': 'testuser', 'x-forwarded-email': 'testuser@example.com'
+      }
     });
   }
 
@@ -89,6 +92,8 @@ test('Issue #340 — header secret & rate limits (NODE_ENV=production)', async (
   const viaProxy = (spoofed, real) => ({ 'X-Forwarded-For': `${spoofed}, ${real}` });
 
   await t.test('auth routes answer 429 per client IP; spoofed X-Forwarded-For entries do not help', async () => {
+    // oidc, so the #246 env-mode proxy gate does not answer first and the rate limit is measured alone.
+    process.env.AUTH_METHOD = 'oidc';
     for (let i = 0; i < AUTH_RATE_LIMIT.max; i++) {
       const res = await fetch(`${origin}/api/auth/login`, { headers: viaProxy(`10.9.${i >> 8}.${i & 255}`, '198.51.100.7'), redirect: 'manual' });
       assert.notEqual(res.status, 429, `request ${i + 1} is within the budget`);
@@ -102,6 +107,7 @@ test('Issue #340 — header secret & rate limits (NODE_ENV=production)', async (
   });
 
   await t.test('public routes answer 429 per client IP across different share tokens', async () => {
+    process.env.AUTH_METHOD = 'oidc';
     for (let i = 0; i < PUBLIC_RATE_LIMIT.max; i++) {
       const res = await fetch(`${origin}/api/public/calendars/share/unknown-${i}.ics`, { headers: viaProxy('10.0.0.1', '203.0.113.9') });
       assert.notEqual(res.status, 429, `request ${i + 1} is within the budget`);
