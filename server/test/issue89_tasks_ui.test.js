@@ -355,7 +355,7 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     assert.strictEqual(updatedPayload.percentComplete, 100);
     assert.strictEqual(
       env.toasts[0].msg,
-      'Aufgabe auf 21.8.2026 verschoben.',
+      'Aufgabe auf 21.08.2026 verschoben.',
       'Toast must announce the shifted date rather than unconditionally stating "Aufgabe als erledigt markiert."'
     );
   });
@@ -423,7 +423,7 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     assert.strictEqual(updatedPayload.percentComplete, 100);
     assert.strictEqual(
       env.toasts[0].msg,
-      'Aufgabe auf 21.8.2026 verschoben.',
+      'Aufgabe auf 21.08.2026 verschoben.',
       'Toast on completing recurring task via status-next must announce the shifted date'
     );
   });
@@ -495,7 +495,7 @@ describe('Issue #89 — Tasks UI Feedback, Error Reporting & RRULE Badge Formatt
     assert.strictEqual(updatedPayload.percentComplete, 100);
     assert.strictEqual(
       env.toasts[0].msg,
-      'Aufgabe auf 21.8.2026 verschoben.',
+      'Aufgabe auf 21.08.2026 verschoben.',
       'Sidebar checkbox on recurring task must announce shifted date'
     );
   });

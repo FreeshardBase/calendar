@@ -14,7 +14,7 @@ test('Issue #167 - German typography: no straight closing quote after German ope
     'public/js/calendar.js'
   ];
 
-  const matchedPattern = /„[^”\n]*"/g;
+  const matchedPattern = /„[^“\n]*"/g;
 
   for (const relPath of jsFiles) {
     const fullPath = path.join(projectRoot, relPath);
