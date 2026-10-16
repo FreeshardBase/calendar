@@ -260,6 +260,7 @@ ENCRYPTION_SECRET = resolve_encryption_secret()
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
+LOCAL_CALDAV_CERT_PATH = "/etc/ssl/certs/local/cert.pem"
 SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -471,6 +472,19 @@ def ini_value(value):
     return json.dumps(value, ensure_ascii=True)
 
 
+def local_caldav_verify_line():
+    """TLS verification for the local Radicale storage (Issue #282).
+
+    Needs vdirsyncer >= 0.19 (pinned in requirements.txt): `verify` must be a PEM path there,
+    `verify_fingerprint` alone no longer trusts a self-signed cert, and `verify = false` is a
+    fatal config error that stops every pair. Without the certificate the key is omitted, which
+    keeps default verification (the shard topology talks plain HTTP to Radicale).
+    """
+    if os.path.exists(LOCAL_CALDAV_CERT_PATH):
+        return f'verify = {ini_value(LOCAL_CALDAV_CERT_PATH)}'
+    return ''
+
+
 def legacy_google_collection_name(display_name):
     """Collection name earlier worker versions derived from the Google display name."""
     slug = unicodedata.normalize('NFKD', display_name).encode('ascii', 'ignore').decode('ascii').lower()
@@ -655,9 +669,7 @@ def sync_basic_caldav_accounts(user_id, conn):
 
     config_content = f'[general]\nstatus_path = {ini_value(status_dir)}\n'
 
-    # Determine SSL verification for local CalDAV
-    cert_path = "/etc/ssl/certs/local/cert.pem"
-    verify_line = f'verify = {ini_value(cert_path)}' if os.path.exists(cert_path) else 'verify = false'
+    verify_line = local_caldav_verify_line()
     local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 
     for idx, acc in enumerate(basic_accounts):
@@ -880,10 +892,7 @@ status_path = {ini_value(status_dir)}
             collections_toml = f"collections = {ini_value(items)}"
             pairs_written += 1
 
-            # Determine SSL verification for local CalDAV server
-            cert_path = "/etc/ssl/certs/local/cert.pem"
-            verify_line = f'verify = {ini_value(cert_path)}' if os.path.exists(cert_path) else 'verify = false'
-
+            verify_line = local_caldav_verify_line()
             local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
 
             config_content += f"""

@@ -179,7 +179,8 @@ class TestSyncWorker(unittest.TestCase):
         if os.path.exists("/etc/ssl/certs/local/cert.pem"):
             self.assertIn('verify = "/etc/ssl/certs/local/cert.pem"', content)
         else:
-            self.assertIn('verify = false', content)
+            # Fatal config error on vdirsyncer >= 0.19 (#282); the key is omitted instead.
+            self.assertNotIn('verify =', content)
 
         sync_worker.purge_tmp_credential_files("user-verify-test")
 
