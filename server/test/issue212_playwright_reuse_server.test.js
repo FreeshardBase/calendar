@@ -1,25 +1,31 @@
 'use strict';
 
+// Issue #212: CI must start its own server under test, never attach to whatever already listens on
+// the port; a local run may reuse a running dev server. The config is loaded in a fresh process,
+// as the Playwright runner does, with and without CI set.
+
 const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
+const assert = require('node:assert/strict');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
-test('Issue #212 — Playwright webServer config must not set reuseExistingServer unconditionally to true', async () => {
-  const configPath = path.join(__dirname, '../../playwright.config.js');
-  const content = fs.readFileSync(configPath, 'utf8');
+const CONFIG_PATH = path.join(__dirname, '../../playwright.config.js');
 
-  // Verify webServer does not hardcode reuseExistingServer: true
-  assert.strictEqual(
-    content.includes('reuseExistingServer: true'),
-    false,
-    'playwright.config.js webServer should not hardcode reuseExistingServer: true unconditionally'
-  );
+function reuseExistingServer(ci) {
+  const env = { ...process.env };
+  delete env.CI;
+  if (ci !== undefined) env.CI = ci;
+  const out = execFileSync(process.execPath, ['-e',
+    `process.stdout.write(JSON.stringify(require(${JSON.stringify(CONFIG_PATH)}).webServer.reuseExistingServer))`],
+  { env, encoding: 'utf8' });
+  return JSON.parse(out);
+}
 
-  // Verify webServer specifies reuseExistingServer depending on process.env.CI
-  assert.strictEqual(
-    content.includes('reuseExistingServer: !process.env.CI'),
-    true,
-    'playwright.config.js webServer must set reuseExistingServer based on !process.env.CI'
-  );
+test('Issue #212 — CI never reuses an already running server', () => {
+  assert.equal(reuseExistingServer('true'), false);
+  assert.equal(reuseExistingServer('1'), false);
+});
+
+test('Issue #212 — a local run reuses a running server', () => {
+  assert.equal(reuseExistingServer(undefined), true);
 });
