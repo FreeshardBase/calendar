@@ -5054,4 +5054,541 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       });
     });
   });
+
+  // #400 (#358): the app-shell behaviour that public/js/app.js once had only source-grep tests for.
+  test.describe('Issue #400 — app shell behaviour', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    const PERSONAL = `internal-caldav::/${E2E_USER}/personal/`;
+    const calendar = (id, name, extra = {}) => ({
+      id, accountId: 'internal-caldav', name, color: '#3366cc', href: id.split('::')[1],
+      isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: true, ...extra
+    });
+    const event = (uid, title, start, end, calendarId = PERSONAL, extra = {}) => ({
+      uid, title, calendarId, accountId: 'internal-caldav', start, end, allDay: false, ...extra
+    });
+    const task = (uid, title, status, calendarId = PERSONAL) => ({
+      uid, title, status, calendarId, href: `${calendarId.split('::')[1]}${uid}.ics`, etag: '"1"'
+    });
+    const serveEvents = (page, events, errors = []) => page.route('**/api/events?*', route =>
+      route.fulfill({ json: { events: typeof events === 'function' ? events(route) : events, errors } }));
+    const serveTasks = (page, tasks) => page.route(/\/api\/tasks(\?.*)?$/, route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({ json: tasks });
+    });
+    const openApp = async (page, path = '/') => {
+      await page.goto(path);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    };
+    // The month a month-view request is for: its range starts in the week before the 1st.
+    const requestedMonth = route => {
+      const start = new Date(new URL(route.request().url()).searchParams.get('start'));
+      return new Date(start.getTime() + 10 * 24 * 3600 * 1000).toISOString().slice(0, 7);
+    };
+    // Lets responses that already arrived reach the page's handlers before an absence is asserted.
+    const settle = page => page.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
+
+    test.describe('Issue #108 — a search without hits and an empty board say so', () => {
+      test('the Kanban board with no tasks shows the board notice and an empty marker per column', async ({ page }) => {
+        await serveTasks(page, []);
+        await openApp(page);
+        await page.click('#view-kanban');
+        const notice = page.locator('#calendar-container .kanban-empty-state');
+        await expect(notice).toHaveCount(1, { timeout: 10000 });
+        await expect(notice).toContainText('Keine Aufgaben vorhanden');
+        await expect(page.locator('#calendar-container .kanban-column-empty')).toHaveCount(3);
+      });
+
+      test('a Kanban search without hits names the query', async ({ page }) => {
+        await serveTasks(page, [task('e2e-400-108-task', 'Wocheneinkauf', 'NEEDS-ACTION')]);
+        await openApp(page);
+        await page.click('#view-kanban');
+        await expect(page.locator('.kanban-card', { hasText: 'Wocheneinkauf' })).toBeVisible({ timeout: 10000 });
+        await page.fill('#search-input', 'ProjektX');
+        const notice = page.locator('#calendar-container .search-empty-state');
+        await expect(notice).toContainText('Keine Aufgaben gefunden');
+        await expect(notice).toContainText('„ProjektX“');
+        await expect(page.locator('.kanban-card')).toHaveCount(0);
+      });
+
+      test('a calendar search without hits shows a banner with the query and 0 results in the status bar', async ({ page }) => {
+        await serveEvents(page, [event('e2e-400-108-ev', 'Team Meeting', '2037-05-14T08:00:00.000Z', '2037-05-14T09:00:00.000Z')]);
+        await openApp(page, '/?date=2037-05-14');
+        await expect(page.locator('.month-grid .event-chip', { hasText: 'Team Meeting' })).toBeVisible({ timeout: 10000 });
+        const banner = page.locator('#calendar-container .search-empty-banner');
+        const bar = page.locator('#status-bar');
+
+        await page.fill('#search-input', 'NichtVorhanden');
+        await expect(banner).toHaveText('🔍 Keine Termine für „NichtVorhanden“ gefunden.');
+        await expect(bar).toHaveText('0 Ergebnisse für „NichtVorhanden“');
+
+        await page.fill('#search-input', 'Team');
+        await expect(banner).toHaveCount(0);
+        await expect(bar).toHaveText('1 Ergebnis für „Team“');
+      });
+    });
+
+    test.describe('Issue #106 — the status bar counts what the view shows', () => {
+      const cal1 = 'internal-caldav::/testuser/e2e-400-one/';
+      const cal2 = 'internal-caldav::/testuser/e2e-400-two/';
+
+      test('events in every calendar view, tasks on the board, minus hidden calendars and search misses', async ({ page }) => {
+        await page.route('**/api/calendars', route => route.fulfill({
+          json: { calendars: [calendar(cal1, 'E2E 400 Eins'), calendar(cal2, 'E2E 400 Zwei')], errors: [] }
+        }));
+        await serveEvents(page, [
+          event('e2e-400-106-a', 'Meeting A', '2037-05-14T08:00:00.000Z', '2037-05-14T09:00:00.000Z', cal1),
+          event('e2e-400-106-b', 'Meeting B', '2037-05-14T12:00:00.000Z', '2037-05-14T13:00:00.000Z', cal2)
+        ]);
+        await serveTasks(page, [
+          task('e2e-400-106-t1', 'Alpha', 'NEEDS-ACTION', cal1),
+          task('e2e-400-106-t2', 'Beta', 'COMPLETED', cal1),
+          task('e2e-400-106-t3', 'Gamma', 'IN-PROCESS', cal1)
+        ]);
+        await openApp(page, '/?date=2037-05-14');
+        const bar = page.locator('#status-bar');
+        await expect(bar).toHaveText('2 Termine', { timeout: 10000 });
+
+        for (const view of ['week', 'workweek', 'day', 'agenda', 'month']) {
+          await bar.evaluate(el => { el.textContent = ''; });
+          await page.click(`#view-${view}`);
+          await expect(bar, `${view} view`).toHaveText('2 Termine', { timeout: 10000 });
+        }
+        await page.click('#view-kanban');
+        await expect(bar).toHaveText('3 Aufgaben', { timeout: 10000 });
+
+        await page.click('#view-month');
+        await page.locator(`#calendar-list .calendar-item[data-cal-id="${cal2}"]`).click();
+        await expect(bar).toHaveText('1 Termin');
+
+        await page.click('#view-kanban');
+        await page.fill('#search-input', 'Beta');
+        await expect(bar).toHaveText('1 Aufgabe');
+      });
+
+      test('a range with unreadable calendars is never called free', async ({ page }) => {
+        let events = [event('e2e-400-106-p', 'Meeting P', '2037-05-14T08:00:00.000Z', '2037-05-14T09:00:00.000Z')];
+        let errors = [{ accountId: 'internal-caldav', calendarId: PERSONAL, status: 502, error: 'Der Kalenderserver ist gerade nicht erreichbar.' }];
+        await page.route('**/api/events?*', route => route.fulfill({ json: { events, errors } }));
+        await openApp(page, '/?date=2037-05-14');
+        await page.click('#view-day');
+        const bar = page.locator('#status-bar');
+        await expect(bar).toHaveText('1 Termin – nicht alle Kalender konnten gelesen werden.', { timeout: 10000 });
+
+        events = [];
+        await page.click('#next-btn');
+        await expect(bar).toHaveText('Keine Termine geladen – nicht alle Kalender konnten gelesen werden.', { timeout: 10000 });
+
+        errors = [];
+        await page.click('#next-btn');
+        await expect(bar).toHaveText('Keine Termine an diesem Tag.', { timeout: 10000 });
+      });
+
+      test('a later successful load clears a failed load from the bar', async ({ page }) => {
+        let failing = true;
+        await page.route('**/api/events?*', route => (failing
+          ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) })
+          : route.fulfill({ json: { events: [], errors: [] } })));
+        await openApp(page, '/?date=2037-05-14');
+        const bar = page.locator('#status-bar');
+        await expect(bar).toHaveText(/^Fehler: Fehler beim Laden der Termine: .*Datenbankfehler/, { timeout: 10000 });
+
+        failing = false;
+        await page.click('#next-btn');
+        await expect(bar).toHaveText('Keine Termine in diesem Monat.', { timeout: 10000 });
+      });
+    });
+
+    test.describe('Issue #170 — a delta check that cannot vouch for the cache forces a refetch', () => {
+      for (const [name, answer] of [
+        ['a failed check', route => route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'Bad Gateway' }) })],
+        ['a fallback to an initial sync', route => route.fulfill({ json: { syncToken: 'e2e-400-token', updated: [], deleted: [], fallbackPerformed: true } })],
+        ['an answer without a new token', route => route.fulfill({ json: { syncToken: null, updated: [], deleted: [], fallbackPerformed: false } })],
+      ]) {
+        test(`${name}: the revisited month is fetched again`, async ({ page }) => {
+          // Until `breakCheck`, every calendar reports "no change" with a token, so the cache is trusted.
+          let breakCheck = false;
+          const sentTokens = [];
+          await page.route('**/delta-sync', route => {
+            sentTokens.push(route.request().postDataJSON().syncToken);
+            if (breakCheck) return answer(route);
+            return route.fulfill({ json: { syncToken: 'e2e-400-token', updated: [], deleted: [], fallbackPerformed: false } });
+          });
+          const months = [];
+          await serveEvents(page, route => { months.push(requestedMonth(route)); return []; });
+          await openApp(page, '/?date=2037-05-14');
+          const title = page.locator('#toolbar-title');
+          const bar = page.locator('#status-bar');
+          await expect(bar).toHaveText('Keine Termine in diesem Monat.', { timeout: 10000 });
+
+          await page.click('#next-btn');
+          await expect(title).toHaveText('Juni 2037');
+          await expect.poll(() => months.at(-1), { timeout: 10000 }).toBe('2037-06');
+          // Back to May with every calendar unchanged: served from the cache, no list request.
+          const checksBefore = sentTokens.length;
+          const mayLoads = months.filter(m => m === '2037-05').length;
+          await page.click('#prev-btn');
+          await expect(title).toHaveText('Mai 2037');
+          await expect.poll(() => sentTokens.length, { timeout: 10000 }).toBeGreaterThan(checksBefore);
+          await settle(page);
+          expect(months.filter(m => m === '2037-05')).toHaveLength(mayLoads);
+          // The token from the last answer is what the client sends next.
+          expect(sentTokens.at(-1)).toBe('e2e-400-token');
+
+          const juneLoads = months.filter(m => m === '2037-06').length;
+          breakCheck = true;
+          await page.click('#next-btn');
+          await expect.poll(() => months.filter(m => m === '2037-06').length, { timeout: 10000 }).toBeGreaterThan(juneLoads);
+        });
+      }
+    });
+
+    test.describe('Issue #181 — events are reachable and operable from the keyboard', () => {
+      const uid = 'e2e-400-181-ev';
+      const title = 'Tastatur Termin';
+
+      test.beforeEach(async ({ page }) => {
+        await page.setViewportSize({ width: 1600, height: 900 });
+        await serveEvents(page, [event(uid, title, '2037-05-14T08:00:00.000Z', '2037-05-14T09:00:00.000Z')]);
+        await openApp(page, '/?date=2037-05-14');
+      });
+
+      const operate = async (page, target) => {
+        const popover = page.locator('#event-popover');
+        await expect(target).toHaveAttribute('tabindex', '0');
+        await expect(target).toHaveAttribute('role', 'button');
+        for (const key of ['Enter', ' ']) {
+          await target.focus();
+          await page.keyboard.press(key);
+          await expect(popover, `${JSON.stringify(key)} opens the popover`).not.toHaveClass(/hidden/);
+          await expect(page.locator('#popover-title')).toHaveText(title);
+          await expect(page.locator('#popover-edit-btn')).toBeFocused();
+          await page.keyboard.press('Escape');
+          await expect(popover).toHaveClass(/hidden/);
+          await expect(target).toBeFocused();
+        }
+      };
+
+      test('a month chip opens with Enter and Space', async ({ page }) => {
+        await operate(page, page.locator(`.month-grid .event-chip[data-event-uid="${uid}"]`));
+      });
+
+      test('a week block opens with Enter and Space, and the popover sits at the block', async ({ page }) => {
+        await page.click('#view-week');
+        const block = page.locator(`.event-block[data-event-uid="${uid}"]`);
+        await expect(block).toBeVisible({ timeout: 10000 });
+        await operate(page, block);
+
+        // A key press has no pointer position: the popover is placed at the block, not in the middle of the window.
+        await block.focus();
+        await page.keyboard.press('Enter');
+        const blockBox = await block.boundingBox();
+        const popoverBox = await page.locator('#event-popover').boundingBox();
+        expect(Math.abs(popoverBox.x - (blockBox.x + 10))).toBeLessThan(2);
+      });
+
+      test('an agenda entry opens with Enter and Space', async ({ page }) => {
+        await page.click('#view-agenda');
+        const item = page.locator(`.agenda-event[data-event-uid="${uid}"]`);
+        await expect(item).toBeVisible({ timeout: 10000 });
+        await operate(page, item);
+      });
+    });
+
+    test('Issue #78 — an event of a read-only calendar opens a popover with details and no delete', async ({ page }) => {
+      const roId = 'internal-caldav::/testuser/e2e-400-readonly/';
+      const errors = [];
+      page.on('pageerror', err => errors.push(err.message));
+      await page.route('**/api/calendars', route => route.fulfill({
+        json: { calendars: [calendar(roId, 'E2E 400 Geteilt', { readOnly: true, isShared: true })], errors: [] }
+      }));
+      await serveEvents(page, [event('e2e-400-78-ev', 'Nur Lesen', '2037-05-14T08:00:00.000Z', '2037-05-14T09:00:00.000Z', roId)]);
+      await openApp(page, '/?date=2037-05-14');
+
+      await page.locator('.month-grid .event-chip', { hasText: 'Nur Lesen' }).click();
+      const popover = page.locator('#event-popover');
+      await expect(popover).not.toHaveClass(/hidden/);
+      await expect(popover).toContainText('Schreibgeschützt');
+      await expect(page.locator('#popover-edit-btn')).toHaveText('Details');
+      await expect(page.locator('#popover-delete-btn')).toHaveCount(0);
+      expect(errors).toEqual([]);
+    });
+
+    test('Issue #215 — a stale public-link status does not overwrite the link the user just enabled', async ({ page }) => {
+      let releaseStatus;
+      const statusHeld = new Promise(resolve => { releaseStatus = resolve; });
+      let statusAnswered = false;
+      const url = 'http://localhost:3098/api/public/calendars/share/e2e-400.ics';
+      await page.route('**/public-link', async route => {
+        const method = route.request().method();
+        if (method === 'GET') {
+          await statusHeld;
+          await route.fulfill({ json: { enabled: false, url: '' } });
+          statusAnswered = true;
+          return;
+        }
+        if (method === 'POST') return route.fulfill({ json: { enabled: true, url, detail: 'busy' } });
+        return route.continue();
+      });
+      await openApp(page);
+      await page.locator('#calendar-list .calendar-item').first().locator('[data-share-cal]').click();
+      await expect(page.locator('#share-cal-dialog-backdrop')).toBeVisible();
+
+      const enable = page.locator('#public-link-enable');
+      const area = page.locator('#public-link-area');
+      const input = page.locator('#public-link-input');
+      await enable.click();
+      await expect(input).toHaveValue(url);
+      await expect(area).not.toHaveClass(/hidden/);
+
+      // The status request sent when the dialog opened answers last, with the old state.
+      releaseStatus();
+      await expect.poll(() => statusAnswered, { timeout: 10000 }).toBe(true);
+      await settle(page);
+      await expect(enable).toBeChecked();
+      await expect(area).not.toHaveClass(/hidden/);
+      await expect(input).toHaveValue(url);
+    });
+
+    test('Issue #220 — a slow answer for a month already left does not replace the month shown', async ({ page }) => {
+      let releaseMay;
+      const mayHeld = new Promise(resolve => { releaseMay = resolve; });
+      const mayAnswers = [];
+      await page.route('**/api/events?*', async route => {
+        if (requestedMonth(route) === '2037-05') {
+          await mayHeld;
+          // Dated in June, so a stale answer that got through would be drawn in June's grid.
+          const answered = route.fulfill({ json: { events: [
+            event('e2e-400-220-may', 'Veraltete Antwort', '2037-06-10T12:00:00.000Z', '2037-06-10T13:00:00.000Z')
+          ], errors: [] } });
+          mayAnswers.push(answered);
+          return answered;
+        }
+        return route.fulfill({ json: { events: [
+          event('e2e-400-220-jun', 'Juni Termin', '2037-06-10T08:00:00.000Z', '2037-06-10T09:00:00.000Z')
+        ], errors: [] } });
+      });
+      await openApp(page, '/?date=2037-05-14');
+      const bar = page.locator('#status-bar');
+      await expect(bar).toHaveText('Lade Termine…', { timeout: 10000 });
+
+      await page.click('#next-btn');
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+      const june = page.locator('.month-grid .event-chip', { hasText: 'Juni Termin' });
+      await expect(june).toBeVisible({ timeout: 10000 });
+
+      releaseMay();
+      await expect.poll(() => mayAnswers.length, { timeout: 10000 }).toBeGreaterThan(0);
+      await Promise.all(mayAnswers);
+      await settle(page);
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+      await expect(june).toBeVisible();
+      await expect(page.locator('.month-grid .event-chip', { hasText: 'Veraltete Antwort' })).toHaveCount(0);
+      await expect(bar).toHaveText('1 Termin');
+    });
+
+    test('Issue #226 — a failed load for the next month still shows that month in the toolbar', async ({ page }) => {
+      await page.route('**/api/events?*', route => (requestedMonth(route) === '2037-05'
+        ? route.fulfill({ json: { events: [], errors: [] } })
+        : route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) })));
+      await openApp(page, '/?date=2037-05-14');
+      await expect(page.locator('#status-bar')).toHaveText('Keine Termine in diesem Monat.', { timeout: 10000 });
+
+      await page.click('#next-btn');
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Datenbankfehler' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#toolbar-title')).toHaveText('Juni 2037');
+      await expect(page.locator('#status-bar')).toHaveText(/Fehler beim Laden der Termine: .*Datenbankfehler/);
+    });
+
+    test.describe('Issue #230 — the OAuth popup message reaches only its own origin', () => {
+      const appOrigin = new URL(webServer.env.BASE_URL).origin;
+      const popupUrl = `${appOrigin}/e2e-400-oauth-popup`;
+
+      // The popup page the OAuth callback renders: nothing but the shipped script.
+      test.beforeEach(async ({ context }) => {
+        await context.route(popupUrl, route => route.fulfill({
+          contentType: 'text/html', body: '<!doctype html><script src="/js/oauthLinked.js"></script>'
+        }));
+      });
+
+      const messagesFromPopup = async (page, context, openerUrl) => {
+        await context.route(openerUrl, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>opener</title>' }));
+        await page.goto(openerUrl);
+        await page.evaluate(() => {
+          window.received = [];
+          window.addEventListener('message', e => window.received.push({ data: e.data, origin: e.origin }));
+        });
+        const popup = page.waitForEvent('popup');
+        await page.evaluate(u => { window.open(u); }, popupUrl);
+        await (await popup).waitForEvent('close');
+        await settle(page);
+        return page.evaluate(() => window.received);
+      };
+
+      test('an opener on another origin gets nothing', async ({ page, context }) => {
+        expect(await messagesFromPopup(page, context, 'http://e2e-400-opener.example/start')).toEqual([]);
+      });
+
+      test('the app\'s own origin gets the link notice', async ({ page, context }) => {
+        expect(await messagesFromPopup(page, context, `${appOrigin}/e2e-400-oauth-opener`))
+          .toEqual([{ data: 'google-account-linked', origin: appOrigin }]);
+      });
+
+      test('the app ignores the link notice from a foreign origin and acts on its own', async ({ page }) => {
+        const accountLoads = [];
+        page.on('request', r => { if (new URL(r.url()).pathname === '/api/accounts') accountLoads.push(r.url()); });
+        await openApp(page);
+        await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+        const loadsBefore = accountLoads.length;
+        const linked = page.locator('#toast-container .toast', { hasText: 'Google Kalender erfolgreich verknüpft!' });
+
+        await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {
+          data: 'google-account-linked', origin: 'https://e2e-400-attacker.example'
+        })));
+        await settle(page);
+        await expect(linked).toHaveCount(0);
+        expect(accountLoads.length).toBe(loadsBefore);
+
+        await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {
+          data: 'google-account-linked', origin: window.location.origin
+        })));
+        await expect(linked).toBeVisible();
+        await expect.poll(() => accountLoads.length, { timeout: 10000 }).toBeGreaterThan(loadsBefore);
+      });
+    });
+
+    test.describe('Issue #96 — reminders: no prompt on boot, a 24-hour catch-up, no repeat after reload', () => {
+      // A stand-in for the browser's Notification API that records prompts and shown notifications.
+      const stubNotifications = (page, permission) => page.addInitScript(initial => {
+        if (window.origin === 'null') return;
+        const log = { prompts: 0, shown: [] };
+        window.__notificationLog = log;
+        window.Notification = class {
+          constructor(title) { log.shown.push(title); }
+          static permission = initial;
+          static requestPermission() {
+            log.prompts++;
+            window.Notification.permission = 'granted';
+            return Promise.resolve('granted');
+          }
+        };
+      }, permission);
+      const notificationLog = page => page.evaluate(() => window.__notificationLog);
+
+      test('booting the app does not ask for permission; the settings button does', async ({ page }) => {
+        await stubNotifications(page, 'default');
+        await openApp(page);
+        await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+        await settle(page);
+        expect((await notificationLog(page)).prompts).toBe(0);
+
+        await page.click('#sidebar-settings-btn');
+        await expect(page.locator('#notification-status-text')).toHaveText('Status: Nicht aktiviert');
+        await page.click('#request-notification-btn');
+        await expect(page.locator('#notification-status-text')).toHaveText('Status: Aktiviert');
+        await expect(page.locator('#request-notification-btn')).toBeDisabled();
+        expect((await notificationLog(page)).prompts).toBe(1);
+      });
+
+      test('choosing a reminder in the event dialog asks for permission', async ({ page }) => {
+        await stubNotifications(page, 'default');
+        await openApp(page);
+        await page.click('#new-event-btn');
+        await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+        expect((await notificationLog(page)).prompts).toBe(0);
+        await page.selectOption('#ev-alarm', 'PT0S');
+        await expect.poll(async () => (await notificationLog(page)).prompts).toBe(1);
+      });
+
+      test('alarms due within the last 24 hours fire once, older and future ones do not, and a reload does not repeat them', async ({ page }) => {
+        await stubNotifications(page, 'granted');
+        const now = Date.now();
+        const due = (uid, title, offsetMs) => {
+          const start = new Date(now + offsetMs);
+          return event(uid, title, start.toISOString(), new Date(start.getTime() + 3600 * 1000).toISOString(), PERSONAL,
+            { alarms: [{ trigger: 'PT0S', action: 'DISPLAY' }] });
+        };
+        await serveEvents(page, [
+          due('e2e-400-96-30m', 'Vor 30 Minuten', -30 * 60 * 1000),
+          due('e2e-400-96-6h', 'Vor 6 Stunden', -6 * 3600 * 1000),
+          due('e2e-400-96-25h', 'Vor 25 Stunden', -25 * 3600 * 1000),
+          due('e2e-400-96-future', 'In 10 Minuten', 10 * 60 * 1000)
+        ]);
+        const reminderToasts = page.locator('#toast-container .toast', { hasText: 'Erinnerung:' });
+        await openApp(page);
+        await expect(page.locator('#status-bar')).toHaveText('4 Termine', { timeout: 10000 });
+        await expect(reminderToasts.filter({ hasText: 'Vor 30 Minuten' })).toHaveCount(1);
+        await expect(reminderToasts.filter({ hasText: 'Vor 6 Stunden' })).toHaveCount(1);
+        await page.evaluate(() => window.__checkAndTriggerAlarms());
+        await expect(reminderToasts).toHaveCount(2);
+        expect((await notificationLog(page)).shown.sort()).toEqual(['Erinnerung: Vor 30 Minuten', 'Erinnerung: Vor 6 Stunden']);
+
+        await page.reload();
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await expect(page.locator('#status-bar')).toHaveText('4 Termine', { timeout: 10000 });
+        await page.evaluate(() => window.__checkAndTriggerAlarms());
+        await expect(reminderToasts).toHaveCount(0);
+        expect((await notificationLog(page)).shown).toEqual([]);
+      });
+    });
+  });
+
+  // The e2e browser cannot register the worker (its script fetch carries no proxy secret), so the shipped
+  // public/sw.js runs in a page whose `self`, `registration` and `clients` stand in for a worker scope.
+  test.describe('Issue #96 — the service worker turns a push into a notification and a click into the app', () => {
+    const appOrigin = new URL(webServer.env.BASE_URL).origin;
+    const harnessUrl = `${appOrigin}/e2e-400-sw-harness`;
+
+    test.beforeEach(async ({ page, context }) => {
+      await context.route(harnessUrl, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>sw</title>' }));
+      await page.goto(harnessUrl);
+      await page.evaluate(() => {
+        const sw = { listeners: {}, shown: [], focused: 0, opened: [], clientList: [] };
+        window.__sw = sw;
+        self.addEventListener = (type, fn) => { sw.listeners[type] = fn; };
+        self.registration = { showNotification: (title, options) => { sw.shown.push({ title, ...options }); return Promise.resolve(); } };
+        window.clients = {
+          matchAll: () => Promise.resolve(sw.clientList),
+          openWindow: url => { sw.opened.push(url); return Promise.resolve(null); }
+        };
+        // Runs a handler like the browser would and waits for what it handed to waitUntil.
+        sw.dispatch = (type, fields) => {
+          const pending = [];
+          sw.listeners[type]({ ...fields, waitUntil: p => pending.push(p) });
+          return Promise.all(pending);
+        };
+      });
+      await page.addScriptTag({ url: '/sw.js' });
+    });
+
+    test('a push payload becomes a notification tagged with its event', async ({ page }) => {
+      const shown = await page.evaluate(async () => {
+        const payload = { title: 'Erinnerung: E2E Push', body: 'Zeit: 10:00', data: { eventId: 'e2e-400-96-push' } };
+        await window.__sw.dispatch('push', { data: { json: () => payload } });
+        return window.__sw.shown;
+      });
+      expect(shown).toEqual([{
+        title: 'Erinnerung: E2E Push', body: 'Zeit: 10:00', icon: '/favicon.ico', tag: 'e2e-400-96-push', data: { eventId: 'e2e-400-96-push' }
+      }]);
+    });
+
+    test('a click on the notification focuses an open app window, or opens one', async ({ page }) => {
+      const result = await page.evaluate(async () => {
+        const sw = window.__sw;
+        let closed = 0;
+        const notification = { close: () => { closed++; } };
+        sw.clientList = [{ url: `${location.origin}/`, focus: () => { sw.focused++; return Promise.resolve(); } }];
+        await sw.dispatch('notificationclick', { notification });
+        const withWindow = { closed, focused: sw.focused, opened: [...sw.opened] };
+        sw.clientList = [];
+        await sw.dispatch('notificationclick', { notification });
+        return { withWindow, withoutWindow: { closed, focused: sw.focused, opened: sw.opened } };
+      });
+      expect(result).toEqual({
+        withWindow: { closed: 1, focused: 1, opened: [] },
+        withoutWindow: { closed: 2, focused: 1, opened: ['/'] }
+      });
+    });
+  });
 });
