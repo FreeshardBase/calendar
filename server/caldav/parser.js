@@ -511,6 +511,30 @@ function parseICSToTaskOrThrow(icsString, meta = {}) {
   return parseVTodoToTask(masterVtodo, { rawIcs: icsString, allVtodos: vtodos, ...meta });
 }
 
+// A finished occurrence of a recurring task is stored as its own RECURRENCE-ID
+// VTODO with STATUS:COMPLETED (#95). The task list carries each one as a
+// separate entry, marked by recurrenceId, so the board can show it as done (#264).
+// It shares uid, href and etag with the master: it names an occurrence, not a resource.
+function parseCompletedOccurrences(icsString, master, meta = {}) {
+  const comp = new ICAL.Component(ICAL.parse(icsString));
+  const vtodos = comp.getAllSubcomponents('vtodo');
+  // Without a master the first override already stands in for the task.
+  if (!vtodos.some(v => !v.getFirstProperty('recurrence-id'))) return [];
+  const occurrences = [];
+  for (const vtodo of vtodos) {
+    const ridProp = vtodo.getFirstProperty('recurrence-id');
+    if (!ridProp || vtodo.getFirstPropertyValue('status') !== 'COMPLETED') continue;
+    const rid = ridProp.getFirstValue();
+    const recurrenceId = rid.isDate
+      ? `${String(rid.year).padStart(4, '0')}-${String(rid.month).padStart(2, '0')}-${String(rid.day).padStart(2, '0')}T00:00:00.000Z`
+      : rid.toJSDate().toISOString();
+    const occurrence = parseVTodoToTask(vtodo, { ...meta, rawIcs: icsString });
+    if (!vtodo.getFirstProperty('summary')) occurrence.title = master.title;
+    occurrences.push({ ...occurrence, recurrenceId });
+  }
+  return occurrences;
+}
+
 function parseVTodoToTask(vtodo, meta = {}) {
   const rawIcs = meta.rawIcs || null;
   const uid = vtodo.getFirstPropertyValue('uid') || `${uuidv4()}@freeshard.webcalendar`;
@@ -680,14 +704,15 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl, parseErrors = nu
     if (!calendarData) continue;
 
     try {
-      const task = parseICSToTaskOrThrow(calendarData, {
+      const meta = {
         calendarId,
         accountId,
         href,
         etag: etag ? etag.trim() : null,
         rawIcs: calendarData
-      });
-      if (task) tasks.push(task);
+      };
+      const task = parseICSToTaskOrThrow(calendarData, meta);
+      if (task) tasks.push(task, ...parseCompletedOccurrences(calendarData, task, meta));
     } catch (e) {
       console.warn(`[parser] Failed to parse task ${href}:`, e.message);
       if (parseErrors) parseErrors.push({ href, error: e.message });

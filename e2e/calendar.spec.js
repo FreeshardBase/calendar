@@ -1033,7 +1033,60 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Clean up: delete task
     await cardResetted.locator('.btn-delete').click();
     await page.click('#confirm-dialog-ok');
-    await expect(page.locator(`.kanban-card:has-text("${taskTitle}")`)).not.toBeVisible({ timeout: 10000 });
+    // The finished occurrence (#264) lives in the same resource and goes with it.
+    await expect(page.locator('.kanban-card', { hasText: taskTitle })).toHaveCount(0, { timeout: 10000 });
+  });
+
+  test('Issue #264 — completing a recurring task on the board puts the finished occurrence into Erledigt', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+
+    await page.click('#new-task-btn');
+    await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#task-calendar-id option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    const taskTitle = `E2E Recur Done ${Date.now()}`;
+    await page.fill('#task-title', taskTitle);
+    await page.selectOption('#task-recurrence', 'FREQ=WEEKLY');
+    await page.fill('#task-due', '2036-08-11T09:00');
+    await page.click('#task-save-btn');
+    await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+
+    await page.click('#view-kanban');
+    await expect(page.locator('.kanban-board')).toBeVisible();
+    const todo = page.locator('#kanban-cards-todo .kanban-card', { hasText: taskTitle });
+    const done = page.locator('#kanban-cards-completed .kanban-card', { hasText: taskTitle });
+    await expect(todo).toHaveCount(1, { timeout: 10000 });
+    await expect(done).toHaveCount(0);
+    const completedCount = Number(await page.locator('.count-completed').textContent());
+
+    // Two presses of "Als erledigt markieren": each finished occurrence lands in Erledigt,
+    // the series itself moves on and stays in "Zu erledigen".
+    await todo.locator('.btn-complete').click();
+    await expect(done).toHaveCount(1, { timeout: 10000 });
+    await expect(todo).toContainText('18.08.2036');
+    await todo.locator('.btn-complete').click();
+    await expect(done).toHaveCount(2, { timeout: 10000 });
+    await expect(todo).toHaveCount(1);
+    await expect(todo).toContainText('25.08.2036');
+    await expect(page.locator('.count-completed')).toHaveText(String(completedCount + 2));
+    await expect(done.filter({ hasText: '11.08.2036' })).toHaveCount(1);
+    await expect(done.filter({ hasText: '18.08.2036' })).toHaveCount(1);
+
+    // An occurrence shares the series' resource: no button on it may touch the series.
+    await expect(done.locator('button')).toHaveCount(0);
+
+    // The board is fed by stored data, not by client state: a reload shows the same columns.
+    await page.reload();
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.click('#view-kanban');
+    await expect(done).toHaveCount(2, { timeout: 10000 });
+    await expect(todo).toHaveCount(1);
+
+    // Deleting the series removes its finished occurrences with it.
+    await todo.locator('.btn-delete').click();
+    await page.click('#confirm-dialog-ok');
+    await expect(page.locator('.kanban-card', { hasText: taskTitle })).toHaveCount(0, { timeout: 10000 });
   });
 
   test('Issue #309 — the task create modal authors DTSTART, DURATION, PERCENT-COMPLETE and a rule outside the preset list', async ({ page }) => {
