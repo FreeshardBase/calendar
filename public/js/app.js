@@ -1708,6 +1708,27 @@ async function renderSettingsAppPasswords() {
   }
 }
 
+// Issue #198: the sync worker's job history, shown next to a linked Google
+// account. Jobs are per user (one run syncs all Google accounts), so every
+// Google account shows the same state. No success at all is shown too — that is
+// the only sign of a job stranded in RUNNING (#62). `jobs` is undefined until
+// the first status poll has answered.
+function accountSyncStatusHtml(jobs) {
+  if (!jobs) return '';
+  const fmt = ms => new Date(ms).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  // Server orders by created_at DESC.
+  const latestFinished = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
+  const lastSuccess = jobs.find(j => j.status === 'SUCCESS');
+  const lines = [];
+  if (latestFinished && latestFinished.status === 'ERROR') {
+    lines.push(`<div style="color:var(--danger, #ef4444)">Synchronisation fehlgeschlagen am ${escHtml(fmt(latestFinished.updatedAt))}: ${escHtml(latestFinished.errorMessage || 'unbekannter Fehler')}</div>`);
+  }
+  lines.push(lastSuccess
+    ? `<div>Zuletzt erfolgreich synchronisiert: ${escHtml(fmt(lastSuccess.updatedAt))}</div>`
+    : '<div>Noch keine erfolgreiche Synchronisation</div>');
+  return `<div class="account-sync-status" style="color:var(--ink-muted); font-size:0.68rem; margin-top:2px;">${lines.join('')}</div>`;
+}
+
 function renderSettingsAccounts() {
   const list = $('settings-account-list');
   if (!list) return;
@@ -1719,6 +1740,7 @@ function renderSettingsAccounts() {
   }
 
   const errors = store.get('accountErrors') || [];
+  const syncJobs = store.get('syncJobs');
 
   list.innerHTML = accounts.map(a => {
     // Issue #136: credentials could not be decrypted (e.g. ENCRYPTION_KEY changed after a restore).
@@ -1786,6 +1808,8 @@ function renderSettingsAccounts() {
          </div>`
       : '';
 
+    const syncHtml = a.url.includes('googleusercontent.com') ? accountSyncStatusHtml(syncJobs) : '';
+
     return `
       <div class="settings-item">
         <div style="display:flex; flex-direction:column; min-width:0; flex:1;">
@@ -1794,6 +1818,7 @@ function renderSettingsAccounts() {
             <span class="settings-item-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
           </div>
           ${errorHtml}
+          ${syncHtml}
         </div>
         <div class="settings-item-actions">
           ${reconnectBtn}
@@ -2823,6 +2848,8 @@ export async function checkSyncStatus() {
     return;
   }
   renderSyncProgress(jobs);
+  store.set({ syncJobs: jobs });
+  renderSettingsAccounts();
   // Server orders by created_at DESC.
   const latest = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
   if (latest && latest.status === 'ERROR' && latest.id !== dismissedSyncErrorId) {

@@ -2351,6 +2351,70 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
+  test.describe('Issue #198 — the accounts panel shows the sync status of the Google account', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    const GOOGLE_ACCOUNT = {
+      id: 'acc-google-198',
+      url: 'https://apidata.googleusercontent.com/caldav/v2/',
+      username: 'testuser@example.com',
+      displayName: 'Google testuser',
+    };
+    // 14 Oct 2026 08:30 UTC / 15 Oct 2026 06:05 UTC, shown in Europe/Berlin (CEST).
+    const SUCCESS_AT = Date.UTC(2026, 9, 14, 8, 30);
+    const ERROR_AT = Date.UTC(2026, 9, 15, 6, 5);
+
+    // The real accounts plus one linked Google account; `state.jobs` is served on every poll.
+    async function serveAccountsAndJobs(page, state) {
+      await page.route('**/api/accounts', async route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        const res = await route.fetch();
+        const accounts = await res.json();
+        return route.fulfill({ response: res, json: [...accounts, GOOGLE_ACCOUNT] });
+      });
+      await page.route('**/api/accounts/sync-status', route =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: state.jobs }) }));
+    }
+
+    async function googleAccountItem(page) {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      return page.locator('#settings-account-list .settings-item', { hasText: 'Google testuser' });
+    }
+
+    test('a failed sync shows its message and time next to the Google account, with the last success', async ({ page }) => {
+      await serveAccountsAndJobs(page, { jobs: [
+        { id: 'job-2', status: 'ERROR', errorMessage: 'invalid_grant: <b>Token</b> has been expired or revoked.', createdAt: ERROR_AT - 1000, updatedAt: ERROR_AT },
+        { id: 'job-1', status: 'SUCCESS', errorMessage: null, createdAt: SUCCESS_AT - 1000, updatedAt: SUCCESS_AT },
+      ] });
+      const item = await googleAccountItem(page);
+      const status = item.locator('.account-sync-status');
+      await expect(status).toContainText('Synchronisation fehlgeschlagen am 15.10.26, 08:05: invalid_grant: <b>Token</b> has been expired or revoked.', { timeout: 10000 });
+      await expect(status.locator('b')).toHaveCount(0);
+      await expect(status).toContainText('Zuletzt erfolgreich synchronisiert: 14.10.26, 10:30');
+    });
+
+    test('a successful sync shows when the Google account was last synced', async ({ page }) => {
+      await serveAccountsAndJobs(page, { jobs: [
+        { id: 'job-1', status: 'SUCCESS', errorMessage: null, createdAt: SUCCESS_AT - 1000, updatedAt: SUCCESS_AT },
+      ] });
+      const item = await googleAccountItem(page);
+      const status = item.locator('.account-sync-status');
+      await expect(status).toHaveText('Zuletzt erfolgreich synchronisiert: 14.10.26, 10:30', { timeout: 10000 });
+    });
+
+    test('a sync stuck in RUNNING without any success says no sync has succeeded yet', async ({ page }) => {
+      await serveAccountsAndJobs(page, { jobs: [
+        { id: 'job-1', status: 'RUNNING', itemsDone: 0, errorMessage: null, createdAt: SUCCESS_AT, updatedAt: SUCCESS_AT },
+      ] });
+      const item = await googleAccountItem(page);
+      await expect(item.locator('.account-sync-status')).toHaveText('Noch keine erfolgreiche Synchronisation', { timeout: 10000 });
+    });
+  });
+
   test.describe('Issue #203 — background sync failures reach the user', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
