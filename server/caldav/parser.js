@@ -754,6 +754,9 @@ function taskToICS(rawTask, existingIcs = null) {
               if (prop) {
                 prop.setValue(timeVal);
                 if (!timeVal.isDate) prop.removeParameter('value');
+                // The value is now UTC or a DATE; an inherited TZID would be
+                // invalid (RFC 5545 §3.2.19), so it must go with the old value.
+                prop.removeParameter('tzid');
               } else {
                 vtodo.addPropertyWithValue(name, timeVal);
               }
