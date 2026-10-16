@@ -1,149 +1,131 @@
 'use strict';
 
 /**
- * Issue #270 — MEDIUM: the one healthcheck in the deployment cannot fail for any reason that matters, and nothing consumes it
+ * Issue #270 — the container healthcheck (Dockerfile HEALTHCHECK, docker-compose.yml) runs
+ * GET /api/health. It must go unhealthy when the app cannot reach its storage: the internal
+ * CalDAV backend (INTERNAL_CALDAV_URL) or the SQLite database file.
  *
- * Validates:
- *   1. GET /api/health and GET /health return 200 OK with status: 'ok' when database is operational.
- *   2. GET /api/health returns 500 Internal Server Error when database check fails.
- *   3. Dockerfile defines HEALTHCHECK targeting /api/health (or /health) instead of /.
- *   4. docker-compose.yml defines healthcheck for webcalendar service targeting /api/health (or /health).
- *   5. store template docker-compose.yml.template defines healthcheck for webcalendar service targeting /api/health (or /health).
+ * The real server/index.js is mounted under NODE_ENV=production; INTERNAL_CALDAV_URL points at
+ * a loopback stand-in for Radicale that the test can stop or make reject the credentials.
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 
-const ROOT_DIR = path.join(__dirname, '../..');
-const REPO_ROOT_DIR = path.resolve(ROOT_DIR, '../');
-const STORE_TEMPLATE_PATH = path.join(REPO_ROOT_DIR, 'app-repository/apps/webcalendar/docker-compose.yml.template');
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue270-'));
+const dbFile = path.join(tmpDir, 'webcalendar.db');
+const SYSTEM_SYNC_SECRET = 'issue270-system-sync-secret-0123456789abcdef';
 
-const Db = require('../db');
+const backend = {
+  acceptedSecret: SYSTEM_SYNC_SECRET,
+  requests: [],
+};
+const caldav = http.createServer((req, res) => {
+  backend.requests.push({ method: req.method, url: req.url, headers: req.headers });
+  const expected = 'Basic ' + Buffer.from(`healthcheck:${backend.acceptedSecret}`).toString('base64');
+  if (req.headers.authorization !== expected) {
+    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Radicale"' });
+    return res.end();
+  }
+  res.writeHead(207, { 'Content-Type': 'text/xml; charset=utf-8' });
+  res.end('<?xml version="1.0"?><multistatus xmlns="DAV:"><response><href>/</href>'
+    + '<propstat><prop/><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>');
+});
 
-function fetchJson(url) {
-  return new Promise((resolve, reject) => {
-    http.get(url, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve({ status: res.statusCode, body: json, raw: data });
-        } catch {
-          resolve({ status: res.statusCode, body: null, raw: data });
-        }
-      });
-    }).on('error', reject);
+let server;
+let base;
+
+test.before(async () => {
+  await new Promise((resolve) => caldav.listen(0, '127.0.0.1', resolve));
+  Object.assign(process.env, {
+    NODE_ENV: 'production',
+    AUTH_METHOD: 'env',
+    SSL_KEY_PATH: '',
+    SSL_CERT_PATH: '',
+    DATABASE_PATH: dbFile,
+    SESSION_SECRET: 'issue270-prod-session-secret-0123456789abcdef',
+    ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    SYSTEM_SYNC_SECRET,
+    INTERNAL_WEBHOOK_SECRET: 'issue270-internal-webhook-secret-0123456789',
+    HTTP_HEADER_AUTH_SECRET: 'issue270-proxy-secret-0123456789abcdef',
+    BASE_URL: 'https://calendar.shard.example',
+    CALDAV_USERNAME: 'testuser',
+    CALDAV_EMAIL: 'testuser@example.com',
+    INTERNAL_CALDAV_URL: `http://127.0.0.1:${caldav.address().port}`,
   });
+  delete process.env.DISABLE_INTERNAL_CALDAV;
+  ({ server } = require('../index'));
+  await require('../db').ready;
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+
+test.after(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  if (caldav.listening) await new Promise((resolve) => caldav.close(resolve));
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+async function health(p = '/api/health') {
+  const res = await fetch(`${base}${p}`);
+  return { status: res.status, body: await res.json() };
 }
 
-test.describe('Issue #270 — Healthcheck Endpoint & Consumption Verification', () => {
-  let server;
-  let baseUrl;
-
-  test.before(() => {
-    return new Promise((resolve) => {
-      const express = require('express');
-      const app = express();
-
-      const healthHandler = async (req, res) => {
-        try {
-          await Db.checkHealth();
-          res.json({ status: 'ok', database: 'connected' });
-        } catch (err) {
-          res.status(500).json({ status: 'error', error: err?.message || 'Database query failed' });
-        }
-      };
-
-      app.get('/health', healthHandler);
-      app.get('/api/health', healthHandler);
-
-      server = http.createServer(app);
-      server.listen(0, '127.0.0.1', () => {
-        const port = server.address().port;
-        baseUrl = `http://127.0.0.1:${port}`;
-        resolve();
-      });
-    });
-  });
-
-  test.after(() => {
-    return new Promise((resolve) => {
-      if (server) {
-        server.close(() => resolve());
-      } else {
-        resolve();
-      }
-    });
-  });
-
-  test('Db.checkHealth resolves successfully when database is healthy', async () => {
-    const healthy = await Db.checkHealth();
-    assert.strictEqual(healthy, true, 'Db.checkHealth() must return true when DB is operational');
-  });
-
-  test('GET /api/health and GET /health return 200 OK with status ok when healthy', async () => {
-    const resApi = await fetchJson(`${baseUrl}/api/health`);
-    assert.strictEqual(resApi.status, 200, 'GET /api/health must return HTTP 200');
-    assert.strictEqual(resApi.body.status, 'ok', 'GET /api/health response status must be "ok"');
-
-    const resRoot = await fetchJson(`${baseUrl}/health`);
-    assert.strictEqual(resRoot.status, 200, 'GET /health must return HTTP 200');
-    assert.strictEqual(resRoot.body.status, 'ok', 'GET /health response status must be "ok"');
-  });
-
-  test('GET /api/health returns 500 when database check fails', async () => {
-    const originalCheckHealth = Db.checkHealth;
-    try {
-      Db.checkHealth = async () => {
-        throw new Error('Database disk image is malformed');
-      };
-      const res = await fetchJson(`${baseUrl}/api/health`);
-      assert.strictEqual(res.status, 500, 'GET /api/health must return HTTP 500 on database failure');
-      assert.strictEqual(res.body.status, 'error', 'Response status must be "error" on DB failure');
-      assert.ok(res.body.error.includes('malformed'), 'Error message must be included in response');
-    } finally {
-      Db.checkHealth = originalCheckHealth;
+test('Issue #270 — /api/health reports the storage the app depends on', async (t) => {
+  await t.test('backend up and database readable: both health paths answer 200', async () => {
+    for (const p of ['/api/health', '/health']) {
+      backend.requests = [];
+      const { status, body } = await health(p);
+      assert.equal(status, 200, `${p}: ${JSON.stringify(body)}`);
+      assert.equal(body.status, 'ok');
+      assert.equal(backend.requests.length, 1, `${p} must probe the CalDAV backend once`);
+      const [probe] = backend.requests;
+      assert.equal(probe.method, 'PROPFIND');
+      assert.equal(probe.headers.depth, '0');
+      assert.equal(probe.headers['accept-encoding'], 'identity');
     }
   });
 
-  test('Dockerfile defines HEALTHCHECK targeting /api/health', () => {
-    const dockerfilePath = path.join(ROOT_DIR, 'Dockerfile');
-    assert.ok(fs.existsSync(dockerfilePath), 'Dockerfile must exist');
-    const content = fs.readFileSync(dockerfilePath, 'utf8');
-
-    assert.ok(/HEALTHCHECK/i.test(content), 'Dockerfile must contain HEALTHCHECK instruction');
-    assert.ok(content.includes('/api/health') || content.includes('/health'), 'Dockerfile HEALTHCHECK must target health endpoint');
-    assert.ok(!content.includes('http://localhost:3000/ '), 'Dockerfile HEALTHCHECK must not target root page /');
+  await t.test('the backend rejects the system credentials: 503', async () => {
+    backend.acceptedSecret = 'a-different-secret';
+    try {
+      const { status, body } = await health();
+      assert.equal(status, 503, JSON.stringify(body));
+      assert.equal(body.status, 'error');
+      assert.equal(body.caldav, 'unavailable');
+    } finally {
+      backend.acceptedSecret = SYSTEM_SYNC_SECRET;
+    }
+    assert.equal((await health()).status, 200, 'health must recover with the backend');
   });
 
-  test('docker-compose.yml configures healthcheck for webcalendar service', () => {
-    const composePath = path.join(ROOT_DIR, 'docker-compose.yml');
-    assert.ok(fs.existsSync(composePath), 'docker-compose.yml must exist');
-    const content = fs.readFileSync(composePath, 'utf8');
-
-    const webcalStart = content.search(/^\s{2}webcalendar:/m);
-    const caldavStart = content.search(/^\s{2}caldav-server:/m);
-    assert.ok(webcalStart > -1 && caldavStart > webcalStart, 'Service blocks must be present');
-    const webcalBlock = content.substring(webcalStart, caldavStart);
-
-    assert.ok(webcalBlock.includes('healthcheck:'), 'docker-compose.yml webcalendar service must include healthcheck definition');
-    assert.ok(webcalBlock.includes('/api/health') || webcalBlock.includes('/health'), 'docker-compose.yml webcalendar healthcheck must target health endpoint');
+  await t.test('the database file is gone: 503, and 200 again once it is back', async () => {
+    const moved = `${dbFile}.moved`;
+    fs.renameSync(dbFile, moved);
+    try {
+      const { status, body } = await health();
+      assert.equal(status, 503, JSON.stringify(body));
+      assert.equal(body.status, 'error');
+      assert.equal(body.database, 'unavailable');
+      assert.equal(body.caldav, 'connected', 'the backend itself is still up');
+    } finally {
+      fs.renameSync(moved, dbFile);
+    }
+    assert.equal((await health()).status, 200);
   });
 
-  test('store docker-compose.yml.template configures healthcheck for webcalendar service', () => {
-    assert.ok(fs.existsSync(STORE_TEMPLATE_PATH), 'Store docker-compose.yml.template must exist');
-    const content = fs.readFileSync(STORE_TEMPLATE_PATH, 'utf8');
-
-    const webcalStart = content.search(/^\s{2}webcalendar:/m);
-    const caldavStart = content.search(/^\s{2}caldav-server:/m);
-    assert.ok(webcalStart > -1 && caldavStart > webcalStart, 'Service blocks must be present in store template');
-    const webcalBlock = content.substring(webcalStart, caldavStart);
-
-    assert.ok(webcalBlock.includes('healthcheck:'), 'Store template webcalendar service must include healthcheck definition');
-    assert.ok(webcalBlock.includes('/api/health') || webcalBlock.includes('/health'), 'Store template webcalendar healthcheck must target health endpoint');
+  await t.test('the backend is stopped: 503 on both paths', async () => {
+    await new Promise((resolve) => caldav.close(resolve));
+    for (const p of ['/api/health', '/health']) {
+      const { status, body } = await health(p);
+      assert.equal(status, 503, `${p}: ${JSON.stringify(body)}`);
+      assert.equal(body.status, 'error');
+      assert.equal(body.caldav, 'unavailable');
+      assert.equal(body.database, 'connected');
+    }
   });
 });

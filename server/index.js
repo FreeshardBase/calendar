@@ -18,6 +18,7 @@ const path = require('path');
 const fs = require('fs');
 const { validateBaseUrl } = require('./utils/baseUrl');
 const { isSafeStorageId } = require('./utils/storageId');
+const { dispatcherFor } = require('./utils/tlsDispatcher');
 
 function validateSystemSyncSecret(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
@@ -583,14 +584,41 @@ app.post('/internal/db/quiesce', requireInternal, async (req, res) => {
 });
 
 // ── Healthcheck Endpoints ──────────────────────────────────────────────────
+// Issue #270: the container healthcheck runs this. It is healthy only while the app can reach its
+// storage: the database file and the internal CalDAV backend, which is asked for its root
+// collection with the system credentials, as the app's own CalDAV requests are.
+const HEALTH_CALDAV_TIMEOUT_MS = 3000;
+
+async function checkInternalCalDAV() {
+  const url = `${(process.env.INTERNAL_CALDAV_URL || 'https://localhost:5232').replace(/\/+$/, '')}/`;
+  const auth = Buffer.from(`healthcheck:${process.env.SYSTEM_SYNC_SECRET}`).toString('base64');
+  const res = await fetch(url, {
+    method: 'PROPFIND',
+    headers: { Authorization: `Basic ${auth}`, Depth: '0', 'Accept-Encoding': 'identity' },
+    dispatcher: dispatcherFor(url),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(HEALTH_CALDAV_TIMEOUT_MS),
+  });
+  await res.arrayBuffer();
+  if (res.status !== 207) throw new Error(`PROPFIND ${url} answered ${res.status}`);
+}
+
 const healthHandler = async (req, res) => {
-  try {
-    await Db.checkHealth();
-    res.json({ status: 'ok', database: 'connected' });
-  } catch (err) {
-    console.error('[health] Database check failed:', err?.message);
-    res.status(500).json({ status: 'error', error: 'Database query failed' });
-  }
+  const checks = { database: Db.checkHealth() };
+  if (!process.env.DISABLE_INTERNAL_CALDAV) checks.caldav = checkInternalCalDAV();
+  const results = await Promise.allSettled(Object.values(checks));
+  const body = { status: 'ok' };
+  Object.keys(checks).forEach((name, i) => {
+    if (results[i].status === 'fulfilled') {
+      body[name] = 'connected';
+      return;
+    }
+    const err = results[i].reason;
+    console.error(`[health] ${name} check failed:`, err?.message, err?.cause?.message || '');
+    body[name] = 'unavailable';
+    body.status = 'error';
+  });
+  res.status(body.status === 'ok' ? 200 : 503).json(body);
 };
 app.get('/health', healthHandler);
 app.get('/api/health', healthHandler);
