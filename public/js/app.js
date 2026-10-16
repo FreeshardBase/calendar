@@ -726,7 +726,11 @@ function renderCalendarView() {
     $('mini-calendar'),
     date,
     store.get('events') || [],
-    (d) => { store.set({ currentDate: d }); loadEvents(); }
+    (d) => {
+      store.set({ currentDate: d });
+      loadEvents();
+      announce(`Datum: ${d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
+    }
   );
 }
 
