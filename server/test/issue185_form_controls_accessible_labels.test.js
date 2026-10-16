@@ -46,13 +46,13 @@ test('Issue #185 — Form Controls Programmatic Labels & Password Reveal Accessi
     );
     // 7. ev-attendee-name
     assert.ok(
-      indexHtml.includes('id="ev-attendee-name"') && indexHtml.includes('aria-label="Name des Teilnehmers"'),
-      '#ev-attendee-name must have aria-label="Name des Teilnehmers"'
+      indexHtml.includes('id="ev-attendee-name"') && indexHtml.includes('aria-label="Name der teilnehmenden Person"'),
+      '#ev-attendee-name must have aria-label="Name der teilnehmenden Person"'
     );
     // 8. ev-attendee-email
     assert.ok(
-      indexHtml.includes('id="ev-attendee-email"') && indexHtml.includes('aria-label="E-Mail des Teilnehmers"'),
-      '#ev-attendee-email must have aria-label="E-Mail des Teilnehmers"'
+      indexHtml.includes('id="ev-attendee-email"') && indexHtml.includes('aria-label="E-Mail der teilnehmenden Person"'),
+      '#ev-attendee-email must have aria-label="E-Mail der teilnehmenden Person"'
     );
   });
 
