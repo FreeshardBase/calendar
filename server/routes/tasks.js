@@ -115,6 +115,7 @@ router.get('/', async (req, res) => {
 });
 
 const ICAL = require('ical.js');
+const VTODO_STATUSES = new Set(['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED']);
 
 function validateTaskInput(taskData) {
   if (!taskData || typeof taskData !== 'object') {
@@ -165,6 +166,13 @@ function validateTaskInput(taskData) {
     const p = parseInt(taskData.priority, 10);
     if (isNaN(p) || p < 0 || p > 9) {
       return { error: 'Invalid priority (must be integer between 0 and 9)' };
+    }
+  }
+
+  // RFC 5545 §3.8.1.11: the only STATUS values defined for VTODO.
+  if ('status' in taskData && taskData.status !== null && taskData.status !== undefined && taskData.status !== '') {
+    if (!VTODO_STATUSES.has(String(taskData.status).trim().toUpperCase())) {
+      return { error: 'Invalid status (must be NEEDS-ACTION, COMPLETED, IN-PROCESS or CANCELLED)' };
     }
   }
 

@@ -428,7 +428,7 @@ function reconcileTaskStatus(task) {
 
   let status = res.status ? String(res.status).replace(/[\r\n\x00-\x1f]/g, '').trim().toUpperCase() : null;
   const validStatuses = new Set(['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED']);
-  if (status && !validStatuses.has(status) && !/^[A-Z0-9-]+$/.test(status)) {
+  if (status && !validStatuses.has(status)) {
     status = null;
   }
   let completed = res.completed || null;
@@ -774,7 +774,7 @@ function taskToICS(rawTask, existingIcs = null) {
             const cleanStatus = String(task.status).replace(/[\r\n\x00-\x1f]/g, '').trim().toUpperCase();
             const validStatus = ['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED'].includes(cleanStatus)
               ? cleanStatus
-              : (/^[A-Z0-9-]+$/.test(cleanStatus) ? cleanStatus : 'NEEDS-ACTION');
+              : 'NEEDS-ACTION';
             setProp('status', validStatus);
           } else {
             vtodo.removeAllProperties('status');
@@ -915,7 +915,7 @@ function taskToICS(rawTask, existingIcs = null) {
     const cleanStatus = String(task.status).replace(/[\r\n\x00-\x1f]/g, '').trim().toUpperCase();
     const validStatus = ['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED'].includes(cleanStatus)
       ? cleanStatus
-      : (/^[A-Z0-9-]+$/.test(cleanStatus) ? cleanStatus : 'NEEDS-ACTION');
+      : 'NEEDS-ACTION';
     lines.push(`STATUS:${validStatus}`);
   }
 
