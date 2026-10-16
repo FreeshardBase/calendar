@@ -16,6 +16,7 @@ const {
   parseICSToEvent,
   parseICSToEvents,
   parseAndExpandEvent,
+  exactDurationEndISO,
   eventToICS,
   escParamVal,
   isNoOpEventSave,
@@ -605,16 +606,17 @@ function parseVTodoToTask(vtodo, meta = {}) {
     const startVal = dtstartProp ? dtstartProp.getFirstValue() : null;
     const durVal = durationProp.getFirstValue();
     if (startVal && durVal) {
-      const calculated = startVal.clone();
-      calculated.addDuration(durVal);
-      dueIsDate = !!calculated.isDate;
-      if (calculated.isDate) {
+      dueIsDate = !!startVal.isDate;
+      if (startVal.isDate) {
+        const calculated = startVal.clone();
+        calculated.addDuration(durVal);
         const y = String(calculated.year).padStart(4, '0');
         const m = String(calculated.month).padStart(2, '0');
         const d = String(calculated.day).padStart(2, '0');
         due = `${y}-${m}-${d}T00:00:00.000Z`;
       } else {
-        due = calculated.toJSDate().toISOString();
+        // Exact time for the h/m/s part, not wall-clock addDuration (#293, #302).
+        due = exactDurationEndISO(vtodo, startVal);
       }
     }
   }

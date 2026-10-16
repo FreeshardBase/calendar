@@ -2275,6 +2275,7 @@ module.exports = {
   parseICSToEvents,
   parseAndExpandEvent,
   expandCalendarInRange,
+  exactDurationEndISO,
   eventToICS,
   escIcal,
   escParamVal,
