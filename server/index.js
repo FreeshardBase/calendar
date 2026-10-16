@@ -19,6 +19,7 @@ const fs = require('fs');
 const { validateBaseUrl } = require('./utils/baseUrl');
 const { isSafeStorageId } = require('./utils/storageId');
 const { dispatcherFor } = require('./utils/tlsDispatcher');
+const { OIDC_CONFIG_MISSING } = require('./utils/oidcClient');
 
 function validateSystemSyncSecret(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
@@ -58,6 +59,10 @@ function validateSecurityConfig(env = process.env) {
   const authMethod = env.AUTH_METHOD || 'env';
   if (authMethod !== 'env' && authMethod !== 'oidc') {
     throw new Error(`AUTH_METHOD must be 'env' or 'oidc', got '${authMethod}'.`);
+  }
+  // #121: a missing issuer stops the start-up, not the first login.
+  if (authMethod === 'oidc' && !(env.OIDC_ISSUER_URL && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET)) {
+    throw new Error(OIDC_CONFIG_MISSING);
   }
   // #246: env mode has no login of its own; in production the proxy secret is its only credential.
   if (isProdLike && authMethod === 'env' && !headerSecret) {

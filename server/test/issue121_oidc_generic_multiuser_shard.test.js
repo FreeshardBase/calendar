@@ -1,101 +1,152 @@
 'use strict';
+require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
+
+/**
+ * Issue #121 — the shipping model is a single owner (AUTH_METHOD=env); multi-user sharing waits
+ * for the shard's embedded OIDC provider. Until then:
+ *  - AUTH_METHOD=oidc without its OIDC_* configuration stops the server at start-up, in English,
+ *    instead of failing on the first login;
+ *  - a fresh database contains no users nobody signed in as (no seeded 'test'/'testuser');
+ *  - a calendar can only be shared with a user that exists; an unknown sharee is 404, not a
+ *    PENDING share against a principal in no table.
+ */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const express = require('express');
 const session = require('express-session');
 const Db = require('../db');
+const { protectedRouter: calendarsRouter } = require('../routes/calendars');
+const { getOidcClient, resetOidcClient } = require('../utils/oidcClient');
 
-test('Issue #121 — Generic OIDC & Multi-User Shard Identity', async (t) => {
+const repoRoot = path.join(__dirname, '../..');
 
-  await t.test('Documentation does not promise Authelia specifically, but generic OIDC', () => {
-    const readme = fs.readFileSync(path.join(__dirname, '../../README.md'), 'utf8');
-    const agents = fs.readFileSync(path.join(__dirname, '../../agents.md'), 'utf8');
+function productionEnv(tmpDir, overrides) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('OIDC_')) delete env[key];
+  }
+  return {
+    ...env,
+    NODE_ENV: 'production',
+    DATABASE_PATH: path.join(tmpDir, 'webcalendar.db'),
+    ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex'),
+    ENCRYPTION_KEY_FILE: path.join(tmpDir, '.encryption_key'),
+    SESSION_SECRET: crypto.randomBytes(32).toString('hex'),
+    SYSTEM_SYNC_SECRET: crypto.randomBytes(32).toString('hex'),
+    INTERNAL_WEBHOOK_SECRET: crypto.randomBytes(32).toString('hex'),
+    HTTP_HEADER_AUTH_SECRET: crypto.randomBytes(32).toString('hex'),
+    BASE_URL: 'https://calendar.example.com',
+    PORT: '0',
+    ...overrides,
+  };
+}
 
-    assert.equal(/Authelia/i.test(readme), false, 'README.md should not promise Authelia specifically');
-    assert.equal(/Authelia/i.test(agents), false, 'agents.md should not reference Authelia specifically');
+test('Issue #121 — single-owner shipping model, OIDC fails at boot, no phantom sharees', async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue121-'));
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+  await t.test('AUTH_METHOD=oidc without OIDC_* stops the server at start-up with an English error', () => {
+    const result = spawnSync(process.execPath, ['server/index.js'], {
+      cwd: repoRoot,
+      env: productionEnv(tmpDir, { AUTH_METHOD: 'oidc' }),
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    assert.notEqual(result.status, 0, `server must not boot; stdout: ${result.stdout}`);
+    assert.equal(result.signal, null, 'server must exit on its own, not keep running until killed');
+    assert.match(result.stderr, /AUTH_METHOD=oidc requires OIDC_ISSUER_URL, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET/);
+    assert.doesNotMatch(result.stderr, /Konfiguration|fehlt/);
   });
 
-  await t.test('server/routes/auth.js comments and handlers use generic OIDC identity terms', () => {
-    const authJs = fs.readFileSync(path.join(__dirname, '../routes/auth.js'), 'utf8');
-    assert.equal(/Authelia/i.test(authJs), false, 'server/routes/auth.js should not contain Authelia references');
+  await t.test('getOidcClient names the missing OIDC_* variables in English', async () => {
+    const saved = {};
+    for (const key of ['OIDC_ISSUER_URL', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET']) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    resetOidcClient();
+    try {
+      await assert.rejects(getOidcClient(), /AUTH_METHOD=oidc requires OIDC_ISSUER_URL, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET/);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value !== undefined) process.env[key] = value;
+      }
+    }
   });
 
-  await t.test('server/index.js contains reverse-proxy / shard user header identity handling', () => {
-    const indexJs = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
-    assert.ok(indexJs.includes('x-forwarded-user') || indexJs.includes('x-user-id'), 'server/index.js should support multi-user reverse-proxy / shard user headers');
+  await t.test('a fresh production database offers no sharee besides the users who signed in', () => {
+    const script = `
+      const Db = require('./server/db');
+      Db.ready
+        .then(() => Db.upsertUser('owner', 'owner'))
+        .then(() => Promise.all([Db.searchUsers('test'), Db.searchUsers('o')]))
+        .then(([test, o]) => { console.log(JSON.stringify({ test, o })); process.exit(0); })
+        .catch((err) => { console.error(err); process.exit(1); });
+    `;
+    const result = spawnSync(process.execPath, ['-e', script], {
+      cwd: repoRoot,
+      env: productionEnv(tmpDir, { AUTH_METHOD: 'env', CALDAV_USERNAME: 'owner' }),
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const { test: testMatches, o } = JSON.parse(result.stdout.trim().split('\n').pop());
+    assert.deepEqual(testMatches, [], 'no seeded test/testuser rows on a shard');
+    assert.deepEqual(o.map(u => u.href), ['owner']);
   });
 
-  await t.test('Express middleware auto-provisions session for reverse-proxy / shard identity headers when AUTH_METHOD=oidc', async () => {
+  await t.test('sharing an internal calendar with an unknown user is 404 and stores nothing', async () => {
+    const owner = 'owner_121';
+    const member = 'member_121';
+    await Db.upsertUser(owner, owner, 'testuser@example.com');
+    await Db.upsertUser(member, member);
+    const calendarId = `internal-caldav::/${owner}/personal/`;
+    for (const stale of await Db.getUserShares(calendarId)) {
+      await Db.removeUserShare(calendarId, stale.shareeUserId);
+    }
+
     const app = express();
-    app.use(session({
-      secret: 'test-secret-key-for-session-testing-only-12345',
-      resave: false,
-      saveUninitialized: true
-    }));
-
-    app.use(async (req, res, next) => {
-      const authMethod = process.env.AUTH_METHOD || 'oidc';
-      let userId = req.session.userId;
-
-      if (authMethod === 'oidc' || process.env.HTTP_HEADER_AUTH === 'true') {
-        const headerUser = req.headers['x-forwarded-user'] || req.headers['x-user-id'] || req.headers['remote-user'];
-        if (headerUser) {
-          userId = String(headerUser).trim();
-          req.session.userId = userId;
-        }
-      }
-
-      if (userId) {
-        await Db.upsertUser(userId, userId);
-        const dbAccounts = await Db.getAccounts(userId);
-        const accounts = [...dbAccounts];
-        const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://localhost:5232';
-        if (!accounts.some(a => a.id === 'internal-caldav')) {
-          accounts.unshift({
-            id: 'internal-caldav',
-            url: `${localCalDAVCUrl}/${userId}/`,
-            username: userId,
-            password: process.env.SYSTEM_SYNC_SECRET || 'test-sync-secret',
-            displayName: 'Interner Kalender'
-          });
-        }
-        req.session.accounts = accounts;
-      } else {
-        req.session.accounts = [];
-      }
+    app.use(express.json());
+    app.use(session({ secret: 'test-secret-121', resave: false, saveUninitialized: true }));
+    // Harness-only identity, set by the test, never from the request (#50/#245).
+    app.use((req, res, next) => {
+      req.session.userId = owner;
+      req.session.accounts = [{ id: 'internal-caldav', url: `https://localhost:5232/${owner}/`, username: owner, password: 'x' }];
       next();
     });
-
-    app.get('/api/test-me', (req, res) => {
-      if (!req.session.userId) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-      res.json({ userId: req.session.userId, accounts: req.session.accounts });
+    app.use('/api/calendars', calendarsRouter);
+    const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const share = (sharee) => fetch(`${base}/api/calendars/${encodeURIComponent(calendarId)}/shares`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharee, readWrite: true }),
     });
 
-    const server = http.createServer(app);
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    const port = server.address().port;
-
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/test-me`, {
-        headers: {
-          'X-Forwarded-User': 'sharduser123'
-        }
-      });
-
-      assert.equal(res.status, 200);
-      const data = await res.json();
-      assert.equal(data.userId, 'sharduser123');
-      assert.ok(Array.isArray(data.accounts));
-      assert.equal(data.accounts[0].username, 'sharduser123');
-      assert.ok(data.accounts[0].url.endsWith('/sharduser123/'));
-    } finally {
-      await new Promise(resolve => server.close(resolve));
+    for (const sharee of ['nobody_121', '0b6f1a52-7c1d-4c8e-9f39-2d1c5e8a7b10']) {
+      const res = await share(sharee);
+      assert.equal(res.status, 404, `unknown sharee ${sharee} must be rejected`);
     }
+    const afterUnknown = await Db.getUserShares(calendarId);
+    assert.deepEqual(afterUnknown.map(s => s.shareeUserId), [], 'no share row for an unknown principal');
+
+    const ok = await share(member);
+    assert.equal(ok.status, 200);
+    const rows = await Db.getUserShares(calendarId);
+    assert.deepEqual(rows.map(s => [s.shareeUserId, s.status]), [[member, 'PENDING']]);
+
+    const del = await fetch(`${base}/api/calendars/${encodeURIComponent(calendarId)}/shares`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharee: 'nobody_121' }),
+    });
+    assert.equal(del.status, 404, 'removing a share of an unknown user is 404');
   });
 });
