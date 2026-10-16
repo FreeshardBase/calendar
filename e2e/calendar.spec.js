@@ -184,6 +184,76 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(eventChip).not.toBeVisible();
   });
 
+  // Issue #266: the popover is a dialog — focus goes in on open, Escape closes it, focus goes
+  // back to the chip, and a reopened popover is operable (no stale `inert` from the last close).
+  test('Issue #266 — event popover takes focus, closes on Escape and returns focus to its chip', async ({ page }) => {
+    await page.goto('/?date=2028-11-15');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    const title = `E2E Popover Focus ${Date.now()}`;
+    await page.fill('#ev-title', title);
+    await page.fill('#ev-start-date', '2028-11-15');
+    await page.fill('#ev-end-date', '2028-11-15');
+    await page.check('#ev-allday');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
+    await expectSavesLanded(page);
+
+    const chip = page.locator('.event-chip').filter({ hasText: title }).first();
+    await expect(chip).toBeVisible({ timeout: 15000 });
+    const popover = page.locator('#event-popover');
+
+    // Keyboard open: focus moves into the dialog.
+    await chip.focus();
+    await page.keyboard.press('Enter');
+    await expect(popover).not.toHaveClass(/hidden/);
+    await expect(popover).toHaveAttribute('role', 'dialog');
+    await expect(popover).toHaveAccessibleName(title);
+    await expect(page.locator('#popover-edit-btn')).toBeFocused();
+
+    // Escape closes it and focus returns to the chip.
+    await page.keyboard.press('Escape');
+    await expect(popover).toHaveClass(/hidden/);
+    await expect(chip).toBeFocused();
+
+    // Reopened after an Escape close: interactive, Tab stays inside, Escape works again.
+    await page.keyboard.press('Enter');
+    await expect(popover).not.toHaveClass(/hidden/);
+    await expect(popover).not.toHaveAttribute('inert', /.*/);
+    await expect(page.locator('#popover-edit-btn')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#popover-delete-btn')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#popover-edit-btn')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(popover).toHaveClass(/hidden/);
+    await expect(chip).toBeFocused();
+
+    // Closing through an action button also hands focus back: the cancelled delete returns to the chip.
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#popover-delete-btn')).toBeVisible();
+    await page.click('#popover-delete-btn');
+    await expect(page.locator('#confirm-dialog-text')).toContainText(title);
+    await page.click('#confirm-dialog-cancel');
+    await expect(popover).toHaveClass(/hidden/);
+    await expect(chip).toBeFocused();
+
+    // An outside click on another control keeps the focus the click gave it.
+    await chip.click();
+    await expect(popover).not.toHaveClass(/hidden/);
+    await page.click('#search-input');
+    await expect(popover).toHaveClass(/hidden/);
+    await expect(page.locator('#search-input')).toBeFocused();
+
+    await chip.click();
+    await page.click('#popover-delete-btn');
+    await page.click('#confirm-dialog-ok');
+    await expect(chip).not.toBeVisible({ timeout: 10000 });
+  });
+
   test('should create recurring event, delete and edit single occurrences via scope dialog', async ({ page }) => {
     await page.goto('/?date=2026-12-28');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
