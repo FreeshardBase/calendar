@@ -1101,6 +1101,59 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('.kanban-card', { hasText: taskTitle })).toHaveCount(0, { timeout: 10000 });
   });
 
+  test('Issue #261 — a zero-edit save of a task keeps a rule the preset options cannot hold', async ({ page }) => {
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const rules = ['FREQ=WEEKLY;COUNT=6;BYDAY=MO', 'FREQ=DAILY;INTERVAL=2', 'FREQ=MONTHLY;UNTIL=20370101T000000Z'];
+    const stamp = Date.now();
+    const storedRule = (title) => page.evaluate(async (t) => {
+      const res = await fetch('/api/tasks');
+      const body = await res.json();
+      const list = Array.isArray(body) ? body : body.tasks;
+      const found = list.find(x => x.title === t);
+      if (!found) return null;
+      const line = found.rawIcs.replace(/\r?\n[ \t]/g, '').split(/\r?\n/).find(l => l.startsWith('RRULE:'));
+      return { recurrence: found.recurrence, rrule: line || null };
+    }, title);
+
+    await page.goto('/');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    const titles = [];
+    for (const [i, rule] of rules.entries()) {
+      const title = `E2E Issue261 Task ${i} ${stamp}`;
+      const created = await page.request.post('/api/tasks', {
+        headers: SAME_ORIGIN,
+        data: { calendarId, title, due: '2036-08-24T15:00:00.000Z', recurrence: rule },
+      });
+      expect(created.status()).toBe(201);
+      expect(await storedRule(title)).toEqual({ recurrence: rule, rrule: `RRULE:${rule}` });
+      titles.push(title);
+    }
+
+    await page.reload();
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.click('#view-kanban');
+    for (const [i, rule] of rules.entries()) {
+      const card = page.locator('.kanban-card', { hasText: titles[i] });
+      await expect(card).toBeVisible({ timeout: 10000 });
+      await card.locator('.btn-edit').click();
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      // Nothing is touched: the modal must hold the rule exactly as loaded and send it back.
+      await expect(page.locator('#task-recurrence')).toHaveValue('CUSTOM');
+      await expect(page.locator('#task-recurrence-custom')).toHaveValue(rule);
+      const put = page.waitForRequest(r => r.method() === 'PUT' && r.url().includes('/api/tasks/'));
+      await page.click('#task-save-btn');
+      expect((await put).postDataJSON().recurrence).toBe(rule);
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      expect(await storedRule(titles[i])).toEqual({ recurrence: rule, rrule: `RRULE:${rule}` });
+    }
+
+    for (const title of titles) {
+      await page.locator('.kanban-card', { hasText: title }).locator('.btn-delete').click();
+      await page.click('#confirm-dialog-ok');
+      await expect(page.locator('.kanban-card', { hasText: title })).toHaveCount(0, { timeout: 10000 });
+    }
+  });
+
   test.describe('Issue #182 — sidebar controls are keyboard operable', () => {
     // The sidebar shows only the first 10 pending tasks, so a task created on
     // the shared Radicale could be pushed out by leftovers from other runs.
