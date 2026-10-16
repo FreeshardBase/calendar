@@ -8,12 +8,19 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `npm ci` — install (Node >= 20).
 - `npm start` — serve on :3000 (HTTPS if `ssl/key.pem`+`ssl/cert.pem` exist or `SSL_*_PATH` set, else HTTP).
 - `npm run dev` — same with `--watch`.
-- `NODE_ENV=test npm test` — node:test integration suite (`server/test/*.test.js`).
-  Tests are self-contained and spin up isolated Express instances on ephemeral ports. No pre-started server is required.
+- `npm test` — node:test integration suite: `scripts/test-unit.sh` runs `NODE_ENV=test node --test
+  --test-concurrency=1` over `server/test/*.test.js` (minus the files that need a sibling `../app-repository`, #332).
+  Each HTTP-touching file starts its own server on its own fixed port (literals spread over 3091–3958, a few use
+  `listen(0)`); because the ports are fixed and some are shared, files must run one at a time, hence
+  `--test-concurrency=1`. Do **not** start a server first: one listening on a test file's port makes that file
+  fail with `EADDRINUSE`. With `NODE_ENV=test` and `DATABASE_PATH` unset the suite uses `webcalendar.test.db`
+  in the checkout (`server/db.js`), never `webcalendar.db`; several files call `Db.clearAll()`, so never point
+  `DATABASE_PATH` at a database you want to keep. Run it inside a git checkout:
+  `server/test/issue133_tracked_wal_sidecars.test.js` runs `git ls-files` and fails without `.git`.
+  CalDAV route tests run against an in-process mock DAV server; nothing is skipped and no Radicale is needed.
   Requiring `server/index.js` never binds a port (#255): only `node server/index.js` listens. A test that needs HTTP
   calls `server.listen(process.env.PORT)` itself, and sets `process.env.PORT` to its own fixed literal (never
   `process.env.PORT || …`), so an exported `PORT` (e.g. `PORT=3000` from `.env.example`) cannot make files collide.
-  Tests isolate database state using `webcalendar.test.db` when `DATABASE_PATH` is unset to protect developer databases.
   A test becomes a user with `await loginAs(userId, { username, email })` from `server/test/helpers/testSession.js`:
   it writes a real session row and returns a signed `cookie` header value. No request header asserts an identity,
   under any `NODE_ENV` (#50/#245); the only header identity is the secret-gated proxy auth (`HTTP_HEADER_AUTH`/`oidc`).
