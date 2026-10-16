@@ -8,7 +8,7 @@
  * It refreshes tokens with the same client credentials and scopes.
  */
 
-const { generators } = require('openid-client');
+const crypto = require('crypto');
 const { parseBaseUrl } = require('./baseUrl');
 
 const AUTHORITY = 'https://login.microsoftonline.com/common/oauth2/v2.0';
@@ -35,8 +35,9 @@ function getMSGraphConfig(env = process.env) {
 
 // A new authorization transaction: state and PKCE verifier stay in the session, the URL goes to the browser.
 function createAuthorization(config) {
-  const state = generators.state();
-  const codeVerifier = generators.codeVerifier();
+  const state = crypto.randomBytes(32).toString('base64url');
+  // RFC 7636: a 43-character verifier and its S256 challenge.
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
   const url = new URL(`${AUTHORITY}/authorize`);
   url.searchParams.set('client_id', config.clientId);
   url.searchParams.set('response_type', 'code');
@@ -44,7 +45,7 @@ function createAuthorization(config) {
   url.searchParams.set('response_mode', 'query');
   url.searchParams.set('scope', SCOPES);
   url.searchParams.set('state', state);
-  url.searchParams.set('code_challenge', generators.codeChallenge(codeVerifier));
+  url.searchParams.set('code_challenge', crypto.createHash('sha256').update(codeVerifier).digest('base64url'));
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('prompt', 'select_account');
   return { url: url.href, transaction: { state, codeVerifier } };

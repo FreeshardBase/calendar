@@ -13,11 +13,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const https = require('node:https');
 const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
-const { SignJWT, generateKeyPair, exportJWK } = require('jose');
+const { createTestCertificate, trustTestCertificate } = require('./helpers/testTls');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue144-'));
 process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
@@ -41,11 +42,13 @@ function readBody(req) {
 
 // Minimal IdP: issues an id_token with the given sub and preferred_username.
 async function startMockIdp() {
+  const { SignJWT, generateKeyPair, exportJWK } = await import('jose');
+  const tls = createTestCertificate();
   const { publicKey, privateKey } = await generateKeyPair('RS256');
   const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
   const codes = new Map();
   let issuer;
-  const server = http.createServer(async (req, res) => {
+  const server = https.createServer(tls, async (req, res) => {
     const url = new URL(req.url, issuer);
     const json = (status, body) => {
       res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -79,16 +82,17 @@ async function startMockIdp() {
         .setIssuedAt()
         .setExpirationTime('5m')
         .sign(privateKey);
-      return json(200, { id_token: idToken, token_type: 'Bearer', expires_in: 300 });
+      return json(200, { id_token: idToken, access_token: 'testuser-access-token', token_type: 'Bearer', expires_in: 300 });
     }
     res.writeHead(404);
     res.end();
   });
   const port = await listen(server);
-  issuer = `http://127.0.0.1:${port}`;
+  issuer = `https://127.0.0.1:${port}`;
   return {
     server,
     issuer,
+    cert: tls.cert,
     issueCode(nonce, sub, username) {
       const code = crypto.randomBytes(12).toString('hex');
       codes.set(code, { nonce, sub, username });
@@ -100,6 +104,13 @@ async function startMockIdp() {
 test('Issue #144 — the OIDC sub is the storage identity (NODE_ENV=production)', async (t) => {
   const idp = await startMockIdp();
   const origEnv = { ...process.env };
+  let server = null;
+  // Registered before the app loads: if loading it throws, the mock IdP must not keep the process alive.
+  t.after(() => {
+    if (server) server.close();
+    idp.server.close();
+    process.env = origEnv;
+  });
   process.env.NODE_ENV = 'production';
   process.env.AUTH_METHOD = 'oidc';
   process.env.BASE_URL = BASE_URL;
@@ -117,16 +128,12 @@ test('Issue #144 — the OIDC sub is the storage identity (NODE_ENV=production)'
   delete process.env.CALDAVURL;
 
   const { app } = require('../index.js');
+  // After the app: server/index.js installs its own global dispatcher on load.
+  trustTestCertificate(idp.cert);
   const Db = require('../db');
   const { checkCalendarAccess } = require('../utils/calendarAuth');
-  const server = http.createServer(app);
+  server = http.createServer(app);
   const origin = `http://127.0.0.1:${await listen(server)}`;
-
-  t.after(() => {
-    server.close();
-    idp.server.close();
-    process.env = origEnv;
-  });
 
   function cookieFrom(res) {
     return res.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith('connect.sid=')) || null;
