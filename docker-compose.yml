@@ -1,9 +1,17 @@
+# Cap each container's json-file log (the daemon default is unbounded): 3 x 10 MB.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   webcalendar:
     build: .
     image: ${REGISTRY:-ghcr.io/freeshardbase}/webcalendar:${TAG:-latest}
     container_name: freeshard-webcalendar
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${PORT:-3000}:3000"
     depends_on:
@@ -41,6 +49,7 @@ services:
     image: ${REGISTRY:-ghcr.io/freeshardbase}/radicale:${TAG:-latest}
     container_name: freeshard-radicale
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env
     environment:
@@ -61,6 +70,7 @@ services:
     image: ${REGISTRY:-ghcr.io/freeshardbase}/sync-worker:${TAG:-latest}
     container_name: freeshard-sync-worker
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       caldav-server:
         condition: service_healthy
