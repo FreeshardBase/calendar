@@ -58,7 +58,7 @@ export function formatAlarmTriggerLabel(trigger, related = null) {
   if (abs) {
     const [, y, mo, d, h, mi, sec] = abs;
     const when = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec));
-    return `Am ${when.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}`;
+    return `Am ${when.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
   }
 
   if (String(related || '').toUpperCase() === 'END') {

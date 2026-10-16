@@ -2664,9 +2664,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       ] });
       const item = await googleAccountItem(page);
       const status = item.locator('.account-sync-status');
-      await expect(status).toContainText('Synchronisation fehlgeschlagen am 15.10.26, 08:05: invalid_grant: <b>Token</b> has been expired or revoked.', { timeout: 10000 });
+      await expect(status).toContainText('Synchronisation fehlgeschlagen am 15.10.2026, 08:05: invalid_grant: <b>Token</b> has been expired or revoked.', { timeout: 10000 });
       await expect(status.locator('b')).toHaveCount(0);
-      await expect(status).toContainText('Zuletzt erfolgreich synchronisiert: 14.10.26, 10:30');
+      await expect(status).toContainText('Zuletzt erfolgreich synchronisiert: 14.10.2026, 10:30');
     });
 
     test('a successful sync shows when the Google account was last synced', async ({ page }) => {
@@ -2675,7 +2675,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       ] });
       const item = await googleAccountItem(page);
       const status = item.locator('.account-sync-status');
-      await expect(status).toHaveText('Zuletzt erfolgreich synchronisiert: 14.10.26, 10:30', { timeout: 10000 });
+      await expect(status).toHaveText('Zuletzt erfolgreich synchronisiert: 14.10.2026, 10:30', { timeout: 10000 });
     });
 
     test('a sync stuck in RUNNING without any success says no sync has succeeded yet', async ({ page }) => {
@@ -2684,6 +2684,54 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       ] });
       const item = await googleAccountItem(page);
       await expect(item.locator('.account-sync-status')).toHaveText('Noch keine erfolgreiche Synchronisation', { timeout: 10000 });
+    });
+  });
+
+  test.describe('Issue #167 — every numeric date in the UI is DIN 5008 dd.mm.yyyy', () => {
+    // page.route needs the service worker off.
+    test.use({ serviceWorkers: 'block' });
+
+    test('task due dates, app-password creation and invitations show zero-padded day and month', async ({ page }) => {
+      const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+      await page.route(/\/api\/tasks(\?.*)?$/, route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ json: [
+          // A date-only due is a calendar date, shown as stored.
+          { uid: 'e2e-167-date', title: 'E2E 167 Datum', status: 'NEEDS-ACTION', due: '2027-03-05T00:00:00.000Z', dueIsDate: true,
+            calendarId, href: `/${E2E_USER}/personal/e2e-167-date.ics`, etag: '"1"' },
+          // A timed due at 23:30 UTC is already 6 March in Europe/Berlin.
+          { uid: 'e2e-167-timed', title: 'E2E 167 Zeit', status: 'NEEDS-ACTION', due: '2027-03-05T23:30:00.000Z',
+            calendarId, href: `/${E2E_USER}/personal/e2e-167-timed.ics`, etag: '"1"' },
+        ] });
+      });
+      await page.route('**/api/accounts/app-passwords', route => {
+        if (route.request().method() !== 'GET') return route.continue();
+        return route.fulfill({ json: [{ id: 'asp-167', label: 'Thunderbird', createdAt: '2027-03-04T10:00:00.000Z' }] });
+      });
+      await page.route('**/api/events/invitations', route => route.fulfill({ json: [
+        { uid: 'inv-167', title: 'E2E 167 Einladung', start: '2027-03-07T08:00:00.000Z', calendarId, href: `/${E2E_USER}/personal/inv-167.ics`,
+          organizer: { name: 'Test User', email: 'testuser@example.com' }, attendees: [] },
+      ] }));
+
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      const sidebarTasks = page.locator('#sidebar-task-list');
+      await expect(sidebarTasks.locator('.sidebar-task-item', { hasText: 'E2E 167 Datum' }).locator('.sidebar-task-meta')).toHaveText('05.03.2027', { timeout: 10000 });
+      await expect(sidebarTasks.locator('.sidebar-task-item', { hasText: 'E2E 167 Zeit' }).locator('.sidebar-task-meta')).toHaveText('06.03.2027');
+
+      await page.click('#view-kanban');
+      await expect(page.locator('.kanban-card[data-task-id="e2e-167-date"] .kanban-due-date')).toHaveText('05.03.2027', { timeout: 10000 });
+      await expect(page.locator('.kanban-card[data-task-id="e2e-167-timed"] .kanban-due-date')).toHaveText('06.03.2027');
+
+      await page.click('#invitations-btn');
+      await expect(page.locator('#invitations-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('.invitation-card[data-uid="inv-167"] .invitation-date')).toHaveText('07.03.2027, 09:00');
+      await page.click('#invitations-modal-close');
+
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#settings-asp-list .settings-item', { hasText: 'Thunderbird' })).toContainText('Erstellt am 04.03.2027', { timeout: 10000 });
     });
   });
 

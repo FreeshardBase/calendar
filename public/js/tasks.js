@@ -15,6 +15,14 @@ function notifyToast(message, type = 'info') {
   }
 }
 
+// Issue #167: one numeric date format across the UI, DIN 5008 with zero-padded day and month (05.03.2027).
+// A date-only due is a calendar date stored at UTC midnight; a timed due is shown in the browser's zone.
+function formatDueDate(d, isDate) {
+  return d.toLocaleDateString('de-DE', {
+    day: '2-digit', month: '2-digit', year: 'numeric', ...(isDate ? { timeZone: 'UTC' } : {}),
+  });
+}
+
 export function formatRecurrenceLabel(recurrence) {
   if (!recurrence) return '';
   const str = String(recurrence).replace(/^RRULE:/i, '').toUpperCase();
@@ -43,7 +51,7 @@ export function getTaskCompletionToast(task, payload) {
     );
     const d = payload && payload.due ? new Date(payload.due) : null;
     const dateStr = d && !isNaN(d.getTime())
-      ? (isDate ? d.toLocaleDateString('de-DE', { timeZone: 'UTC' }) : d.toLocaleDateString('de-DE'))
+      ? formatDueDate(d, isDate)
       : '';
     return dateStr ? `Aufgabe auf ${dateStr} verschoben.` : 'Aufgabe verschoben.';
   }
@@ -423,9 +431,7 @@ function createKanbanCard(task, callbacks) {
   let dueBadge = '';
   if (task.due) {
     const d = new Date(task.due);
-    const dateStr = (task.dueIsDate || task.allDay)
-      ? d.toLocaleDateString('de-DE', { timeZone: 'UTC' })
-      : d.toLocaleDateString('de-DE');
+    const dateStr = formatDueDate(d, Boolean(task.dueIsDate || task.allDay));
     dueBadge = `<span class="kanban-due-date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${dateStr}</span>`;
   }
 
@@ -559,7 +565,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
       <div class="sidebar-task-info" tabindex="0" role="button">
         <div class="sidebar-task-title ${prioClass}">${escapeHtml(task.title)}</div>
         <div class="sidebar-task-meta">
-          ${task.due ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${(task.dueIsDate || task.allDay) ? new Date(task.due).toLocaleDateString('de-DE', { timeZone: 'UTC' }) : new Date(task.due).toLocaleDateString('de-DE')}` : ''}
+          ${task.due ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${formatDueDate(new Date(task.due), Boolean(task.dueIsDate || task.allDay))}` : ''}
           ${task.recurrence ? ` <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-left:4px;vertical-align:middle;display:inline-block;" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>` : ''}
         </div>
       </div>

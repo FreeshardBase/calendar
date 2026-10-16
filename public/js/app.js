@@ -1708,7 +1708,7 @@ async function renderSettingsAppPasswords() {
     }
 
     list.innerHTML = listData.map(asp => {
-      const dateStr = new Date(asp.createdAt).toLocaleDateString('de-DE');
+      const dateStr = new Date(asp.createdAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
       return `
         <div class="settings-item" style="padding: 6px 0">
           <div class="settings-item-info" style="display:flex; flex-direction:column; align-items:flex-start">
@@ -1752,7 +1752,7 @@ async function renderSettingsAppPasswords() {
 // the first status poll has answered.
 function accountSyncStatusHtml(jobs) {
   if (!jobs) return '';
-  const fmt = ms => new Date(ms).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  const fmt = ms => new Date(ms).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   // Server orders by created_at DESC.
   const latestFinished = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
   const lastSuccess = jobs.find(j => j.status === 'SUCCESS');
