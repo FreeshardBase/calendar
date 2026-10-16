@@ -74,12 +74,39 @@ function setupTaskModal() {
     });
   }
 
+  const selectRecur = document.getElementById('task-recurrence');
+  if (selectRecur) selectRecur.addEventListener('change', syncCustomRecurrenceField);
+
   if (form) {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       await handleTaskSave();
     });
   }
+}
+
+// Any rule the preset options cannot hold (INTERVAL, BYDAY, COUNT, UNTIL, …) is
+// authored and shown as RRULE text in the field behind the "CUSTOM" option.
+const CUSTOM_RECURRENCE = 'CUSTOM';
+
+function syncCustomRecurrenceField() {
+  const selectRecur = document.getElementById('task-recurrence');
+  const group = document.getElementById('task-recurrence-custom-group');
+  if (!selectRecur || !group) return;
+  group.classList.toggle('hidden', selectRecur.value !== CUSTOM_RECURRENCE);
+}
+
+function setRecurrenceControls(recurrence) {
+  const selectRecur = document.getElementById('task-recurrence');
+  const customInput = document.getElementById('task-recurrence-custom');
+  if (!selectRecur) return;
+  const rule = recurrence ? String(recurrence).replace(/^RRULE:/i, '') : '';
+  // A <select> refuses a value it has no option for, so reading it back tells presets apart.
+  selectRecur.value = rule;
+  const isPreset = selectRecur.value === rule;
+  if (!isPreset) selectRecur.value = CUSTOM_RECURRENCE;
+  if (customInput) customInput.value = isPreset ? '' : rule;
+  syncCustomRecurrenceField();
 }
 
 export function openTaskModal(task = null) {
@@ -100,7 +127,6 @@ export function openTaskModal(task = null) {
   const inputDuration = document.getElementById('task-duration');
   const inputPercent = document.getElementById('task-percent-complete');
   const selectPrio = document.getElementById('task-priority');
-  const selectRecur = document.getElementById('task-recurrence');
 
   // Populate calendar options
   const calendars = store.get('calendars') || [];
@@ -157,7 +183,7 @@ export function openTaskModal(task = null) {
     const pct = task.percentComplete !== undefined ? task.percentComplete : task['percent-complete'];
     if (inputPercent) inputPercent.value = (pct !== null && pct !== undefined) ? String(pct) : '';
     if (selectPrio) selectPrio.value = task.priority !== null && task.priority !== undefined ? String(task.priority) : '';
-    if (selectRecur) selectRecur.value = task.recurrence || '';
+    setRecurrenceControls(task.recurrence);
   } else {
     if (titleEl) titleEl.textContent = 'Neue Aufgabe';
     if (idInput) idInput.value = '';
@@ -171,7 +197,7 @@ export function openTaskModal(task = null) {
     if (inputDuration) inputDuration.value = '';
     if (inputPercent) inputPercent.value = '';
     if (selectPrio) selectPrio.value = '';
-    if (selectRecur) selectRecur.value = '';
+    setRecurrenceControls(null);
   }
 
   openDialog(backdrop, inputTitle);
@@ -197,6 +223,7 @@ async function handleTaskSave() {
   const percentCompleteVal = document.getElementById('task-percent-complete')?.value;
   const priorityVal = document.getElementById('task-priority')?.value;
   const recurrenceVal = document.getElementById('task-recurrence')?.value;
+  const customRecurrenceVal = document.getElementById('task-recurrence-custom')?.value.trim();
 
   if (!title || !calendarId) return;
 
@@ -250,7 +277,7 @@ async function handleTaskSave() {
   }
 
   const priority = priorityVal !== '' ? parseInt(priorityVal, 10) : null;
-  const recurrence = recurrenceVal || null;
+  const recurrence = (recurrenceVal === CUSTOM_RECURRENCE ? customRecurrenceVal : recurrenceVal) || null;
 
   const taskData = {
     calendarId,
