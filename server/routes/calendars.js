@@ -48,26 +48,38 @@ if (process.env.SHARE_SECRET_KEY) {
   }
 }
 
-function encryptToken(payload) {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', secretKey, iv);
-  let encrypted = cipher.update(JSON.stringify(payload), 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
+if (secretKey.length !== 32) {
+  throw new Error(`${keyPath} must hold a 32-byte key, found ${secretKey.length} bytes`);
 }
 
+// Subscription-link tokens (#525): AES-256-GCM, so a modified token fails the tag
+// check before anything is parsed. The payload names the calendar only; the
+// public route resolves the account itself, so no credential is ever embedded.
+const TOKEN_FORMAT = /^([0-9a-f]{24}):([0-9a-f]+):([0-9a-f]{32})$/;
+
+function encryptToken({ id, url, publicShareId }) {
+  const nonce = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', secretKey, nonce);
+  const ct = Buffer.concat([cipher.update(JSON.stringify({ id, url, publicShareId }), 'utf8'), cipher.final()]);
+  return `${nonce.toString('hex')}:${ct.toString('hex')}:${cipher.getAuthTag().toString('hex')}`;
+}
+
+// Returns the payload, or null when the token is malformed or fails authentication.
 function decryptToken(token) {
+  const m = TOKEN_FORMAT.exec(token);
+  if (!m) return null;
+  const decipher = crypto.createDecipheriv('aes-256-gcm', secretKey, Buffer.from(m[1], 'hex'), { authTagLength: 16 });
+  decipher.setAuthTag(Buffer.from(m[3], 'hex'));
+  const ct = Buffer.from(m[2], 'hex');
+  let plain;
   try {
-    const parts = token.split(':');
-    const iv = Buffer.from(parts[0], 'hex');
-    const encryptedText = parts[1];
-    const decipher = crypto.createDecipheriv('aes-256-cbc', secretKey, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return JSON.parse(decrypted);
-  } catch (e) {
-    return null;
+    plain = Buffer.concat([decipher.update(ct), decipher.final()]);
+  } catch (err) {
+    // final() throws exactly when the GCM tag does not verify: a forged or altered token.
+    if (/authenticate/i.test(err.message)) return null;
+    throw err;
   }
+  return JSON.parse(plain.toString('utf8'));
 }
 
 // ── Public Router ─────────────────────────────────────────────────────────────
@@ -1118,14 +1130,7 @@ router.get('/:id/public-link', async (req, res) => {
       return res.json({ enabled: false });
     }
 
-    const token = encryptToken({
-      url: calendarUrl,
-      username: account.username,
-      password: account.password,
-      publicShareId: activeTokenId,
-      id: account.id,
-      authType: account.authType
-    });
+    const token = encryptToken({ id: account.id, url: calendarUrl, publicShareId: activeTokenId });
 
     const detail = (await client.getCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail')) || DEFAULT_DETAIL;
     res.json({
@@ -1153,14 +1158,7 @@ router.post('/:id/public-link', async (req, res) => {
     const publicShareId = crypto.randomUUID();
     await client.setCustomProperty(calendarUrl, 'http://freeshard.de/ns/', 'public-share-token', publicShareId);
 
-    const token = encryptToken({
-      url: calendarUrl,
-      username: account.username,
-      password: account.password,
-      publicShareId,
-      id: account.id,
-      authType: account.authType
-    });
+    const token = encryptToken({ id: account.id, url: calendarUrl, publicShareId });
 
     const detail = (await client.getCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail')) || DEFAULT_DETAIL;
     res.json({
