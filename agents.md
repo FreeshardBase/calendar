@@ -105,7 +105,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   only with `Origin` = BASE_URL origin or, without Origin, `Sec-Fetch-Site: same-origin` (exempt: `/internal/*`,
   back-channel logout). OIDC login uses PKCE (S256), nonce and a mandatory state, and regenerates the session id;
   it runs on openid-client v6 (#179, loaded via `import()` in `utils/oidcClient.js`), which only talks to an https issuer;
-  logout is `POST /api/auth/logout`. Proxy header identity needs `HTTP_HEADER_AUTH_SECRET` (timing-safe, ≥32 characters in
+  logout is `POST /api/auth/logout`; with OIDC it sends the browser to the provider's `end_session_endpoint` (id_token
+  of the login as `id_token_hint`, `post_logout_redirect_uri` = BASE_URL, which must be registered at the provider)
+  and the next login requests `prompt=login` (#535). Proxy header identity needs `HTTP_HEADER_AUTH_SECRET` (timing-safe, ≥32 characters in
   production, must differ from `INTERNAL_WEBHOOK_SECRET`, `SYSTEM_SYNC_SECRET`, `SESSION_SECRET`, `ENCRYPTION_KEY`). `utils/rateLimit.js`: per client IP (`req.ip`, `TRUST_PROXY` hop count, default 1
   in production) 30/min on `/api/auth/*`, 120/min on `/api/public/*`, then 429 with `Retry-After`.
 - `server/db.js` — sqlite3 wrapper, schema auto-created on boot. Tables: `linked_accounts`
