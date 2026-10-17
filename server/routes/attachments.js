@@ -5,12 +5,14 @@ const router = express.Router();
 const { fetchFileBrowserFiles, createFileBrowserShareLink, buildFileBrowserAttachment } = require('../utils/filebrowser');
 const { sendError } = require('../utils/errorSanitizer');
 
+// Only a token the caller presents is forwarded. The session holds no delegated
+// FileBrowser token, and the user id is not a credential (#533).
 function extractOidcToken(req) {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
   }
-  return req.session?.oidcToken || req.session?.userId || null;
+  return null;
 }
 
 router.get('/filebrowser/files', async (req, res) => {
@@ -35,10 +37,9 @@ router.post('/filebrowser/link', async (req, res) => {
       return res.status(400).json({ error: 'filePath is required' });
     }
 
-    const oidcToken = extractOidcToken(req);
-    const shareResult = await createFileBrowserShareLink(filePath, oidcToken);
+    const shareResult = await createFileBrowserShareLink(filePath);
     const attachment = buildFileBrowserAttachment(
-      { name: shareResult.name, path: filePath, mimeType: mimeType || shareResult.mimeType },
+      { name: shareResult.name, mimeType: mimeType || shareResult.mimeType },
       shareResult.url
     );
 

@@ -62,7 +62,7 @@ test('Issue #12 — Support event attachments using FileBrowser integration and 
 
   await t.test('createFileBrowserShareLink should generate valid share link', async () => {
     const filePath = '/projects/spec.docx';
-    const result = await createFileBrowserShareLink(filePath, sampleOidcToken);
+    const result = await createFileBrowserShareLink(filePath);
     assert.ok(result.url, 'Share link URL must be generated');
     assert.ok(result.url.includes('spec.docx'));
     assert.equal(result.name, 'spec.docx');
