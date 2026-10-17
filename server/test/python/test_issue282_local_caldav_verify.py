@@ -61,6 +61,13 @@ class TestIssue282LocalCaldavVerify(unittest.TestCase):
                 PRIMARY KEY (account_id, google_calendar_id), UNIQUE (user_id, local_collection)
             )
         """)
+        conn.execute("""
+            CREATE TABLE caldav_calendar_collections (
+                account_id TEXT NOT NULL, user_id TEXT NOT NULL, remote_collection TEXT NOT NULL,
+                local_collection TEXT NOT NULL, created_at INTEGER NOT NULL,
+                PRIMARY KEY (account_id, remote_collection), UNIQUE (user_id, local_collection)
+            )
+        """)
         enc, iv = sync_worker.encrypt("pass123", sync_worker.KEY_BYTES)
         conn.execute(
             "INSERT INTO linked_accounts (id, user_id, url, username, password_encrypted, iv, auth_type)"
@@ -103,6 +110,7 @@ class TestIssue282LocalCaldavVerify(unittest.TestCase):
              patch.object(sync_worker, "discover_google_collections",
                           return_value=[{"id": "primary", "name": "Privat"}]), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
+             patch.object(sync_worker, "discover_caldav_collections", return_value={"work": "Arbeit"}), \
              patch.object(sync_worker.urllib.request, "urlopen", side_effect=fake_urlopen), \
              patch("subprocess.run", side_effect=fake_run):
             ok, err = sync_worker.sync_user(USER_ID)

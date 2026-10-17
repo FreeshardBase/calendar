@@ -251,6 +251,20 @@ db.serialize(() => {
       FOREIGN KEY (account_id) REFERENCES linked_accounts(id) ON DELETE CASCADE
     )
   `);
+  // #531: same for Basic-auth CalDAV accounts (`caldav-<hex>`). Only the account's own
+  // calendars are mirrored; the remote name is checked against a safe charset first.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS caldav_calendar_collections (
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      remote_collection TEXT NOT NULL,
+      local_collection TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, remote_collection),
+      UNIQUE (user_id, local_collection),
+      FOREIGN KEY (account_id) REFERENCES linked_accounts(id) ON DELETE CASCADE
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS calendar_sync_cache (
       calendar_id TEXT PRIMARY KEY,

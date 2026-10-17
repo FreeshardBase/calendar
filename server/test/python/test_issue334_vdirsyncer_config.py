@@ -63,6 +63,12 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
         )
         conn.commit()
         conn.close()
+        # The account's calendars and their local collections (#531) are not under test here.
+        for name, value in (("discover_caldav_collections", {"work": "Arbeit"}),
+                            ("local_collection_for_caldav_calendar", "caldav-" + "0" * 32)):
+            patcher = patch.object(sync_worker, name, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir)

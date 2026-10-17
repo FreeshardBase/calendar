@@ -14,6 +14,7 @@ import subprocess
 import urllib.request
 import urllib.parse
 import urllib.error
+import http.client
 import json
 import xml.etree.ElementTree as ET
 import signal
@@ -493,9 +494,9 @@ def legacy_google_collection_name(display_name):
 
 
 def create_local_collection(user_id, collection, display_name):
-    """MKCALENDAR the paired collection in the user's Radicale principal, named by the Google calendar.
+    """MKCALENDAR the paired collection in the user's Radicale principal, named by the provider's calendar.
 
-    The worker creates it rather than vdirsyncer so that the display name is set once, Google -> local;
+    The worker creates it rather than vdirsyncer so that the display name is set once, provider -> local;
     vdirsyncer metasync would also push renames made in the app back to Google.
     """
     url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{collection}/"
@@ -556,6 +557,89 @@ def local_collection_for_google_calendar(conn, user_id, account_id, google_calen
         "INSERT INTO google_calendar_collections"
         " (account_id, user_id, google_calendar_id, local_collection, created_at) VALUES (?, ?, ?, ?, ?)",
         (account_id, user_id, google_calendar_id, local_collection, int(time.time() * 1000)),
+    )
+    conn.commit()
+    return local_collection
+
+
+# vdirsyncer names a collection by the unquoted last href segment and writes its status to
+# <status_path>/<pair>/<name>.items, so a provider's name is only accepted from this charset (#531).
+SAFE_COLLECTION_NAME_RE = re.compile(r"[A-Za-z0-9_.-]+")
+CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
+MAX_DISCOVERY_RESPONSE_BYTES = 5 * 1024 * 1024
+
+
+class CalDAVDiscoveryError(Exception):
+    """A linked CalDAV server's calendar listing is unusable: unsafe or duplicate name, oversized (#531)."""
+
+
+def discover_caldav_collections(home_url, username, password):
+    """{collection name: display name} of the calendars in a Basic-auth account's calendar home.
+
+    The name is derived exactly as vdirsyncer derives it (unquoted last href segment) and must
+    fully match SAFE_COLLECTION_NAME_RE; any other name raises CalDAVDiscoveryError.
+    """
+    body = """<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop>
+    <d:resourcetype />
+    <d:displayname />
+  </d:prop>
+</d:propfind>"""
+    auth_str = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    req = urllib.request.Request(
+        home_url,
+        data=body.encode("utf-8"),
+        headers={
+            "Authorization": f"Basic {auth_str}",
+            "Depth": "1",
+            "Content-Type": "application/xml; charset=utf-8",
+            "Accept-Encoding": "identity",
+        },
+        method="PROPFIND",
+    )
+    with urllib.request.urlopen(req, context=ssl_context_for(home_url, LOCAL_CALDAV_URL), timeout=30) as res:
+        raw = res.read(MAX_DISCOVERY_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_DISCOVERY_RESPONSE_BYTES:
+        raise CalDAVDiscoveryError(f"calendar listing exceeds {MAX_DISCOVERY_RESPONSE_BYTES} bytes")
+    root = ET.fromstring(raw)
+
+    home_path = urllib.parse.unquote(urllib.parse.urlsplit(home_url).path).rstrip("/")
+    collections = {}
+    for resp in root.findall("{DAV:}response"):
+        href = resp.findtext("{DAV:}href") or ""
+        if resp.find(f".//{{DAV:}}resourcetype/{{{CALDAV_NS}}}calendar") is None:
+            continue
+        href_path = urllib.parse.urlsplit(href.strip()).path
+        if urllib.parse.unquote(href_path).rstrip("/") == home_path:
+            continue
+        name = urllib.parse.unquote(href_path.rstrip("/").split("/")[-1])
+        if not SAFE_COLLECTION_NAME_RE.fullmatch(name) or name in (".", ".."):
+            raise CalDAVDiscoveryError(f"server listed calendar {name!r}, which is not a safe collection name")
+        if name in collections:
+            raise CalDAVDiscoveryError(f"server listed calendar {name!r} twice")
+        collections[name] = (resp.findtext(".//{DAV:}displayname") or "").strip() or name
+    return collections
+
+
+def local_collection_for_caldav_calendar(conn, user_id, account_id, remote_collection, display_name):
+    """Local Radicale collection paired with one calendar of a Basic-auth account (#531).
+
+    Opaque (`caldav-<uuid hex>`), created by the worker and persisted per (account, remote name),
+    so neither the provider nor an app calendar decides which local collection a pair touches.
+    """
+    row = conn.execute(
+        "SELECT local_collection FROM caldav_calendar_collections WHERE account_id = ? AND remote_collection = ?",
+        (account_id, remote_collection),
+    ).fetchone()
+    if row:
+        return row[0]
+    local_collection = f"caldav-{uuid.uuid4().hex}"
+    create_local_collection(user_id, local_collection, display_name)
+    conn.execute(
+        "INSERT INTO caldav_calendar_collections"
+        " (account_id, user_id, remote_collection, local_collection, created_at) VALUES (?, ?, ?, ?, ?)",
+        (account_id, user_id, remote_collection, local_collection, int(time.time() * 1000)),
     )
     conn.commit()
     return local_collection
@@ -650,12 +734,16 @@ def sync_basic_caldav_accounts(user_id, conn):
     Radicale collection for this user is storage 'b'.  Conflict resolution
     defaults to 'b wins' so that manual local edits are authoritative.
 
+    Only the account's own calendars are mirrored, each into its mapped local collection
+    (explicit `collections` triples, #531): never "from a"/"from b", which would push every
+    calendar of the user to every linked server and let the server name status paths.
+
     Returns (success: bool, error_message: str).
     """
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id, url, username, password_encrypted, iv FROM linked_accounts"
-        " WHERE user_id = ? AND auth_type = 'basic'",
+        " WHERE user_id = ? AND auth_type = 'basic' ORDER BY rowid",
         (user_id,)
     )
     basic_accounts = cursor.fetchall()
@@ -671,6 +759,7 @@ def sync_basic_caldav_accounts(user_id, conn):
 
     verify_line = local_caldav_verify_line()
     local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
+    pairs_written = 0
 
     for idx, acc in enumerate(basic_accounts):
         try:
@@ -684,11 +773,33 @@ def sync_basic_caldav_accounts(user_id, conn):
         external_url = acc["url"].rstrip('/') + '/'
         username     = acc["username"]
 
+        try:
+            remote_collections = discover_caldav_collections(external_url, username, password)
+        except (CalDAVDiscoveryError, OSError, ValueError, http.client.HTTPException, ET.ParseError) as disc_err:
+            return False, f"CalDAV collection discovery failed for account {acc['id']}: {disc_err}"
+        items = []
+        for remote_collection, display_name in remote_collections.items():
+            try:
+                local_collection = local_collection_for_caldav_calendar(
+                    conn, user_id, acc["id"], remote_collection, display_name)
+            except (RuntimeError, OSError) as map_err:
+                return False, f"Local collection for CalDAV calendar {remote_collection!r} of account {acc['id']} failed: {map_err}"
+            items.append([local_collection, remote_collection, local_collection])
+        if not items:
+            mapped = conn.execute(
+                "SELECT 1 FROM caldav_calendar_collections WHERE account_id = ?", (acc["id"],)
+            ).fetchone()
+            if mapped:
+                return False, f"CalDAV discovery returned no calendars for account {acc['id']}, which has synced calendars"
+            print(f"[Sync-Worker] No calendars discovered for CalDAV account {acc['id']}. Skipping.")
+            continue
+        pairs_written += 1
+
         config_content += f"""
 [pair {pair_name}]
 a = "{storage_ext}"
 b = "{storage_loc}"
-collections = ["from a", "from b"]
+collections = {ini_value(items)}
 conflict_resolution = "b wins"
 
 [storage {storage_ext}]
@@ -705,12 +816,18 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
 {verify_line}
 """
 
+    if not pairs_written:
+        return True, ""
+
     config_dir = create_private_config_dir()
     try:
         config_path = write_private_config(config_dir, config_content)
 
+        # Every collection of every pair exists on both sides now. Nothing confirms vdirsyncer's
+        # "create collection?" prompt: a calendar that vanished from the server meanwhile fails the
+        # run instead of being created there again.
         print(f"[Sync-Worker] Running Basic-CalDAV discover for user {user_id}...")
-        disc_res = run_vdirsyncer(config_path, "discover", stdin="y\n" * 20)
+        disc_res = run_vdirsyncer(config_path, "discover", stdin="")
         if disc_res.returncode != 0:
             return False, f"vdirsyncer basic discover failed: {disc_res.stderr}"
 
