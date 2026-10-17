@@ -1,5 +1,7 @@
 'use strict';
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
+// #524: the stub CalDAV server of linked accounts listens on 127.0.0.1; allow it like an operator would.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1';
 
 /**
  * Issue #343 — fail fast: no swallowed errors.

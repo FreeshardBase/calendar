@@ -3,17 +3,24 @@
 const CalDAVClient = require('./client');
 const Db = require('../db');
 
+// Accounts the operator configures through the environment (internal Radicale,
+// CALDAVURL). Every other account's URL comes from a member, so each request and
+// redirect hop must target a public address (#337, #524). DB accounts carry UUIDs.
+const OPERATOR_ACCOUNT_IDS = new Set(['internal-caldav', 'env-default']);
+
 /**
  * Instantiate a CalDAVClient for a given account.
  * Automatically checks and refreshes OAuth2 access tokens if near expiration.
  */
 async function getClientForAccount(account) {
+  const guardOutbound = !OPERATOR_ACCOUNT_IDS.has(account.id);
   if (account.authType !== 'oauth2') {
     return new CalDAVClient({
       url: account.url,
       username: account.username,
       password: account.password,
-      authType: 'basic'
+      authType: 'basic',
+      guardOutbound
     });
   }
 
@@ -65,7 +72,8 @@ async function getClientForAccount(account) {
     username: account.username,
     password: account.password,
     authType: 'oauth2',
-    accessToken: account.accessToken
+    accessToken: account.accessToken,
+    guardOutbound
   });
 }
 

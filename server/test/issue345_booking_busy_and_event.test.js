@@ -1,5 +1,7 @@
 'use strict';
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
+// #524: the stub CalDAV server of linked accounts listens on 127.0.0.1; allow it like an operator would.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1';
 // Issue #345 — a public booking page must (1) offer no slot that collides with
 // busy time in the calendars the owner selected (recurrence-expanded,
 // TRANSP:TRANSPARENT ignored), (2) write a VEVENT with the booker as ATTENDEE

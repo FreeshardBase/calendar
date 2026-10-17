@@ -1,5 +1,7 @@
 'use strict';
 require('./helpers/sameOriginFetch'); // #340: requests carry Sec-Fetch-Site: same-origin like the app's own fetches
+// #524: the stub CalDAV server of linked accounts listens on localhost; allow it like an operator would.
+process.env.OUTBOUND_FETCH_ALLOW_HOSTS = 'localhost';
 process.env.NODE_ENV = 'test';
 process.env.PORT = '3115';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
@@ -46,7 +48,7 @@ test('Issue #88 — Invitations Inbox Deduplication and PARTSTAT Filtering', asy
       });
     } catch (err) {
       // Left over from an earlier run against the same test database.
-      if (!/UNIQUE constraint failed/.test(err.message)) throw err;
+      if (err.code !== 'ACCOUNT_EXISTS' && !/UNIQUE constraint failed/.test(err.message)) throw err;
     }
 
     const now = new Date();
