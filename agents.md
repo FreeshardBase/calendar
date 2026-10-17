@@ -70,6 +70,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `server/index.js` — Express app. Session middleware injects accounts into `req.session.accounts`
   on every request: DB-stored linked accounts + `env-default` (from `CALDAVURL` env) +
   `internal-caldav` (Radicale at `INTERNAL_CALDAV_URL`, authed with `SYSTEM_SYNC_SECRET`).
+  The property is non-enumerable and never reaches the session store, so `sessions.sess` holds no
+  credentials (#526); at boot (`Db.ready`) rows that still carry `accounts`, and expired rows, are
+  deleted before any request or backup. Do not assign `req.session.accounts` directly in production code.
   Auth modes via `AUTH_METHOD`: `env` (default and the shipping mode; one owner, userId = `CALDAV_USERNAME`,
   `owner` in the store template) or `oidc` (the shard's own OIDC provider; the identity comes only from the OIDC callback, never from
   proxy headers, and `oidc` with `HTTP_HEADER_AUTH=true` aborts boot, #523). With `env` and `HTTP_HEADER_AUTH=true`, `X-Forwarded-User`/`X-User-Id`/`Remote-User` plus the
