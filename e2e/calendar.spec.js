@@ -2912,6 +2912,74 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await deleteViaPopover(page, reloadedChip);
   });
 
+  // #528: PARTSTAT comes verbatim from remote calendars and lands in the event dialog's markup.
+  const PARTSTAT_INJECTION = '"><b id=inj>x</b><span class="';
+  const RFC_PARTSTATS = ['NEEDS-ACTION', 'ACCEPTED', 'DECLINED', 'TENTATIVE', 'DELEGATED'];
+
+  async function expectStatusPillsClean(page, expectedStatus) {
+    const pills = page.locator('#ev-attendee-list .attendee-status');
+    await expect(pills.first()).toBeVisible();
+    await expect(page.locator('#inj')).toHaveCount(0);
+    await expect(page.locator('#ev-attendee-list b')).toHaveCount(0);
+    const classNames = await pills.evaluateAll(els => els.map(el => el.className));
+    for (const cls of classNames) {
+      expect(cls).not.toContain('<');
+      expect(cls.split(' ')).toHaveLength(2);
+      expect(RFC_PARTSTATS).toContain(cls.split(' ')[1]);
+    }
+    expect(classNames[0]).toBe(`attendee-status ${expectedStatus}`);
+  }
+
+  test('Issue #528 — imported ATTENDEE PARTSTAT markup does not reach the event dialog', async ({ page }) => {
+    const testDate = '2036-03-26';
+    const title = `E2E Issue528 Import ${Date.now()}`;
+    const chip = await importIcsAndOpenPopover(page, testDate, title, [
+      `ATTENDEE;CN=Test User;PARTSTAT=${PARTSTAT_INJECTION}:mailto:testuser@example.com`,
+      'ATTENDEE;CN=Test User 2;PARTSTAT=accepted:mailto:testuser2@example.com'
+    ]);
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    // An unrecognised PARTSTAT is treated as NEEDS-ACTION (RFC 5545 §3.2.12); case is normalised.
+    await expectStatusPillsClean(page, 'NEEDS-ACTION');
+    await expect(page.locator('#ev-attendee-list .attendee-status')).toHaveText(['Ausstehend', 'Zugesagt']);
+    await page.click('#event-cancel-btn');
+
+    await chip.click();
+    await deleteViaPopover(page, chip);
+  });
+
+  test('Issue #528 — the event dialog neutralises a hostile attendee status even if the API returns it', async ({ page }) => {
+    const testDate = '2036-03-27';
+    const title = `E2E Issue528 Client Guard ${Date.now()}`;
+    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const event = {
+      uid: 'e2e-issue528-client', title, calendarId, start: `${testDate}T09:00:00+01:00`, end: `${testDate}T10:00:00+01:00`,
+      allDay: false, href: `/${E2E_USER}/personal/e2e-issue528-client.ics`, etag: '"e2e-528"',
+      attendees: [{ name: 'Test User', email: 'testuser@example.com', status: PARTSTAT_INJECTION }]
+    };
+    const saves = [];
+    await page.route('**/api/events?**', route => route.fulfill({ json: { events: [event], errors: [] } }));
+    await page.route('**/api/events/*', route => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      saves.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ...event, ...saves.at(-1) } });
+    });
+    await page.goto(`/?date=${testDate}`);
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await page.locator('.event-chip').filter({ hasText: title }).first().click();
+    await page.click('#popover-edit-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+
+    await expectStatusPillsClean(page, 'NEEDS-ACTION');
+    await expect(page.locator('#ev-attendee-list .attendee-status')).toHaveText('Ausstehend');
+
+    // Saving must not round-trip the injected value back to the server.
+    await page.click('#event-save-btn');
+    await expect.poll(() => saves.length).toBe(1);
+    expect(saves[0].attendees.map(a => a.status)).toEqual(['NEEDS-ACTION']);
+  });
+
   test('Issue #338 — CSP blocks injected inline scripts and the app still works without unsafe-inline', async ({ page }) => {
     const violations = [];
     page.on('console', msg => {

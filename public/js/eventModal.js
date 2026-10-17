@@ -562,7 +562,7 @@ function renderAttendeeList(attendees) {
     <li class="attendee-item">
       <span class="attendee-name">${escHtml(a.name || '')}</span>
       <span class="attendee-email">${escHtml(a.email)}</span>
-      <span class="attendee-status ${a.status}">${statusLabel(a.status)}</span>
+      <span class="attendee-status ${attendeeStatus(a.status)}">${statusLabel(attendeeStatus(a.status))}</span>
       <button type="button" class="attendee-remove" data-idx="${i}" aria-label="Entfernen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -1072,8 +1072,13 @@ function setButtonLoading(id, on) {
   btn.querySelector('.btn-spinner').classList.toggle('hidden', !on);
   btn.disabled = on;
 }
+const STATUS_LABELS = { ACCEPTED: 'Zugesagt', DECLINED: 'Abgelehnt', TENTATIVE: 'Vorläufig', DELEGATED: 'Delegiert', 'NEEDS-ACTION': 'Ausstehend' };
+// PARTSTAT comes from remote calendars; anything outside RFC 5545 counts as NEEDS-ACTION (#528).
+function attendeeStatus(s) {
+  return Object.hasOwn(STATUS_LABELS, s) ? s : 'NEEDS-ACTION';
+}
 function statusLabel(s) {
-  return { ACCEPTED: 'Zugesagt', DECLINED: 'Abgelehnt', TENTATIVE: 'Vorläufig', 'NEEDS-ACTION': 'Ausstehend' }[s] || s;
+  return Object.hasOwn(STATUS_LABELS, s) ? STATUS_LABELS[s] : escHtml(s);
 }
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
