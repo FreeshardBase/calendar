@@ -14,6 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
+const { taskListMultistatus } = require('./helpers/taskListPropfind');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue308-'));
 process.on('exit', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
@@ -79,6 +80,10 @@ test('PUT /api/tasks/:uid stores the path UID, not a CRLF-laden UID from the bod
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
+      if (req.method === 'PROPFIND') {
+        res.writeHead(207, { 'Content-Type': 'application/xml' });
+        return res.end(taskListMultistatus(req.url));
+      }
       if (req.method === 'PUT') puts.push(body);
       res.writeHead(req.method === 'GET' ? 404 : 201, { 'Content-Type': 'text/calendar' });
       res.end(req.method === 'GET' ? 'Not Found' : '');

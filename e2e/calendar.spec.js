@@ -6609,4 +6609,105 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await titlesIn(page, targetId)).toEqual([]);
     });
   });
+
+  test.describe('Issue #495 — tasks only go into task lists; a task stranded in a Google calendar moves out', () => {
+    const { Agent } = require('undici');
+    const crypto = require('crypto');
+    let listId;
+    let googleId;
+    let title;
+
+    // Straight to Radicale, as the sync worker does: the run's principal, the system sync secret.
+    async function radicale(method, path, body, headers = {}) {
+      const dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      try {
+        const res = await fetch(`${webServer.env.INTERNAL_CALDAV_URL}${path}`, {
+          method, body, dispatcher,
+          headers: {
+            Authorization: 'Basic ' + Buffer.from(`${E2E_USER}:${webServer.env.SYSTEM_SYNC_SECRET}`).toString('base64'),
+            'Accept-Encoding': 'identity',
+            ...headers,
+          },
+        });
+        expect(res.status, `${method} ${path}`).toBe(201);
+      } finally {
+        await dispatcher.close();
+      }
+    }
+
+    async function titlesIn(page, calendarId) {
+      const res = await page.request.get(`/api/tasks?calendarId=${encodeURIComponent(calendarId)}`);
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()).map(t => t.title).sort();
+    }
+
+    test.beforeEach(async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const run = Date.now().toString(36);
+      const res = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name: `E2E 495 Liste ${run}` }
+      });
+      expect(res.status()).toBe(201);
+      listId = (await res.json()).id;
+
+      // The local mirror of a Google calendar, created VEVENT-only like the sync worker does, holding
+      // a task from before: Radicale stores a VTODO in any collection.
+      title = `E2E 495 test1 ${run}`;
+      const google = `/${E2E_USER}/google-${crypto.randomBytes(16).toString('hex')}/`;
+      googleId = `internal-caldav::${google}`;
+      await radicale('MKCALENDAR', google, `<?xml version="1.0" encoding="utf-8"?>
+<c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:set><d:prop>
+<d:displayname>E2E 495 Google ${run}</d:displayname>
+<c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set>
+</d:prop></d:set></c:mkcalendar>`);
+      await radicale('PUT', `${google}e2e-495-test1.ics`,
+        'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//e2e//EN\r\nBEGIN:VTODO\r\nUID:e2e-495-test1\r\n'
+        + `DTSTAMP:20261001T000000Z\r\nSUMMARY:${title}\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`,
+        { 'Content-Type': 'text/calendar; charset=utf-8' });
+      // No per-test cleanup: e2e/global-teardown.js drops the run's whole principal.
+
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator(`#calendar-list .calendar-item[data-cal-id="${googleId}"]`)).toBeVisible({ timeout: 10000 });
+    });
+
+    test('the new-task dialog offers task lists only, not the Google calendar', async ({ page }) => {
+      await page.click('#new-task-btn');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      const options = await page.locator('#task-calendar-id option').evaluateAll(os => os.map(o => o.value));
+      expect(options).toContain(listId);
+      expect(options).not.toContain(googleId);
+    });
+
+    test('a task stranded in the Google calendar is moved to a task list from its dialog', async ({ page }) => {
+      const item = page.locator('#sidebar-task-list .sidebar-task-info', { hasText: title });
+      await item.click();
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      // Its current place is shown but cannot be chosen again.
+      await expect(page.locator('#task-calendar-id')).toHaveValue(googleId);
+      await expect(page.locator(`#task-calendar-id option[value="${googleId}"]`)).toBeDisabled();
+
+      await page.selectOption('#task-calendar-id', listId);
+      await page.click('#task-save-btn');
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Aufgabe gespeichert.' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
+
+      expect(await titlesIn(page, listId)).toEqual([title]);
+      expect(await titlesIn(page, googleId)).toEqual([]);
+      // Reopened after a reload, the dialog shows the new list.
+      await page.reload();
+      await item.click();
+      await expect(page.locator('#task-calendar-id')).toHaveValue(listId);
+    });
+
+    test('saving a stranded task into its Google calendar is refused with a clear error', async ({ page }) => {
+      await page.locator('#sidebar-task-list .sidebar-task-info', { hasText: title }).click();
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      await page.fill('#task-title', 'E2E 495 renamed');
+      await page.click('#task-save-btn');
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'does not accept tasks' })).toBeVisible({ timeout: 10000 });
+      expect(await titlesIn(page, googleId)).toEqual([title]);
+    });
+  });
 });

@@ -542,7 +542,7 @@ END:VCALENDAR</c:calendar-data>
       const publicToken = mockProperties[path]?.['public-share-token'] || mockProperties['/mock-dav/calendars/test/personal/']?.['public-share-token'];
       const customPropsXml = publicToken ? `<public-share-token xmlns="http://freeshard.de/ns/">${publicToken}</public-share-token>` : '';
 
-      if (req.headers['depth'] === '1' || (xmlBody.includes('displayname') && !xmlBody.includes('calendar-home-set'))) {
+      if (req.headers['depth'] === '1' || ((xmlBody.includes('displayname') || xmlBody.includes('supported-calendar-component-set')) && !xmlBody.includes('calendar-home-set'))) {
         return res.status(207).set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">
   <d:response>
@@ -551,6 +551,7 @@ END:VCALENDAR</c:calendar-data>
       <d:prop>
         <d:displayname>Persönlich</d:displayname>
         <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
+        <c:supported-calendar-component-set><c:comp name="VEVENT"/><c:comp name="VTODO"/></c:supported-calendar-component-set>
         <cs:getctag>1</cs:getctag>
         ${customPropsXml}
       </d:prop>

@@ -212,6 +212,10 @@ router.post('/', async (req, res) => {
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
+    const calendarHref = calendarId.split('::').slice(1).join('::');
+    const calendarUrl = buildAbsoluteUrl(account.url, calendarHref);
+    if (!(await acceptsTasks(client, calendarUrl))) return refuseNonTaskCollection(res);
+
     const uid = uuidv4();
     const task = reconcileTaskStatus({
       status: 'NEEDS-ACTION',
@@ -221,8 +225,6 @@ router.post('/', async (req, res) => {
 
     const ics = taskToICS(task);
 
-    const calendarHref = calendarId.split('::').slice(1).join('::');
-    const calendarUrl = buildAbsoluteUrl(account.url, calendarHref);
     const taskUrl = calendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
 
     const result = await client.put(taskUrl, ics, null);
@@ -242,7 +244,7 @@ router.post('/', async (req, res) => {
 router.put('/:uid', async (req, res) => {
   try {
     // completedInstance is derived server-side by advanceRecurringTask only (#95).
-    const { calendarId, etag, href, completedInstance: _clientInstance, ...taskData } = req.body;
+    const { calendarId, sourceCalendarId, etag, href, completedInstance: _clientInstance, ...taskData } = req.body;
 
     if (!href) return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
@@ -257,22 +259,37 @@ router.put('/:uid', async (req, res) => {
       return res.status(access.status || 403).json({ error: access.reason });
     }
 
-    const accountId = calendarId.split('::')[0];
+    // The task is stored in `sourceCalendarId` and was given another list in the dialog (#495).
+    const moving = Boolean(sourceCalendarId && sourceCalendarId !== calendarId);
+    const storedIn = moving ? sourceCalendarId : calendarId;
+    if (moving) {
+      const sourceAccess = await checkCalendarAccess(req, sourceCalendarId, 'write');
+      if (!sourceAccess.allowed) {
+        return res.status(sourceAccess.status || 403).json({ error: sourceAccess.reason });
+      }
+    }
+
+    const accountId = storedIn.split('::')[0];
     const derivedCalId = extractCalendarIdFromHref(accountId, href);
     // An href that names no calendar (undecodable, or above calendar level)
     // cannot be authorized, so it is refused rather than left unchecked (#232).
     if (!derivedCalId) return res.status(400).json({ error: 'Invalid href' });
-    if (derivedCalId !== calendarId) {
+    if (derivedCalId !== storedIn) {
       const hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
       if (!hrefAccess.allowed) {
         return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
       }
     }
 
-    const { account, client } = await resolveAccount(req, calendarId);
-    if (!account) return res.status(404).json({ error: 'Account not found' });
+    const target = await resolveAccount(req, calendarId);
+    const source = moving ? await resolveAccount(req, sourceCalendarId) : target;
+    if (!target.account || !source.account) return res.status(404).json({ error: 'Account not found' });
 
-    const taskUrl = buildAbsoluteUrl(account.url, href);
+    const targetCalendarUrl = buildAbsoluteUrl(target.account.url, calendarId.split('::').slice(1).join('::'));
+    if (!(await acceptsTasks(target.client, targetCalendarUrl))) return refuseNonTaskCollection(res);
+
+    const { client } = source;
+    const taskUrl = buildAbsoluteUrl(source.account.url, href);
     let task = reconcileTaskStatus({ ...taskData, uid: req.params.uid });
 
     let current = null;
@@ -280,7 +297,8 @@ router.put('/:uid', async (req, res) => {
       current = await client.get(taskUrl);
     } catch (err) {
       // A new resource has nothing to merge with; any other failure must not become an overwrite (#343).
-      if (!/^GET (404|410):/.test(err.message)) throw err;
+      // A task being moved must exist where it is moved from.
+      if (moving || !/^GET (404|410):/.test(err.message)) throw err;
     }
 
     const existingIcs = current ? current.ics : null;
@@ -373,7 +391,7 @@ router.put('/:uid', async (req, res) => {
     // This prevents the scratch ICS builder from stripping RRULE and other
     // properties that were not echoed back by the frontend.
     const { completedInstance: _writtenInstance, ...taskResponse } = task;
-    if (isNoOpTaskSave(existingIcs, taskData)) {
+    if (!moving && isNoOpTaskSave(existingIcs, taskData)) {
       return res.json({
         ...taskResponse,
         href,
@@ -383,6 +401,10 @@ router.put('/:uid', async (req, res) => {
     }
 
     const ics = taskToICS(task, existingIcs);
+
+    if (moving) {
+      return await moveTask(res, { source, target, taskUrl, current, targetCalendarUrl, ics, taskResponse, calendarId, uid: req.params.uid });
+    }
     const ifMatch = (current && current.etag) ? formatIfMatch(current.etag) : (etag ? formatIfMatch(etag) : null);
 
     let result;
@@ -447,6 +469,73 @@ router.delete('/:uid', async (req, res) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const COMPONENT_SET_PROPFIND = `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:resourcetype/>
+    <c:supported-calendar-component-set/>
+  </d:prop>
+</d:propfind>`;
+
+/**
+ * True if the calendar collection's supported-calendar-component-set admits VTODO (#495).
+ * Radicale stores a VTODO in any collection, so the app has to ask: the local mirror of a Google
+ * calendar is created VEVENT-only, because Google's CalDAV has no tasks and the sync worker could
+ * never carry a task there.
+ */
+async function acceptsTasks(client, calendarUrl) {
+  const xml = await client.propfind(calendarUrl, 0, COMPONENT_SET_PROPFIND);
+  const [calendar] = parseCalendarList(xml, '', calendarUrl, null);
+  return Boolean(calendar && calendar.supportsVTODO);
+}
+
+function refuseNonTaskCollection(res) {
+  return res.status(422).json({ error: 'This calendar does not accept tasks (no VTODO in its supported components); choose a task list' });
+}
+
+/**
+ * Move a task into another list (#495), like an event move (#494): the task is first created in
+ * the target collection under the same UID and only then deleted from the source, so a failure
+ * never loses it. If the source cannot be deleted (gone, changed meanwhile, refused), the new
+ * copy is removed again and the move fails as a whole.
+ */
+async function moveTask(res, { source, target, taskUrl, current, targetCalendarUrl, ics, taskResponse, calendarId, uid }) {
+  const targetUrl = targetCalendarUrl.replace(/\/+$/, '') + '/' + encodeURIComponent(uid) + '.ics';
+
+  let created;
+  try {
+    created = await target.client.put(targetUrl, ics, null);
+  } catch (putErr) {
+    if (putErr.message === 'ETAG_CONFLICT') {
+      return res.status(409).json({ error: 'The target list already holds a task with this UID' });
+    }
+    throw putErr;
+  }
+
+  try {
+    await source.client.delete(taskUrl, current.etag);
+  } catch (delErr) {
+    try {
+      await target.client.delete(targetUrl, created.etag);
+    } catch (rollbackErr) {
+      console.error('[tasks move] Removing the copy in the target list failed:', rollbackErr.message);
+      throw new Error(`Move failed and the copy in the target list could not be removed again: ${delErr.message}`);
+    }
+    if (delErr.message === 'ETAG_CONFLICT') {
+      return res.status(409).json({ error: 'The task was changed meanwhile; it was not moved' });
+    }
+    throw delErr;
+  }
+
+  return res.json({
+    ...taskResponse,
+    href: targetUrl,
+    etag: created.etag || null,
+    calendarId
+  });
+}
+
 async function resolveAccount(req, calendarId) {
   const accountId = calendarId.split('::')[0];
   const account = (req.session.accounts || []).find(a => a.id === accountId);

@@ -498,18 +498,24 @@ def legacy_google_collection_name(display_name):
     return slug if slug.startswith("google-") else f"google-{slug}"
 
 
-def create_local_collection(user_id, collection, display_name):
+def create_local_collection(user_id, collection, display_name, components=None):
     """MKCALENDAR the paired collection in the user's Radicale principal, named by the provider's calendar.
 
     The worker creates it rather than vdirsyncer so that the display name is set once, provider -> local;
     vdirsyncer metasync would also push renames made in the app back to Google.
+    `components` restricts the collection's supported-calendar-component-set; without it Radicale
+    accepts every component.
     """
     url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{collection}/"
+    component_set = ""
+    if components:
+        comps = "".join(f'<c:comp name="{c}"/>' for c in components)
+        component_set = f"\n      <c:supported-calendar-component-set>{comps}</c:supported-calendar-component-set>"
     body = f"""<?xml version="1.0" encoding="utf-8"?>
 <c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:set>
     <d:prop>
-      <d:displayname>{xml_escape(display_name)}</d:displayname>
+      <d:displayname>{xml_escape(display_name)}</d:displayname>{component_set}
     </d:prop>
   </d:set>
 </c:mkcalendar>"""
@@ -557,7 +563,9 @@ def local_collection_for_google_calendar(conn, user_id, account_id, google_calen
         local_collection = legacy
     else:
         local_collection = f"google-{uuid.uuid4().hex}"
-        create_local_collection(user_id, local_collection, google_calendar["name"])
+        # Google's CalDAV holds events only (Google Tasks is a separate API). A collection that also
+        # took VTODO let the app put tasks there that could never sync to Google (#495).
+        create_local_collection(user_id, local_collection, google_calendar["name"], components=("VEVENT",))
     conn.execute(
         "INSERT INTO google_calendar_collections"
         " (account_id, user_id, google_calendar_id, local_collection, created_at) VALUES (?, ?, ?, ?, ?)",
