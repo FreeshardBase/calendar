@@ -3867,7 +3867,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#btn-connect-msgraph')).toBeHidden();
     });
 
-    test('the cross-site return from Microsoft reaches the session despite its SameSite=Strict cookie', async ({ page }) => {
+    test('the cross-site return from Microsoft reaches the session', async ({ page }) => {
       // page.route plays Microsoft's login page: it answers the authorize request by sending the browser
       // back to the callback, cross-site, as Microsoft does. The user declines, so no code is exchanged.
       await page.route('https://login.microsoftonline.com/**', route => {

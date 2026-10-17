@@ -1,30 +1,24 @@
 'use strict';
 
 /**
- * Issue #286 — HIGH: session cookie declares SameSite=Strict by default to prevent
- * cross-site POST requests from riding the session cookie inside Chromium's 2-minute Lax grace window (AUTH_METHOD=oidc).
+ * Issue #286 — the session cookie always declares its SameSite attribute. Chromium's 2-minute
+ * Lax+POST grace window applies only to cookies without one, so a declared SameSite=Lax never
+ * rides a cross-site POST. Since #491 the default is Lax (the OAuth/OIDC return is a cross-site
+ * top-level GET); CSRF protection for state-changing requests is the origin check (#340).
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const http = require('node:http');
 const express = require('express');
 const session = require('express-session');
 const { getSessionConfig } = require('../utils/sessionConfig');
 
-const ROOT_DIR = path.join(__dirname, '../..');
+test.describe('Issue #286 — Session Cookie declares SameSite', () => {
 
-test.describe('Issue #286 — Session Cookie SameSite=Strict Default Guard', () => {
-
-  test('getSessionConfig defaults cookie.sameSite to strict when COOKIE_SAME_SITE is unset', () => {
+  test('getSessionConfig defaults cookie.sameSite to lax when COOKIE_SAME_SITE is unset', () => {
     const config = getSessionConfig({ NODE_ENV: 'production', SESSION_SECRET: 'valid-secure-production-secret-12345' });
-    assert.strictEqual(
-      config.cookie.sameSite,
-      'strict',
-      'Session cookie sameSite must default to "strict" to block cross-site POST requests during Chromium 2-min Lax grace window'
-    );
+    assert.strictEqual(config.cookie.sameSite, 'lax');
   });
 
   test('getSessionConfig respects explicit COOKIE_SAME_SITE environment setting', () => {
@@ -35,7 +29,7 @@ test.describe('Issue #286 — Session Cookie SameSite=Strict Default Guard', () 
     assert.strictEqual(strictConfig.cookie.sameSite, 'strict');
   });
 
-  test('Express session middleware emits SameSite=Strict in Set-Cookie header by default', async () => {
+  test('Express session middleware emits an explicit SameSite=Lax in Set-Cookie header by default', async () => {
     const app = express();
     app.use(session(getSessionConfig({ NODE_ENV: 'test', SESSION_SECRET: 'test-secret-1234567890' })));
     app.get('/test-session', (req, res) => {
@@ -51,30 +45,10 @@ test.describe('Issue #286 — Session Cookie SameSite=Strict Default Guard', () 
       const res = await fetch(`http://127.0.0.1:${port}/test-session`);
       const setCookie = res.headers.get('set-cookie');
       assert.ok(setCookie, 'Set-Cookie header must be present');
-      assert.match(setCookie, /SameSite=Strict/i, 'Set-Cookie header must specify SameSite=Strict');
+      assert.match(setCookie, /;\s*SameSite=Lax/i, 'Set-Cookie header must declare SameSite=Lax');
     } finally {
       await new Promise(resolve => server.close(resolve));
     }
-  });
-
-  test('docker-compose.yml configures COOKIE_SAME_SITE to strict', () => {
-    const composePath = path.join(ROOT_DIR, 'docker-compose.yml');
-    const content = fs.readFileSync(composePath, 'utf8');
-    assert.match(
-      content,
-      /COOKIE_SAME_SITE:\s*"strict"/,
-      'docker-compose.yml must set COOKIE_SAME_SITE to "strict"'
-    );
-  });
-
-  test('.env.example documents COOKIE_SAME_SITE=strict default', () => {
-    const envExamplePath = path.join(ROOT_DIR, '.env.example');
-    const content = fs.readFileSync(envExamplePath, 'utf8');
-    assert.match(
-      content,
-      /COOKIE_SAME_SITE=strict/,
-      '.env.example must document COOKIE_SAME_SITE=strict'
-    );
   });
 
 });

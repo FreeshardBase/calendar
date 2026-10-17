@@ -34,7 +34,7 @@ services:
       CALDAV_USERNAME: owner
       TRUST_PROXY: "1"
       COOKIE_SECURE: "auto"
-      COOKIE_SAME_SITE: "strict"
+      COOKIE_SAME_SITE: "lax"
       SSL_KEY_PATH: ""
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: http://caldav-server:5232

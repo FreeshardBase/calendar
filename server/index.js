@@ -170,8 +170,16 @@ const isApiPath = (req) =>
 // #172: only the API and the page itself use the session. Static assets, 304s and the SPA fallback
 // skip the session store and the account loader, so they cost no database read or write.
 const usesSession = (req) => isApiPath(req) || req.path === '/' || req.path === '/index.html';
-const sessionMiddleware = session(getSessionConfig());
-app.use((req, res, next) => (usesSession(req) ? sessionMiddleware(req, res, next) : next()));
+const sessionConfig = getSessionConfig();
+const sessionMiddleware = session(sessionConfig);
+// #491: express-session restores the cookie options stored with each session, so a session created
+// under another COOKIE_SAME_SITE would keep re-issuing its old SameSite. The configured value wins.
+const withSession = (req, res, next) => sessionMiddleware(req, res, (err) => {
+  if (err) return next(err);
+  req.session.cookie.sameSite = sessionConfig.cookie.sameSite;
+  next();
+});
+app.use((req, res, next) => (usesSession(req) ? withSession(req, res, next) : next()));
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -662,7 +670,7 @@ app.use('/api/accounts',          requireSessionIdentity, accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);
 app.use('/api/events',            requireAuth, eventsRouter);
 app.use('/api/tasks',             requireAuth, tasksRouter);
-// #97: Microsoft's cross-site redirect carries no SameSite=Strict session cookie; this page forwards it same-site.
+// #97: with COOKIE_SAME_SITE=strict Microsoft's cross-site redirect carries no session cookie; this page forwards it same-site.
 app.get('/api/msgraph/callback',  createRateLimiter(AUTH_RATE_LIMIT), msgraphRouter.forwardCallback);
 app.use('/api/msgraph',           requireAuth, msgraphRouter);
 app.use('/api/resources',         requireAuth, resourcesRouter);

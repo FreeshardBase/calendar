@@ -140,7 +140,7 @@ test('Issue #97 — Microsoft 365 OAuth connection and single sync path', async 
   });
 
   await t.test('the registered callback forwards same-site without needing the session cookie', async () => {
-    // Microsoft's redirect is cross-site, so the browser withholds the SameSite=Strict cookie here.
+    // Microsoft's redirect is cross-site, so with COOKIE_SAME_SITE=strict the browser withholds the cookie here.
     const res = await get('/api/msgraph/callback?code=testuser-code&state=s%22%3E%3Cscript%3E&error=e%22%3E%3Cscript%3E&extra=x', '');
     assert.equal(res.status, 200);
     const html = await res.text();

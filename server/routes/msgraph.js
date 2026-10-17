@@ -69,7 +69,7 @@ router.get('/authorize', (req, res) => {
 
 /**
  * GET /api/msgraph/callback — the redirect URI registered at Microsoft; mounted without auth.
- * Microsoft sends the browser here cross-site, so the SameSite=Strict session cookie is withheld.
+ * Microsoft sends the browser here cross-site; with COOKIE_SAME_SITE=strict the session cookie is withheld.
  * A page of our own forwards code, state and error to /callback/complete; that navigation starts
  * on this site and carries the cookie. Nothing is checked or stored here.
  */
