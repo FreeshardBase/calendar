@@ -29,13 +29,14 @@ async function grantDelegatePermission({
 }
 
 /**
- * Revoke delegate permission by ID or criteria
+ * Revoke a delegate permission by ID; only its principal or its delegate (userId) may revoke it.
+ * Resolves { deleted: 0 } when no such grant exists for userId.
  */
-async function revokeDelegatePermission(id) {
-  if (!id) {
-    throw new Error('Permission ID required');
+async function revokeDelegatePermission(id, userId) {
+  if (!id || !userId) {
+    throw new Error('Permission ID and user ID required');
   }
-  return await Db.deleteDelegatePermission(id);
+  return await Db.deleteDelegatePermission(id, userId);
 }
 
 /**

@@ -2406,9 +2406,9 @@ const Db = {
     });
   },
 
-  deleteDelegatePermission(id) {
+  deleteDelegatePermission(id, userId) {
     return new Promise((resolve, reject) => {
-      db.run(`DELETE FROM delegate_permissions WHERE id = ?`, [id], function(err) {
+      db.run(`DELETE FROM delegate_permissions WHERE id = ? AND (principal_user_id = ? OR delegate_user_id = ?)`, [id, userId, userId], function(err) {
         if (err) return reject(err);
         resolve({ deleted: this.changes });
       });

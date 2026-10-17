@@ -65,7 +65,11 @@ router.delete('/:id', async (req, res) => {
     if (!id) {
       return res.status(400).json({ error: 'id parameter is required' });
     }
-    const result = await revokeDelegatePermission(id);
+    const userId = req.session.userId || process.env.CALDAV_USERNAME || 'test';
+    const result = await revokeDelegatePermission(id, userId);
+    if (result.deleted === 0) {
+      return res.status(404).json({ error: 'Delegate permission not found' });
+    }
     res.json({ message: 'Delegate permission revoked', ...result });
   } catch (err) {
     return sendError(res, err);
