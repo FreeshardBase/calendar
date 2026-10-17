@@ -127,6 +127,8 @@ class TestIssue531BasicCaldavCollectionScope(unittest.TestCase):
         self.status_root = os.path.join(self.temp_dir, "status")
         os.environ["DATABASE_PATH"] = self.db_path
         os.environ["STATUS_ROOT"] = self.status_root
+        # The mock providers on 127.0.0.1 count as public through the operator allow-list (#532).
+        os.environ["OUTBOUND_FETCH_ALLOW_HOSTS"] = "127.0.0.1"
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
             CREATE TABLE linked_accounts (
@@ -163,6 +165,7 @@ class TestIssue531BasicCaldavCollectionScope(unittest.TestCase):
         shutil.rmtree(self.temp_dir)
         os.environ.pop("DATABASE_PATH", None)
         os.environ.pop("STATUS_ROOT", None)
+        os.environ.pop("OUTBOUND_FETCH_ALLOW_HOSTS", None)
 
     def server(self, home):
         s = MockCalDAV(home)

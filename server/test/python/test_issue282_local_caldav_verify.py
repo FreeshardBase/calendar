@@ -40,6 +40,8 @@ class TestIssue282LocalCaldavVerify(unittest.TestCase):
         self.db_path = os.path.join(self.temp_dir, "webcalendar.db")
         os.environ["DATABASE_PATH"] = self.db_path
         os.environ["STATUS_ROOT"] = os.path.join(self.temp_dir, "status")
+        # The linked provider counts as public through the operator allow-list (no DNS in tests, #532).
+        os.environ["OUTBOUND_FETCH_ALLOW_HOSTS"] = "caldav.example.com"
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
             CREATE TABLE linked_accounts (
@@ -89,6 +91,7 @@ class TestIssue282LocalCaldavVerify(unittest.TestCase):
         shutil.rmtree(self.temp_dir)
         os.environ.pop("DATABASE_PATH", None)
         os.environ.pop("STATUS_ROOT", None)
+        os.environ.pop("OUTBOUND_FETCH_ALLOW_HOSTS", None)
 
     def generated_configs(self, cert_path):
         """{'basic': config, 'google': config} as written by sync_user() for the given cert path."""

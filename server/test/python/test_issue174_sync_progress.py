@@ -25,6 +25,7 @@ if SYNC_WORKER_DIR not in sys.path:
 
 import sync_worker  # noqa: E402
 import test_issue60_msgraph_sync_writes_events as graph_harness  # noqa: E402
+from test_issue532_worker_outbound_guard import stub_aiohttp_path  # noqa: E402
 
 USER_ID = "testuser"
 
@@ -72,6 +73,7 @@ class VdirsyncerProgressTest(unittest.TestCase):
         os.chmod(exe, os.stat(exe).st_mode | stat.S_IXUSR)
         self.flag = os.path.join(self.tmp, "release")
         self.env = patch.dict(os.environ, {"PATH": bin_dir + os.pathsep + os.environ["PATH"],
+                                           "PYTHONPATH": stub_aiohttp_path(self.tmp),
                                            "ISSUE174_RELEASE_FLAG": self.flag})
         self.env.start()
         sync_worker.active_job_id = "job-174"
@@ -87,7 +89,8 @@ class VdirsyncerProgressTest(unittest.TestCase):
         result = {}
 
         def run():
-            result["res"] = sync_worker.run_vdirsyncer(os.path.join(self.tmp, "config.ini"), "sync")
+            result["res"] = sync_worker.run_vdirsyncer(os.path.join(self.tmp, "config.ini"), "sync",
+                                                       sync_worker.outbound_policy({}, allow_public=False))
         thread = threading.Thread(target=run)
         thread.start()
         return thread, result

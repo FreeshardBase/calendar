@@ -38,6 +38,7 @@ services:
       SSL_KEY_PATH: ""
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: http://caldav-server:5232
+      OUTBOUND_FETCH_ALLOW_HOSTS: ${OUTBOUND_FETCH_ALLOW_HOSTS:-}
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?set SYSTEM_SYNC_SECRET in .env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
       INTERNAL_WEBHOOK_SECRET: ${INTERNAL_WEBHOOK_SECRET:?set INTERNAL_WEBHOOK_SECRET in .env}
@@ -86,6 +87,8 @@ services:
       DATABASE_PATH: /data/webcalendar.db
       STATUS_ROOT: /data/vdir_status
       LOCAL_CALDAV_URL: http://caldav-server:5232
+      # Same allow-list as the web app: the worker re-checks every linked account URL (#532).
+      OUTBOUND_FETCH_ALLOW_HOSTS: ${OUTBOUND_FETCH_ALLOW_HOSTS:-}
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?set SYSTEM_SYNC_SECRET in .env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
     volumes:

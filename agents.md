@@ -154,6 +154,13 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   its status path — is outside `[A-Za-z0-9_.-]`, and pairs each remote calendar with `caldav-<hex>`
   persisted in `caldav_calendar_collections`. Never `"from a"`/`"from b"`: local calendars are not
   published to a provider, and vdirsyncer's "create collection?" prompt is never confirmed.
+  Outbound guard (#532, Python port of `server/utils/outboundFetch.js` in `sync-worker/outbound_guard.py`):
+  every job re-checks each stored account URL (`assert_public_url`, DNS answers included, honouring
+  `OUTBOUND_FETCH_ALLOW_HOSTS`, which must match the web app's) and fails with an `error_message` before any
+  request. Discovery connects only to the validated addresses; vdirsyncer runs through
+  `guarded_vdirsyncer.py`, whose socket guard lets a Basic pair reach only those pinned addresses and the
+  local Radicale, so a redirect or DNS change away from the account host fails the run. The Google pair
+  may reach public addresses only.
 - Containers: all three images run their service as uid:gid 1000:1000, because they open the same SQLite
   file. Each image's entrypoint is `drop-privileges.sh` (one copy per build context, kept identical): when
   started as root (the store template sets `user: "0:0"` because shard_core creates the data mount
