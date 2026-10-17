@@ -694,15 +694,15 @@ router.get('/:uid/history', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const { calendarId } = req.query;
-    if (calendarId) {
-      const access = await checkCalendarAccess(req, calendarId, 'read');
-      if (!access.allowed) {
-        return res.status(access.status || 403).json({ error: access.reason });
-      }
+    // #527: event UIDs are not secret, so the history is served only for a calendar the caller may
+    // read, and only the rows recorded for that calendar.
+    const calendarId = typeof req.query.calendarId === 'string' ? req.query.calendarId : '';
+    const access = await checkCalendarAccess(req, calendarId, 'read');
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.reason });
     }
 
-    const history = await Db.getEventHistory(req.params.uid);
+    const history = await Db.getEventHistoryInCalendar(req.params.uid, calendarId);
     res.json(history);
   } catch (err) {
     return sendError(res, err, '[events HISTORY]');

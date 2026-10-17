@@ -96,7 +96,7 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
       changes: { location: { old: 'Online', new: 'Office' } }
     });
 
-    const history = await Db.getEventHistory(eventUid);
+    const history = await Db.getEventHistoryInCalendar(eventUid, calId);
     assert.strictEqual(history.length, 2);
     assert.strictEqual(history[0].action, 'UPDATE');
     assert.strictEqual(history[1].action, 'CREATE');
@@ -171,7 +171,7 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
     const createdEv = await postRes.json();
     assert.ok(createdEv.uid);
 
-    const historyAfterPost = await Db.getEventHistory(createdEv.uid);
+    const historyAfterPost = await Db.getEventHistoryInCalendar(createdEv.uid, envCalId);
     assert.strictEqual(historyAfterPost.length, 1);
     assert.strictEqual(historyAfterPost[0].action, 'CREATE');
 
@@ -188,7 +188,7 @@ test('Issue #25 — Event Modification History and Audit Logs (Changelog)', asyn
     });
     assert.strictEqual(delRes.status, 200);
 
-    const historyAfterDel = await Db.getEventHistory(createdEv.uid);
+    const historyAfterDel = await Db.getEventHistoryInCalendar(createdEv.uid, envCalId);
     assert.strictEqual(historyAfterDel.length, 2);
     assert.strictEqual(historyAfterDel[0].action, 'DELETE');
     assert.strictEqual(historyAfterDel[1].action, 'CREATE');
