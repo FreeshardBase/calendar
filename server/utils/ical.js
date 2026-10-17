@@ -225,6 +225,15 @@ function exactDurationEndISO(component, startTime) {
   return new Date(wall.toJSDate().getTime() + exactMs).toISOString();
 }
 
+// RFC 5545 §3.2.12: the VEVENT participation statuses. Unrecognised x-name/iana-token values
+// MUST be treated like NEEDS-ACTION, so remote PARTSTAT never reaches clients verbatim (#528).
+const VEVENT_PARTSTATS = new Set(['NEEDS-ACTION', 'ACCEPTED', 'DECLINED', 'TENTATIVE', 'DELEGATED']);
+
+function normalizePartstat(partstat) {
+  const value = typeof partstat === 'string' ? partstat.toUpperCase() : '';
+  return VEVENT_PARTSTATS.has(value) ? value : 'NEEDS-ACTION';
+}
+
 function parseVEventToEvent(vevent, meta = {}) {
   if (vevent && typeof vevent.getAllProperties === 'function') {
     const datePropNames = ['dtstart', 'dtend', 'due', 'recurrence-id', 'exdate', 'rdate'];
@@ -252,7 +261,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     attendees.push({
       name:   prop.getParameter('cn')      || '',
       email,
-      status: prop.getParameter('partstat') || 'NEEDS-ACTION',
+      status: normalizePartstat(prop.getParameter('partstat')),
       rsvp:   prop.getParameter('rsvp')    === 'TRUE'
     });
   }
