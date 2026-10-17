@@ -60,6 +60,11 @@ function validateSecurityConfig(env = process.env) {
   if (authMethod !== 'env' && authMethod !== 'oidc') {
     throw new Error(`AUTH_METHOD must be 'env' or 'oidc', got '${authMethod}'.`);
   }
+  // #536: in env mode CALDAV_USERNAME is the user id, i.e. the Radicale collection root and the sync
+  // worker's status directory, so it must be a safe storage id like an OIDC sub (#144).
+  if (authMethod === 'env' && env.CALDAV_USERNAME && !isSafeStorageId(env.CALDAV_USERNAME)) {
+    throw new Error(`CALDAV_USERNAME '${env.CALDAV_USERNAME}' is not a safe storage id (letters, digits, . _ @ + -; not starting with '.').`);
+  }
   // #523: in oidc mode the identity comes only from the OIDC callback; a header identity is never read.
   if (authMethod === 'oidc' && env.HTTP_HEADER_AUTH === 'true') {
     throw new Error('HTTP_HEADER_AUTH=true is only valid with AUTH_METHOD=env; AUTH_METHOD=oidc takes the identity from the OIDC login.');

@@ -12,6 +12,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 os.environ["PYTHONUNBUFFERED"] = "1"
+import re
 import sqlite3
 import ssl
 import time
@@ -119,6 +120,20 @@ def ics_text(value):
     """RFC 5545 TEXT escaping, so a subject or body cannot inject properties."""
     return (value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
             .replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n"))
+
+# #536: target_calendar_id and the Graph event id become Radicale path segments. Graph ids are
+# base64 (+, /, = in older ids, - and _ in URL-safe ones); "/" is refused, because Radicale decodes
+# %2F back into a path separator.
+SAFE_CALENDAR_SEGMENT_RE = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,254}")
+SAFE_EVENT_SEGMENT_RE = re.compile(r"[A-Za-z0-9_+=-][A-Za-z0-9_.+=-]{0,1023}")
+
+
+def path_segment(value, pattern, what):
+    """value percent-encoded as one URL path segment; ValueError unless it fully matches pattern."""
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        raise ValueError(f"unsafe {what} {value!r}")
+    return urllib.parse.quote(value, safe="")
+
 
 def acquire_sync_lease(conn, acc_id, now_ms):
     lease_until = now_ms + SYNC_LEASE_MS
@@ -283,14 +298,16 @@ def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
     graph_id = item.get("id")
     if not graph_id:
         return False
+    calendar_segment = path_segment(target_cal, SAFE_CALENDAR_SEGMENT_RE, "target calendar id")
+    path_segment(graph_id, SAFE_EVENT_SEGMENT_RE, "Graph event id")
     auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
 
     if item.get("@removed"):
         cursor.execute("SELECT local_uid FROM msgraph_event_mappings WHERE graph_id = ?", (graph_id,))
         row = cursor.fetchone()
         if row:
-            local_uid = row["local_uid"]
-            del_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{target_cal}/{local_uid}.ics"
+            resource = path_segment(row["local_uid"] + ".ics", SAFE_EVENT_SEGMENT_RE, "local event uid")
+            del_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_segment}/{resource}"
             del_req = urllib.request.Request(del_url, headers={"Authorization": f"Basic {auth_str}"}, method="DELETE")
             try:
                 with urllib.request.urlopen(del_req, context=ssl_context_for(del_url, LOCAL_CALDAV_URL), timeout=HTTP_TIMEOUT_SECONDS):
@@ -321,7 +338,7 @@ def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
         "VERSION:2.0\r\n"
         "PRODID:-//FreeShard WebCalendar//MSGraph Sync//EN\r\n"
         "BEGIN:VEVENT\r\n"
-        f"UID:{local_uid}\r\n"
+        f"UID:{ics_text(local_uid)}\r\n"
         f"SUMMARY:{ics_text(subject)}\r\n"
         f"DESCRIPTION:{ics_text(body_content)}\r\n"
         + (f"LOCATION:{ics_text(location)}\r\n" if location else "") +
@@ -331,7 +348,8 @@ def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
         "END:VCALENDAR\r\n"
     )
 
-    local_put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{target_cal}/{local_uid}.ics"
+    resource = path_segment(local_uid + ".ics", SAFE_EVENT_SEGMENT_RE, "local event uid")
+    local_put_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_segment}/{resource}"
     put_req = urllib.request.Request(
         local_put_url,
         data=ics_content.encode("utf-8"),
