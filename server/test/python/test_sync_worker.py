@@ -109,7 +109,9 @@ class TestSyncWorker(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        count = sync_worker.recover_stranded_jobs(self.db_path)
+        # Recovery purges <tempdir>/vdirsyncer-cfg-* (#536); keep it off the host's shared /tmp.
+        with patch.object(tempfile, "tempdir", self.temp_dir):
+            count = sync_worker.recover_stranded_jobs(self.db_path)
         self.assertEqual(count, 1)
 
         conn = sqlite3.connect(self.db_path)

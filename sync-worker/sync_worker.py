@@ -64,6 +64,19 @@ def purge_tmp_credential_files(user_id=None):
             except FileNotFoundError:
                 # Removed concurrently between glob() and remove(): already purged.
                 continue
+    if user_id:
+        return
+    # #536: per-run config dirs hold the external password, Google tokens and SYSTEM_SYNC_SECRET.
+    # A hard kill (OOM, SIGKILL) skips their cleanup, so every boot and shutdown removes them all.
+    for config_dir in glob.glob(os.path.join(glob.escape(tempfile.gettempdir()), CONFIG_DIR_PREFIX + "*")):
+        try:
+            if os.path.isdir(config_dir) and not os.path.islink(config_dir):
+                shutil.rmtree(config_dir)
+            else:
+                # A symlink is unlinked, never followed.
+                os.remove(config_dir)
+        except FileNotFoundError:
+            continue
 
 def handle_shutdown_signal(signum, frame):
     global shutdown_requested, active_job_id, active_job_db_path
@@ -665,6 +678,15 @@ def create_private_config_dir():
     return tempfile.mkdtemp(prefix=CONFIG_DIR_PREFIX)
 
 
+def remove_private_config_dir(config_dir):
+    """Removes a run's config dir; a SIGTERM during the run has already purged it (#536)."""
+    try:
+        shutil.rmtree(config_dir)
+    except FileNotFoundError:
+        # Gone already: the shutdown purge removed it, and the SystemExit must reach the queue loop.
+        return
+
+
 def write_private_config(config_dir, content):
     """Write content to a fresh mode-0600 file inside config_dir and return its path."""
     fd, path = tempfile.mkstemp(suffix=".ini", dir=config_dir)
@@ -885,7 +907,7 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
     except Exception as run_err:  # noqa: BLE001
         return False, f"vdirsyncer basic runner exception: {run_err}"
     finally:
-        shutil.rmtree(config_dir)
+        remove_private_config_dir(config_dir)
 
 
 def sync_user(user_id):
@@ -1102,7 +1124,7 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
     except Exception as run_err:  # noqa: BLE001
         return False, f"vdirsyncer runner exception: {str(run_err)}"
     finally:
-        shutil.rmtree(config_dir)
+        remove_private_config_dir(config_dir)
 
 def process_next_job(db_path=None):
     """Fetches and processes one pending sync job safely without stranding in RUNNING."""
@@ -1216,7 +1238,8 @@ def process_next_job(db_path=None):
 
 def main():
     print("[Sync-Worker] Daemon started. Monitoring sqlite sync queue...")
-    
+    purge_tmp_credential_files()
+
     # Wait for DB to be created by the web app
     while not os.path.exists(DB_PATH) and not shutdown_requested:
         print(f"[Sync-Worker] Waiting for database at {DB_PATH}...")

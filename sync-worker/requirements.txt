@@ -2,3 +2,4 @@ vdirsyncer[google]==0.19.3
 cryptography==42.0.8
 # aiohttp comes with vdirsyncer. guarded_vdirsyncer.py relies on its default resolver (getaddrinfo) for
 # the pinned addresses: do not add aiodns or aiohttp[speedups] (#532).
+# The image installs locked-requirements.txt (every dependency, with hashes, #536); update it with any change here.

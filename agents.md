@@ -74,7 +74,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   credentials (#526); at boot (`Db.ready`) rows that still carry `accounts`, and expired rows, are
   deleted before any request or backup. Do not assign `req.session.accounts` directly in production code.
   Auth modes via `AUTH_METHOD`: `env` (default and the shipping mode; one owner, userId = `CALDAV_USERNAME`,
-  `owner` in the store template) or `oidc` (the shard's own OIDC provider; the identity comes only from the OIDC callback, never from
+  `owner` in the store template; a `CALDAV_USERNAME` that is not a safe path segment aborts boot, #536) or `oidc` (the shard's own OIDC provider; the identity comes only from the OIDC callback, never from
   proxy headers, and `oidc` with `HTTP_HEADER_AUTH=true` aborts boot, #523). With `env` and `HTTP_HEADER_AUTH=true`, `X-Forwarded-User`/`X-User-Id`/`Remote-User` plus the
   proxy secret set the user id (refused with 401 unless a safe path segment, #144); a changed identity regenerates the session.
   `shard_core` has no OIDC provider yet, so no shard can run `oidc`; `oidc` without `OIDC_ISSUER_URL`,
