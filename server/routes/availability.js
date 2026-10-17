@@ -7,7 +7,10 @@ const Db = require('../db');
 const { calculateFreeSlots } = require('../utils/availabilityBooking');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { getBusyIntervals, createBookingEvent } = require('../utils/bookingCalendar');
-const { createRateLimiter, BOOKING_IP_RATE_LIMIT, BOOKING_PAGE_RATE_LIMIT } = require('../utils/rateLimit');
+const {
+  createRateLimiter, createRateBudget, TOO_MANY_REQUESTS,
+  BOOKING_IP_RATE_LIMIT, BOOKING_PAGE_RATE_LIMIT, AVAILABILITY_READ_BUDGET
+} = require('../utils/rateLimit');
 
 const MAX_BUSY_CALENDARS = 20;
 const MAX_GUEST_NAME = 200;
@@ -17,9 +20,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BOOKING_HORIZON_MS = 365 * DAY_MS;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// #530: how long the public slot query reuses the slots of one (page, date).
+const SLOT_CACHE_TTL_MS = 60 * 1000;
 
 const bookingIpLimiter = createRateLimiter(BOOKING_IP_RATE_LIMIT);
 const bookingPageLimiter = createRateLimiter(BOOKING_PAGE_RATE_LIMIT);
+const takeAvailabilityRead = createRateBudget(AVAILABILITY_READ_BUDGET);
 
 // Bookings of one owner run one at a time: the free-slot check, the calendar
 // write and the booking row form one step (the app is one process per shard).
@@ -38,15 +44,59 @@ function serializeForOwner(ownerId, fn) {
  * Free slots of the page on dateStr: owner's busy time and existing bookings
  * removed, only slots from now up to one year ahead.
  */
-async function freeSlotsFor(page, dateStr) {
+async function freeSlotsFor(page, dateStr, { cached = false } = {}) {
   const now = Date.now();
   const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
   const dayEnd = new Date(dayStart.getTime() + DAY_MS);
   if (dayEnd.getTime() <= now || dayStart.getTime() > now + BOOKING_HORIZON_MS) return [];
+  const slots = await (cached ? cachedDaySlots(page, dateStr, dayStart, dayEnd) : daySlots(page, dateStr, dayStart, dayEnd));
+  return slots.filter(slot => new Date(slot.startTime).getTime() > now);
+}
+
+async function daySlots(page, dateStr, dayStart, dayEnd) {
   const busy = await getBusyIntervals(page, dayStart, dayEnd);
   const existingBookings = await Db.getSlotBookingsForPage(page.id, dateStr);
-  return calculateFreeSlots(page, busy, existingBookings, dateStr)
-    .filter(slot => new Date(slot.startTime).getTime() > now);
+  return calculateFreeSlots(page, busy, existingBookings, dateStr);
+}
+
+// #530: the anonymous slot query reads the owner's calendars at most once per
+// (page, date) and SLOT_CACHE_TTL_MS; concurrent queries share the pending read.
+// Each read uses the page's AVAILABILITY_READ_BUDGET, keyed by page id, so neither
+// cached answers nor requests for unknown pages or bad dates use it up.
+// Bookings never use the cache: they re-check against fresh data.
+const slotCache = new Map(); // `${page.id}|${dateStr}` -> { userId, expiresAt, promise }
+
+class ReadBudgetExhausted extends Error {
+  constructor(retryAfter) {
+    super(`Availability read budget exhausted, retry after ${retryAfter}s`);
+    this.retryAfter = retryAfter;
+  }
+}
+
+function cachedDaySlots(page, dateStr, dayStart, dayEnd) {
+  const now = Date.now();
+  for (const [k, entry] of slotCache) {
+    if (entry.expiresAt <= now) slotCache.delete(k);
+  }
+  const key = `${page.id}|${dateStr}`;
+  const hit = slotCache.get(key);
+  if (hit) return hit.promise;
+  const retryAfter = takeAvailabilityRead(page.id);
+  if (retryAfter !== null) throw new ReadBudgetExhausted(retryAfter);
+  const entry = { userId: page.userId, expiresAt: now + SLOT_CACHE_TTL_MS, promise: daySlots(page, dateStr, dayStart, dayEnd) };
+  slotCache.set(key, entry);
+  // Only evicts the failed read; the caller still receives its error through entry.promise.
+  entry.promise.catch(() => {
+    if (slotCache.get(key) === entry) slotCache.delete(key);
+  });
+  return entry.promise;
+}
+
+/** A booking changes the busy time of every page of its owner. */
+function dropCachedSlotsOfOwner(userId) {
+  for (const [k, entry] of slotCache) {
+    if (entry.userId === userId) slotCache.delete(k);
+  }
 }
 
 function isValidDate(dateStr) {
@@ -185,7 +235,7 @@ router.get('/public/availability/:slug', async (req, res) => {
     if (!isValidDate(dateStr)) {
       return res.status(400).json({ error: 'Ungültiges Datum' });
     }
-    const availableSlots = await freeSlotsFor(page, dateStr);
+    const availableSlots = await freeSlotsFor(page, dateStr, { cached: true });
 
     res.json({
       id: page.id,
@@ -196,6 +246,10 @@ router.get('/public/availability/:slug', async (req, res) => {
       availableSlots
     });
   } catch (err) {
+    if (err instanceof ReadBudgetExhausted) {
+      res.setHeader('Retry-After', String(err.retryAfter));
+      return res.status(429).json({ error: TOO_MANY_REQUESTS });
+    }
     return sendError(res, err);
   }
 });
@@ -217,6 +271,7 @@ router.post('/public/availability/:slug/book', bookingIpLimiter, validateBooking
       if (!freeSlots.some(s => s.startTime === startTime)) return null;
 
       const event = await createBookingEvent(page, { startTime, endTime, guestName: name, guestEmail: email, notes: note });
+      dropCachedSlotsOfOwner(page.userId);
       try {
         return await Db.createSlotBooking({
           pageId: page.id,
