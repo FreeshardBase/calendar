@@ -60,7 +60,9 @@ try:
     os.environ["DATABASE_PATH"] = db_path
     status_tmp = tempfile.mkdtemp()
     os.environ["STATUS_ROOT"] = status_tmp
-    
+    # The unreachable linked server counts as public through the operator allow-list (#532).
+    os.environ["OUTBOUND_FETCH_ALLOW_HOSTS"] = "127.0.0.1"
+
     
 
     success, err = sync_worker.sync_basic_caldav_accounts("testuser197", conn)

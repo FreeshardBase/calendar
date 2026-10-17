@@ -30,6 +30,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from tls_context import ssl_context_for
+from outbound_guard import assert_public_url, pinned_opener, url_host
 
 # Configuration variables from environment
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
@@ -368,8 +369,12 @@ def discover_google_collections(google_url, access_token):
     
     try:
         import ssl
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx) as res:
+        # The stored URL is re-validated on every run and the connection pinned to the checked
+        # addresses (#532); it carries the account's bearer token.
+        addresses = assert_public_url(google_url)
+        pins = {url_host(google_url)[0]: addresses} if addresses else {}
+        opener = pinned_opener(pins, ssl.create_default_context())
+        with opener.open(req) as res:
             xml_str = res.read().decode("utf-8")
             
         collections = []
@@ -573,11 +578,12 @@ class CalDAVDiscoveryError(Exception):
     """A linked CalDAV server's calendar listing is unusable: unsafe or duplicate name, oversized (#531)."""
 
 
-def discover_caldav_collections(home_url, username, password):
+def discover_caldav_collections(home_url, username, password, pins):
     """{collection name: display name} of the calendars in a Basic-auth account's calendar home.
 
     The name is derived exactly as vdirsyncer derives it (unquoted last href segment) and must
     fully match SAFE_COLLECTION_NAME_RE; any other name raises CalDAVDiscoveryError.
+    The connection goes only to the addresses in `pins` that assert_public_url validated (#532).
     """
     body = """<?xml version="1.0" encoding="utf-8" ?>
 <d:propfind xmlns:d="DAV:">
@@ -598,7 +604,8 @@ def discover_caldav_collections(home_url, username, password):
         },
         method="PROPFIND",
     )
-    with urllib.request.urlopen(req, context=ssl_context_for(home_url, LOCAL_CALDAV_URL), timeout=30) as res:
+    opener = pinned_opener(pins, ssl_context_for(home_url, LOCAL_CALDAV_URL))
+    with opener.open(req, timeout=30) as res:
         raw = res.read(MAX_DISCOVERY_RESPONSE_BYTES + 1)
     if len(raw) > MAX_DISCOVERY_RESPONSE_BYTES:
         raise CalDAVDiscoveryError(f"calendar listing exceeds {MAX_DISCOVERY_RESPONSE_BYTES} bytes")
@@ -699,7 +706,21 @@ def _drain_vdirsyncer_log(read_fd, lines, job_id, db_path):
             conn.close()
 
 
-def run_vdirsyncer(config_path, command, stdin=None):
+GUARDED_VDIRSYNCER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guarded_vdirsyncer.py")
+
+
+def outbound_policy(pins, allow_public):
+    """Socket guard policy for one vdirsyncer run (#532, see outbound_guard.install_socket_guard).
+
+    The local Radicale (its host on its port) is the only trusted endpoint; `pins` maps each linked
+    host to the addresses assert_public_url validated for this job.
+    """
+    return {"pins": pins, "trusted": [list(url_host(LOCAL_CALDAV_URL))], "allow_public": allow_public}
+
+
+def run_vdirsyncer(config_path, command, policy, stdin=None):
+    # vdirsyncer runs behind the outbound socket guard (#532): it resolves the linked hosts and
+    # follows redirects itself, so the worker's check of the stored URL alone would not hold.
     # stderr goes through a pipe that a reader thread drains line by line, so the running job counts
     # the copied items while vdirsyncer is still at work (#174).
     read_fd, write_fd = os.pipe()
@@ -709,7 +730,8 @@ def run_vdirsyncer(config_path, command, stdin=None):
     reader.start()
     try:
         result = subprocess.run(
-            ["vdirsyncer", "-c", config_path, command],
+            [sys.executable, GUARDED_VDIRSYNCER, config_path, command],
+            env={**os.environ, "OUTBOUND_GUARD_POLICY": json.dumps(policy)},
             input=stdin,
             stdout=subprocess.PIPE,
             stderr=write_fd,
@@ -760,21 +782,31 @@ def sync_basic_caldav_accounts(user_id, conn):
     verify_line = local_caldav_verify_line()
     local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
     pairs_written = 0
+    # Linked host -> addresses validated for this job; vdirsyncer may connect nowhere else (#532).
+    pins = {}
 
     for idx, acc in enumerate(basic_accounts):
-        try:
-            password = decrypt(acc["password_encrypted"], acc["iv"], KEY_BYTES)
-        except (ValueError, TypeError) as de:
-            return False, f"Basic-auth credential decryption failed for account {acc['id']}: {de}"
-
         pair_name    = f"basic_{idx}"
         storage_ext  = f"basic_ext_{idx}"
         storage_loc  = f"basic_local_{idx}"
         external_url = acc["url"].rstrip('/') + '/'
         username     = acc["username"]
 
+        # The stored URL was checked when the account was linked; its DNS may point elsewhere now.
         try:
-            remote_collections = discover_caldav_collections(external_url, username, password)
+            addresses = assert_public_url(external_url)
+        except OSError as blocked:
+            return False, f"CalDAV account {acc['id']} URL refused: {blocked}"
+        account_pins = {url_host(external_url)[0]: addresses} if addresses else {}
+        pins.update(account_pins)
+
+        try:
+            password = decrypt(acc["password_encrypted"], acc["iv"], KEY_BYTES)
+        except (ValueError, TypeError) as de:
+            return False, f"Basic-auth credential decryption failed for account {acc['id']}: {de}"
+
+        try:
+            remote_collections = discover_caldav_collections(external_url, username, password, account_pins)
         except (CalDAVDiscoveryError, OSError, ValueError, http.client.HTTPException, ET.ParseError) as disc_err:
             return False, f"CalDAV collection discovery failed for account {acc['id']}: {disc_err}"
         items = []
@@ -827,12 +859,13 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
         # "create collection?" prompt: a calendar that vanished from the server meanwhile fails the
         # run instead of being created there again.
         print(f"[Sync-Worker] Running Basic-CalDAV discover for user {user_id}...")
-        disc_res = run_vdirsyncer(config_path, "discover", stdin="")
+        policy = outbound_policy(pins, allow_public=False)
+        disc_res = run_vdirsyncer(config_path, "discover", policy, stdin="")
         if disc_res.returncode != 0:
             return False, f"vdirsyncer basic discover failed: {disc_res.stderr}"
 
         print(f"[Sync-Worker] Running Basic-CalDAV sync for user {user_id}...")
-        sync_res = run_vdirsyncer(config_path, "sync")
+        sync_res = run_vdirsyncer(config_path, "sync", policy)
         if sync_res.returncode != 0:
             return False, f"vdirsyncer basic sync failed: {sync_res.stderr}"
 
@@ -1042,12 +1075,14 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
 
         # Run vdirsyncer discover and sync
         print(f"[Sync-Worker] Running discover for user {user_id}...")
-        disc_res = run_vdirsyncer(config_path, "discover", stdin="y\n" * 20)
+        # The Google storage talks to Google's fixed endpoints, not to a stored URL.
+        policy = outbound_policy({}, allow_public=True)
+        disc_res = run_vdirsyncer(config_path, "discover", policy, stdin="y\n" * 20)
         if disc_res.returncode != 0:
             return False, f"vdirsyncer discover failed: {disc_res.stderr}"
 
         print(f"[Sync-Worker] Running sync for user {user_id}...")
-        sync_res = run_vdirsyncer(config_path, "sync")
+        sync_res = run_vdirsyncer(config_path, "sync", policy)
         if sync_res.returncode != 0:
             return False, f"vdirsyncer sync failed: {sync_res.stderr}"
 

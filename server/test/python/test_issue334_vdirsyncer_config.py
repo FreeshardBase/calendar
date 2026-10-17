@@ -38,6 +38,8 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
         self.db_path = os.path.join(self.temp_dir, "webcalendar.db")
         os.environ["DATABASE_PATH"] = self.db_path
         os.environ["STATUS_ROOT"] = os.path.join(self.temp_dir, "status")
+        # The linked provider counts as public through the operator allow-list (no DNS in tests, #532).
+        os.environ["OUTBOUND_FETCH_ALLOW_HOSTS"] = "caldav.example.com"
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
             CREATE TABLE sync_queue (
@@ -74,6 +76,7 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
         shutil.rmtree(self.temp_dir)
         os.environ.pop("DATABASE_PATH", None)
         os.environ.pop("STATUS_ROOT", None)
+        os.environ.pop("OUTBOUND_FETCH_ALLOW_HOSTS", None)
 
     def _run_basic_sync(self, side_effect):
         conn = sqlite3.connect(self.db_path)

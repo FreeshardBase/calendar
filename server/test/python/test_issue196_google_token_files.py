@@ -136,7 +136,7 @@ class TestIssue196GoogleTokenFiles(unittest.TestCase):
         self._add_account("acc-0")
         commands = []
 
-        def fake_vdirsyncer(config_path, command, stdin=None):
+        def fake_vdirsyncer(config_path, command, policy, stdin=None):
             commands.append(command)
             self._record(config_path)
             self._record_token_files()
