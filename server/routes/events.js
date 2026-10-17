@@ -348,7 +348,7 @@ router.post('/', async (req, res) => {
 // ── PUT /api/events/:uid — update an existing event ───────────────────────────
 router.put('/:uid', async (req, res) => {
   try {
-    const { calendarId, etag, href, scope, recurrenceId, ...eventData } = req.body;
+    const { calendarId, sourceCalendarId, etag, href, scope, recurrenceId, ...eventData } = req.body;
 
     if (!href)       return res.status(400).json({ error: 'href is required' });
     if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
@@ -361,6 +361,13 @@ router.put('/:uid', async (req, res) => {
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
       return res.status(access.status || 403).json({ error: access.reason });
+    }
+
+    const targetRecurrenceId = recurrenceId || eventData.recurrenceId || (req.params.uid && req.params.uid.includes('::') ? req.params.uid.split('::')[1] : null) || (req.body.uid && req.body.uid.includes('::') ? req.body.uid.split('::')[1] : null);
+
+    // The event is stored in `sourceCalendarId` and was given another calendar in the dialog (#494).
+    if (sourceCalendarId && sourceCalendarId !== calendarId) {
+      return await moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, eventData, targetRecurrenceId });
     }
 
     const accountId = calendarId.split('::')[0];
@@ -378,7 +385,6 @@ router.put('/:uid', async (req, res) => {
     const { account, client } = await resolveAccount(req, calendarId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    const targetRecurrenceId = recurrenceId || eventData.recurrenceId || (req.params.uid && req.params.uid.includes('::') ? req.params.uid.split('::')[1] : null) || (req.body.uid && req.body.uid.includes('::') ? req.body.uid.split('::')[1] : null);
     const masterUid = req.params.uid.split('::')[0];
     const event     = { ...eventData, uid: masterUid };
     if (targetRecurrenceId) {
@@ -529,44 +535,11 @@ router.delete('/:uid', async (req, res) => {
       return res.json({ message: 'Occurrence deleted.' });
     }
 
-    const ifMatch  = etag ? formatIfMatch(etag) : null;
-
-    // A sharee deleting the owner's event: the record lets the sync worker put it back into
-    // Radicale before the owner's next sync, which would otherwise carry the delete out into the
-    // owner's external calendar (#319). It is written first, so a failure aborts the delete instead
-    // of losing the protection (#343). If the delete itself then fails, the record is withdrawn
-    // again, so the worker never writes over an event that was not deleted.
-    // Only owner ids with a linked external account get a record: the owner's sync jobs run
-    // under those ids, and without such an account nothing can carry the delete out of the shard.
-    const crossUserDeletions = [];
-    if (!targetAccess.isOwner) {
-      const eventPath = new URL(eventUrl).pathname;
-      if (extractCalendarIdFromHref(accountId, eventPath) !== derivedCalId) {
-        return res.status(400).json({ error: 'Invalid href' });
-      }
-      const ownerSegment = derivedCalId.split('::')[1].split('/').filter(Boolean)[0];
-      // #144: the owner segment is the owner's user id.
-      if (await Db.hasExternalAccounts(ownerSegment)) {
-        const stored = await client.get(eventUrl);
-        crossUserDeletions.push(await Db.recordCrossUserDeletion(
-          req.params.uid, derivedCalId, ownerSegment, req.session.userId, eventPath, stored.ics));
-      }
+    if (!targetAccess.isOwner && extractCalendarIdFromHref(accountId, new URL(eventUrl).pathname) !== derivedCalId) {
+      return res.status(400).json({ error: 'Invalid href' });
     }
 
-    try {
-      try {
-        await client.delete(eventUrl, ifMatch);
-      } catch (delErr) {
-        if (delErr.message === 'ETAG_CONFLICT') {
-          await client.delete(eventUrl, null);
-        } else {
-          throw delErr;
-        }
-      }
-    } catch (delErr) {
-      for (const record of crossUserDeletions) await Db.clearCrossUserDeletion(record.id);
-      throw delErr;
-    }
+    await deleteStoredEvent(req, client, eventUrl, etag, { uid: req.params.uid, derivedCalId, access: targetAccess });
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
@@ -711,6 +684,153 @@ router.get('/:uid/history', async (req, res) => {
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Delete a stored event resource.
+ *
+ * A sharee deleting the owner's event: the record lets the sync worker put it back into
+ * Radicale before the owner's next sync, which would otherwise carry the delete out into the
+ * owner's external calendar (#319). It is written first, so a failure aborts the delete instead
+ * of losing the protection (#343). If the delete itself then fails, the record is withdrawn
+ * again, so the worker never writes over an event that was not deleted.
+ * Only owner ids with a linked external account get a record: the owner's sync jobs run
+ * under those ids, and without such an account nothing can carry the delete out of the shard.
+ *
+ * With `strictEtag` a changed resource (412) is not deleted; the plain DELETE route retries
+ * without the precondition instead.
+ */
+async function deleteStoredEvent(req, client, eventUrl, etag, { uid, derivedCalId, access, strictEtag = false }) {
+  const ifMatch = etag ? formatIfMatch(etag) : null;
+  const crossUserDeletions = [];
+  if (!access.isOwner) {
+    const eventPath = new URL(eventUrl).pathname;
+    const ownerSegment = derivedCalId.split('::')[1].split('/').filter(Boolean)[0];
+    // #144: the owner segment is the owner's user id.
+    if (await Db.hasExternalAccounts(ownerSegment)) {
+      const stored = await client.get(eventUrl);
+      crossUserDeletions.push(await Db.recordCrossUserDeletion(
+        uid, derivedCalId, ownerSegment, req.session.userId, eventPath, stored.ics));
+    }
+  }
+
+  try {
+    try {
+      await client.delete(eventUrl, ifMatch);
+    } catch (delErr) {
+      if (delErr.message === 'ETAG_CONFLICT' && !strictEtag) {
+        await client.delete(eventUrl, null);
+      } else {
+        throw delErr;
+      }
+    }
+  } catch (delErr) {
+    for (const record of crossUserDeletions) await Db.clearCrossUserDeletion(record.id);
+    throw delErr;
+  }
+}
+
+/**
+ * Move an event (a series with all its exceptions) into another calendar (#494).
+ *
+ * The edited event is first created in the target collection under the same UID, and only then
+ * deleted from the source, so a failure never loses it. If the source cannot be deleted (gone,
+ * changed meanwhile, refused), the new copy is removed again and the move fails as a whole.
+ */
+async function moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, eventData, targetRecurrenceId }) {
+  if (scope === 'occurrence') {
+    return res.status(400).json({ error: 'A single occurrence cannot be moved to another calendar; move the whole series' });
+  }
+
+  const sourceAccess = await checkCalendarAccess(req, sourceCalendarId, 'write');
+  if (!sourceAccess.allowed) {
+    return res.status(sourceAccess.status || 403).json({ error: sourceAccess.reason });
+  }
+  const sourceAccountId = sourceCalendarId.split('::')[0];
+  const derivedCalId = extractCalendarIdFromHref(sourceAccountId, href);
+  if (!derivedCalId) return res.status(400).json({ error: 'Invalid href' });
+  let hrefAccess = sourceAccess;
+  if (derivedCalId !== sourceCalendarId) {
+    hrefAccess = await checkCalendarAccess(req, derivedCalId, 'write');
+    if (!hrefAccess.allowed) {
+      return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+    }
+  }
+
+  const source = await resolveAccount(req, sourceCalendarId);
+  const target = await resolveAccount(req, calendarId);
+  if (!source.account || !target.account) return res.status(404).json({ error: 'Account not found' });
+
+  const sourceUrl = buildAbsoluteUrl(source.account.url, href);
+  if (!hrefAccess.isOwner && extractCalendarIdFromHref(sourceAccountId, new URL(sourceUrl).pathname) !== derivedCalId) {
+    return res.status(400).json({ error: 'Invalid href' });
+  }
+
+  const masterUid = req.params.uid.split('::')[0];
+  const event = { ...eventData, uid: masterUid };
+  if (targetRecurrenceId) event.recurrenceId = targetRecurrenceId;
+
+  const current = await source.client.get(sourceUrl);
+  const ics = updateWholeSeries(current.ics, event);
+
+  const targetHref = calendarId.split('::').slice(1).join('::');
+  const targetUrl = buildAbsoluteUrl(target.account.url, targetHref).replace(/\/+$/, '') + '/' + encodeURIComponent(masterUid) + '.ics';
+
+  let created;
+  try {
+    created = await target.client.put(targetUrl, ics, null);
+  } catch (putErr) {
+    if (putErr.message === 'ETAG_CONFLICT') {
+      return res.status(409).json({ error: 'The target calendar already holds an event with this UID' });
+    }
+    throw putErr;
+  }
+
+  try {
+    await deleteStoredEvent(req, source.client, sourceUrl, current.etag,
+      { uid: masterUid, derivedCalId, access: hrefAccess, strictEtag: true });
+  } catch (delErr) {
+    try {
+      await target.client.delete(targetUrl, created.etag);
+    } catch (rollbackErr) {
+      console.error('[events move] Removing the copy in the target calendar failed:', rollbackErr.message);
+      throw new Error(`Move failed and the copy in the target calendar could not be removed again: ${delErr.message}`);
+    }
+    if (delErr.message === 'ETAG_CONFLICT') {
+      return res.status(409).json({ error: 'The event was changed meanwhile; it was not moved' });
+    }
+    throw delErr;
+  }
+
+  queueSyncForCalendar(sourceCalendarId, req.session.userId);
+  queueSyncForCalendar(calendarId, req.session.userId);
+
+  let responseEvent = event;
+  if (targetRecurrenceId) {
+    const { recurrenceId: _ignored, ...cleanMasterEvent } = event;
+    const parsed = parseICSToEvent(ics);
+    if (parsed && parsed.start) {
+      cleanMasterEvent.start = parsed.start;
+      cleanMasterEvent.end = parsed.end;
+    }
+    responseEvent = cleanMasterEvent;
+  }
+  await logEventChange({
+    eventUid: masterUid,
+    calendarId,
+    userId: req.session.userId,
+    action: 'UPDATE',
+    oldEvent: parseICSToEvent(current.ics),
+    newEvent: responseEvent,
+    snapshotIcs: ics
+  }).catch(err => console.error('[events move history]', err.message));
+
+  return res.json({
+    ...responseEvent,
+    href: targetUrl,
+    etag: created.etag || null,
+    calendarId
+  });
+}
 
 async function resolveAccount(req, calendarId) {
   const accountId = calendarId.split('::')[0];

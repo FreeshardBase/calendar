@@ -6515,4 +6515,98 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(deleted).toEqual(['e2e-404-drop']);
     });
   });
+
+  test.describe('Issue #494 — changing the calendar in the edit dialog moves the event', () => {
+    const RANGE = 'start=2038-03-01T00:00:00Z&end=2038-04-01T00:00:00Z';
+    let sourceId;
+    let targetId;
+
+    async function createCalendar(page, name) {
+      const res = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name }
+      });
+      expect(res.status()).toBe(201);
+      return (await res.json()).id;
+    }
+
+    async function titlesIn(page, calendarId) {
+      const res = await page.request.get(`/api/events?${RANGE}&calendarId=${encodeURIComponent(calendarId)}`);
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()).events.map(e => e.title).sort();
+    }
+
+    async function createEvent(page, data) {
+      const res = await page.request.post('/api/events', { headers: SAME_ORIGIN, data: { calendarId: sourceId, ...data } });
+      expect(res.status()).toBe(201);
+    }
+
+    async function editAt(page, date, title) {
+      await page.goto(`/?date=${date}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.locator('.event-chip').filter({ hasText: title }).first().click();
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-calendar')).toHaveValue(sourceId);
+    }
+
+    test.beforeEach(async ({ page }) => {
+      // Loading the app signs the browser in; the API calls below share its session.
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const run = Date.now().toString(36);
+      sourceId = await createCalendar(page, `E2E 494 test2 ${run}`);
+      targetId = await createCalendar(page, `E2E 494 Ziel ${run}`);
+      // No per-test cleanup: e2e/global-teardown.js drops the run's whole principal.
+    });
+
+    test('an event saved with another calendar is stored there and no longer in the old one', async ({ page }) => {
+      await createEvent(page, { title: 'safdsaf', start: '2038-03-10T10:00:00.000Z', end: '2038-03-10T11:00:00.000Z' });
+      await editAt(page, '2038-03-10', 'safdsaf');
+
+      await page.selectOption('#ev-calendar', targetId);
+      await page.click('#event-save-btn');
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Termin gespeichert.' })).toBeVisible({ timeout: 10000 });
+      await expectSavesLanded(page);
+
+      expect(await titlesIn(page, targetId)).toEqual(['safdsaf']);
+      expect(await titlesIn(page, sourceId)).toEqual([]);
+      // Reopened, the dialog shows the new calendar.
+      await page.locator('.event-chip').filter({ hasText: 'safdsaf' }).first().click();
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#ev-calendar')).toHaveValue(targetId);
+    });
+
+    test('an occurrence moved to another calendar takes the whole series with it, without asking for a scope', async ({ page }) => {
+      await createEvent(page, {
+        title: 'E2E 494 Serie', start: '2038-03-15T10:00:00.000Z', end: '2038-03-15T11:00:00.000Z', recurrence: 'FREQ=DAILY;COUNT=3'
+      });
+      await editAt(page, '2038-03-16', 'E2E 494 Serie');
+
+      await page.selectOption('#ev-calendar', targetId);
+      await page.click('#event-save-btn');
+      await expect(page.locator('#scope-dialog-backdrop')).toHaveClass(/hidden/);
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Termin gespeichert.' })).toBeVisible({ timeout: 10000 });
+      await expectSavesLanded(page);
+
+      expect(await titlesIn(page, targetId)).toEqual(['E2E 494 Serie', 'E2E 494 Serie', 'E2E 494 Serie']);
+      expect(await titlesIn(page, sourceId)).toEqual([]);
+    });
+
+    test('a failed move says so, reopens the dialog and leaves the event in its calendar', async ({ page }) => {
+      await createEvent(page, { title: 'E2E 494 bleibt', start: '2038-03-11T10:00:00.000Z', end: '2038-03-11T11:00:00.000Z' });
+      await editAt(page, '2038-03-11', 'E2E 494 bleibt');
+      await page.route('**/api/events/*', route => (route.request().method() === 'PUT'
+        ? route.fulfill({ status: 502, json: { error: 'Zielkalender nicht erreichbar' } })
+        : route.fallback()));
+
+      await page.selectOption('#ev-calendar', targetId);
+      await page.click('#event-save-btn');
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Zielkalender nicht erreichbar' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#event-form-error')).toHaveText('Zielkalender nicht erreichbar');
+
+      expect(await titlesIn(page, sourceId)).toEqual(['E2E 494 bleibt']);
+      expect(await titlesIn(page, targetId)).toEqual([]);
+    });
+  });
 });
