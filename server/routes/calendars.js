@@ -19,6 +19,7 @@ const { sendError, describeError, userError, MESSAGES } = require('../utils/erro
 const { sanitizePublicIcs, isValidDetail, DEFAULT_DETAIL } = require('../utils/publicIcs');
 
 const SHARE_NS = 'http://freeshard.de/ns/';
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function slugify(name) {
   if (!name) return '';
@@ -604,6 +605,10 @@ router.patch('/:id', async (req, res) => {
 
     if (name === undefined && color === undefined) {
       return res.status(400).json({ error: 'At least name or color is required' });
+    }
+    // #534: the colour is stored as the user's override and rendered into the UI; only #rrggbb.
+    if (color !== undefined && color !== null && !(typeof color === 'string' && HEX_COLOR.test(color))) {
+      return res.status(400).json({ error: 'color must be a #rrggbb hex colour' });
     }
 
     if (name) {

@@ -1155,7 +1155,7 @@ function openEditCalendarDialog(cal) {
           <div class="form-group">
             <label class="form-label" for="edit-cal-color">Farbe</label>
             <input class="form-input" id="edit-cal-color" type="color"
-                   value="${cal.color || '#007080'}"
+                   value="${escHtml(sanitizeColor(cal.color, '#007080'))}"
                    style="height:40px;padding:4px 8px;cursor:pointer;" />
           </div>
           <div id="edit-cal-error" class="form-error hidden" role="alert"></div>
