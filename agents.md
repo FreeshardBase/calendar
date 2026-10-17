@@ -78,7 +78,10 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   proxy headers, and `oidc` with `HTTP_HEADER_AUTH=true` aborts boot, #523). With `env` and `HTTP_HEADER_AUTH=true`, `X-Forwarded-User`/`X-User-Id`/`Remote-User` plus the
   proxy secret set the user id (refused with 401 unless a safe path segment, #144); a changed identity regenerates the session.
   `shard_core` has no OIDC provider yet, so no shard can run `oidc`; `oidc` without `OIDC_ISSUER_URL`,
-  `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` aborts boot (#121). Decision (#121): user-to-user sharing waits
+  `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` aborts boot (#121). The token endpoint auth method comes from
+  `OIDC_TOKEN_AUTH_METHOD` (`client_secret_basic` | `client_secret_post`, anything else aborts boot) or else from
+  the issuer's `token_endpoint_auth_methods_supported` (basic preferred, #490); a failed callback logs the
+  provider's `error`/`error_description`, the browser never sees them. Decision (#121): user-to-user sharing waits
   for that provider and is not cut; until then a shard has only its owner. No users are seeded.
   In production (and staging) `env` mode answers 401 to every request without `X-Freeshard-Secret` =
   `HTTP_HEADER_AUTH_SECRET` (the platform proxy, timing-safe; exempt: `/health`, `/api/health`, `/internal/*`)

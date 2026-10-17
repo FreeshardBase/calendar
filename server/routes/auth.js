@@ -119,7 +119,16 @@ router.get('/callback', async (req, res) => {
   } catch (err) {
     // openid-client v6 names the failed check (e.g. a missing nonce claim) in the wrapped cause.
     const reason = err.cause instanceof Error ? `${err.message}: ${err.cause.message}` : err.message;
-    console.error('[OIDC callback error]', reason);
+    // #490: the provider's error / error_description (e.g. invalid_client) go to the log only; the
+    // browser gets the library message above, never provider text.
+    // An authorization error response arrives via the callback URL, so any client controls this text:
+    // keep it to the RFC 6749 §5.2 charset (no CR/LF, no forged log lines) and cap its length.
+    const logSafe = (s) => String(s).replace(/[^\x20-\x21\x23-\x5B\x5D-\x7E]/g, '?').slice(0, 200);
+    const providerError = [err, err.cause].find((e) => e && typeof e.error === 'string');
+    const providerDetail = providerError
+      ? ` (provider error: ${logSafe(providerError.error)}${providerError.error_description ? ` — ${logSafe(providerError.error_description)}` : ''})`
+      : '';
+    console.error('[OIDC callback error]', reason + providerDetail);
     res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: ' + reason);
   }
 });

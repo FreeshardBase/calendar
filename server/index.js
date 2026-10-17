@@ -19,7 +19,7 @@ const fs = require('fs');
 const { validateBaseUrl } = require('./utils/baseUrl');
 const { isSafeStorageId } = require('./utils/storageId');
 const { dispatcherFor } = require('./utils/tlsDispatcher');
-const { OIDC_CONFIG_MISSING } = require('./utils/oidcClient');
+const { OIDC_CONFIG_MISSING, TOKEN_AUTH_METHODS } = require('./utils/oidcClient');
 
 function validateSystemSyncSecret(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
@@ -67,6 +67,10 @@ function validateSecurityConfig(env = process.env) {
   // #121: a missing issuer stops the start-up, not the first login.
   if (authMethod === 'oidc' && !(env.OIDC_ISSUER_URL && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET)) {
     throw new Error(OIDC_CONFIG_MISSING);
+  }
+  // #490: an unknown token endpoint auth method stops the start-up, not the first login.
+  if (authMethod === 'oidc' && env.OIDC_TOKEN_AUTH_METHOD && !TOKEN_AUTH_METHODS.includes(env.OIDC_TOKEN_AUTH_METHOD)) {
+    throw new Error(`OIDC_TOKEN_AUTH_METHOD must be one of ${TOKEN_AUTH_METHODS.join(', ')}, got '${env.OIDC_TOKEN_AUTH_METHOD}'.`);
   }
   // #246: env mode has no login of its own; in production the proxy secret is its only credential.
   if (isProdLike && authMethod === 'env' && !headerSecret) {
