@@ -1883,6 +1883,34 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await page.evaluate(() => document.body.dataset.xss401)).toBeUndefined();
     });
 
+    test('Issue #534 — a calendar colour cannot break out of the edit dialog colour input', async ({ page }) => {
+      const evil = '#fff" data-xss534="1"><b id="e2e-534-injected">x</b><input value="';
+      const calendars = [
+        { id: 'internal-caldav::/testuser/e2e-534-evil/', name: 'E2E 534 Böse', color: evil },
+        { id: 'internal-caldav::/testuser/e2e-534-good/', name: 'E2E 534 Gut', color: '#a1b2c3' },
+      ].map(c => ({ ...c, accountId: 'internal-caldav', href: c.id.split('::')[1],
+        isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false }));
+      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { calendars, errors: [] } })
+        : route.fallback()));
+      await routeEvents(page, []);
+      await openAt(page, '2037-05-14');
+
+      const editFor = name => page.locator('#calendar-list .calendar-item', { hasText: name }).locator('[data-edit-cal]');
+      await editFor('E2E 534 Böse').click();
+      const dialog = page.locator('#edit-cal-dialog-backdrop');
+      await expect(dialog.locator('#edit-cal-name')).toHaveValue('E2E 534 Böse');
+      await expect(page.locator('#e2e-534-injected')).toHaveCount(0);
+      await expect(page.locator('[data-xss534]')).toHaveCount(0);
+      await expect(dialog.locator('input')).toHaveCount(2);
+      await expect(dialog.locator('#edit-cal-color')).toHaveValue('#007080');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+
+      await editFor('E2E 534 Gut').click();
+      await expect(page.locator('#edit-cal-dialog-backdrop #edit-cal-color')).toHaveValue('#a1b2c3');
+    });
+
     test('Issue #161 — the month view loads exactly the six weeks its grid shows', async ({ page }) => {
       const ranges = [];
       await page.route('**/api/events?**', route => {
