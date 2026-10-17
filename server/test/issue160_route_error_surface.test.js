@@ -231,6 +231,8 @@ test('Issue #160 — calendar export with the backend down is a German 502', asy
 test('Issue #160 — task PUT/DELETE denied upstream (403) arrive as 403 with German text', async () => {
   await withStack(
     (req) => {
+      // The task list's component set, asked before every task write (#495).
+      if (req.method === 'PROPFIND') return { status: 207, body: CAL_LIST };
       if (req.method === 'GET') return { status: 404, body: '' };
       if (req.method === 'PUT' || req.method === 'DELETE') return { status: 403, body: DAV_ERROR_DOC };
       return { status: 405, body: '' };

@@ -136,14 +136,18 @@ export function openTaskModal(task = null) {
   const inputPercent = document.getElementById('task-percent-complete');
   const selectPrio = document.getElementById('task-priority');
 
-  // Populate calendar options
-  const calendars = store.get('calendars') || [];
+  // Only collections whose component set holds VTODO take tasks (#495). A task stranded in another
+  // one (e.g. a Google calendar, which has no tasks) shows it as its current, unselectable list,
+  // so it can be moved out.
+  const calendars = (store.get('calendars') || [])
+    .filter(c => c.supportsVTODO === true || (task && c.id === task.calendarId));
   if (selectCal) {
     selectCal.innerHTML = '';
     calendars.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
-      opt.textContent = c.name;
+      opt.textContent = c.supportsVTODO === true ? c.name : `${c.name} (keine Aufgaben möglich)`;
+      opt.disabled = c.supportsVTODO !== true;
       selectCal.appendChild(opt);
     });
   }
@@ -314,7 +318,8 @@ async function handleTaskSave() {
 
   try {
     if (uid && href) {
-      await TasksAPI.update(uid, { ...taskData, href, etag });
+      // A different list than the stored one moves the task (#495).
+      await TasksAPI.update(uid, { ...taskData, href, etag, sourceCalendarId: _currentTask.calendarId });
       notifyToast('Aufgabe gespeichert.', 'success');
     } else {
       await TasksAPI.create(taskData);

@@ -430,6 +430,7 @@ router.get('/', async (req, res) => {
     <d:displayname/>
     <c:calendar-color/>
     <d:resourcetype/>
+    <c:supported-calendar-component-set/>
   </d:prop>
 </d:propfind>`,
                   headers: { Depth: '0' }

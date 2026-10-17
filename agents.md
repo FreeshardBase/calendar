@@ -155,7 +155,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph → Radicale import, the only Graph sync path).
   Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
   `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google
-  name as `displayname` (one-way; no metasync, which would push app renames to Google). A `google-<slug>`
+  name as `displayname` (one-way; no metasync, which would push app renames to Google) and a VEVENT-only
+  `supported-calendar-component-set`, since Google's CalDAV has no tasks (#495). Radicale itself stores a
+  VTODO in any collection, so `routes/tasks.js` PROPFINDs the target's component set and refuses (422) a task
+  write into a collection without VTODO; the task dialog offers only VTODO collections, and a changed list
+  moves the task (`sourceCalendarId`, create in target then delete source, like event moves #494). A `google-<slug>`
   collection from older worker versions is adopted only if that account's pair has vdirsyncer status for it.
   The create route never puts app calendars under `google-` (#193).
   Basic-auth CalDAV accounts work the same way (#531): the worker PROPFINDs the account's calendar home,

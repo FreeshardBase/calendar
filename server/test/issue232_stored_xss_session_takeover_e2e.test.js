@@ -11,6 +11,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
+const { taskListMultistatus } = require('./helpers/taskListPropfind');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue232-'));
 // The DB opens asynchronously on require; remove its directory only at exit.
@@ -52,6 +53,10 @@ function startFakeCalDAV() {
     req.on('data', c => { body += c; });
     req.on('end', () => {
       requests.push({ method: req.method, url: req.url, body });
+      if (req.method === 'PROPFIND') {
+        res.writeHead(207, { 'Content-Type': 'application/xml' });
+        return res.end(taskListMultistatus(new URL(req.url, 'http://caldav/').pathname));
+      }
       if (req.method === 'PUT') {
         res.writeHead(201, { ETag: '"issue232"' });
         return res.end();
