@@ -3353,6 +3353,110 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #496 — linked accounts are named by their custom name', () => {
+    const personalId = `internal-caldav::/${E2E_USER}/personal/`;
+    const primaryId = `internal-caldav::/${E2E_USER}/google-0123456789abcdef/`;
+    const teamId = `internal-caldav::/${E2E_USER}/caldav-fedcba9876543210/`;
+    const workId = `internal-caldav::/${E2E_USER}/caldav-00112233445566778899/`;
+    const calendar = (id, name, linkedAccountId, supportsVTODO) => ({
+      id, accountId: 'internal-caldav', linkedAccountId, name, color: '#3366cc', href: id.split('::')[1],
+      isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO
+    });
+
+    async function serveAccounts(page) {
+      const accounts = [
+        { id: 'internal-caldav', url: 'https://caldav.example.com/', username: E2E_USER, displayName: 'Shard' },
+        { id: 'acc-496', url: 'https://caldav.example.com/testuser/', username: 'testuser@example.com', displayName: 'Privat' },
+        { id: 'acc-496-plain', url: 'https://caldav.example.com/testuser2/', username: 'testuser2@example.com', displayName: null },
+      ];
+      const renames = [];
+      await page.route('**/api/accounts', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: accounts })
+        : route.fallback()));
+      await page.route('**/api/accounts/acc-496', route => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        renames.push(route.request().postDataJSON());
+        return route.fulfill({ json: { message: 'Updated.' } });
+      });
+      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { calendars: [
+          calendar(primaryId, 'testuser@example.com', 'acc-496', false),
+          calendar(personalId, 'Persönlich', null, true),
+          calendar(teamId, 'Team', 'acc-496', true),
+          calendar(workId, 'Arbeit', 'acc-496-plain', true),
+        ], errors: [] } })
+        : route.fallback()));
+      return renames;
+    }
+
+    // [[group label or null, [option texts]]] of a <select>, in display order.
+    const pickerGroups = (page, sel) => page.locator(sel).evaluate(select => [...select.children].map(el =>
+      el.tagName === 'OPTGROUP'
+        ? [el.label, [...el.children].map(o => o.textContent)]
+        : [null, [el.textContent]]));
+
+    test('pickers and the sidebar label a linked account\'s calendars with its name and follow a rename', async ({ page }) => {
+      const renames = await serveAccounts(page);
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      const groupLabels = page.locator('#calendar-list .calendar-group-label');
+      await expect(groupLabels).toHaveText(['Privat', 'testuser2@example.com'], { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-name'))
+        .toHaveText(['Persönlich', 'Privat', 'Team', 'Arbeit']);
+
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await pickerGroups(page, '#ev-calendar')).toEqual([
+        [null, ['Persönlich']],
+        ['Privat', ['Privat', 'Team']],
+        ['testuser2@example.com', ['Arbeit']],
+      ]);
+      await page.click('#event-cancel-btn');
+
+      await page.click('#new-task-btn');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await pickerGroups(page, '#task-calendar-id')).toEqual([
+        [null, ['Persönlich']],
+        ['Privat', ['Team']],
+        ['testuser2@example.com', ['Arbeit']],
+      ]);
+      await page.click('#task-cancel-btn');
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/);
+
+      // Renaming the account relabels the sidebar and every picker without a reload.
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      page.once('dialog', dialog => dialog.accept('Familie'));
+      await page.click('[data-edit-acc="acc-496"]');
+      await expect(page.locator('#toast-container .toast', { hasText: 'Account umbenannt.' })).toBeVisible({ timeout: 10000 });
+      expect(renames).toEqual([{ displayName: 'Familie' }]);
+      await page.click('#close-settings-btn');
+      await expect(page.locator('#settings-drawer')).toHaveClass(/hidden/);
+
+      await expect(groupLabels).toHaveText(['Familie', 'testuser2@example.com']);
+      await expect(page.locator('#calendar-list .calendar-name'))
+        .toHaveText(['Persönlich', 'Familie', 'Team', 'Arbeit']);
+
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await pickerGroups(page, '#ev-calendar')).toEqual([
+        [null, ['Persönlich']],
+        ['Familie', ['Familie', 'Team']],
+        ['testuser2@example.com', ['Arbeit']],
+      ]);
+      await page.click('#event-cancel-btn');
+
+      await page.click('#new-task-btn');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await pickerGroups(page, '#task-calendar-id')).toEqual([
+        [null, ['Persönlich']],
+        ['Familie', ['Team']],
+        ['testuser2@example.com', ['Arbeit']],
+      ]);
+    });
+  });
+
   test('should manage focus inside modal dialog and close modal on Escape key press', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });

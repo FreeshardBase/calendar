@@ -7,6 +7,7 @@ const PRECACHE_ASSETS = [
   '/js/app.js',
   '/js/calendar.js',
   '/js/store.js',
+  '/js/calendarLabels.js',
   '/js/api.js',
   '/js/tasks.js',
   '/js/notifications.js',

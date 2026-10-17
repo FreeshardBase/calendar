@@ -971,6 +971,23 @@ const Db = {
     });
   },
 
+  // #496: { local collection name → linked account id } for every collection the sync worker
+  // mirrors from one of the user's linked accounts (Google and Basic-auth CalDAV).
+  getMirroredCollectionAccounts(userId) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT local_collection, account_id FROM google_calendar_collections WHERE user_id = ?
+         UNION ALL
+         SELECT local_collection, account_id FROM caldav_calendar_collections WHERE user_id = ?`,
+        [userId, userId],
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(new Map(rows.map(r => [r.local_collection, r.account_id])));
+        }
+      );
+    });
+  },
+
   deleteAccount(id) {
     return new Promise((resolve, reject) => {
       db.run(

@@ -3,6 +3,7 @@
  */
 
 import { store } from './store.js';
+import { fillCalendarSelect } from './calendarLabels.js';
 import { TasksAPI } from './api.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { showToast } from './app.js';
@@ -142,13 +143,9 @@ export function openTaskModal(task = null) {
   const calendars = (store.get('calendars') || [])
     .filter(c => c.supportsVTODO === true || (task && c.id === task.calendarId));
   if (selectCal) {
-    selectCal.innerHTML = '';
-    calendars.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = c.supportsVTODO === true ? c.name : `${c.name} (keine Aufgaben möglich)`;
+    fillCalendarSelect(selectCal, calendars, (opt, c) => {
+      if (c.supportsVTODO !== true) opt.textContent += ' (keine Aufgaben möglich)';
       opt.disabled = c.supportsVTODO !== true;
-      selectCal.appendChild(opt);
     });
   }
 

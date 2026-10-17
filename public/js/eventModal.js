@@ -3,6 +3,7 @@
  */
 
 import { store, calendarById } from './store.js';
+import { fillCalendarSelect } from './calendarLabels.js';
 import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
 import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFocus.js';
@@ -531,14 +532,11 @@ function populateCalendarSelect(selectedId) {
     opt.textContent = '— Kein beschreibbarer Kalender verfügbar —';
     sel.appendChild(opt);
   } else {
-    filteredCals.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = c.name + (c.readOnly ? ' (schreibgeschützt)' : '');
+    fillCalendarSelect(sel, filteredCals, (opt, c) => {
+      if (c.readOnly) opt.textContent += ' (schreibgeschützt)';
       if (c.id === targetId) {
         opt.selected = true;
       }
-      sel.appendChild(opt);
     });
   }
 }

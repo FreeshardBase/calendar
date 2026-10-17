@@ -1,0 +1,60 @@
+/**
+ * calendarLabels.js — How calendars are named and grouped in pickers and the sidebar (#496).
+ *
+ * A calendar mirrored from a linked account carries `linkedAccountId`. It is listed under the
+ * account's current name, looked up in the store on every render, so renaming the account
+ * relabels everything without a reload.
+ */
+import { store } from './store.js';
+
+// The user's custom name for a linked account; the provider user name only when none is set.
+export function accountLabel(account) {
+  return account.displayName || account.username;
+}
+
+function linkedAccount(cal) {
+  if (!cal.linkedAccountId) return null;
+  return store.get('accounts').find(a => a.id === cal.linkedAccountId) || null;
+}
+
+// A provider names an account's primary calendar after its user name (Google: the e-mail
+// address). That calendar is listed under the account's name instead.
+export function calendarLabel(cal) {
+  const account = linkedAccount(cal);
+  return account && cal.name === account.username ? accountLabel(account) : cal.name;
+}
+
+// [{ label, calendars }] in first-seen order: the shard's own calendars (label null), then one
+// group per linked account.
+export function groupCalendarsByAccount(cals) {
+  const groups = new Map();
+  for (const cal of cals) {
+    const account = linkedAccount(cal);
+    const key = account ? account.id : null;
+    if (!groups.has(key)) groups.set(key, { label: account ? accountLabel(account) : null, calendars: [] });
+    groups.get(key).calendars.push(cal);
+  }
+  const own = groups.get(null);
+  return own ? [own, ...[...groups.values()].filter(g => g !== own)] : [...groups.values()];
+}
+
+// Fills a <select> with one option per calendar; a linked account's calendars go into an
+// <optgroup> labelled with the account's name. `decorate(option, cal)` may adjust each option.
+export function fillCalendarSelect(select, cals, decorate = () => {}) {
+  select.innerHTML = '';
+  for (const group of groupCalendarsByAccount(cals)) {
+    let parent = select;
+    if (group.label !== null) {
+      parent = document.createElement('optgroup');
+      parent.label = group.label;
+      select.appendChild(parent);
+    }
+    for (const cal of group.calendars) {
+      const opt = document.createElement('option');
+      opt.value = cal.id;
+      opt.textContent = calendarLabel(cal);
+      decorate(opt, cal);
+      parent.appendChild(opt);
+    }
+  }
+}
