@@ -2978,11 +2978,14 @@ const Db = {
     });
   },
 
-  getEventHistory(eventUid, limit = 50) {
+  getEventHistoryInCalendar(eventUid, calendarId, limit = 50) {
+    if (!calendarId) return Promise.reject(new Error('getEventHistoryInCalendar: calendarId is required'));
+    // Rows keep the calendarId the writer sent; with and without trailing slash name the same calendar.
+    const altId = calendarId.endsWith('/') ? calendarId.slice(0, -1) : `${calendarId}/`;
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT * FROM event_history WHERE event_uid = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
-        [eventUid, limit],
+        `SELECT * FROM event_history WHERE event_uid = ? AND calendar_id IN (?, ?) ORDER BY created_at DESC, id DESC LIMIT ?`,
+        [eventUid, calendarId, altId, limit],
         (err, rows) => {
           if (err) return reject(err);
           const parsed = (rows || []).map(r => ({
