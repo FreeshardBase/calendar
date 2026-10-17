@@ -116,8 +116,9 @@ function isDavMultistatus(xml) {
  */
 class CalDAVClient {
   /**
-   * guardOutbound: the URL is user-supplied (account linking) — every request
-   * and redirect hop must target a public address (#337).
+   * guardOutbound: the URL is user-supplied (account linking and every later
+   * request to a linked account) — every request and redirect hop must target
+   * a public address (#337, #524).
    */
   constructor({ url, username, password, authType = 'basic', accessToken, guardOutbound = false }) {
     this.baseUrl = url.replace(/\/+$/, '');
