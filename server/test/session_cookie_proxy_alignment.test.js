@@ -41,7 +41,7 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
     // Development default
     const devConfig = getSessionConfig({ NODE_ENV: 'development' });
     assert.strictEqual(devConfig.cookie.httpOnly, true);
-    assert.strictEqual(devConfig.cookie.sameSite, 'strict');
+    assert.strictEqual(devConfig.cookie.sameSite, 'lax');
     assert.strictEqual(devConfig.cookie.secure, false);
     assert.strictEqual(devConfig.secret, 'freeshard-change-this-in-production');
 
@@ -102,7 +102,7 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
   });
 
   // The booted production server applies getTrustProxySetting() and getSessionConfig(): the
-  // cookie is HttpOnly and SameSite=Strict, and 'auto' Secure follows the proxy's
+  // cookie is HttpOnly and SameSite=Lax (#491), and 'auto' Secure follows the proxy's
   // X-Forwarded-Proto only when the proxy hop is trusted.
   async function sessionCookie(base, headers) {
     const res = await fetch(`${base}/api/auth/session`, { headers: { ...TERMINAL, ...headers } });
@@ -112,11 +112,11 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
     return cookie;
   }
 
-  test('production server issues an HttpOnly, SameSite=Strict cookie, Secure behind the trusted https proxy', async (t) => {
+  test('production server issues an HttpOnly, SameSite=Lax cookie, Secure behind the trusted https proxy', async (t) => {
     const { base } = await bootProductionServer(t, { TRUST_PROXY: undefined });
     const proxied = await sessionCookie(base, { 'X-Forwarded-Proto': 'https' });
     assert.match(proxied, /;\s*HttpOnly/i);
-    assert.match(proxied, /;\s*SameSite=Strict/i);
+    assert.match(proxied, /;\s*SameSite=Lax/i);
     assert.match(proxied, /;\s*Secure/i, 'one trusted hop by default: the https proxy makes the cookie Secure');
 
     const plain = await sessionCookie(base, {});
@@ -124,10 +124,10 @@ test.describe('Issue #263 — Session Cookie & Proxy Production Container Alignm
   });
 
   test('production server honours TRUST_PROXY=false and COOKIE_SAME_SITE', async (t) => {
-    const { base } = await bootProductionServer(t, { TRUST_PROXY: 'false', COOKIE_SAME_SITE: 'lax' });
+    const { base } = await bootProductionServer(t, { TRUST_PROXY: 'false', COOKIE_SAME_SITE: 'strict' });
     const cookie = await sessionCookie(base, { 'X-Forwarded-Proto': 'https' });
     assert.doesNotMatch(cookie, /;\s*Secure/i, 'an untrusted X-Forwarded-Proto must not make the cookie Secure');
-    assert.match(cookie, /;\s*SameSite=Lax/i);
+    assert.match(cookie, /;\s*SameSite=Strict/i);
   });
 
 });

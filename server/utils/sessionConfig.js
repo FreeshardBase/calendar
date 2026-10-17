@@ -171,7 +171,9 @@ function getSessionConfig(env = process.env, options = {}) {
     cookie: {
       secure: cookieSecure,
       httpOnly: true,
-      sameSite: env.COOKIE_SAME_SITE || 'strict',
+      // #491: Lax, so the cross-site return from an OAuth/OIDC provider (a top-level GET) carries the
+      // session. CSRF protection for state-changing requests is the origin check (#340, csrfGuard.js).
+      sameSite: env.COOKIE_SAME_SITE || 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     }
   };

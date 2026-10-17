@@ -128,8 +128,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   client) and `BASE_URL`; without them `GET /api/msgraph/accounts` reports `available: false`, the modal says so and
   `/api/msgraph/authorize` answers 503. `server/utils/msgraph.js` + `routes/msgraph.js`: authorization code flow
   with PKCE (S256) at tenant `common`, state mandatory and single-use per session, scopes
-  `offline_access User.Read Calendars.Read`. Microsoft returns cross-site, where the `SameSite=Strict` session
-  cookie is withheld, so the registered `/api/msgraph/callback` (no auth) only serves a page that forwards
+  `offline_access User.Read Calendars.Read`. Microsoft returns cross-site, where a `SameSite=Strict` session
+  cookie (`COOKIE_SAME_SITE=strict`; the default is `lax`, #491) would be withheld, so the registered `/api/msgraph/callback` (no auth) only serves a page that forwards
   code/state/error same-site to `/api/msgraph/callback/complete`, which checks the state, stores the tokens
   (re-connecting the same mailbox updates its row and clears `reconnect_required`) and enqueues a sync job. There is no token entry by request
   body. `POST /api/msgraph/accounts/:id/sync` only enqueues a job (202). The only Graph sync path is
