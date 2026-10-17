@@ -789,7 +789,12 @@ function getUtcDate(dateStr, timeStr, timeZone) {
 
   // Editing an instance of a recurring series: ask for the scope first
   const recurrenceId = _currentEvent?.recurrenceId || (_currentEvent?.uid && _currentEvent.uid.includes('::') ? _currentEvent.uid.split('::')[1] : null);
-  if (_currentEvent && recurrenceId) {
+  // A series changes calendar only as a whole, with its exceptions (#494).
+  const moving = Boolean(_currentEvent && payload.calendarId !== _currentEvent.calendarId);
+  if (_currentEvent && recurrenceId && moving) {
+    payload.scope        = 'series';
+    payload.recurrenceId = recurrenceId;
+  } else if (_currentEvent && recurrenceId) {
     setButtonLoading('event-save-btn', false);
     const scope = await chooseRecurrenceScope('Diese Änderung anwenden auf:');
     if (!scope) return;
@@ -815,6 +820,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     payload.uid  = original.masterUid || (original.uid ? original.uid.split('::')[0] : '');
     payload.href = original.href;
     payload.etag = original.etag;
+    payload.sourceCalendarId = original.calendarId;
   }
   const token = callbacks.onPending?.(previewEvent(payload, original), original ? original.uid : null);
   closeModal();
