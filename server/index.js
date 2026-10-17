@@ -171,6 +171,13 @@ app.use((req, res, next) => (usesSession(req) ? sessionMiddleware(req, res, next
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// #526: req.session.accounts holds decrypted credentials and SYSTEM_SYNC_SECRET. It is rebuilt from
+// the database on every request and attached non-enumerable, so neither the session store
+// (JSON.stringify → sessions.sess, copied into backups) nor express-session's change hash sees it.
+function setSessionAccounts(req, accounts) {
+  Object.defineProperty(req.session, 'accounts', { value: accounts, writable: true, configurable: true, enumerable: false });
+}
+
 // ── Middleware to load accounts from SQLite database into req.session.accounts ──
 app.use(async (req, res, next) => {
   if (!usesSession(req)) return next();
@@ -214,7 +221,7 @@ app.use(async (req, res, next) => {
   // session or the proxy header it is refused unless it is a safe path segment.
   if ((authMethod === 'oidc' || fromHeader) && newUserId && !isSafeStorageId(newUserId)) {
     delete req.session.userId;
-    req.session.accounts = [];
+    setSessionAccounts(req, []);
     return res.status(401).json({ error: 'Authentication required' });
   }
 
@@ -273,19 +280,14 @@ app.use(async (req, res, next) => {
         }
       }
       
-      const accountsStr = JSON.stringify(accounts);
-      if (!req.session.accounts || JSON.stringify(req.session.accounts) !== accountsStr) {
-        req.session.accounts = accounts;
-      }
+      setSessionAccounts(req, accounts);
       delete req.accountLoadError;
     } catch (e) {
       console.error('[db] Error loading accounts:', e.message);
       req.accountLoadError = e.message;
     }
   } else {
-    if (req.session.accounts && req.session.accounts.length > 0) {
-      req.session.accounts = [];
-    }
+    setSessionAccounts(req, []);
   }
   next();
 });

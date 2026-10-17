@@ -156,6 +156,8 @@ db.serialize(() => {
   db.run('PRAGMA journal_mode = WAL');
   db.run('PRAGMA busy_timeout = 30000');
   db.run('PRAGMA foreign_keys = ON');
+  // #526: deleted rows (sessions, credentials) are overwritten, not left readable in free pages.
+  db.run('PRAGMA secure_delete = ON');
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       user_id TEXT PRIMARY KEY,
@@ -627,7 +629,26 @@ async function verifyEncryptionKey(database, keyMaterial, keyState) {
 
 // Resolves once the schema migrations have run and the configured key is proven to match this
 // database; server/index.js does not listen before then and exits on rejection.
-const ready = migrated.then(() => verifyEncryptionKey(db, ENCRYPTION_KEY_MATERIAL, ENCRYPTION_KEY_STATE));
+const ready = migrated
+  .then(() => verifyEncryptionKey(db, ENCRYPTION_KEY_MATERIAL, ENCRYPTION_KEY_STATE))
+  .then(() => purgeCredentialSessions(db));
+
+/**
+ * Issue #526: sessions.sess is plain JSON and is copied into every backup. The session store never
+ * writes `accounts` (decrypted credentials, SYSTEM_SYNC_SECRET) any more; a row that still carries
+ * them, and every expired row, is deleted before the server serves a request or writes a backup.
+ * secure_delete zeroes the freed pages; the checkpoint moves them into the database file and
+ * truncates the WAL, so the shard backup's file copy holds no residue either.
+ */
+async function purgeCredentialSessions(database) {
+  await dbRun(database,
+    `DELETE FROM sessions WHERE expired < ?
+       OR NOT json_valid(sess)
+       OR json_type(CASE WHEN json_valid(sess) THEN sess END, '$.accounts') IS NOT NULL`,
+    [Date.now()]);
+  const checkpoint = await dbGet(database, 'PRAGMA wal_checkpoint(TRUNCATE)');
+  if (checkpoint.busy) throw new Error('Could not checkpoint the WAL after purging credential-carrying sessions');
+}
 
 // ── Transactions (#149) ───────────────────────────────────────────────────────
 const txContext = new AsyncLocalStorage();
