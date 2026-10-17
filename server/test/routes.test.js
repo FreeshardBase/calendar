@@ -8,6 +8,9 @@ process.env.PORT = '3125';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
+// #537: /internal/* checks the secret under every NODE_ENV.
+const INTERNAL_SECRET = 'testuser-internal-secret-routes';
+process.env.INTERNAL_WEBHOOK_SECRET = INTERNAL_SECRET;
 process.env.CALDAVURL = process.env.CALDAVURL || `http://localhost:${process.env.PORT}/mock-dav/`;
 process.env.CALDAV_USERNAME = process.env.CALDAV_USERNAME || 'test';
 process.env.CALDAV_PASSWORD = process.env.CALDAV_PASSWORD || 'test';
@@ -277,7 +280,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     // 5. Test webhook for a different user_id (should not delete our account)
     const hookRes1 = await fetch(`${baseUrl}/internal/webhooks/user-deleted`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-freeshard-secret': INTERNAL_SECRET },
       body: JSON.stringify({ user_id: 'non-existent-user' })
     });
     assert.strictEqual(hookRes1.status, 200);
@@ -291,7 +294,7 @@ test('HTTP Routes Integration Suite', async (t) => {
     // 6. Test webhook for our user_id ('webhook-test-user')
     const hookRes2 = await fetch(`${baseUrl}/internal/webhooks/user-deleted`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-freeshard-secret': INTERNAL_SECRET },
       body: JSON.stringify({ user_id: 'webhook-test-user' })
     });
     assert.strictEqual(hookRes2.status, 200);

@@ -7,8 +7,7 @@ const {
   grantDelegatePermission,
   revokeDelegatePermission,
   getDelegatesForPrincipal,
-  getPrincipalsForDelegate,
-  checkDelegateAccess
+  getPrincipalsForDelegate
 } = require('../utils/delegatePermissions');
 
 /**
@@ -85,47 +84,6 @@ router.get('/principals', async (req, res) => {
     const userId = req.session.userId || process.env.CALDAV_USERNAME || 'test';
     const principals = await getPrincipalsForDelegate(userId);
     res.json({ userId, principals });
-  } catch (err) {
-    return sendError(res, err);
-  }
-});
-
-/**
- * POST /api/delegates/act-as
- * Sets / verifies delegation session context for acting on behalf of principal
- */
-router.post('/act-as', async (req, res) => {
-  try {
-    const delegateUserId = req.session.userId || process.env.CALDAV_USERNAME || 'test';
-    const { principalUserId, calendarId } = req.body;
-
-    if (!principalUserId) {
-      return res.status(400).json({ error: 'principalUserId is required' });
-    }
-
-    const access = await checkDelegateAccess({
-      principalUserId,
-      delegateUserId,
-      calendarId: calendarId || null,
-      action: 'READ'
-    });
-
-    if (!access.allowed) {
-      return res.status(403).json({ error: access.reason || 'Not authorized to act on behalf of principal' });
-    }
-
-    req.session.activeDelegation = {
-      principalUserId,
-      calendarId: calendarId || null,
-      role: access.role
-    };
-
-    res.json({
-      active: true,
-      principalUserId,
-      calendarId: calendarId || null,
-      role: access.role
-    });
   } catch (err) {
     return sendError(res, err);
   }

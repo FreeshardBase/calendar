@@ -17,7 +17,7 @@
  *     A reverse proxy that connects over loopback would otherwise make every
  *     external request look "internal".
  *
- * NODE_ENV=test always bypasses the check (existing test-suite contract).
+ * The check is the same under every NODE_ENV (#537): tests send the real secret.
  */
 
 const crypto = require('crypto');
@@ -46,9 +46,6 @@ function safeCompare(a, b) {
  */
 function createRequireInternalMiddleware(env = process.env) {
   return function requireInternal(req, res, next) {
-    // Always pass in test mode (unit/integration suite contract)
-    if (env.NODE_ENV === 'test') return next();
-
     const expectedSecret = env.INTERNAL_WEBHOOK_SECRET;
 
     if (expectedSecret && typeof expectedSecret === 'string' && expectedSecret.trim() !== '') {

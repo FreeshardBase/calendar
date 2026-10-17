@@ -104,6 +104,7 @@ Where the code does not yet match the theory above. Each item is the subject of 
 - The UI is German-only with `de-DE` hard-coded (#355); copy uses the generic masculine (#168).
 - The design deviates from the guide in several places: fonts are not loaded, there is a Bootstrap-yellow banner, a shadow, 106 inline styles in `index.html`, and indigo as the default calendar colour.
 - Conflict handling, kept losing versions, delegation and the offline PWA do not exist yet.
+- Participant free/busy for scheduling does not exist. The `/api/freebusy` stub, which reported everyone as free, and the unread `/api/delegates/act-as` session context were removed (#537).
 - Members cannot sign in yet: `shard_core` has no OIDC provider, so a shard runs `AUTH_METHOD=env` with only its owner, and sharing between people has nobody to share with. Sharing waits for the provider; it is not cut (#121).
 
 ## Unresolved
