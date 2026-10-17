@@ -85,9 +85,13 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   for that provider and is not cut; until then a shard has only its owner. No users are seeded.
   In production (and staging) `env` mode answers 401 to every request without `X-Freeshard-Secret` =
   `HTTP_HEADER_AUTH_SECRET` (the platform proxy, timing-safe; exempt: `/health`, `/api/health`, `/internal/*`)
-  and refuses to start without that secret (#246). Every such request outside `/api/public/` must also carry
-  `X-Ptl-Client-Type: terminal`, so the store template's `app_meta.json` declares
+  and refuses to start without that secret (#246). Every such request outside `/api/public/` and the public
+  booking page must also carry `X-Ptl-Client-Type: terminal`, so the store template's `app_meta.json` declares
   `"": { "access": "private", "headers": { "X-Ptl-Client-Type": "{{ auth.client_type }}" } }` (#143).
+  The booking page is served to visitors outside the shard as `/public/booking/?slug=<slug>`, with exactly its
+  files `/public/booking/booking.js`, `/public/booking/api.js` and `/public/booking/app.css`. Only these exact
+  paths pass; anything else under the prefix stays private. The store template therefore declares
+  `/public/booking/` public next to `/api/public/` (app-repository PR #37, #480).
   `X-Ptl-Client-Id` is a device id and never an identity source. Outside production the env identity needs no secret.
   Any other `AUTH_METHOD` value aborts boot.
 - Healthcheck (#270): `GET /health` / `/api/health` (Dockerfile `HEALTHCHECK`, compose `healthcheck`) answers 200

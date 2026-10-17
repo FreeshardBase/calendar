@@ -146,6 +146,17 @@ function hasProxySecret(req) {
   return Boolean(expectedSecret) && safeCompare(providedSecret, expectedSecret);
 }
 
+// #480: the public booking page and exactly the files it loads, for visitors outside the shard. The
+// store template declares /public/booking/ public next to /api/public/. Only these exact paths pass the
+// terminal check below, so dot segments or other names under the prefix stay private.
+const PUBLIC_BOOKING_FILES = new Map([
+  ['/public/booking/', 'booking.html'],
+  ['/public/booking/booking.js', 'js/booking.js'],
+  ['/public/booking/api.js', 'js/api.js'],
+  ['/public/booking/app.css', 'css/app.css'],
+]);
+const isPublicPath = (req) => req.path.startsWith('/api/public/') || PUBLIC_BOOKING_FILES.has(req.path);
+
 // #246: in production, AUTH_METHOD=env serves only requests that come through the FreeShard
 // platform proxy. Exempt: the container healthcheck and /internal/ (own INTERNAL_WEBHOOK_SECRET).
 app.use((req, res, next) => {
@@ -157,7 +168,7 @@ app.use((req, res, next) => {
   }
   // #143: the proxy's access decision is checked here too. app_meta.json declares
   // X-Ptl-Client-Type: {{ auth.client_type }}; only a paired terminal reaches the private paths.
-  if (!req.path.startsWith('/api/public/') && req.headers['x-ptl-client-type'] !== 'terminal') {
+  if (!isPublicPath(req) && req.headers['x-ptl-client-type'] !== 'terminal') {
     return res.status(401).json({ error: 'Authentication required' });
   }
   next();
@@ -313,7 +324,14 @@ app.get(['/', '/index.html'], (req, res, next) => {
   next();
 });
 
-const serveStatic = express.static(path.join(__dirname, '../public'));
+const PUBLIC_DIR = path.join(__dirname, '../public');
+app.get([...PUBLIC_BOOKING_FILES.keys()], (req, res, next) => {
+  const file = PUBLIC_BOOKING_FILES.get(req.path);
+  if (!file) return next();
+  res.sendFile(file, { root: PUBLIC_DIR });
+});
+
+const serveStatic = express.static(PUBLIC_DIR);
 app.use((req, res, next) => (isApiPath(req) ? next() : serveStatic(req, res, next)));
 
 // ── Internal Hook Security Middleware ─────────────────────────────────────────

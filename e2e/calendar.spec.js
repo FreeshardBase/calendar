@@ -2365,7 +2365,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(drawerTzVal).toBe('UTC');
   });
 
-  test('should open availability booking modal, create a booking page, navigate to public booking link, and book a free slot', async ({ page }) => {
+  test('should open availability booking modal, create a booking page, and let an anonymous visitor book a free slot through its public link', async ({ page, browser }) => {
     await page.goto('/');
     await expect(page.locator('#loading-screen')).toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
@@ -2384,30 +2384,44 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await savePromise;
     const pageCard = page.locator(`.availability-page-card:has-text("${slug}")`);
     await expect(pageCard).toBeVisible({ timeout: 10000 });
+    const publicUrl = await pageCard.locator(`a[href*="${slug}"]`).getAttribute('href');
 
-    // Navigate to public booking page
-    await page.goto(`/booking.html?slug=${slug}`);
-    await expect(page.locator('#page-title')).toHaveText('E2E Public Consultation', { timeout: 10000 });
-    // Calendar events block slots (#345); earlier specs put events on today, so book a free future Monday.
-    await page.fill('#booking-date', mondayWeeksAhead(6));
-    await page.locator('#booking-date').dispatchEvent('change');
+    // #480: the visitor is outside the shard. The platform proxy forwards the secret but no
+    // X-Ptl-Client-Type: terminal, so the SPA itself is closed to this context.
+    const visitor = await browser.newContext({ extraHTTPHeaders: { 'X-Freeshard-Secret': webServer.env.HTTP_HEADER_AUTH_SECRET } });
+    try {
+      expect((await visitor.request.get('/')).status()).toBe(401);
+      const guest = await visitor.newPage();
+      const failed = [];
+      guest.on('response', resp => { if (resp.status() >= 400) failed.push(`${resp.status()} ${resp.url()}`); });
+      await guest.goto(publicUrl);
+      await expect(guest.locator('#page-title')).toHaveText('E2E Public Consultation', { timeout: 10000 });
+      // The stylesheet applies: the card gets its border radius from app.css variables.
+      await expect(guest.locator('#public-booking-form .btn-primary')).toHaveCSS('cursor', 'pointer');
+      // Calendar events block slots (#345); earlier specs put events on today, so book a free future Monday.
+      await guest.fill('#booking-date', mondayWeeksAhead(6));
+      await guest.locator('#booking-date').dispatchEvent('change');
 
-    // Select first slot
-    const slotBtn = page.locator('.slot-btn').first();
-    await expect(slotBtn).toBeVisible({ timeout: 10000 });
-    await slotBtn.click();
+      // Select first slot
+      const slotBtn = guest.locator('.slot-btn').first();
+      await expect(slotBtn).toBeVisible({ timeout: 10000 });
+      await slotBtn.click();
 
-    // Fill guest booking form
-    await expect(page.locator('#booking-form-wrapper')).not.toHaveClass(/hidden/);
-    await page.fill('#guest-name', 'Test User Guest');
-    await page.fill('#guest-email', 'testuser@example.com');
-    await page.fill('#guest-notes', 'E2E public booking test notes');
+      // Fill guest booking form
+      await expect(guest.locator('#booking-form-wrapper')).not.toHaveClass(/hidden/);
+      await guest.fill('#guest-name', 'Test User Guest');
+      await guest.fill('#guest-email', 'testuser@example.com');
+      await guest.fill('#guest-notes', 'E2E public booking test notes');
 
-    // Submit booking
-    await page.click('#confirm-booking-btn');
+      // Submit booking
+      await guest.click('#confirm-booking-btn');
 
-    // Confirmation box should appear
-    await expect(page.locator('#booking-success')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      // Confirmation box should appear
+      await expect(guest.locator('#booking-success')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(failed).toEqual([]);
+    } finally {
+      await visitor.close();
+    }
   });
 
   test('should create an event with attachment drive link and display attachment link in popover', async ({ page }) => {
@@ -3970,7 +3984,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(fonts.mono).toMatch(/\bmonospace\b/);
       expect(fonts.body).toMatch(/system-ui|-apple-system/);
 
-      await page.goto('/booking.html?slug=e2e-issue402-none');
+      await page.goto('/public/booking/?slug=e2e-issue402-none');
       await expect(page.locator('body')).toBeVisible();
       expect((await loadedUrls(page)).filter(u => new URL(u).origin !== origin)).toEqual([]);
       expect(foreignRequests).toEqual([]);
@@ -4314,7 +4328,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(card.locator('.availability-page-busy')).toContainText('Persönlich');
       await expect(card.locator('.availability-page-busy')).toContainText('E2E 345 Work');
 
-      await page.goto(`/booking.html?slug=${slug}`);
+      await page.goto(`/public/booking/?slug=${slug}`);
       await expect(page.locator('#page-title')).toHaveText('E2E 345 Busy Page', { timeout: 10000 });
       await page.fill('#booking-date', date);
       await page.locator('#booking-date').dispatchEvent('change');
@@ -6277,7 +6291,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const card = page.locator('#availability-pages-list .availability-page-card');
       await expect(card.locator('strong')).toHaveText(bookingPage.title);
       const origin = new URL(page.url()).origin;
-      await expect(card.locator('.copy-link-btn')).toHaveAttribute('data-url', `${origin}/booking.html?slug=${encodeURIComponent(bookingPage.slug)}`);
+      await expect(card.locator('.copy-link-btn')).toHaveAttribute('data-url', `${origin}/public/booking/?slug=${encodeURIComponent(bookingPage.slug)}`);
       await expect(card.locator('.delete-page-btn')).toHaveAttribute('data-id', bookingPage.id);
       await expect(modal.locator('img, [data-pwn]')).toHaveCount(0);
 

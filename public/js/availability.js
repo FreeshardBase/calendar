@@ -114,7 +114,7 @@ export function initAvailabilityManager() {
       }
 
       pagesList.innerHTML = pages.map(p => {
-        const publicUrl = `${window.location.origin}/booking.html?slug=${encodeURIComponent(p.slug)}`;
+        const publicUrl = `${window.location.origin}/public/booking/?slug=${encodeURIComponent(p.slug)}`;
         const busyNames = [p.calendarId, ...(p.busyCalendarIds || [])].map(id => calendarNames.get(id) || id);
         return `
           <div class="availability-page-card" style="padding: 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">

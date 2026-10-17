@@ -1,11 +1,11 @@
 /**
  * booking.js — public booking page (booking.html). Kept out of the HTML so
- * the CSP can forbid inline scripts (issue #338).
+ * the CSP can forbid inline scripts (issue #338). Served to anonymous
+ * visitors as /public/booking/booking.js (#480), so its imports resolve there too.
  */
-import { AvailabilityAPI } from '/js/api.js';
+import { AvailabilityAPI } from './api.js';
 
-const params = new URLSearchParams(window.location.search);
-const slug = params.get('slug') || window.location.pathname.split('/').pop();
+const slug = new URLSearchParams(window.location.search).get('slug');
 
 const loadingEl = document.getElementById('booking-loading');
 const errorEl = document.getElementById('booking-error');
