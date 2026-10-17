@@ -149,6 +149,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   name as `displayname` (one-way; no metasync, which would push app renames to Google). A `google-<slug>`
   collection from older worker versions is adopted only if that account's pair has vdirsyncer status for it.
   The create route never puts app calendars under `google-` (#193).
+  Basic-auth CalDAV accounts work the same way (#531): the worker PROPFINDs the account's calendar home,
+  refuses (job error) any calendar whose name — the unquoted last href segment, which vdirsyncer puts into
+  its status path — is outside `[A-Za-z0-9_.-]`, and pairs each remote calendar with `caldav-<hex>`
+  persisted in `caldav_calendar_collections`. Never `"from a"`/`"from b"`: local calendars are not
+  published to a provider, and vdirsyncer's "create collection?" prompt is never confirmed.
 - Containers: all three images run their service as uid:gid 1000:1000, because they open the same SQLite
   file. Each image's entrypoint is `drop-privileges.sh` (one copy per build context, kept identical): when
   started as root (the store template sets `user: "0:0"` because shard_core creates the data mount

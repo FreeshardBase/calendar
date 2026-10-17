@@ -67,7 +67,8 @@ try:
     conn.close()
 
     assert not success, "sync_basic_caldav_accounts should return False when server/vdirsyncer unreachable"
-    assert ("vdirsyncer basic discover failed" in err or "vdirsyncer basic runner exception" in err), f"Unexpected error: {err}"
+    # #531: the worker lists the account's calendars itself before vdirsyncer runs.
+    assert "CalDAV collection discovery failed" in err, f"Unexpected error: {err}"
 
     print("Basic CalDAV execution check passed.")
 finally:
