@@ -44,14 +44,17 @@ router.get('/login', async (req, res) => {
     const codeVerifier = client.randomPKCECodeVerifier();
     const transaction = { state: client.randomState(), nonce: client.randomNonce(), codeVerifier };
     req.session.oidc = transaction;
-    const authUrl = client.buildAuthorizationUrl(config, {
+    const params = {
       scope: 'openid profile email',
       redirect_uri: oidcRedirectUri(req),
       state: transaction.state,
       nonce: transaction.nonce,
       code_challenge: await client.calculatePKCECodeChallenge(codeVerifier),
       code_challenge_method: 'S256'
-    });
+    };
+    // #535: the first login after a logout must not ride on a provider session that survived it.
+    if (req.session.oidcPromptLogin) params.prompt = 'login';
+    const authUrl = client.buildAuthorizationUrl(config, params);
     res.redirect(authUrl.href);
   } catch (err) {
     console.error('[OIDC login error]', err.message);
@@ -113,6 +116,8 @@ router.get('/callback', async (req, res) => {
     req.session.userId = userId;
     req.session.username = username;
     if (userEmail) req.session.userEmail = userEmail;
+    // #535: the id_token_hint of the RP-initiated logout.
+    req.session.oidcIdToken = tokens.id_token;
 
     console.log(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
     res.redirect('/');
@@ -133,14 +138,32 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-// POST /api/auth/logout — End session locally and redirect.
+// POST /api/auth/logout — End the app session and, with OIDC, the provider's session.
 // #340: POST only (a GET could be triggered by an <img>); the CSRF guard checks the origin.
-router.post('/logout', (req, res, next) => {
-  req.session.destroy((err) => {
-    if (err) return next(err);
-    res.clearCookie('connect.sid');
-    res.redirect(303, '/');
-  });
+// #535: '/' sends a browser without session straight to the provider, which signs it back in
+// while its own session lives. So the browser goes to the provider's end_session_endpoint
+// (RP-Initiated Logout 1.0) with the id_token of this login; and the next login requests
+// prompt=login, which also covers a provider without end_session_endpoint.
+router.post('/logout', async (req, res, next) => {
+  const oidc = (process.env.AUTH_METHOD || 'env') === 'oidc';
+  const idToken = req.session.oidcIdToken;
+  try {
+    if (!oidc) {
+      await new Promise((resolve, reject) => req.session.destroy((err) => (err ? reject(err) : resolve())));
+      res.clearCookie('connect.sid');
+      return res.redirect(303, '/');
+    }
+    // A fresh session id without identity; the old session is gone from the store.
+    await new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())));
+    req.session.oidcPromptLogin = true;
+    const { client, config } = await getOidcClient();
+    if (!config.serverMetadata().end_session_endpoint) return res.redirect(303, '/');
+    const params = { post_logout_redirect_uri: getBaseUrl(req) };
+    if (idToken) params.id_token_hint = idToken;
+    res.redirect(303, client.buildEndSessionUrl(config, params).href);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/auth/google — Redirect to Google OAuth2 consent screen
