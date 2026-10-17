@@ -270,6 +270,13 @@ a { color: inherit; text-decoration: none; }
 /* Calendar list */
 #calendar-list { display: flex; flex-direction: column; gap: 1px; }
 
+/* #496: a linked account's calendars are grouped under the account's name */
+.calendar-group-label {
+  font-size: 0.7rem; font-weight: 600; color: var(--ink-muted);
+  padding: var(--sp-2) var(--sp-2) 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 .calendar-item {
   display: flex; align-items: center; gap: var(--sp-2);
   padding: 5px var(--sp-2);

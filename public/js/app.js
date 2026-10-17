@@ -5,6 +5,7 @@
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, setUnauthorizedHandler } from './api.js';
+import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
@@ -234,7 +235,7 @@ function reportEventLoadErrors(errors) {
   lastEventErrorNotice = key;
   if (errors.length === 0) return;
   const failed = (store.get('calendars') || []).filter(c => calendarLoadError(c));
-  const names = failed.length > 0 ? failed.map(c => c.name).join(', ') : errors.map(e => e.accountId).join(', ');
+  const names = failed.length > 0 ? failed.map(calendarLabel).join(', ') : errors.map(e => e.accountId).join(', ');
   showToast(`Termine konnten nicht vollständig geladen werden (${names}): ${errors[0].error}`, 'error');
   console.error('[loadEvents] CalDAV fetch errors:', errors);
 }
@@ -800,6 +801,73 @@ function renderSidebar() {
 
 const CALENDARS_LOAD_FAILED = 'Kalender konnten nicht geladen werden.';
 
+function calendarListItemHtml(c, hidden) {
+  const checked = !hidden.has(c.id);
+  const name = calendarLabel(c);
+
+  const shareBtnHtml = c.isShared
+    ? ''
+    : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link" aria-label="Teilen & Link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
+            <polyline points="16 6 12 2 8 6"/>
+            <line x1="12" y1="2" x2="12" y2="15"/>
+          </svg>
+        </button>`;
+
+  const editBtnHtml = c.readOnly
+    ? ''
+    : `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen" aria-label="Umbenennen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>`;
+
+  const exportBtnHtml =
+    `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="Als ICS exportieren" aria-label="Als ICS exportieren">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </button>`;
+        
+  const googleBadge = c.source === 'google'
+    ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="Mit Google Kalender synchronisiert">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"/>
+       </svg>`
+    : '';
+
+  const loadError = calendarLoadError(c);
+
+  return `
+    <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? `${name} (Termine konnten nicht geladen werden: ${loadError.error})` : name)}">
+      <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
+      <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
+        <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
+          <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(name)}">${escHtml(name)}</span>
+          ${googleBadge}
+        </div>
+        ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">von ${escHtml(c.owner)}</span>` : ''}
+        ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">⚠ Nicht erreichbar – Termine fehlen</span>` : ''}
+      </div>
+      <div class="cal-item-actions">
+        ${shareBtnHtml}
+        ${editBtnHtml}
+        ${exportBtnHtml}
+      </div>
+      <div class="calendar-check" style="${checked ? 'background:' + escHtml(sanitizeColor(c.color)) : ''}">
+        <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10" aria-hidden="true">
+          <path d="M2 6l3 3 5-5"/>
+        </svg>
+      </div>
+    </div>`;
+}
+
 function renderCalendarList() {
   const list   = $('calendar-list');
   const hidden = store.get('hiddenCalendars');
@@ -814,71 +882,11 @@ function renderCalendarList() {
     return;
   }
 
-  list.innerHTML = cals.map(c => {
-    const checked = !hidden.has(c.id);
-    
-    const shareBtnHtml = c.isShared
-      ? ''
-      : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link" aria-label="Teilen & Link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
-              <polyline points="16 6 12 2 8 6"/>
-              <line x1="12" y1="2" x2="12" y2="15"/>
-            </svg>
-          </button>`;
-
-    const editBtnHtml = c.readOnly
-      ? ''
-      : `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen" aria-label="Umbenennen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </button>`;
-
-    const exportBtnHtml =
-      `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="Als ICS exportieren" aria-label="Als ICS exportieren">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-        </button>`;
-          
-    const googleBadge = c.source === 'google'
-      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="Mit Google Kalender synchronisiert">
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"/>
-         </svg>`
-      : '';
-
-    const loadError = calendarLoadError(c);
-
-    return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? `${c.name} (Termine konnten nicht geladen werden: ${loadError.error})` : c.name)}">
-        <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
-        <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
-          <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
-            <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
-            ${googleBadge}
-          </div>
-          ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">von ${escHtml(c.owner)}</span>` : ''}
-          ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">⚠ Nicht erreichbar – Termine fehlen</span>` : ''}
-        </div>
-        <div class="cal-item-actions">
-          ${shareBtnHtml}
-          ${editBtnHtml}
-          ${exportBtnHtml}
-        </div>
-        <div class="calendar-check" style="${checked ? 'background:' + escHtml(sanitizeColor(c.color)) : ''}">
-          <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10" aria-hidden="true">
-            <path d="M2 6l3 3 5-5"/>
-          </svg>
-        </div>
-      </div>`;
-  }).join('');
+  // #496: a linked account's calendars are grouped under the account's name.
+  list.innerHTML = groupCalendarsByAccount(cals).map(group =>
+    (group.label === null ? '' : `<div class="calendar-group-label">${escHtml(group.label)}</div>`) +
+    group.calendars.map(c => calendarListItemHtml(c, hidden)).join('')
+  ).join('');
 
   // Toggle visibility on main area click or keypress
   list.querySelectorAll('[data-cal-id]').forEach(el => {
@@ -1006,9 +1014,7 @@ function openImportDialog(fileName, icsText) {
         </p>
         <div class="form-group">
           <label class="fs-label" for="import-cal-select">Zielkalender</label>
-          <select id="import-cal-select" class="form-input">
-            ${writableCals.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.name)}</option>`).join('')}
-          </select>
+          <select id="import-cal-select" class="form-input"></select>
         </div>
         <div class="form-group" style="margin-top: 12px;">
           <label class="fs-label" for="import-strategy-select">Konflikt- & Duplikat-Handhabung</label>
@@ -1025,6 +1031,7 @@ function openImportDialog(fileName, icsText) {
       </div>
     </div>`;
 
+  fillCalendarSelect(backdrop.querySelector('#import-cal-select'), writableCals);
   document.body.appendChild(backdrop);
   openDialog(backdrop);
   const close = () => { closeDialog(backdrop); backdrop.remove(); };
@@ -1977,7 +1984,7 @@ function renderSettingsCalendars() {
         <div style="display:flex; flex-direction:column; min-width:0; flex:1;">
           <div class="settings-item-info">
             <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}; width:8px; height:8px; border-radius:50%; flex-shrink:0"></div>
-            <span class="settings-item-name" title="${escHtml(c.name)}">${escHtml(c.name)}</span>
+            <span class="settings-item-name" title="${escHtml(calendarLabel(c))}">${escHtml(calendarLabel(c))}</span>
             ${googleBadge}
           </div>
         </div>

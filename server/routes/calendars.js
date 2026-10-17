@@ -497,6 +497,21 @@ router.get('/', async (req, res) => {
     cal.name = cal.name.replace(/ \(Google\)$/, '');
   }
 
+  // #496: the linked account a calendar belongs to, so the pickers can label it with that
+  // account's name. Mirrored collections live in the user's own Radicale principal; a live
+  // account's calendars belong to the account itself.
+  const mirroredAccounts = await Db.getMirroredCollectionAccounts(userId);
+  for (const cal of allCalendars) {
+    if (cal.isShared) {
+      cal.linkedAccountId = null;
+    } else if (cal.accountId === 'internal-caldav') {
+      const collectionName = cal.href.replace(/\/$/, '').split('/').pop();
+      cal.linkedAccountId = mirroredAccounts.get(collectionName) || null;
+    } else {
+      cal.linkedAccountId = cal.accountId;
+    }
+  }
+
   // Apply local color overrides for the requesting user
   if (userId) {
     try {
