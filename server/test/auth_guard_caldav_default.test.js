@@ -51,8 +51,7 @@ test('Issue #71 — Auth Guard Resilience & CalDAV Default Test Suite', async (t
       { method: 'GET', path: '/api/delegates' },
       { method: 'GET', path: '/api/working-hours' },
       { method: 'GET', path: '/api/attachments/filebrowser/files' },
-      { method: 'POST', path: '/api/quick-add/parse' },
-      { method: 'POST', path: '/api/freebusy/query' }
+      { method: 'POST', path: '/api/quick-add/parse' }
     ];
 
     for (const ep of endpoints) {

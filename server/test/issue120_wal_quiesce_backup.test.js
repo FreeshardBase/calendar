@@ -5,6 +5,9 @@ process.env.PORT = '3128';
 process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
+// #537: /internal/* checks the secret under every NODE_ENV.
+const INTERNAL_SECRET = 'testuser-internal-secret-120';
+process.env.INTERNAL_WEBHOOK_SECRET = INTERNAL_SECRET;
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
@@ -75,7 +78,7 @@ describe('Issue #120 — SQLite WAL Quiesce, Backup & Restorability Verification
   it('should expose internal endpoint /internal/db/quiesce to allow shard backup quiescing', async () => {
     const res = await fetch(`http://127.0.0.1:${process.env.PORT}/internal/db/quiesce`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', 'x-freeshard-secret': INTERNAL_SECRET }
     });
 
     assert.strictEqual(res.status, 200, 'Internal endpoint must respond with 200 OK');

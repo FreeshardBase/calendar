@@ -48,18 +48,6 @@ const DelegatesModule = {
     return await res.json();
   },
 
-  async setActAsPrincipal(principalUserId, calendarId = null) {
-    const res = await fetch('/api/delegates/act-as', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ principalUserId, calendarId })
-    });
-    if (!res.ok) {
-      throw new Error(await responseErrorMessage(res, 'Failed to activate delegation context'));
-    }
-    return await res.json();
-  },
-
   renderDelegatesList(delegates, containerEl, onRevoke) {
     if (!containerEl) return;
     if (!delegates || delegates.length === 0) {

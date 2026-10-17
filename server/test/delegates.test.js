@@ -155,19 +155,6 @@ test('Delegate Permissions System Suite', async (t) => {
     const bodyPrincipals = await resPrincipals.json();
     assert.ok(bodyPrincipals.principals.some(p => p.principal_user_id === principalId));
 
-    // POST /api/delegates/act-as
-    const resActAs = await fetch(`${baseUrl}/api/delegates/act-as`, {
-      method: 'POST',
-      headers: {
-        cookie: delegateCookie,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ principalUserId: principalId, calendarId: 'work-cal' })
-    });
-    assert.equal(resActAs.status, 200);
-    const bodyActAs = await resActAs.json();
-    assert.equal(bodyActAs.active, true);
-
     // DELETE /api/delegates/:id
     const resDel = await fetch(`${baseUrl}/api/delegates/${bodyPost.id}`, {
       method: 'DELETE',

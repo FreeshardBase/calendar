@@ -77,8 +77,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       { method: 'get', path: '/api/delegates' },
       { method: 'get', path: '/api/working-hours' },
       { method: 'get', path: '/api/attachments/filebrowser/files' },
-      { method: 'post', path: '/api/quick-add/parse', data: { text: 'Meeting tomorrow at 3pm' } },
-      { method: 'post', path: '/api/freebusy/query', data: { timeMin: '2026-07-01T00:00:00Z', timeMax: '2026-07-02T00:00:00Z' } }
+      { method: 'post', path: '/api/quick-add/parse', data: { text: 'Meeting tomorrow at 3pm' } }
     ];
 
     // `request` carries no session cookie; the server runs the shipping auth configuration (#211).

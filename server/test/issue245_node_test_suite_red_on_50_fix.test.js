@@ -11,6 +11,9 @@ process.env.DISABLE_INTERNAL_CALDAV = '1';
 process.env.OUTBOUND_FETCH_ALLOW_HOSTS = '127.0.0.1,localhost';
 process.env.SSL_KEY_PATH = '';
 process.env.SSL_CERT_PATH = '';
+// #537: /internal/* checks the secret under every NODE_ENV.
+const INTERNAL_SECRET = 'testuser-internal-secret-245';
+process.env.INTERNAL_WEBHOOK_SECRET = INTERNAL_SECRET;
 require('dotenv').config();
 
 const test = require('node:test');
@@ -51,7 +54,7 @@ test('Issue #245 — identity comes from the session, never from an x-test-* hea
       ['GET', '/api/msgraph/accounts'],
       ['GET', '/api/availability-slots'],
       ['GET', '/api/resources/bookings'],
-      ['POST', '/api/freebusy/query']
+      ['POST', '/api/quick-add/parse']
     ];
     for (const [method, path] of probes) {
       const res = await fetch(`${baseUrl}${path}`, {
@@ -113,7 +116,7 @@ test('Issue #245 — identity comes from the session, never from an x-test-* hea
 
     const hookRes = await fetch(`${baseUrl}/internal/webhooks/user-deleted`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-freeshard-secret': INTERNAL_SECRET },
       body: JSON.stringify({ user_id: victimId })
     });
     assert.strictEqual(hookRes.status, 200);

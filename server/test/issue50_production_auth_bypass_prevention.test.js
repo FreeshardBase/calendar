@@ -65,7 +65,6 @@ test('Issue #50: Impersonation via X-Test-User-Id / X-Forwarded-User is strictly
     { method: 'GET', path: '/api/notifications/push-subscriptions' },
     { method: 'GET', path: '/api/resources/bookings' },
     { method: 'POST', path: '/api/resources/bookings', body: JSON.stringify({ resourceId: 1, startTime: '2026-01-01', endTime: '2026-01-02' }) },
-    { method: 'GET', path: '/api/freebusy/search' },
     { method: 'GET', path: '/api/availability-slots' },
     { method: 'GET', path: '/api/webcal/subscriptions' }
   ];
