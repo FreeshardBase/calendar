@@ -23,6 +23,12 @@ async function expectSavesLanded(page) {
   await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
 }
 
+// Rarely used event fields sit in collapsed sections of the event dialog (#506).
+async function openEventSection(page, name) {
+  const section = page.locator(`#ev-section-${name}`);
+  if (await section.getAttribute('open') === null) await section.locator('> summary').click();
+}
+
 // Computed value of a design token, as an rgb() string comparable to getComputedStyle colours.
 async function tokenColor(page, token) {
   return page.evaluate(t => {
@@ -280,6 +286,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-title', title);
     await page.fill('#ev-start-date', '2026-12-01');
     await page.fill('#ev-end-date', '2026-12-01');
+    await openEventSection(page, 'recurrence');
     await page.selectOption('#ev-recurrence', 'WEEKLY');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
@@ -363,6 +370,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-end-date', '2036-08-11');
     await page.fill('#ev-end-time', '01:30');
     await page.selectOption('#ev-start-tz', 'Europe/Berlin');
+    await openEventSection(page, 'recurrence');
     await page.selectOption('#ev-recurrence', 'WEEKLY');
     await expect(page.locator('.recur-byday:checked')).toHaveCount(1);
     await expect(page.locator('.recur-byday:checked')).toHaveValue('MO');
@@ -569,6 +577,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await openAt(page, '2037-06-03');
       await openCreate(page);
       await setStartDate(page, '2037-06-03');
+      await openEventSection(page, 'recurrence');
       await page.selectOption('#ev-recurrence', 'WEEKLY');
       expect(await checkedDays(page)).toEqual(['WE']);
       await setStartDate(page, '2037-06-01');
@@ -588,8 +597,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         await page.fill('#ev-title', 'E2E 403 West of UTC');
         await setStartDate(page, '2037-06-15'); // a Monday
         await page.fill('#ev-end-date', '2037-06-15');
+        await openEventSection(page, 'recurrence');
         await page.selectOption('#ev-recurrence', 'WEEKLY');
         expect(await checkedDays(page)).toEqual(['MO']);
+        await openEventSection(page, 'recurrence');
         await page.selectOption('#ev-recurrence', 'MONTHLY');
         await expect(page.locator('#recur-monthly-day-lbl')).toHaveText('Jeden Monat am 15. Tag');
         await expect(page.locator('#recur-monthly-week-idx')).toHaveValue('3');
@@ -628,6 +639,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await optionsOf('#ev-calendar')).toEqual(expected);
       await expect(page.locator('#ev-calendar')).toHaveValue(calendarId);
       await expect(page.locator('#ev-attendee-list .attendee-name')).toHaveText(evilAttendee);
+      await openEventSection(page, 'attendees');
       await page.fill('#ev-attendee-name', evilAttendee);
       await page.fill('#ev-attendee-email', 'testuser@example.com');
       await page.click('#add-attendee-btn');
@@ -803,6 +815,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#new-event-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await openEventSection(page, 'attendees');
     const attendees = page.getByRole('group', { name: 'Teilnehmende' });
     await expect(attendees.getByRole('textbox', { name: 'Name der teilnehmenden Person', exact: true })).toBeVisible();
     await expect(attendees.getByRole('textbox', { name: 'E-Mail der teilnehmenden Person', exact: true })).toBeVisible();
@@ -1103,6 +1116,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.check('#ev-allday');
 
     // Select 15 minutes before alarm
+    await openEventSection(page, 'alarm');
     await page.selectOption('#ev-alarm', '-PT15M');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
@@ -1122,6 +1136,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     expect(alarmVal).toBe('-PT15M');
 
     // Update alarm to 1 hour before
+    await openEventSection(page, 'alarm');
     await page.selectOption('#ev-alarm', '-PT1H');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
@@ -1257,6 +1272,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-date', today);
     await page.fill('#ev-end-date', today);
     await page.check('#ev-allday');
+    await openEventSection(page, 'alarm');
     await page.selectOption('#ev-alarm', 'PT0S');
 
     await page.click('#event-save-btn');
@@ -1315,6 +1331,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-date', today);
     await page.fill('#ev-end-date', today);
     await page.check('#ev-allday');
+    await openEventSection(page, 'alarm');
     await page.selectOption('#ev-alarm', 'PT0S');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
@@ -2720,6 +2737,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-date', testDate);
     await page.fill('#ev-end-date', testDate);
     await page.check('#ev-allday');
+    await openEventSection(page, 'link');
     await page.fill('#ev-attachment-url', driveUrl);
     await page.fill('#ev-attachment-name', driveFileName);
 
@@ -2747,7 +2765,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   async function importIcsAndOpenPopover(page, testDate, title, attachLines) {
     await page.goto(`/?date=${testDate}`);
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
     await page.click('#view-week');
     const ics = [
       'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Test//Issue338//EN',
@@ -2832,6 +2850,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await chip.click();
     await page.click('#popover-edit-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await openEventSection(page, 'alarm');
     await page.selectOption('#ev-alarm', '-PT5M');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
@@ -3739,6 +3758,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       expect(await orphanLabels(page, '#event-modal-backdrop')).toEqual([]);
 
+      await openEventSection(page, 'recurrence');
       await page.selectOption('#ev-recurrence', 'WEEKLY');
       const weekly = dialog.getByRole('group', { name: 'Wiederholen am', exact: true });
       await expect(weekly).toHaveCount(1);
@@ -3749,12 +3769,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(end.getByRole('radio')).toHaveCount(3);
       await expect(end.getByRole('spinbutton', { name: 'Anzahl Wiederholungen' })).toBeVisible();
 
+      await openEventSection(page, 'recurrence');
       await page.selectOption('#ev-recurrence', 'MONTHLY');
       const monthly = dialog.getByRole('group', { name: 'Wiederholen am', exact: true });
       await expect(monthly).toHaveCount(1);
       await expect(monthly.getByRole('radio')).toHaveCount(2);
       await expect(monthly.getByRole('combobox', { name: 'Wochentag' })).toBeVisible();
 
+      await openEventSection(page, 'attendees');
       const attendees = dialog.getByRole('group', { name: 'Teilnehmende', exact: true });
       await expect(attendees.getByRole('textbox', { name: 'Name der teilnehmenden Person' })).toBeVisible();
       await expect(attendees.getByRole('textbox', { name: 'E-Mail der teilnehmenden Person' })).toBeVisible();
@@ -4456,6 +4478,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#new-event-btn');
       await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
       await expect(page.locator('#ev-title')).toHaveAccessibleName('Titel des Termins');
+      await openEventSection(page, 'recurrence');
       await page.selectOption('#ev-recurrence', 'MONTHLY');
       await expect(page.locator('#recur-monthly-week-idx')).toHaveAccessibleName('Woche des Monats');
       await expect(page.locator('#recur-monthly-weekday')).toHaveAccessibleName('Wochentag');
@@ -4778,6 +4801,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await page.click('#new-event-btn');
+      await openEventSection(page, 'attendees');
       await page.fill('#ev-attendee-name', 'Test User');
       await page.fill('#ev-attendee-email', 'testuser@example.com');
       await page.click('#add-attendee-btn');
@@ -7552,6 +7576,187 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         ['webcal::sub-504-b', 'webcal::sub-504-a', 'webcal::sub-504-c'],
         ['webcal::sub-504-c', 'webcal::sub-504-b', 'webcal::sub-504-a'],
       ]);
+    });
+  });
+
+  test.describe('Issue #506 — event dialog: core fields up front, rarely used fields collapsible', () => {
+    const SECTIONS = {
+      'ev-section-recurrence': ['#ev-recurrence'],
+      'ev-section-alarm':      ['#ev-alarm'],
+      'ev-section-attendees':  ['#ev-attendee-name', '#ev-attendee-email', '#add-attendee-btn'],
+      'ev-section-link':       ['#ev-attachment-url', '#ev-attachment-name'],
+      'ev-section-more':       ['#ev-transp', '#ev-class', '#ev-categories'],
+    };
+
+    async function openNewEventDialog(page, testDate) {
+      await page.goto(`/?date=${testDate}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-calendar option')).not.toHaveCount(0, { timeout: 10000 });
+    }
+
+    async function exportedEvent(page, calendarId, title) {
+      const res = await page.request.get(`/api/calendars/${encodeURIComponent(calendarId)}/export`);
+      expect(res.status()).toBe(200);
+      const ics = (await res.text()).replace(/\r?\n[ \t]/g, '');
+      return ics.split('BEGIN:VEVENT').find(b => b.includes(`SUMMARY:${title}`)) || '';
+    }
+
+    async function openEditDialog(page, title) {
+      await page.click('#view-week');
+      const chip = page.locator('.event-block').filter({ hasText: title }).first();
+      await expect(chip).toBeVisible({ timeout: 15000 });
+      // The view may still redraw after a load; retry until the popover holds.
+      await expect(async () => {
+        await chip.click({ timeout: 2000 });
+        await page.click('#popover-edit-btn', { timeout: 2000 });
+      }).toPass({ timeout: 15000 });
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    }
+
+    test('a new event shows only title, time, calendar, location and description; the rest is collapsed', async ({ page }) => {
+      await openNewEventDialog(page, '2036-05-12');
+      const dialog = page.locator('#event-modal');
+
+      for (const id of ['#ev-title', '#ev-calendar', '#ev-allday', '#ev-start-date', '#ev-start-time',
+        '#ev-end-date', '#ev-end-time', '#ev-location', '#ev-description']) {
+        await expect(dialog.locator(id), `${id} is in the default view`).toBeVisible();
+      }
+      for (const [section, fields] of Object.entries(SECTIONS)) {
+        await expect(dialog.locator(`#${section}`)).not.toHaveAttribute('open', /.*/);
+        await expect(dialog.locator(`#${section} > summary`)).toBeVisible();
+        for (const id of fields) await expect(dialog.locator(id), `${id} is collapsed`).toBeHidden();
+      }
+      await expect(dialog.locator('details.form-section > summary')).toHaveText([
+        'Wiederholung', 'Erinnerung', 'Teilnehmende', 'Link', 'Weitere Angaben'
+      ]);
+
+      // The URL field is a link, not a file attachment (#12).
+      await expect(dialog).not.toContainText('Dateianhang');
+      await dialog.locator('#ev-section-link > summary').click();
+      await expect(page.getByLabel('Link', { exact: true })).toBeVisible();
+      await expect(page.getByLabel('Name des Links (optional)')).toBeVisible();
+
+      await dialog.locator('#ev-section-more > summary').click();
+      await expect(page.getByLabel('Verfügbarkeit')).toHaveValue('OPAQUE');
+      await expect(page.getByLabel('Sichtbarkeit')).toHaveValue('PUBLIC');
+      await expect(page.getByLabel('Kategorien')).toBeVisible();
+    });
+
+    test('sections open by keyboard, closed ones are skipped, and the focus trap still wraps', async ({ page }) => {
+      await openNewEventDialog(page, '2036-05-13');
+      await expect(page.locator('#ev-title')).toBeFocused();
+
+      await page.focus('#ev-description');
+      await page.keyboard.press('Tab');
+      const recurrenceSummary = page.locator('#ev-section-recurrence > summary');
+      await expect(recurrenceSummary).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#ev-section-alarm > summary')).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(recurrenceSummary).toBeFocused();
+
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#ev-section-recurrence')).toHaveAttribute('open', '');
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#ev-recurrence')).toBeFocused();
+
+      await page.focus('#ev-section-more > summary');
+      await page.keyboard.press('Space');
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#ev-transp')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#ev-class')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#ev-categories')).toBeFocused();
+
+      // The trap wraps from the last control to the first and back.
+      await page.focus('#event-save-btn');
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#event-modal-close')).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(page.locator('#event-save-btn')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    });
+
+    test('availability and visibility are saved, and only sections with content open again', async ({ page }) => {
+      const testDate = '2036-05-14';
+      const title = `E2E Issue506 Flags ${Date.now()}`;
+      await openNewEventDialog(page, testDate);
+      await page.fill('#ev-title', title);
+      await page.fill('#ev-start-date', testDate);
+      await page.fill('#ev-end-date', testDate);
+      await page.click('#ev-section-more > summary');
+      await page.selectOption('#ev-transp', 'TRANSPARENT');
+      await page.selectOption('#ev-class', 'PRIVATE');
+
+      const save = page.waitForRequest(r => r.method() === 'POST' && r.url().endsWith('/api/events'));
+      await page.click('#event-save-btn');
+      const sent = (await save).postDataJSON();
+      expect([sent.transp, sent.classification]).toEqual(['TRANSPARENT', 'PRIVATE']);
+      await expectSavesLanded(page);
+      const stored = await exportedEvent(page, sent.calendarId, title);
+      expect(stored).toMatch(/^TRANSP:TRANSPARENT\r?$/m);
+      expect(stored).toMatch(/^CLASS:PRIVATE\r?$/m);
+
+      await openEditDialog(page, title);
+      await expect(page.locator('#ev-section-more')).toHaveAttribute('open', '');
+      await expect(page.locator('#ev-transp')).toHaveValue('TRANSPARENT');
+      await expect(page.locator('#ev-class')).toHaveValue('PRIVATE');
+      for (const section of ['ev-section-recurrence', 'ev-section-alarm', 'ev-section-attendees', 'ev-section-link']) {
+        await expect(page.locator(`#${section}`), `${section} has no content`).not.toHaveAttribute('open', /.*/);
+      }
+
+      // Back to the defaults: stored as such, and the section stays closed next time.
+      await page.selectOption('#ev-transp', 'OPAQUE');
+      await page.selectOption('#ev-class', 'PUBLIC');
+      await page.click('#event-save-btn');
+      await expectSavesLanded(page);
+      await expect.poll(async () => {
+        const block = await exportedEvent(page, sent.calendarId, title);
+        return [/^TRANSP:OPAQUE\r?$/m.test(block), /^CLASS:PUBLIC\r?$/m.test(block)];
+      }, { timeout: 15000 }).toEqual([true, true]);
+      await page.goto(`/?date=${testDate}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await openEditDialog(page, title);
+      await expect(page.locator('#ev-section-more')).not.toHaveAttribute('open', /.*/);
+    });
+
+    test('an imported event opens every section it has content in', async ({ page }) => {
+      const testDate = '2036-05-19';
+      const title = `E2E Issue506 Full ${Date.now()}`;
+      await importIcsAndOpenPopover(page, testDate, title, [
+        'RRULE:FREQ=WEEKLY;COUNT=2',
+        'ATTENDEE;CN=Test User;PARTSTAT=ACCEPTED:mailto:testuser@example.com',
+        'ATTACH;X-FILENAME=Protokoll:https://example.com/protokoll',
+        'CATEGORIES:Arbeit',
+        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder', 'TRIGGER:-PT15M', 'END:VALARM'
+      ]);
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+
+      for (const section of Object.keys(SECTIONS)) {
+        await expect(page.locator(`#${section}`), `${section} has content`).toHaveAttribute('open', '');
+      }
+      await expect(page.locator('#ev-recurrence')).toHaveValue('WEEKLY');
+      await expect(page.locator('#ev-alarm')).toHaveValue('-PT15M');
+      await expect(page.locator('#ev-attendee-list .attendee-email')).toHaveText('testuser@example.com');
+      await expect(page.locator('#ev-attachment-url')).toHaveValue('https://example.com/protokoll');
+      await expect(page.locator('#ev-attachment-name')).toHaveValue('Protokoll');
+      await expect(page.locator('#ev-categories')).toHaveValue('Arbeit');
+      await expect(page.locator('#ev-transp')).toHaveValue('OPAQUE');
+
+      // The same dialog opened for a new event starts collapsed again.
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      for (const section of Object.keys(SECTIONS)) {
+        await expect(page.locator(`#${section}`)).not.toHaveAttribute('open', /.*/);
+      }
     });
   });
 });

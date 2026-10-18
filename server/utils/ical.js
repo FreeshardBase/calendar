@@ -195,6 +195,22 @@ function assertValidAlarms(alarms) {
   for (const alarm of alarms) alarmTriggerLine(alarm);
 }
 
+const TRANSP_VALUES = ['OPAQUE', 'TRANSPARENT'];
+const CLASS_VALUES = ['PUBLIC', 'PRIVATE', 'CONFIDENTIAL'];
+
+/**
+ * Throw if `event.transp` or `event.classification` (when set) is not a value
+ * of RFC 5545 TRANSP / CLASS (#506).
+ */
+function assertValidTranspClass(event) {
+  if (event.transp != null && !TRANSP_VALUES.includes(event.transp)) {
+    throw new Error(`Invalid transp: must be one of ${TRANSP_VALUES.join(', ')}`);
+  }
+  if (event.classification != null && !CLASS_VALUES.includes(event.classification)) {
+    throw new Error(`Invalid classification (CLASS): must be one of ${CLASS_VALUES.join(', ')}`);
+  }
+}
+
 function icalTimeToISO(icalTime) {
   if (!icalTime) return null;
   if (icalTime.isDate) {
@@ -376,6 +392,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     status:      vevent.getFirstPropertyValue('status') || null,
     sequence:    vevent.getFirstPropertyValue('sequence') || 0,
     transp:      vevent.getFirstPropertyValue('transp') || null,
+    classification: vevent.getFirstPropertyValue('class') || null,
     attendees,
     organizer,
     recurrence,
@@ -736,6 +753,7 @@ function eventToICS(event, existingIcs = null) {
     if (url) assertSafeAttachmentUrl(url);
   }
   assertValidAlarms(event.alarms);
+  assertValidTranspClass(event);
   const baseIcs = existingIcs || event.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
@@ -775,6 +793,8 @@ function eventToICS(event, existingIcs = null) {
           if (event.status) setPropValue('status', String(event.status).toUpperCase());
           else master.removeAllProperties('status');
         }
+        if (event.transp !== undefined) setPropValue('transp', event.transp);
+        if (event.classification !== undefined) setPropValue('class', event.classification);
 
         const setEventDateProp = (propName, isoVal, isAllDay, tzid) => {
           if (!isoVal) {
@@ -1118,6 +1138,8 @@ function eventToICS(event, existingIcs = null) {
   if (event.description) lines.push(`DESCRIPTION:${escIcal(event.description)}`);
   if (event.location)    lines.push(`LOCATION:${escIcal(event.location)}`);
   if (event.status)      lines.push(`STATUS:${String(event.status).replace(/[\r\n]/g, '')}`);
+  if (event.transp)         lines.push(`TRANSP:${event.transp}`);
+  if (event.classification) lines.push(`CLASS:${event.classification}`);
 
   if (event.organizer?.email) {
     const cn = event.organizer.name ? `;CN="${escParamVal(event.organizer.name)}"` : '';
@@ -1952,6 +1974,10 @@ function isNoOpEventSave(existingIcs, incomingEventData, recurrenceId = null) {
   };
   if (normCatsStr(stored.categories) !== normCatsStr(incoming.categories)) return false;
 
+  // ── Availability (TRANSP) / visibility (CLASS) ───────────────────────────
+  if (SERIES_FIELD_KEYS.transp(stored.transp) !== SERIES_FIELD_KEYS.transp(incoming.transp)) return false;
+  if (SERIES_FIELD_KEYS.classification(stored.classification) !== SERIES_FIELD_KEYS.classification(incoming.classification)) return false;
+
   return true;
 }
 
@@ -1967,6 +1993,9 @@ const SERIES_FIELD_KEYS = {
   startTimeZone: _textKey,
   endTimeZone:   _textKey,
   allDay:        (v) => String(!!v),
+  // An absent property means the RFC 5545 default.
+  transp:         (v) => v || 'OPAQUE',
+  classification: (v) => v || 'PUBLIC',
   categories:    (v) => _listKey(c => String(c).trim().toUpperCase())(typeof v === 'string' ? v.split(',') : v),
   attendees:     _listKey(a => `${(a.email || '').toLowerCase()}:${(a.status || '').toUpperCase()}`),
   alarms:        _listKey(a => `${(a.action || '').toUpperCase()}:${String(a.related || 'START').toUpperCase()}:${(a.trigger || '').trim()}`),
@@ -2279,6 +2308,7 @@ module.exports = {
   parseValarms,
   alarmTriggerLine,
   assertValidAlarms,
+  assertValidTranspClass,
   parseVEventToEvent,
   parseICSToEvent,
   parseICSToEvents,

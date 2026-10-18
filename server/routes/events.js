@@ -25,7 +25,7 @@ const { logEventChange } = require('../utils/eventHistory');
 const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
-const { assertValidAlarms } = require('../utils/ical');
+const { assertValidAlarms, assertValidTranspClass } = require('../utils/ical');
 
 // Issue #338: attachment URLs are rendered as links — reject non-link schemes up front.
 function hasUnsafeAttachment(attachments) {
@@ -43,6 +43,16 @@ const UNSAFE_ATTACHMENT_ERROR = 'Unsafe attachment URL rejected: only http, http
 function invalidAlarmsError(alarms) {
   try {
     assertValidAlarms(alarms);
+    return null;
+  } catch (e) {
+    return e.message;
+  }
+}
+
+// Issue #506: TRANSP and CLASS only take their RFC 5545 values.
+function invalidTranspClassError(eventData) {
+  try {
+    assertValidTranspClass(eventData);
     return null;
   } catch (e) {
     return e.message;
@@ -300,6 +310,8 @@ router.post('/', async (req, res) => {
     }
     const alarmError = invalidAlarmsError(eventData.alarms);
     if (alarmError) return res.status(400).json({ error: alarmError });
+    const transpClassError = invalidTranspClassError(eventData);
+    if (transpClassError) return res.status(400).json({ error: transpClassError });
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
@@ -357,6 +369,8 @@ router.put('/:uid', async (req, res) => {
     }
     const alarmError = invalidAlarmsError(eventData.alarms);
     if (alarmError) return res.status(400).json({ error: alarmError });
+    const transpClassError = invalidTranspClassError(eventData);
+    if (transpClassError) return res.status(400).json({ error: transpClassError });
 
     const access = await checkCalendarAccess(req, calendarId, 'write');
     if (!access.allowed) {
