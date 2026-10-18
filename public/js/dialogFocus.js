@@ -10,7 +10,7 @@ let activeModalStack = [];
  */
 export function getFocusableElements(container) {
   if (!container) return [];
-  const selector = 'a[href], area[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const selector = 'a[href], area[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), details > summary:first-of-type, [tabindex]:not([tabindex="-1"])';
   const elements = Array.from(container.querySelectorAll(selector));
 
   return elements.filter(el => {
