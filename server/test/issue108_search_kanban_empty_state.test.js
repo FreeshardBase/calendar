@@ -228,7 +228,8 @@ describe('Issue #108 — Search with No Hits & Empty Kanban Board Indicators', (
     );
 
     const columnEmpties = container.querySelectorAll('.kanban-column-empty');
-    assert.strictEqual(columnEmpties.length, 3, 'Each empty column must display a .kanban-column-empty placeholder');
+    // One lane per VTODO STATUS (#499): Zu erledigen, In Bearbeitung, Erledigt, Abgebrochen.
+    assert.strictEqual(columnEmpties.length, 4, 'Each empty column must display a .kanban-column-empty placeholder');
   });
 
   it('renderKanbanBoard displays explicit search empty state message with search query when search returns 0 hits', () => {

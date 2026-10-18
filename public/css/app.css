@@ -1639,7 +1639,7 @@ textarea.form-input, .form-textarea {
 }
 .kanban-column {
   flex: 1;
-  min-width: 280px;
+  min-width: 220px;
   background: var(--surface-bg-alt, rgba(240, 240, 245, 0.5));
   border: 1px solid var(--border);
   border-radius: var(--radius-card, 12px);
@@ -1754,6 +1754,56 @@ textarea.form-input, .form-textarea {
 }
 .kanban-btn:hover {
   background: var(--surface-hover, rgba(0,0,0,0.06));
+}
+
+/* Moving a card between lanes (#499): the grip takes touch drags, the whole card mouse drags.
+   The dragged card follows the pointer flat, marked by its border like a hovered one. */
+.kanban-card-movable {
+  position: relative;
+  cursor: grab;
+  user-select: none;
+}
+.kanban-card-movable .kanban-card-body { padding-right: 36px; }
+.kanban-drag-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-muted);
+  touch-action: none;
+}
+.kanban-card-dragging {
+  z-index: 10;
+  cursor: grabbing;
+  border-color: var(--line);
+}
+.kanban-column-drop-target {
+  outline: 2px dashed var(--line);
+  outline-offset: -2px;
+}
+.kanban-card-pending { opacity: 0.7; }
+.kanban-card-rolled-back {
+  border-color: var(--danger);
+  outline: 1px solid var(--danger);
+}
+.kanban-status-select {
+  margin-right: auto;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 var(--sp-2);
+  border: var(--border-w) solid var(--border-cool);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 12px/1 var(--font-ui);
+}
+.kanban-status-select:focus-visible {
+  outline: 2px solid var(--line);
+  outline-offset: 1px;
 }
 
 /* ── Empty State Styles ─────────────────────────────────────────────────── */
