@@ -3,7 +3,7 @@
  */
 
 import { store, calendarById } from './store.js';
-import { fillCalendarSelect } from './calendarLabels.js';
+import { fillCalendarSelect, holdsEvents } from './calendarLabels.js';
 import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
 import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFocus.js';
@@ -522,7 +522,9 @@ function populateCalendarSelect(selectedId) {
   
   // For creating a new event (selectedId is not provided), we should only show writable calendars!
   const isEditing = !!_currentEvent;
-  const filteredCals = isEditing ? cals : cals.filter(c => !c.readOnly);
+  // #500: events go into collections holding VEVENT; an edited event keeps its own one listed.
+  const eventCals = cals.filter(c => holdsEvents(c) || (isEditing && c.id === _currentEvent.calendarId));
+  const filteredCals = isEditing ? eventCals : eventCals.filter(c => !c.readOnly);
   const targetId = selectedId || (filteredCals[0] ? filteredCals[0].id : '');
 
   sel.innerHTML = '';

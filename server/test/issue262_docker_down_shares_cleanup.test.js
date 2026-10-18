@@ -107,7 +107,8 @@ test.describe('Issue #262 — Docker Volume Lifecycles & Recreated Calendar Shar
       body: JSON.stringify({
         accountId: account.id,
         name: 'Recreated Cal',
-        color: '#10b981'
+        color: '#10b981',
+        type: 'calendar'
       })
     });
 

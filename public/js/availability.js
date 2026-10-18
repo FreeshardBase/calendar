@@ -4,6 +4,7 @@
 
 import { AvailabilityAPI, CalendarsAPI } from './api.js';
 import { showToast } from './app.js';
+import { holdsEvents } from './calendarLabels.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 
 export function initAvailabilityManager() {
@@ -68,7 +69,8 @@ export function initAvailabilityManager() {
     let list;
     try {
       const res = await CalendarsAPI.list();
-      list = Array.isArray(res) ? res : (res?.calendars || []);
+      // #500: bookings are events; a task list cannot take them or block a slot.
+      list = (Array.isArray(res) ? res : (res?.calendars || [])).filter(holdsEvents);
     } catch (err) {
       calSelect.innerHTML = '';
       busyList.innerHTML = '';

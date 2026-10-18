@@ -184,7 +184,7 @@
       <!-- Calendar List -->
       <div class="sidebar-section">
         <div class="sidebar-section-header">
-          <span class="sidebar-section-title">Kalender</span>
+          <span class="sidebar-section-title" id="calendar-list-title">Kalender</span>
           <button class="icon-btn" id="add-calendar-btn" title="Kalender hinzufügen" aria-label="Kalender hinzufügen">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 5v14M5 12h14"/>
@@ -262,8 +262,8 @@
         <!-- Calendars Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0">Kalender löschen</h3>
-            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender erstellen" style="padding:2px" aria-label="Kalender erstellen">
+            <h3 style="margin:0">Kalender &amp; Aufgabenlisten löschen</h3>
+            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender oder Aufgabenliste erstellen" style="padding:2px" aria-label="Kalender oder Aufgabenliste erstellen">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
@@ -919,7 +919,7 @@
         </svg>
       </div>
       <p style="margin-bottom: 16px; line-height: 1.5; color: var(--text-muted);">
-        Dein persönlicher Kalender auf unserem internen CalDAV-Server wurde automatisch für dich eingerichtet und ist sofort einsatzbereit.
+        Dein persönlicher Kalender und deine Aufgabenliste auf unserem internen CalDAV-Server wurden automatisch für dich eingerichtet und sind sofort einsatzbereit.
       </p>
       <p style="margin-bottom: 24px; line-height: 1.5; color: var(--text-muted);">
         Möchtest du zusätzlich externe Kalender (wie Google Calendar) verknüpfen?
@@ -1014,7 +1014,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="task-calendar-id">Kalender</label>
+            <label class="form-label" for="task-calendar-id">Aufgabenliste</label>
             <select class="form-select" id="task-calendar-id"></select>
           </div>
         </div>

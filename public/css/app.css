@@ -1590,6 +1590,11 @@ textarea.form-input, .form-textarea {
   text-overflow: ellipsis;
   font-weight: 500;
 }
+.settings-item-type {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
 .settings-item-actions {
   display: flex;
   align-items: center;

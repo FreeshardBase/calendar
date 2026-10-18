@@ -66,7 +66,7 @@ async function create(base, name) {
   const res = await fetch(`${base}/api/calendars`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accountId: 'acc', name })
+    body: JSON.stringify({ accountId: 'acc', name, type: 'calendar' })
   });
   // The route queues a sync job without awaiting it; wait until that job's transaction has
   // committed before the next create opens its own. A fixed sleep loses this race under load.
