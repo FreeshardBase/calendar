@@ -31,6 +31,11 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// #583: the page's "Neu laden" asks a waiting worker to take over before it reloads. Chromium can
+// keep the worker waiting despite the skipWaiting() in `install`; calling it again activates it.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
 // Activate Event — Clean up stale caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(

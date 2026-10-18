@@ -6978,11 +6978,18 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // request, as the real one does. It also serves the "deployed" variant of the files in `deployed`.
     let proxy;
     let deployed;
+    // #583: requests to HELD_PATH stay unanswered until the test ends them, a slow request in flight.
+    const HELD_PATH = '/api/e2e-held';
+    const held = [];
 
     test.beforeAll(async () => {
       const upstream = new URL(webServer.url);
       proxy = http.createServer((req, res) => {
         const { pathname, search } = new URL(req.url);
+        if (pathname === HELD_PATH) {
+          held.push(res);
+          return;
+        }
         const variant = deployed[pathname];
         const headers = {
           ...req.headers,
@@ -7050,15 +7057,50 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const banner = page.locator('#update-banner');
       await expect(banner).toBeHidden();
 
-      // A deploy while the page is open: the worker checks for an update and takes over.
+      // A deploy while the page is open: the worker checks for an update and installs it.
       deployed = { '/js/safeUrl.js': 'v2', '/sw.js': 'sw2' };
       await page.evaluate(() => navigator.serviceWorker.getRegistration().then(reg => reg.update()));
 
       await expect(banner).toBeVisible({ timeout: 10000 });
       await expect(banner).toContainText('Neue Version');
       expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v1');
+      // The page reloads once the new worker leaves `installed` (#583), not on the click itself.
+      const reloaded = page.waitForEvent('load');
       await banner.getByRole('button', { name: 'Neu laden' }).click();
-      await expect.poll(() => page.evaluate(() => window.__e2eDeployed), { timeout: 10000 }).toBe('v2');
+      await reloaded;
+      expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v2');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(banner).toBeHidden();
+      await context.close();
+    });
+
+    // #583: a new worker only takes over once the old one has no fetch in flight, and Chromium may
+    // keep it waiting long after that. The banner must not depend on the takeover: the app shell is
+    // network-first, so a reload runs the new version whichever worker controls the page.
+    test('a deploy while a request is still in flight offers to reload, and the reload runs the new version', async ({ browser }) => {
+      deployed = { '/js/safeUrl.js': 'v1', '/sw.js': 'sw1' };
+      const { context, page } = await controlledPage(browser);
+      const banner = page.locator('#update-banner');
+      await expect(banner).toBeHidden();
+
+      // A slow request goes through the current worker and stays open across the deploy.
+      await page.evaluate((path) => { window.__e2eHeld = fetch(path).then(res => res.status); }, HELD_PATH);
+      await expect.poll(() => held.length, { timeout: 10000 }).toBe(1);
+
+      deployed = { '/js/safeUrl.js': 'v2', '/sw.js': 'sw2' };
+      await page.evaluate(() => navigator.serviceWorker.getRegistration().then(reg => reg.update()));
+
+      await expect(banner).toBeVisible({ timeout: 10000 });
+      await expect(banner).toContainText('Neue Version');
+      expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v1');
+
+      held.splice(0).forEach(res => res.writeHead(204).end());
+      expect(await page.evaluate(() => window.__e2eHeld)).toBe(204);
+      // The page reloads once the new worker leaves `installed` (#583), not on the click itself.
+      const reloaded = page.waitForEvent('load');
+      await banner.getByRole('button', { name: 'Neu laden' }).click();
+      await reloaded;
+      expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v2');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await expect(banner).toBeHidden();
       await context.close();

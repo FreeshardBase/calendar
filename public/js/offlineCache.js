@@ -101,28 +101,41 @@
     }
   }
 
-  // #571: a newly deployed worker takes over the open page (skipWaiting + clients.claim). The page
-  // still runs the code it loaded, so it offers a reload instead of reloading under the user's input.
-  // On a first visit the first worker claims a page that already runs the current code.
-  function offerReloadOnNewVersion() {
-    let controlled = Boolean(navigator.serviceWorker.controller);
-    document.getElementById('update-reload-btn').addEventListener('click', () => window.location.reload());
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!controlled) {
-        controlled = true;
+  // #571: a newly deployed worker means a new version; the page still runs the code it loaded, so it
+  // offers a reload instead of reloading under the user's input. #583: the offer follows the new
+  // worker's install, not its takeover: the browser activates it only once the old worker has no
+  // fetch in flight (Chromium sometimes much later), and the app shell is network-first, so the
+  // reload runs the new version whichever worker controls the page. On a first visit there is no
+  // active worker and the page already runs the current code. A reload while the new worker still
+  // waits can hang in Chromium, so the button first lets it take over.
+  function offerReloadOnNewVersion(reg) {
+    document.getElementById('update-reload-btn').addEventListener('click', () => {
+      const waiting = reg.waiting;
+      if (!waiting) {
+        window.location.reload();
         return;
       }
-      document.getElementById('update-banner').classList.remove('hidden');
+      waiting.addEventListener('statechange', () => window.location.reload(), { once: true });
+      waiting.postMessage({ type: 'SKIP_WAITING' });
+    });
+    reg.addEventListener('updatefound', () => {
+      if (!reg.active) return;
+      const worker = reg.installing;
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed') {
+          document.getElementById('update-banner').classList.remove('hidden');
+        }
+      });
     });
   }
 
   function registerServiceWorker() {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      offerReloadOnNewVersion();
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
           .then((reg) => {
             console.log('OfflineCache: Service Worker registered successfully', reg.scope);
+            offerReloadOnNewVersion(reg);
           })
           .catch((err) => {
             console.warn('OfflineCache: Service Worker registration failed', err);
