@@ -5,7 +5,7 @@
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, setUnauthorizedHandler } from './api.js';
-import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect } from './calendarLabels.js';
+import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
@@ -783,7 +783,8 @@ function getFilteredEvents() {
 }
 
 function getFilteredTasks() {
-  const tasks = store.get('tasks') || [];
+  const hidden = store.get('hiddenCalendars');
+  const tasks = (store.get('tasks') || []).filter(t => !hidden.has(t.calendarId));
   const query = store.get('searchQuery').toLowerCase();
   if (!query) return tasks;
   return tasks.filter(t =>
@@ -868,17 +869,28 @@ function calendarListItemHtml(c, hidden) {
     </div>`;
 }
 
+// #500: the task view lists the collections holding tasks, every other view those holding events.
+function inTaskView() {
+  return store.get('view') === 'kanban';
+}
+
 function renderCalendarList() {
   const list   = $('calendar-list');
   const hidden = store.get('hiddenCalendars');
-  const cals   = store.get('calendars');
+  const taskView = inTaskView();
+  const cals   = store.get('calendars').filter(taskView ? holdsTasks : holdsEvents);
+
+  $('calendar-list-title').textContent = taskView ? 'Aufgabenlisten' : 'Kalender';
+  const addLabel = taskView ? 'Aufgabenliste hinzufügen' : 'Kalender hinzufügen';
+  $('add-calendar-btn').title = addLabel;
+  $('add-calendar-btn').setAttribute('aria-label', addLabel);
 
   if (store.get('calendarsError')) {
     list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${CALENDARS_LOAD_FAILED}</div>`;
     return;
   }
   if (!cals.length) {
-    list.innerHTML = '<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">Keine Kalender gefunden.</div>';
+    list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${taskView ? 'Keine Aufgabenlisten gefunden.' : 'Keine Kalender gefunden.'}</div>`;
     return;
   }
 
@@ -988,7 +1000,7 @@ function openImportDialog(fileName, icsText) {
     return;
   }
 
-  const writableCals = (store.get('calendars') || []).filter(c => !c.readOnly && c.source !== 'google');
+  const writableCals = (store.get('calendars') || []).filter(c => !c.readOnly && c.source !== 'google' && holdsEvents(c));
   if (!writableCals.length) {
     showToast('Kein beschreibbarer Kalender verfügbar.', 'error');
     return;
@@ -1145,7 +1157,7 @@ function openEditCalendarDialog(cal) {
   backdrop.innerHTML = `
     <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="edit-cal-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title" id="edit-cal-dialog-title">Kalender bearbeiten</h3>
+        <h3 class="modal-title" id="edit-cal-dialog-title">${collectionNoun(cal)} bearbeiten</h3>
         <button class="icon-btn" id="edit-cal-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -1217,7 +1229,7 @@ function openEditCalendarDialog(cal) {
       );
       store.set({ calendars: cals });
       close();
-      showToast(`Kalender umbenannt in „${name}“.`, 'success');
+      showToast(`${collectionNoun(cal)} umbenannt in „${name}“.`, 'success');
       renderCalendarList();
       renderCalendarView();
     } catch (err) {
@@ -1961,7 +1973,7 @@ function renderSettingsCalendars() {
   list.innerHTML = cals.map(c => {
     const deleteBtn = (c.isShared || c.readOnly || c.id.includes('env-default'))
       ? ''
-      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="Kalender löschen" aria-label="Kalender löschen">
+      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="${collectionNoun(c)} löschen" aria-label="${collectionNoun(c)} löschen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -1985,6 +1997,7 @@ function renderSettingsCalendars() {
           <div class="settings-item-info">
             <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}; width:8px; height:8px; border-radius:50%; flex-shrink:0"></div>
             <span class="settings-item-name" title="${escHtml(calendarLabel(c))}">${escHtml(calendarLabel(c))}</span>
+            <span class="settings-item-type">${collectionTypeLabel(c)}</span>
             ${googleBadge}
           </div>
         </div>
@@ -2000,11 +2013,13 @@ function renderSettingsCalendars() {
       const id = btn.dataset.deleteCalSettings;
       const cal = cals.find(c => c.id === id);
       if (!cal) return;
-      if (!(await confirmDialog(`Kalender „${cal.name}“ und alle darin enthaltenen Termine unwiderruflich löschen?`))) return;
+      const noun = collectionNoun(cal);
+      const content = noun === 'Aufgabenliste' ? 'Aufgaben' : 'Termine';
+      if (!(await confirmDialog(`${noun} „${cal.name}“ und alle darin enthaltenen ${content} unwiderruflich löschen?`))) return;
       try {
         await CalendarsAPI.remove(id);
         store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
-        showToast(`Kalender „${cal.name}“ gelöscht.`, 'info');
+        showToast(`${noun} „${cal.name}“ gelöscht.`, 'info');
         invalidateEventCache();
         await loadEvents();
         renderSidebar();
@@ -2038,7 +2053,7 @@ function openAddCalendarDialog() {
   backdrop.innerHTML = `
     <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="add-cal-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title" id="add-cal-dialog-title">Neuer Kalender</h3>
+        <h3 class="modal-title" id="add-cal-dialog-title"></h3>
         <button class="icon-btn modal-close" id="add-cal-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -2049,7 +2064,15 @@ function openAddCalendarDialog() {
         <form id="add-cal-form" novalidate>
           <div class="form-group">
             <label class="form-label" for="add-cal-name">Name</label>
-            <input class="form-input" id="add-cal-name" type="text" placeholder="Mein Kalender" required autofocus />
+            <input class="form-input" id="add-cal-name" type="text" required autofocus />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="add-cal-type">Typ</label>
+            <select class="form-select" id="add-cal-type">
+              <option value="calendar">Kalender (Termine)</option>
+              <option value="tasklist">Aufgabenliste (Aufgaben)</option>
+              <option value="mixed">Gemischt (Termine und Aufgaben)</option>
+            </select>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -2078,6 +2101,22 @@ function openAddCalendarDialog() {
 
   document.body.appendChild(backdrop);
 
+  // #500: created in the task view it is an Aufgabenliste, otherwise a Kalender.
+  const ADD_TYPE_TEXT = {
+    calendar: { title: 'Neuer Kalender', placeholder: 'Mein Kalender', created: 'Kalender' },
+    tasklist: { title: 'Neue Aufgabenliste', placeholder: 'Meine Aufgaben', created: 'Aufgabenliste' },
+    mixed:    { title: 'Neuer gemischter Kalender', placeholder: 'Termine und Aufgaben', created: 'Kalender' },
+  };
+  const typeSelect = backdrop.querySelector('#add-cal-type');
+  const applyType = () => {
+    const text = ADD_TYPE_TEXT[typeSelect.value];
+    backdrop.querySelector('#add-cal-dialog-title').textContent = text.title;
+    backdrop.querySelector('#add-cal-name').placeholder = text.placeholder;
+  };
+  typeSelect.value = inTaskView() ? 'tasklist' : 'calendar';
+  applyType();
+  typeSelect.addEventListener('change', applyType);
+
   const closeDialog = () => backdrop.remove();
 
   backdrop.querySelector('#add-cal-close').addEventListener('click', closeDialog);
@@ -2089,6 +2128,7 @@ function openAddCalendarDialog() {
     const name      = document.getElementById('add-cal-name').value.trim();
     const color     = document.getElementById('add-cal-color').value;
     const accountId = document.getElementById('add-cal-account').value;
+    const type      = typeSelect.value;
 
     if (!name) {
       const err = document.getElementById('add-cal-error');
@@ -2103,9 +2143,9 @@ function openAddCalendarDialog() {
     submitBtn.disabled = true;
 
     try {
-      await CalendarsAPI.create({ accountId, name, color });
+      await CalendarsAPI.create({ accountId, name, color, type });
       closeDialog();
-      showToast(`Kalender „${name}“ erstellt.`, 'success');
+      showToast(`${ADD_TYPE_TEXT[type].created} „${name}“ erstellt.`, 'success');
       await loadCalendars();
       renderSidebar();
       renderCalendarView();
@@ -2311,6 +2351,7 @@ function attachListeners() {
       b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
     store.set({ view: viewName });
+    renderCalendarList();
     const viewLabels = {
       month: 'Monatsansicht',
       week: 'Wochenansicht',

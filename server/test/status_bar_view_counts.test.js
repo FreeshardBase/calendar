@@ -58,6 +58,8 @@ function loadApp() {
     getCalendarSyncCache: () => null,
     setCalendarSyncCache: () => {},
     toggleCalendar: () => {},
+    holdsEvents: (c) => c.supportsVEVENT === true,
+    holdsTasks: (c) => c.supportsVTODO === true,
     getToolbarTitle: () => 'Title',
     getDateRange: () => ({ start: new Date(2026, 7, 31), end: new Date(2026, 7, 31, 23, 59) }),
     navigate: () => {},

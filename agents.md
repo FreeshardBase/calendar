@@ -162,6 +162,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   moves the task (`sourceCalendarId`, create in target then delete source, like event moves #494). A `google-<slug>`
   collection from older worker versions is adopted only if that account's pair has vdirsyncer status for it.
   The create route never puts app calendars under `google-` (#193).
+- Collection types (#500): `POST /api/calendars` requires `type` — `calendar` (VEVENT, "Kalender"), `tasklist`
+  (VTODO, "Aufgabenliste") or `mixed` (both) — and MKCALENDARs that `supported-calendar-component-set`. A new
+  user gets `/personal/` (Kalender) and `/tasks/` (Aufgabenliste). Calendar views and the event/import/booking
+  pickers list collections with VEVENT, the Kanban view and task dialog those with VTODO; mixed ones show in both.
+  The add dialog defaults to Aufgabenliste in the Kanban view, otherwise to Kalender.
   Basic-auth CalDAV accounts work the same way (#531): the worker PROPFINDs the account's calendar home,
   refuses (job error) any calendar whose name — the unquoted last href segment, which vdirsyncer puts into
   its status path — is outside `[A-Za-z0-9_.-]`, and pairs each remote calendar with `caldav-<hex>`

@@ -1531,7 +1531,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('Issue #261 — a zero-edit save of a task keeps a rule the preset options cannot hold', async ({ page }) => {
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    const calendarId = `internal-caldav::/${E2E_USER}/tasks/`;
     const rules = ['FREQ=WEEKLY;COUNT=6;BYDAY=MO', 'FREQ=DAILY;INTERVAL=2', 'FREQ=MONTHLY;UNTIL=20370101T000000Z'];
     const stamp = Date.now();
     const storedRule = (title) => page.evaluate(async (t) => {
@@ -4466,7 +4466,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // A second calendar whose events only count when the owner ticks it.
     const createdCal = await page.request.post('/api/calendars', {
       headers: SAME_ORIGIN,
-      data: { accountId: calendarId.split('::')[0], name: 'E2E 345 Work' }
+      data: { accountId: calendarId.split('::')[0], name: 'E2E 345 Work', type: 'calendar' }
     });
     expect(createdCal.status()).toBe(201);
     const workId = (await createdCal.json()).id;
@@ -4937,7 +4937,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const native = recordNativeDialogs(page);
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-      const calendarId = await firstCalendarId(page);
+      // #500: tasks go into the default Aufgabenliste.
+      const calendarId = `internal-caldav::/${E2E_USER}/tasks/`;
       const title = `E2E Issue114 Task ${Date.now()}`;
       const created = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data: { calendarId, title } });
       expect(created.status()).toBe(201);
@@ -6455,7 +6456,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     test('Issue #202 — calendar, booking page and delegate fields from the server render as text and keep their values', async ({ page }) => {
       const markup = sink => `<img src=x onerror="document.body.dataset.xss404='${sink}'">`;
-      const calendar = { id: 'e2e-404-cal" data-pwn="calendar', name: `${markup('calendar')}Test User`, color: '#3b82f6' };
+      const calendar = { id: 'e2e-404-cal" data-pwn="calendar', name: `${markup('calendar')}Test User`, color: '#3b82f6', supportsVEVENT: true, supportsVTODO: false };
       const bookingPage = {
         id: 'e2e-404-page" data-pwn="page', slug: 'e2e-404"slug', title: `${markup('page')}Sprechstunde`,
         calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, startHour: 9, endHour: 17,
@@ -6683,7 +6684,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     async function createCalendar(page, name) {
       const res = await page.request.post('/api/calendars', {
-        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name }
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, type: 'calendar' }
       });
       expect(res.status()).toBe(201);
       return (await res.json()).id;
@@ -6806,7 +6807,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       const run = Date.now().toString(36);
       const res = await page.request.post('/api/calendars', {
-        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name: `E2E 495 Liste ${run}` }
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name: `E2E 495 Liste ${run}`, type: 'tasklist' }
       });
       expect(res.status()).toBe(201);
       listId = (await res.json()).id;
@@ -6868,6 +6869,133 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#task-save-btn');
       await expect(page.locator('#toast-container .toast.error', { hasText: 'does not accept tasks' })).toBeVisible({ timeout: 10000 });
       expect(await titlesIn(page, googleId)).toEqual([title]);
+    });
+  });
+  test.describe('Issue #500 — a collection is a Kalender, an Aufgabenliste or explicitly both', () => {
+    const { Agent } = require('undici');
+
+    // The collection's supported-calendar-component-set, read straight from Radicale.
+    async function componentsInRadicale(path) {
+      const dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      try {
+        const res = await fetch(`${webServer.env.INTERNAL_CALDAV_URL}${path}`, {
+          method: 'PROPFIND', dispatcher,
+          headers: {
+            Authorization: 'Basic ' + Buffer.from(`${E2E_USER}:${webServer.env.SYSTEM_SYNC_SECRET}`).toString('base64'),
+            'Accept-Encoding': 'identity',
+            'Content-Type': 'application/xml; charset=utf-8',
+            Depth: '0',
+          },
+          body: '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+            + '<d:prop><c:supported-calendar-component-set/></d:prop></d:propfind>',
+        });
+        expect(res.status, `PROPFIND ${path}`).toBe(207);
+        const xml = await res.text();
+        const set = xml.match(/supported-calendar-component-set[^>]*>([\s\S]*?)<\/[^>]*supported-calendar-component-set>/);
+        expect(set, xml).not.toBeNull();
+        return [...set[1].matchAll(/name="([A-Z]+)"/g)].map(m => m[1]).sort();
+      } finally {
+        await dispatcher.close();
+      }
+    }
+
+    const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const sidebarItem = (page, id) => page.locator(`#calendar-list .calendar-item[data-cal-id="${id}"]`);
+
+    async function createInDialog(page, name, type) {
+      await page.click('#add-calendar-btn');
+      await expect(page.locator('#add-cal-dialog-backdrop')).toBeVisible();
+      if (type) await page.selectOption('#add-cal-type', type);
+      await page.fill('#add-cal-name', name);
+      await page.click('#add-cal-submit');
+      await expect(page.locator('#add-cal-dialog-backdrop')).toHaveCount(0, { timeout: 10000 });
+      return `internal-caldav::/${E2E_USER}/${slugOf(name)}/`;
+    }
+
+    test.beforeEach(async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+    });
+
+    test('a new user gets a Kalender and a separate Aufgabenliste; each view lists its own', async ({ page }) => {
+      expect(await componentsInRadicale(`/${E2E_USER}/personal/`)).toEqual(['VEVENT']);
+      expect(await componentsInRadicale(`/${E2E_USER}/tasks/`)).toEqual(['VTODO']);
+      const personalId = `internal-caldav::/${E2E_USER}/personal/`;
+      const tasksId = `internal-caldav::/${E2E_USER}/tasks/`;
+
+      await expect(page.locator('#calendar-list-title')).toHaveText('Kalender');
+      await expect(sidebarItem(page, personalId)).toBeVisible();
+      await expect(sidebarItem(page, tasksId)).toHaveCount(0);
+
+      await page.click('#view-kanban');
+      await expect(page.locator('#calendar-list-title')).toHaveText('Aufgabenlisten');
+      await expect(page.locator('#add-calendar-btn')).toHaveAttribute('aria-label', 'Aufgabenliste hinzufügen');
+      await expect(sidebarItem(page, tasksId)).toBeVisible();
+      await expect(sidebarItem(page, personalId)).toHaveCount(0);
+
+      // The pickers follow the same split, and the task dialog names the field accordingly.
+      await page.click('#new-task-btn');
+      await expect(page.locator('label[for="task-calendar-id"]')).toHaveText('Aufgabenliste');
+      const taskOptions = await page.locator('#task-calendar-id option').evaluateAll(os => os.map(o => o.value));
+      expect(taskOptions).toContain(tasksId);
+      expect(taskOptions).not.toContain(personalId);
+      await page.click('#task-cancel-btn');
+
+      await page.click('#view-month');
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      const eventOptions = await page.locator('#ev-calendar option').evaluateAll(os => os.map(o => o.value));
+      expect(eventOptions).toContain(personalId);
+      expect(eventOptions).not.toContain(tasksId);
+    });
+
+    test('created in the task view, the new collection is an Aufgabenliste', async ({ page }) => {
+      await page.click('#view-kanban');
+      await page.click('#add-calendar-btn');
+      await expect(page.locator('#add-cal-dialog-title')).toHaveText('Neue Aufgabenliste');
+      await expect(page.locator('#add-cal-type')).toHaveValue('tasklist');
+      await page.click('#add-cal-cancel');
+
+      const name = `E2E 500 Einkauf ${Date.now().toString(36)}`;
+      const id = await createInDialog(page, name);
+      await expect(page.locator('#toast-container .toast.success', { hasText: `Aufgabenliste „${name}“ erstellt.` })).toBeVisible();
+      expect(await componentsInRadicale(`/${E2E_USER}/${slugOf(name)}/`)).toEqual(['VTODO']);
+      await expect(sidebarItem(page, id)).toBeVisible();
+
+      await page.click('#view-month');
+      await expect(sidebarItem(page, id)).toHaveCount(0);
+
+      // Settings name it by its type.
+      await page.click('#sidebar-settings-btn');
+      const row = page.locator('#settings-calendar-list .settings-item', { hasText: name });
+      await expect(row.locator('.settings-item-type')).toHaveText('Aufgabenliste');
+      await expect(row.locator('[data-delete-cal-settings]')).toHaveAttribute('aria-label', 'Aufgabenliste löschen');
+    });
+
+    test('created in a calendar view, the new collection is a Kalender', async ({ page }) => {
+      await page.click('#add-calendar-btn');
+      await expect(page.locator('#add-cal-dialog-title')).toHaveText('Neuer Kalender');
+      await expect(page.locator('#add-cal-type')).toHaveValue('calendar');
+      await page.click('#add-cal-cancel');
+
+      const name = `E2E 500 Termine ${Date.now().toString(36)}`;
+      const id = await createInDialog(page, name);
+      await expect(page.locator('#toast-container .toast.success', { hasText: `Kalender „${name}“ erstellt.` })).toBeVisible();
+      expect(await componentsInRadicale(`/${E2E_USER}/${slugOf(name)}/`)).toEqual(['VEVENT']);
+      await expect(sidebarItem(page, id)).toBeVisible();
+
+      await page.click('#view-kanban');
+      await expect(sidebarItem(page, id)).toHaveCount(0);
+    });
+
+    test('a mixed collection is an explicit choice and shows in both views', async ({ page }) => {
+      const name = `E2E 500 Gemischt ${Date.now().toString(36)}`;
+      const id = await createInDialog(page, name, 'mixed');
+      expect(await componentsInRadicale(`/${E2E_USER}/${slugOf(name)}/`)).toEqual(['VEVENT', 'VTODO']);
+      await expect(sidebarItem(page, id)).toBeVisible();
+      await page.click('#view-kanban');
+      await expect(sidebarItem(page, id)).toBeVisible();
     });
   });
 });

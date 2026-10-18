@@ -24,6 +24,26 @@ export function calendarLabel(cal) {
   return account && cal.name === account.username ? accountLabel(account) : cal.name;
 }
 
+// #500: a collection holds events (Kalender), tasks (Aufgabenliste) or, when mixed, both. Calendar
+// views list the ones with VEVENT, task views the ones with VTODO.
+export function holdsEvents(cal) {
+  return cal.supportsVEVENT === true;
+}
+
+export function holdsTasks(cal) {
+  return cal.supportsVTODO === true;
+}
+
+// What the UI calls the collection: a task-only collection is an Aufgabenliste.
+export function collectionNoun(cal) {
+  return holdsTasks(cal) && !holdsEvents(cal) ? 'Aufgabenliste' : 'Kalender';
+}
+
+// The type as the settings list names it; a mixed collection says so.
+export function collectionTypeLabel(cal) {
+  return holdsTasks(cal) && holdsEvents(cal) ? 'Gemischt' : collectionNoun(cal);
+}
+
 // [{ label, calendars }] in first-seen order: the shard's own calendars (label null), then one
 // group per linked account.
 export function groupCalendarsByAccount(cals) {

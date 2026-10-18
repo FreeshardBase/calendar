@@ -327,7 +327,16 @@ class CalDAVClient {
     return true;
   }
 
-  async mkcalendar(url, displayName, color = '#6366f1') {
+  /**
+   * Create a calendar collection.
+   * @param {string[]} components - supported-calendar-component-set: ['VEVENT'] for a calendar,
+   *   ['VTODO'] for a task list, both for a mixed collection (#500)
+   */
+  async mkcalendar(url, displayName, color, components) {
+    if (!Array.isArray(components) || components.length === 0
+        || !components.every(c => c === 'VEVENT' || c === 'VTODO')) {
+      throw new Error(`mkcalendar: invalid component set ${JSON.stringify(components)}`);
+    }
     // Step 1: Create the calendar collection (no color — Nextcloud rejects it in MKCALENDAR)
     const mkBody = `<?xml version="1.0" encoding="utf-8"?>
 <c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -335,8 +344,7 @@ class CalDAVClient {
     <d:prop>
       <d:displayname>${escapeXML(displayName)}</d:displayname>
       <c:supported-calendar-component-set>
-        <c:comp name="VEVENT"/>
-        <c:comp name="VTODO"/>
+${components.map(c => `        <c:comp name="${c}"/>`).join('\n')}
       </c:supported-calendar-component-set>
     </d:prop>
   </d:set>

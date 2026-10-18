@@ -345,6 +345,13 @@ router.post('/share-invitations/:id/decline', async (req, res) => {
   }
 });
 
+// #500: a collection is a Kalender (events), an Aufgabenliste (tasks) or, explicitly, both.
+const COLLECTION_COMPONENTS = {
+  calendar: ['VEVENT'],
+  tasklist: ['VTODO'],
+  mixed: ['VEVENT', 'VTODO'],
+};
+
 // GET /api/calendars — fetch all calendars from all accounts
 router.get('/', async (req, res) => {
   if (!req.session?.userId) {
@@ -362,12 +369,13 @@ router.get('/', async (req, res) => {
       const xml = await client.getCalendars();
       let calendars = parseCalendarList(xml, account.id, account.url, account.username);
       
-      // Auto-create default calendar for new users on internal-caldav
+      // Auto-create a default calendar and a default task list for new users on internal-caldav (#500)
       if (account.id === 'internal-caldav' && calendars.length === 0) {
-        console.log(`[calendars] Creating default calendar 'personal' for user: ${account.username}`);
+        console.log(`[calendars] Creating default collections 'personal' and 'tasks' for user: ${account.username}`);
         try {
-          const defaultCalUrl = account.url.replace(/\/+$/, '') + '/personal/';
-          await client.mkcalendar(defaultCalUrl, 'Persönlich', '#7c3aed');
+          const home = account.url.replace(/\/+$/, '');
+          await client.mkcalendar(home + '/personal/', 'Persönlich', '#7c3aed', COLLECTION_COMPONENTS.calendar);
+          await client.mkcalendar(home + '/tasks/', 'Aufgaben', '#0891b2', COLLECTION_COMPONENTS.tasklist);
           const newXml = await client.getCalendars();
           calendars = parseCalendarList(newXml, account.id, account.url, account.username);
         } catch (createErr) {
@@ -397,7 +405,9 @@ router.get('/', async (req, res) => {
             name: 'Persönlich',
             color: '#7c3aed',
             href: `/${canonicalUser}/personal/`,
-            source: 'local'
+            source: 'local',
+            supportsVEVENT: true,
+            supportsVTODO: false
           });
         }
       }
@@ -451,7 +461,9 @@ router.get('/', async (req, res) => {
                   accountId: 'internal-caldav',
                   name: calendarHref,
                   color: '#7c3aed',
-                  href: calendarHref
+                  href: calendarHref,
+                  supportsVEVENT: true,
+                  supportsVTODO: false
                 };
               }
 
@@ -551,10 +563,13 @@ router.post('/', async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { accountId, name, color } = req.body;
+    const { accountId, name, color, type } = req.body;
 
     if (!accountId || !name) {
       return res.status(400).json({ error: 'accountId and name are required' });
+    }
+    if (!Object.hasOwn(COLLECTION_COMPONENTS, type)) {
+      return res.status(400).json({ error: `type must be one of ${Object.keys(COLLECTION_COMPONENTS).join(', ')}` });
     }
 
     const account = (req.session.accounts || []).find(a => a.id === accountId);
@@ -574,7 +589,7 @@ router.post('/', async (req, res) => {
     // Purge any pre-existing/stale share grants for this calendar ID to ensure clean isolation
     await Db.deleteCalendarData(createdCalendarId);
 
-    await client.mkcalendar(calendarUrl, name, color || '#7c3aed');
+    await client.mkcalendar(calendarUrl, name, color || '#7c3aed', COLLECTION_COMPONENTS[type]);
 
     queueSyncForCalendar(calendarUrl, req.session.userId);
 
