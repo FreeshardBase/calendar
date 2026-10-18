@@ -174,6 +174,15 @@ export function openTaskModal(task = null) {
       opt.disabled = c.supportsVTODO !== true;
     });
   }
+  // Says why such a task does not sync and what to do (#572); the sync worker names it too.
+  const strandedHint = document.getElementById('task-stranded-hint');
+  if (strandedHint) {
+    const home = task ? calendars.find(c => c.id === task.calendarId) : null;
+    const stranded = !!home && home.supportsVTODO !== true;
+    strandedHint.textContent = !stranded ? ''
+      : `${home.source === 'google' ? 'Google nimmt' : 'Dieser Kalender nimmt'} keine Aufgaben an, bitte in eine Aufgabenliste verschieben`;
+    strandedHint.classList.toggle('hidden', !stranded);
+  }
 
   if (task) {
     if (titleEl) titleEl.textContent = 'Aufgabe bearbeiten';
