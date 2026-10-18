@@ -462,12 +462,12 @@
         <span>PDF / Druck</span>
       </button>
 
-      <button class="toolbar-btn" id="availability-btn" title="Termin-Buchung" style="margin-left: 8px;">
+      <button class="toolbar-btn" id="availability-btn" title="Buchbare Zeiten" style="margin-left: 8px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;" aria-hidden="true">
           <circle cx="12" cy="12" r="10"/>
           <polyline points="12 6 12 12 16 14"/>
         </svg>
-        <span>Termin-Buchung</span>
+        <span>Buchbare Zeiten</span>
       </button>
 
       <div class="toolbar-tz-select-wrapper" style="margin-left: 8px;">
@@ -1127,11 +1127,14 @@
   </div>
 </div>
 
-<!-- ── Availability Booking Modal ────────────────────────────────────────── -->
+<!-- ── Buchbare Zeiten (availability booking) Modal ──────────────────────── -->
 <div class="modal-backdrop hidden" id="availability-modal-backdrop" inert>
-  <div class="modal" id="availability-modal" style="max-width: 650px;" role="dialog" aria-modal="true" aria-labelledby="availability-modal-title">
+  <div class="modal" id="availability-modal" style="max-width: 650px;" role="dialog" aria-modal="true" aria-labelledby="availability-modal-title" aria-describedby="availability-modal-subtitle">
     <div class="modal-header">
-      <h3 class="modal-title" id="availability-modal-title">Öffentliche Termin-Buchungsseiten</h3>
+      <div>
+        <h3 class="modal-title" id="availability-modal-title">Buchbare Zeiten</h3>
+        <p id="availability-modal-subtitle" style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0;">Öffentliche Seite, auf der andere einen freien Termin bei dir wählen</p>
+      </div>
       <button class="icon-btn modal-close" id="availability-modal-close" aria-label="Schließen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -1140,7 +1143,7 @@
     </div>
     <div class="modal-body" style="padding: 16px;">
       <form id="availability-form" style="margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px;">
-        <h4 style="margin-top:0; margin-bottom:12px;">Neue Buchungsseite erstellen</h4>
+        <h4 style="margin-top:0; margin-bottom:12px;">Neue buchbare Zeiten anlegen</h4>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="ap-title">Titel / Name</label>
@@ -1177,13 +1180,13 @@
           </div>
         </div>
         <div class="modal-footer" style="padding-top:8px;">
-          <button type="submit" class="btn btn-primary" id="ap-save-btn">Buchungsseite erstellen</button>
+          <button type="submit" class="btn btn-primary" id="ap-save-btn">Buchbare Zeiten veröffentlichen</button>
         </div>
       </form>
       <div>
-        <h4 style="margin-top:0; margin-bottom:12px;">Bestehende Buchungsseiten</h4>
+        <h4 style="margin-top:0; margin-bottom:12px;">Veröffentlichte buchbare Zeiten</h4>
         <div id="availability-pages-list">
-          <p class="empty-state">Noch keine Buchungsseiten vorhanden.</p>
+          <p class="empty-state">Noch keine buchbaren Zeiten veröffentlicht.</p>
         </div>
       </div>
     </div>

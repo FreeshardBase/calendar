@@ -56,12 +56,12 @@ export function initAvailabilityManager() {
         busyCalendarIds
       });
 
-      showToast('Buchungsseite erfolgreich erstellt', 'success');
+      showToast('Buchbare Zeiten veröffentlicht', 'success');
       form.reset();
       await loadCalendars();
       await loadPages();
     } catch (err) {
-      showToast(err.message || 'Fehler beim Erstellen der Buchungsseite', 'error');
+      showToast(err.message || 'Fehler beim Veröffentlichen der buchbaren Zeiten', 'error');
     }
   });
 
@@ -111,7 +111,7 @@ export function initAvailabilityManager() {
     try {
       const pages = await AvailabilityAPI.getPages();
       if (!pages || pages.length === 0) {
-        pagesList.innerHTML = '<p class="empty-state">Noch keine Buchungsseiten vorhanden.</p>';
+        pagesList.innerHTML = '<p class="empty-state">Noch keine buchbaren Zeiten veröffentlicht.</p>';
         return;
       }
 
@@ -151,10 +151,10 @@ export function initAvailabilityManager() {
       pagesList.querySelectorAll('.delete-page-btn').forEach(b => {
         b.addEventListener('click', async () => {
           const id = b.getAttribute('data-id');
-          if (await confirmDialog('Möchtest du diese Buchungsseite wirklich löschen?')) {
+          if (await confirmDialog('Möchtest du diese buchbaren Zeiten wirklich löschen?')) {
             try {
               await AvailabilityAPI.deletePage(id);
-              showToast('Buchungsseite gelöscht', 'success');
+              showToast('Buchbare Zeiten gelöscht', 'success');
               await loadPages();
             } catch (err) {
               showToast(err.message || 'Fehler beim Löschen', 'error');
@@ -164,7 +164,7 @@ export function initAvailabilityManager() {
       });
     } catch (err) {
       console.error('[availability] Error loading pages:', err);
-      pagesList.innerHTML = '<p class="empty-state">Fehler beim Laden der Buchungsseiten.</p>';
+      pagesList.innerHTML = '<p class="empty-state">Fehler beim Laden der buchbaren Zeiten.</p>';
     }
   }
 
