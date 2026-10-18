@@ -2371,6 +2371,9 @@ function attachListeners() {
       const events = getFilteredEvents();
       const exportView = (view === 'week' || view === 'workweek') ? 'week' : 'month';
 
+      // #497: the file is checked completely before the download starts; a failed export is shown
+      // as an error, never handed to the browser as a broken download or replaced by a print dialog.
+      let blob;
       try {
         const res = await fetch('/api/calendars/export/pdf', {
           method: 'POST',
@@ -2385,20 +2388,30 @@ function attachListeners() {
           })
         });
 
-        if (!res.ok) throw new Error('PDF export failed');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `calendar-${exportView}-${Date.now()}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const type = res.headers.get('Content-Type') || '';
+        if (!res.ok) {
+          const body = type.includes('application/json') ? await res.json() : null;
+          throw new Error(body?.error || `HTTP ${res.status}`);
+        }
+        blob = await res.blob();
+        if (!type.startsWith('application/pdf') || await blob.slice(0, 5).text() !== '%PDF-') {
+          throw new Error('Die Antwort ist keine PDF-Datei');
+        }
       } catch (err) {
         console.error('[PDF Export Error]', err);
-        window.print();
+        showToast(`PDF-Export fehlgeschlagen: ${err.message}`, 'error');
+        return;
       }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `calendar-${exportView}-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoking right after click() lets Chromium's download manager find the blob gone and fail
+      // the download it has just announced (#497); the URL lives until the download has read it.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     });
   }
 

@@ -2325,11 +2325,67 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#export-pdf-btn')).toBeVisible({ timeout: 10000 });
 
+    // #497: remember the blob URL the app hands to the browser's download manager and when it is
+    // revoked. (The page's CSP, connect-src 'self', forbids reading a blob: URL back with fetch.)
+    await page.evaluate(() => {
+      const create = URL.createObjectURL.bind(URL);
+      const revoke = URL.revokeObjectURL.bind(URL);
+      window.__pdfBlobUrls = [];
+      window.__revokedBlobUrls = [];
+      URL.createObjectURL = (obj) => { const u = create(obj); window.__pdfBlobUrls.push(u); return u; };
+      URL.revokeObjectURL = (u) => { window.__revokedBlobUrls.push(u); revoke(u); };
+    });
+
     const downloadPromise = page.waitForEvent('download');
     await page.click('#export-pdf-btn');
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+    expect(await download.failure()).toBeNull();
+    const fs = require('fs');
+    const pdf = fs.readFileSync(await download.path()).toString('latin1');
+    expect(pdf.startsWith('%PDF-1.')).toBe(true);
+    expect(pdf).toMatch(/%%EOF\s*$/);
+
+    // The browser's download manager may read the file well after click() has returned: the blob
+    // URL must still be registered then, or Chromium fails the download it has just announced.
+    await page.waitForTimeout(2000);
+    const blobState = await page.evaluate(() => ({
+      created: window.__pdfBlobUrls.length,
+      revoked: window.__revokedBlobUrls.includes(window.__pdfBlobUrls.at(-1)),
+    }));
+    expect(blobState).toEqual({ created: 1, revoked: false });
   });
+
+  // #497: a failed export is reported before any download starts, never as a broken file or a
+  // silent switch to the print dialog.
+  for (const failure of [
+    { name: 'a server error', status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'PDF-Erzeugung fehlgeschlagen (Test)' }), shown: 'PDF-Erzeugung fehlgeschlagen (Test)' },
+    { name: 'a non-PDF 200 answer from the proxy', status: 200, contentType: 'text/html', body: '<html><body>Login</body></html>', shown: 'keine PDF-Datei' },
+    { name: 'a PDF content type with a broken body', status: 200, contentType: 'application/pdf', body: '<html>gateway</html>', shown: 'keine PDF-Datei' },
+  ]) {
+    test(`#497: PDF export shows ${failure.name} as an error and starts no download`, async ({ page }) => {
+      await page.addInitScript(() => {
+        window.__printCalls = 0;
+        window.print = () => { window.__printCalls++; };
+      });
+      await page.route('**/api/calendars/export/pdf', route => route.fulfill({
+        status: failure.status, contentType: failure.contentType, body: failure.body,
+      }));
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      let downloads = 0;
+      page.on('download', () => { downloads++; });
+      const exportAnswered = page.waitForResponse(r => new URL(r.url()).pathname === '/api/calendars/export/pdf');
+      await page.click('#export-pdf-btn');
+      await exportAnswered;
+
+      await expect(page.locator('#toast-container .toast.error', { hasText: failure.shown })).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'PDF-Export fehlgeschlagen' })).toHaveAttribute('role', 'alert');
+      expect(downloads).toBe(0);
+      expect(await page.evaluate(() => window.__printCalls)).toBe(0);
+    });
+  }
 
   test('should enable secondary timezone dual grid and update hour labels in week view', async ({ page }) => {
     await page.goto('/');
