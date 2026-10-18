@@ -92,6 +92,8 @@ export const CalendarsAPI = {
   create: (data)          => request('POST',   '/api/calendars', data),
   update: (id, data)      => request('PATCH',  `/api/calendars/${encodeURIComponent(id)}`, data),
   remove: (id)            => request('DELETE', `/api/calendars/${encodeURIComponent(id)}`),
+  // #504: one sidebar group's ids in their new order.
+  saveOrder: (calendarIds) => request('PUT', '/api/calendars/order', { calendarIds }),
   searchUsers: (q, accountId) => request('GET', `/api/calendars/search-users?q=${encodeURIComponent(q)}&accountId=${encodeURIComponent(accountId || '')}`),
   getShares: (id) => request('GET', `/api/calendars/${encodeURIComponent(id)}/shares`),
   addShare: (id, sharee, readWrite) => request('POST', `/api/calendars/${encodeURIComponent(id)}/shares`, { sharee, readWrite }),
