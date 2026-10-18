@@ -167,6 +167,12 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   user gets `/personal/` (Kalender) and `/tasks/` (Aufgabenliste). Calendar views and the event/import/booking
   pickers list collections with VEVENT, the Kanban view and task dialog those with VTODO; mixed ones show in both.
   The add dialog defaults to Aufgabenliste in the Kanban view, otherwise to Kalender.
+- Sidebar order (#504, `public/js/sidebarOrder.js`): entries move within their group (own calendars, one linked
+  account, subscriptions) by a pointer drag (as the Kanban cards; a reload during the drag waits for its end) or
+  Alt+↑/↓. `PUT /api/calendars/order {calendarIds}` stores one group's
+  order per user (`user_calendar_order`; subscriptions as `webcal::<id>`); `GET /api/calendars` and
+  `GET /api/webcal/subscriptions` return entries in that order, unordered ones last. The user's own CalDAV
+  collections also get `apple:calendar-order` (PROPPATCH; a refusal is logged), shared ones never.
 - Kanban lanes (#499): one lane per VTODO STATUS (Zu erledigen, In Bearbeitung, Erledigt, Abgebrochen). A card
   changes status by a pointer drag (mouse anywhere on the card, touch on its grip) or its status `<select>`
   (keyboard, phones). The move is drawn at once and redrawn back, marked `.kanban-card-rolled-back`, when the PUT

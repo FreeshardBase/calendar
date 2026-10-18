@@ -428,6 +428,16 @@ db.serialize(() => {
       PRIMARY KEY (user_id, calendar_id)
     )
   `);
+  // #504: the user's order of calendars, task lists and subscriptions (`webcal::<id>`) in the sidebar.
+  // Positions count within one sidebar group.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_calendar_order (
+      user_id TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      PRIMARY KEY (user_id, calendar_id)
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS public_ics_cache (
       token TEXT PRIMARY KEY,
@@ -1062,6 +1072,7 @@ const Db = {
       await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
       await tx.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM user_calendar_order WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM webcal_subscriptions WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM event_history WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
@@ -1088,6 +1099,7 @@ const Db = {
       );
       await tx.run('DELETE FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM user_calendar_color_overrides WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM user_calendar_order WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM calendar_sync_cache WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM sync_conflicts WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
@@ -1147,6 +1159,7 @@ const Db = {
       await tx.run('DELETE FROM slot_bookings');
       await tx.run('DELETE FROM event_history');
       await tx.run('DELETE FROM user_calendar_color_overrides');
+      await tx.run('DELETE FROM user_calendar_order');
       await tx.run('DELETE FROM webcal_subscriptions');
       await tx.run('DELETE FROM sync_queue');
     });
@@ -2593,6 +2606,28 @@ const Db = {
           resolve({ userId, calendarId, color, updatedAt: now });
         }
       );
+    });
+  },
+
+  // #504: `calendarIds` is one sidebar group in its new order.
+  setUserCalendarOrder(userId, calendarIds) {
+    return this.withTransaction(async (tx) => {
+      for (const [position, calendarId] of calendarIds.entries()) {
+        await tx.run(
+          'INSERT OR REPLACE INTO user_calendar_order (user_id, calendar_id, position) VALUES (?, ?, ?)',
+          [userId, calendarId, position]
+        );
+      }
+    });
+  },
+
+  // Map calendarId -> position.
+  getUserCalendarOrder(userId) {
+    return new Promise((resolve, reject) => {
+      db.all('SELECT calendar_id, position FROM user_calendar_order WHERE user_id = ?', [userId], (err, rows) => {
+        if (err) return reject(err);
+        resolve(new Map(rows.map(r => [r.calendar_id, r.position])));
+      });
     });
   },
 

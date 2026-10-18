@@ -5,6 +5,7 @@
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, setUnauthorizedHandler } from './api.js';
+import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
@@ -152,8 +153,8 @@ function showApp() {
 async function loadCalendars() {
   store.set({ loadingCalendars: true });
   try {
-    const res = await CalendarsAPI.list();
-    store.set({ 
+    const res = await listAfterOrderSaves(() => CalendarsAPI.list());
+    store.set({
       calendars: res.calendars || [],
       accountErrors: res.errors || [],
       calendarsError: null
@@ -366,7 +367,7 @@ const hiddenWebcal = new Set();
 
 async function loadWebcalSubscriptions() {
   try {
-    const res = await WebcalAPI.list();
+    const res = await listAfterOrderSaves(() => WebcalAPI.list());
     webcalSubscriptions = res.subscriptions || [];
     renderWebcalSidebar();
 
@@ -476,19 +477,34 @@ async function openPendingEvent(preview, mouseEvent) {
   if (ev) showEventPopover(ev, mouseEvent);
 }
 
+// #504: a sidebar list re-renders when it is reordered or reloaded; keyboard focus stays on the
+// entry that had it (by its data-* id), not on the page body.
+function focusedItemId(list, key) {
+  const el = document.activeElement;
+  return el && list.contains(el) && el.dataset[key] ? el.dataset[key] : null;
+}
+
+function refocusItem(list, key, id) {
+  if (id === null) return;
+  const el = [...list.children].find(x => x.dataset[key] === id);
+  if (el) el.focus();
+}
+
 function renderWebcalSidebar() {
   const list = $('webcal-list');
   if (!list) return;
+  if (renderLater(list, renderWebcalSidebar)) return;
 
   if (!webcalSubscriptions.length) {
     list.innerHTML = '<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">Keine Abonnements vorhanden.</div>';
     return;
   }
 
+  const focusedId = focusedItemId(list, 'webcalId');
   list.innerHTML = webcalSubscriptions.map(sub => {
     const checked = !hiddenWebcal.has(sub.id);
     return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.last_error ? `${sub.name} (Sync fehlgeschlagen: ${sub.last_error})` : sub.name)}">
+      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" data-order-group="webcal" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.last_error ? `${sub.name} (Sync fehlgeschlagen: ${sub.last_error})` : sub.name)}">
         <div class="calendar-dot" style="background:${escHtml(sanitizeColor(sub.color))}"></div>
         <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
           <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.name)}">${escHtml(sub.name)}</span>
@@ -517,6 +533,18 @@ function renderWebcalSidebar() {
         </div>
       </div>`;
   }).join('');
+  refocusItem(list, 'webcalId', focusedId);
+
+  // #504: subscriptions are their own group; their order is stored as `webcal::<id>`.
+  enableReorder(list, {
+    itemSelector: '[data-webcal-id]',
+    idOf: el => el.dataset.webcalId,
+    onReorder: ids => {
+      webcalSubscriptions = applyGroupOrder(webcalSubscriptions, ids, sub => sub.id);
+      renderWebcalSidebar();
+      saveSidebarOrder(ids.map(id => `webcal::${id}`), loadWebcalSubscriptions);
+    },
+  });
 
   list.querySelectorAll('[data-webcal-id]').forEach(el => {
     const handleToggle = e => {
@@ -802,7 +830,7 @@ function renderSidebar() {
 
 const CALENDARS_LOAD_FAILED = 'Kalender konnten nicht geladen werden.';
 
-function calendarListItemHtml(c, hidden) {
+function calendarListItemHtml(c, hidden, orderGroup) {
   const checked = !hidden.has(c.id);
   const name = calendarLabel(c);
 
@@ -846,7 +874,7 @@ function calendarListItemHtml(c, hidden) {
   const loadError = calendarLoadError(c);
 
   return `
-    <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? `${name} (Termine konnten nicht geladen werden: ${loadError.error})` : name)}">
+    <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" data-order-group="${escHtml(orderGroup)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? `${name} (Termine konnten nicht geladen werden: ${loadError.error})` : name)}">
       <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
       <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
         <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
@@ -874,8 +902,39 @@ function inTaskView() {
   return store.get('view') === 'kanban';
 }
 
+// #504: stores a sidebar group's new order; when that fails the list is reloaded from the server.
+// Saves run one after another; `orderEdits` counts them so a list request that overlaps one is repeated.
+let orderSaves = Promise.resolve();
+let orderEdits = 0;
+function saveSidebarOrder(ids, reload) {
+  orderEdits++;
+  const previous = orderSaves;
+  orderSaves = (async () => {
+    await previous;
+    try {
+      await CalendarsAPI.saveOrder(ids);
+    } catch (err) {
+      showToast('Reihenfolge konnte nicht gespeichert werden: ' + err.message, 'error');
+      // Not awaited: the reload itself waits for this save chain to settle.
+      reload();
+    }
+  })();
+}
+
+// #504: a sidebar list as the server orders it once every pending order save is stored; a list
+// fetched while the user reordered would undo that move, so it is fetched again.
+async function listAfterOrderSaves(fetchList) {
+  for (;;) {
+    const edits = orderEdits;
+    await orderSaves;
+    const res = await fetchList();
+    if (edits === orderEdits) return res;
+  }
+}
+
 function renderCalendarList() {
   const list   = $('calendar-list');
+  if (renderLater(list, renderCalendarList)) return;
   const hidden = store.get('hiddenCalendars');
   const taskView = inTaskView();
   const cals   = store.get('calendars').filter(taskView ? holdsTasks : holdsEvents);
@@ -895,10 +954,22 @@ function renderCalendarList() {
   }
 
   // #496: a linked account's calendars are grouped under the account's name.
+  // #504: the user reorders calendars within their group.
+  const focusedId = focusedItemId(list, 'calId');
   list.innerHTML = groupCalendarsByAccount(cals).map(group =>
     (group.label === null ? '' : `<div class="calendar-group-label">${escHtml(group.label)}</div>`) +
-    group.calendars.map(c => calendarListItemHtml(c, hidden)).join('')
+    group.calendars.map(c => calendarListItemHtml(c, hidden, c.linkedAccountId || 'own')).join('')
   ).join('');
+  refocusItem(list, 'calId', focusedId);
+  enableReorder(list, {
+    itemSelector: '[data-cal-id]',
+    idOf: el => el.dataset.calId,
+    onReorder: ids => {
+      store.set({ calendars: applyGroupOrder(store.get('calendars'), ids, c => c.id) });
+      renderCalendarList();
+      saveSidebarOrder(ids, loadCalendars);
+    },
+  });
 
   // Toggle visibility on main area click or keypress
   list.querySelectorAll('[data-cal-id]').forEach(el => {

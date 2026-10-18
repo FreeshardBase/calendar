@@ -12,6 +12,7 @@ const { detectICSConflicts, resolveICSImport } = require('../utils/icsConflictRe
 const { detectTwoWayConflict, resolveTwoWayConflict } = require('../utils/twoWaySyncResolver');
 const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
+const { sortByUserOrder } = require('../utils/calendarOrder');
 const { startImportJob, getImportJob } = require('../utils/importJobs');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
@@ -524,6 +525,9 @@ router.get('/', async (req, res) => {
     }
   }
 
+  // #504: the user's sidebar order; unordered calendars keep their place after the ordered ones.
+  sortByUserOrder(allCalendars, await Db.getUserCalendarOrder(userId), cal => cal.id);
+
   // Apply local color overrides for the requesting user
   if (userId) {
     try {
@@ -555,6 +559,51 @@ router.get('/', async (req, res) => {
   console.log('[calendars route] Returning calendars:', allCalendars.map(c => `${c.accountId}::${c.name} (${c.source})`));
 
   res.json({ calendars: allCalendars, errors });
+});
+
+// PUT /api/calendars/order — #504: store the order of one sidebar group (calendars, task lists or
+// subscriptions as `webcal::<id>`). The order is the user's own preference, so any id may be stored;
+// only the user's own CalDAV collections also get apple:calendar-order for native clients.
+router.put('/order', async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { calendarIds } = req.body || {};
+    if (!Array.isArray(calendarIds) || calendarIds.length === 0 || calendarIds.length > 500
+        || !calendarIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= 2048)
+        || new Set(calendarIds).size !== calendarIds.length) {
+      return res.status(400).json({ error: 'calendarIds must be a non-empty list of distinct calendar ids' });
+    }
+
+    await Db.setUserCalendarOrder(req.session.userId, calendarIds);
+
+    // One PROPPATCH at a time: Radicale drops connections when a long group arrives all at once.
+    for (const [position, calendarId] of calendarIds.entries()) {
+      if (calendarId.startsWith('webcal::')) continue;
+      const access = await checkCalendarAccess(req, calendarId, 'write');
+      if (!access.allowed || !access.isOwner) continue;
+      const { client, calendarUrl } = await resolveCalendar(req, calendarId);
+      if (!client) continue;
+      const body = `<?xml version="1.0" encoding="utf-8"?>
+<d:propertyupdate xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">
+  <d:set>
+    <d:prop>
+      <a:calendar-order>${position + 1}</a:calendar-order>
+    </d:prop>
+  </d:set>
+</d:propertyupdate>`;
+      const patchRes = await client._request('PROPPATCH', calendarUrl, { body });
+      if (!patchRes.ok && patchRes.status !== 207) {
+        // The server does not support the property; the stored order still applies here.
+        console.warn(`[calendars PUT order] PROPPATCH ${calendarId} returned ${patchRes.status}`);
+      }
+    }
+
+    res.json({ calendarIds });
+  } catch (err) {
+    return sendError(res, err, '[calendars PUT order]');
+  }
 });
 
 // POST /api/calendars — create a new calendar collection

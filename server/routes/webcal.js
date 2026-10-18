@@ -9,6 +9,7 @@ const {
   refreshWebcalFeed
 } = require('../utils/webcalSubscription');
 const { assertPublicUrl } = require('../utils/outboundFetch');
+const { sortByUserOrder } = require('../utils/calendarOrder');
 
 // #160: the refresh error itself (English, upstream detail) is logged, not sent.
 const FEED_FETCH_FAILED = 'Der Kalender-Feed konnte nicht abgerufen werden.';
@@ -30,6 +31,8 @@ router.get('/subscriptions', async (req, res, next) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const subscriptions = await Db.getWebcalSubscriptions(userId);
+    // #504: the user's sidebar order, stored as `webcal::<id>`.
+    sortByUserOrder(subscriptions, await Db.getUserCalendarOrder(userId), sub => `webcal::${sub.id}`);
     res.json({ subscriptions });
   } catch (err) {
     next(err);

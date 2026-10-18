@@ -7350,4 +7350,208 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       }
     });
   });
+
+  test.describe('Issue #504 — the sidebar is reordered by drag and drop or Alt+↑/↓, per group', () => {
+    const { Agent } = require('undici');
+
+    // The collection's apple:calendar-order, read straight from Radicale.
+    async function calendarOrderInRadicale(id) {
+      const dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      try {
+        const res = await fetch(`${webServer.env.INTERNAL_CALDAV_URL}${id.split('::')[1]}`, {
+          method: 'PROPFIND', dispatcher,
+          headers: {
+            Authorization: 'Basic ' + Buffer.from(`${E2E_USER}:${webServer.env.SYSTEM_SYNC_SECRET}`).toString('base64'),
+            'Accept-Encoding': 'identity',
+            'Content-Type': 'application/xml; charset=utf-8',
+            Depth: '0',
+          },
+          body: '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">'
+            + '<d:prop><a:calendar-order/></d:prop></d:propfind>',
+        });
+        expect(res.status, `PROPFIND ${id}`).toBe(207);
+        const match = (await res.text()).match(/calendar-order[^>]*>(\d+)</);
+        return match ? Number(match[1]) : null;
+      } finally {
+        await dispatcher.close();
+      }
+    }
+
+    // The ids among `ids` in the order the sidebar shows them.
+    const sidebarOrder = (page, ids) => page.locator('#calendar-list [data-cal-id]')
+      .evaluateAll((els, wanted) => els.map(el => el.dataset.calId).filter(id => wanted.includes(id)), ids);
+    const item = (page, id) => page.locator(`#calendar-list [data-cal-id="${id}"]`);
+
+    // A mouse drag in small steps, as a person would do it, onto the upper edge of `target`.
+    // The sidebar scrolls, so both entries are brought into view first.
+    async function dragOntoTop(page, source, target) {
+      // A late load may re-render the list before the drag starts; measuring is then repeated.
+      let from, to;
+      await expect(async () => {
+        await target.scrollIntoViewIfNeeded({ timeout: 1000 });
+        await source.scrollIntoViewIfNeeded({ timeout: 1000 });
+        await expect(target).toBeInViewport({ timeout: 1000 });
+        from = await source.boundingBox();
+        to = await target.boundingBox();
+        expect(from && to).toBeTruthy();
+      }).toPass({ timeout: 10000 });
+      await page.mouse.move(from.x + 20, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + 20, to.y + 3, { steps: 12 });
+      await page.mouse.up();
+    }
+
+    // The fading loading screen would catch the pointer, so the drag waits until it is gone.
+    async function appReady(page) {
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#loading-screen')).toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+    }
+
+    async function openApp(page) {
+      await page.goto('/');
+      await appReady(page);
+    }
+
+    test('dragging and Alt+↑ reorder the user\'s calendars; the order survives a reload and reaches Radicale', async ({ page }) => {
+      const tag = Date.now().toString(36);
+      const ids = [];
+      await openApp(page);
+      for (const letter of ['A', 'B', 'C']) {
+        const res = await page.request.post('/api/calendars', {
+          headers: SAME_ORIGIN,
+          data: { accountId: 'internal-caldav', name: `E2E 504 ${letter} ${tag}`, color: '#3366cc', type: 'calendar' },
+        });
+        expect(res.status()).toBe(201);
+        ids.push((await res.json()).id);
+      }
+      // Earlier tests leave many collections with this user; the new ones go first and stay
+      // adjacent, so dragging does not have to scroll the sidebar.
+      const listed = await page.request.get('/api/calendars');
+      expect(listed.status()).toBe(200);
+      const others = (await listed.json()).calendars.map(cal => cal.id).filter(id => !ids.includes(id));
+      const first = await page.request.put('/api/calendars/order', { headers: SAME_ORIGIN, data: { calendarIds: [...ids, ...others] } });
+      expect(first.status()).toBe(200);
+      const [a, b, c] = ids;
+      await page.reload();
+      await appReady(page);
+      await expect.poll(() => sidebarOrder(page, ids)).toEqual([a, b, c]);
+
+      // Drop C onto the upper half of A: C goes before A.
+      const saved = page.waitForResponse(r => r.url().endsWith('/api/calendars/order') && r.request().method() === 'PUT');
+      await dragOntoTop(page, item(page, c), item(page, a));
+      expect((await saved).status()).toBe(200);
+      await expect.poll(() => sidebarOrder(page, ids)).toEqual([c, a, b]);
+
+      // Alt+↑ on B moves it above A; focus stays on B.
+      await item(page, b).focus();
+      const savedKey = page.waitForResponse(r => r.url().endsWith('/api/calendars/order') && r.request().method() === 'PUT');
+      await page.keyboard.press('Alt+ArrowUp');
+      expect((await savedKey).status()).toBe(200);
+      await expect.poll(() => sidebarOrder(page, ids)).toEqual([c, b, a]);
+      await expect(item(page, b)).toBeFocused();
+
+      await page.reload();
+      await appReady(page);
+      await expect.poll(() => sidebarOrder(page, ids)).toEqual([c, b, a]);
+
+      // The pickers follow the sidebar.
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      const options = await page.locator('#ev-calendar option').evaluateAll(os => os.map(o => o.value));
+      expect(options.filter(v => ids.includes(v))).toEqual([c, b, a]);
+
+      // Native clients read apple:calendar-order from Radicale.
+      const orders = await Promise.all([c, b, a].map(calendarOrderInRadicale));
+      expect(orders.every(Number.isInteger), JSON.stringify(orders)).toBe(true);
+      expect([...orders].sort((x, y) => x - y)).toEqual(orders);
+    });
+
+    test('calendars move only inside their group: own calendars and each linked account', async ({ page }) => {
+      const own1 = `internal-caldav::/${E2E_USER}/personal/`;
+      const own2 = `internal-caldav::/${E2E_USER}/e2e-504-own/`;
+      const linked1 = `internal-caldav::/${E2E_USER}/caldav-504aaaaaaaaaaaaa/`;
+      const linked2 = `internal-caldav::/${E2E_USER}/caldav-504bbbbbbbbbbbbb/`;
+      const calendar = (id, name, linkedAccountId) => ({
+        id, accountId: 'internal-caldav', linkedAccountId, name, color: '#3366cc', href: id.split('::')[1],
+        isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false
+      });
+      await page.route('**/api/accounts', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: [
+          { id: 'internal-caldav', url: 'https://caldav.example.com/', username: E2E_USER, displayName: 'Shard' },
+          { id: 'acc-504', url: 'https://caldav.example.com/testuser/', username: 'testuser@example.com', displayName: 'Privat' },
+        ] })
+        : route.fallback()));
+      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { calendars: [
+          calendar(own1, 'Persönlich', null),
+          calendar(own2, 'Zweiter', null),
+          calendar(linked1, 'Team', 'acc-504'),
+          calendar(linked2, 'Verein', 'acc-504'),
+        ], errors: [] } })
+        : route.fallback()));
+      const puts = [];
+      await page.route('**/api/calendars/order', route => {
+        puts.push(route.request().postDataJSON().calendarIds);
+        return route.fulfill({ json: { calendarIds: route.request().postDataJSON().calendarIds } });
+      });
+      const all = [own1, own2, linked1, linked2];
+
+      await openApp(page);
+      await expect(page.locator('#calendar-list .calendar-group-label')).toHaveText(['Privat']);
+
+      // Across groups nothing moves: dragging a linked calendar onto an own one, Alt+↑ at a group's top.
+      await dragOntoTop(page, item(page, linked1), item(page, own1));
+      await item(page, linked1).focus();
+      await page.keyboard.press('Alt+ArrowUp');
+      await item(page, own2).focus();
+      await page.keyboard.press('Alt+ArrowDown');
+      expect(await sidebarOrder(page, all)).toEqual(all);
+      expect(puts).toEqual([]);
+
+      // Inside the linked group, the order changes and only that group's ids are saved.
+      await item(page, linked1).focus();
+      await page.keyboard.press('Alt+ArrowDown');
+      await expect.poll(() => sidebarOrder(page, all)).toEqual([own1, own2, linked2, linked1]);
+      expect(puts).toEqual([[linked2, linked1]]);
+      await expect(page.locator('#calendar-list .calendar-group-label')).toHaveText(['Privat']);
+
+      // Dragging the second own calendar above the first.
+      await dragOntoTop(page, item(page, own2), item(page, own1));
+      await expect.poll(() => sidebarOrder(page, all)).toEqual([own2, own1, linked2, linked1]);
+      expect(puts).toEqual([[linked2, linked1], [own2, own1]]);
+    });
+
+    test('subscriptions are their own group and are reordered the same way', async ({ page }) => {
+      const subs = ['sub-504-a', 'sub-504-b', 'sub-504-c'].map((id, i) => ({
+        id, user_id: E2E_USER, name: `Abo ${i + 1}`, url: `https://example.com/${id}.ics`, color: '#3366cc', last_error: null
+      }));
+      await page.route('**/api/webcal/subscriptions', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { subscriptions: subs } })
+        : route.fallback()));
+      await page.route('**/api/webcal/subscriptions/*/events*', route => route.fulfill({ json: { events: [] } }));
+      const puts = [];
+      await page.route('**/api/calendars/order', route => {
+        puts.push(route.request().postDataJSON().calendarIds);
+        return route.fulfill({ json: { calendarIds: route.request().postDataJSON().calendarIds } });
+      });
+      const webcalOrder = () => page.locator('#webcal-list [data-webcal-id]').evaluateAll(els => els.map(el => el.dataset.webcalId));
+
+      await openApp(page);
+      await expect.poll(webcalOrder).toEqual(['sub-504-a', 'sub-504-b', 'sub-504-c']);
+
+      await page.locator('#webcal-list [data-webcal-id="sub-504-a"]').focus();
+      await page.keyboard.press('Alt+ArrowDown');
+      await expect.poll(webcalOrder).toEqual(['sub-504-b', 'sub-504-a', 'sub-504-c']);
+      await expect(page.locator('#webcal-list [data-webcal-id="sub-504-a"]')).toBeFocused();
+
+      await dragOntoTop(page, page.locator('#webcal-list [data-webcal-id="sub-504-c"]'),
+        page.locator('#webcal-list [data-webcal-id="sub-504-b"]'));
+      await expect.poll(webcalOrder).toEqual(['sub-504-c', 'sub-504-b', 'sub-504-a']);
+      expect(puts).toEqual([
+        ['webcal::sub-504-b', 'webcal::sub-504-a', 'webcal::sub-504-c'],
+        ['webcal::sub-504-c', 'webcal::sub-504-b', 'webcal::sub-504-a'],
+      ]);
+    });
+  });
 });
