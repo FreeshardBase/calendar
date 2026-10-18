@@ -6925,7 +6925,12 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       expect(await titlesIn(page, targetId)).toEqual(['safdsaf']);
       expect(await titlesIn(page, sourceId)).toEqual([]);
-      // Reopened, the dialog shows the new calendar.
+      // #571: after a reload the stored state, not the optimistic preview, is shown; reopened,
+      // the dialog shows the new calendar.
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await titlesIn(page, targetId)).toEqual(['safdsaf']);
+      expect(await titlesIn(page, sourceId)).toEqual([]);
       await page.locator('.event-chip').filter({ hasText: 'safdsaf' }).first().click();
       await page.click('#popover-edit-btn');
       await expect(page.locator('#ev-calendar')).toHaveValue(targetId);
@@ -6962,6 +6967,101 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       expect(await titlesIn(page, sourceId)).toEqual(['E2E 494 bleibt']);
       expect(await titlesIn(page, targetId)).toEqual([]);
+    });
+  });
+
+  test.describe('Issue #571 — with the service worker running, a deployed version takes effect on the next load', () => {
+    const http = require('http');
+    // #357: the worker's own requests (its script and update checks, the precache, its fetches)
+    // carry no extraHTTPHeaders, and Playwright does not even route the browser's update check.
+    // So the browser goes through a forward proxy that adds the platform proxy's headers to every
+    // request, as the real one does. It also serves the "deployed" variant of the files in `deployed`.
+    let proxy;
+    let deployed;
+
+    test.beforeAll(async () => {
+      const upstream = new URL(webServer.url);
+      proxy = http.createServer((req, res) => {
+        const { pathname, search } = new URL(req.url);
+        const variant = deployed[pathname];
+        const headers = {
+          ...req.headers,
+          'x-freeshard-secret': webServer.env.HTTP_HEADER_AUTH_SECRET,
+          'x-ptl-client-type': 'terminal',
+          ...(variant ? { 'accept-encoding': 'identity' } : {}),
+        };
+        const forward = http.request({
+          host: upstream.hostname, port: upstream.port, path: pathname + search, method: req.method, headers,
+        }, (answer) => {
+          if (!variant) {
+            res.writeHead(answer.statusCode, answer.headers);
+            answer.pipe(res);
+            return;
+          }
+          let body = '';
+          answer.setEncoding('utf8');
+          answer.on('data', (chunk) => { body += chunk; });
+          answer.on('end', () => {
+            const { 'content-length': _length, etag: _etag, 'last-modified': _modified, ...rest } = answer.headers;
+            res.writeHead(answer.statusCode, rest);
+            res.end(`${body}\n;self.__e2eDeployed = ${JSON.stringify(variant)};\n`);
+          });
+        });
+        forward.on('error', (err) => res.destroy(err));
+        req.pipe(forward);
+      });
+      await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    });
+
+    test.afterAll(async () => {
+      await new Promise((resolve) => proxy.close(resolve));
+    });
+
+    async function controlledPage(browser) {
+      const context = await browser.newContext({
+        serviceWorkers: 'allow',
+        // Chromium sends loopback requests past a proxy unless told otherwise.
+        proxy: { server: `http://127.0.0.1:${proxy.address().port}`, bypass: '<-loopback>' },
+      });
+      const page = await context.newPage();
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { timeout: 10000 }).toBe(true);
+      return { context, page };
+    }
+
+    test('a changed app asset is used after one reload, not the copy the worker cached', async ({ browser }) => {
+      deployed = { '/js/safeUrl.js': 'v1' };
+      const { context, page } = await controlledPage(browser);
+      // The worker precached the asset on install, so a stale copy is in its cache.
+      expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v1');
+
+      deployed = { '/js/safeUrl.js': 'v2' };
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+      expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v2');
+      await context.close();
+    });
+
+    test('a new worker taking over offers to reload, and the reload runs the new version', async ({ browser }) => {
+      deployed = { '/js/safeUrl.js': 'v1', '/sw.js': 'sw1' };
+      const { context, page } = await controlledPage(browser);
+      const banner = page.locator('#update-banner');
+      await expect(banner).toBeHidden();
+
+      // A deploy while the page is open: the worker checks for an update and takes over.
+      deployed = { '/js/safeUrl.js': 'v2', '/sw.js': 'sw2' };
+      await page.evaluate(() => navigator.serviceWorker.getRegistration().then(reg => reg.update()));
+
+      await expect(banner).toBeVisible({ timeout: 10000 });
+      await expect(banner).toContainText('Neue Version');
+      expect(await page.evaluate(() => window.__e2eDeployed)).toBe('v1');
+      await banner.getByRole('button', { name: 'Neu laden' }).click();
+      await expect.poll(() => page.evaluate(() => window.__e2eDeployed), { timeout: 10000 }).toBe('v2');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(banner).toBeHidden();
+      await context.close();
     });
   });
 

@@ -107,6 +107,14 @@ ul { list-style: none; }
 a { color: inherit; text-decoration: none; }
 .hidden { display: none !important; }
 
+/* #571: a newly deployed version took over the page */
+.update-banner {
+  position: sticky; top: 0; z-index: 99999;
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-3);
+  padding: 4px 12px; font-size: 13px;
+  background: var(--surface); color: var(--ink); border-bottom: 1px solid var(--border);
+}
+
 /* ── 3. Scrollbars ────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

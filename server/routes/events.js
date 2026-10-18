@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const path = require('path');
 const router = express.Router();
 const { getClientForAccount } = require('../caldav/helper');
 const { formatIfMatch } = require('../caldav/client');
@@ -20,7 +21,7 @@ const {
 } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
-const { checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
+const { canonicalCollectionPath, checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
 const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
@@ -365,9 +366,26 @@ router.put('/:uid', async (req, res) => {
 
     const targetRecurrenceId = recurrenceId || eventData.recurrenceId || (req.params.uid && req.params.uid.includes('::') ? req.params.uid.split('::')[1] : null) || (req.body.uid && req.body.uid.includes('::') ? req.body.uid.split('::')[1] : null);
 
-    // The event is stored in `sourceCalendarId` and was given another calendar in the dialog (#494).
-    if (sourceCalendarId && sourceCalendarId !== calendarId) {
-      return await moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, eventData, targetRecurrenceId });
+    // #571: the event is stored in the calendar its href lies in. The server checks that itself
+    // instead of trusting the client to announce a move: an href outside `calendarId` without
+    // `sourceCalendarId` would otherwise be written back where it was and answered with success.
+    if (sourceCalendarId) {
+      if (!hrefLiesIn(href, sourceCalendarId)) {
+        return res.status(400).json({ error: 'sourceCalendarId is not the calendar of href' });
+      }
+      // The event was given another calendar in the dialog (#494).
+      if (calendarKey(sourceCalendarId) !== calendarKey(calendarId)) {
+        return await moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, eventData, targetRecurrenceId });
+      }
+    } else if (!hrefLiesIn(href, calendarId)) {
+      // A foreign href stays an authorization failure (#232); only an accessible one is a conflict.
+      const hrefCalId = extractCalendarIdFromHref(calendarId.split('::')[0], href);
+      if (!hrefCalId) return res.status(400).json({ error: 'Invalid href' });
+      const hrefAccess = await checkCalendarAccess(req, hrefCalId, 'write');
+      if (!hrefAccess.allowed) {
+        return res.status(hrefAccess.status || 403).json({ error: hrefAccess.reason });
+      }
+      return res.status(409).json({ error: 'The event is stored in another calendar than calendarId; send sourceCalendarId to move it' });
     }
 
     const accountId = calendarId.split('::')[0];
@@ -727,6 +745,27 @@ async function deleteStoredEvent(req, client, eventUrl, etag, { uid, derivedCalI
     for (const record of crossUserDeletions) await Db.clearCrossUserDeletion(record.id);
     throw delErr;
   }
+}
+
+/**
+ * A calendar id in comparable form (#571): account plus canonical collection path, so
+ * "/u/Pers%C3%B6nlich/" and "/u/Persönlich/" are one calendar. Null if it cannot be decoded.
+ */
+function calendarKey(calendarId) {
+  const sep = calendarId.indexOf('::');
+  if (sep === -1) return null;
+  const collectionPath = canonicalCollectionPath(calendarId.slice(sep + 2));
+  if (collectionPath === null) return null;
+  return `${calendarId.slice(0, sep)}::${collectionPath.replace(/\/*$/, '/')}`;
+}
+
+/** Whether the resource `href`, taken within the account of `calendarId`, is stored directly in that calendar (#571). */
+function hrefLiesIn(href, calendarId) {
+  const key = calendarKey(calendarId);
+  const resourcePath = canonicalCollectionPath(href);
+  if (key === null || resourcePath === null || resourcePath.endsWith('/')) return false;
+  const accountId = calendarId.slice(0, calendarId.indexOf('::'));
+  return calendarKey(`${accountId}::${path.posix.dirname(resourcePath)}`) === key;
 }
 
 /**
