@@ -935,6 +935,31 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
 
+/* Collapsible form section (#506): rarely used fields of a dialog. */
+.form-section { border-top: var(--border-w) solid var(--border); }
+.form-section:last-of-type { border-bottom: var(--border-w) solid var(--border); margin-bottom: var(--sp-4); }
+.form-section-summary {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: 44px;
+  cursor: pointer; list-style: none;
+  font: 600 var(--fs-label)/1 var(--font-ui);
+  text-transform: uppercase; letter-spacing: var(--ls-label);
+  color: var(--ink-muted);
+  transition: color var(--t);
+}
+.form-section-summary::-webkit-details-marker { display: none; }
+.form-section-summary::before {
+  content: ''; width: 6px; height: 6px;
+  border-right: var(--border-w-glyph) solid currentColor;
+  border-bottom: var(--border-w-glyph) solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--t);
+}
+.form-section[open] > .form-section-summary::before { transform: rotate(45deg); }
+.form-section-summary:hover { color: var(--ink); }
+.form-section-summary:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; border-radius: var(--radius-sm); }
+.form-section-body { padding: var(--sp-1) 0 var(--sp-2); }
+
 .form-error {
   font-size: 11px; color: var(--danger);
   margin-top: var(--sp-2);

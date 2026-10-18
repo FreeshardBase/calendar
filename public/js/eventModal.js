@@ -221,6 +221,8 @@ export function openEditModal(event, callbacks) {
     const catList = Array.isArray(event.categories) ? event.categories : [];
     $('ev-categories').value = catList.join(', ');
   }
+  $('ev-transp').value = event.transp || 'OPAQUE';
+  $('ev-class').value  = event.classification || 'PUBLIC';
 
   const allDay = event.allDay;
   $('ev-allday').checked = allDay;
@@ -357,6 +359,14 @@ export function openEditModal(event, callbacks) {
   if ($('ev-attachment-url')) $('ev-attachment-url').value = firstAttach ? (firstAttach.url || '') : '';
   if ($('ev-attachment-name')) $('ev-attachment-name').value = firstAttach ? (firstAttach.name || '') : '';
 
+  // #506: a collapsed section the event has content in opens by itself.
+  $('ev-section-recurrence').open = Boolean(event.recurrence);
+  $('ev-section-alarm').open      = eventAlarms.length > 0;
+  $('ev-section-attendees').open  = (event.attendees || []).length > 0;
+  $('ev-section-link').open       = Boolean(firstAttach);
+  $('ev-section-more').open       = (event.categories || []).length > 0
+    || $('ev-transp').value !== 'OPAQUE' || $('ev-class').value !== 'PUBLIC';
+
   _recurrenceTouched = false;
   show();
 }
@@ -483,6 +493,7 @@ function resetForm() {
 
   if ($('ev-attachment-url')) $('ev-attachment-url').value = '';
   if ($('ev-attachment-name')) $('ev-attachment-name').value = '';
+  form().querySelectorAll('details.form-section').forEach(section => { section.open = false; });
   $('event-form-error').classList.add('hidden');
   $('ev-attendee-list').innerHTML = '';
 
@@ -754,7 +765,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
 
   const attachUrl = $('ev-attachment-url') ? $('ev-attachment-url').value.trim() : '';
   const attachName = $('ev-attachment-name') ? $('ev-attachment-name').value.trim() : '';
-  const attachments = attachUrl ? [{ url: attachUrl, name: attachName || attachUrl.split('/').pop() || 'Anhang' }] : [];
+  const attachments = attachUrl ? [{ url: attachUrl, name: attachName || attachUrl.split('/').pop() || 'Link' }] : [];
 
   const rawCatVal = $('ev-categories') ? $('ev-categories').value.trim() : '';
   const categories = rawCatVal ? rawCatVal.split(',').map(c => c.trim()).filter(Boolean) : [];
@@ -772,6 +783,8 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     recurrence,
     alarms,
     attachments,
+    transp:         $('ev-transp').value,
+    classification: $('ev-class').value,
     startTimeZone: allDay ? null : startTimeZone,
     endTimeZone:   allDay ? null : endTimeZone
   };
@@ -869,6 +882,8 @@ function previewEvent(payload, original) {
     recurrence: payload.recurrence,
     alarms: payload.alarms,
     attachments: payload.attachments,
+    transp: payload.transp,
+    classification: payload.classification,
     startTimeZone: payload.startTimeZone,
     endTimeZone: payload.endTimeZone
   };

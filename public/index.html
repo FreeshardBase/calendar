@@ -611,123 +611,8 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="ev-recurrence">Wiederholung</label>
-          <select class="form-select" id="ev-recurrence">
-            <option value="">Keine Wiederholung</option>
-            <option value="DAILY">Täglich</option>
-            <option value="WEEKLY">Wöchentlich</option>
-            <option value="MONTHLY">Monatlich</option>
-            <option value="YEARLY">Jährlich</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="ev-alarm">Erinnerung (VALARM)</label>
-          <select class="form-select" id="ev-alarm">
-            <option value="">Keine Erinnerung</option>
-            <option value="PT0S">Zum Zeitpunkt des Termins</option>
-            <option value="-PT5M">5 Minuten vorher</option>
-            <option value="-PT15M">15 Minuten vorher</option>
-            <option value="-PT30M">30 Minuten vorher</option>
-            <option value="-PT1H">1 Stunde vorher</option>
-            <option value="-P1D">1 Tag vorher</option>
-          </select>
-          <span class="form-hint hidden" id="ev-alarm-extra"></span>
-        </div>
-
-        <!-- Weekly days selector (hidden by default) -->
-        <div class="form-group hidden" id="recur-weekly-days">
-          <div class="form-label" id="recur-weekly-caption">Wiederholen am</div>
-          <div class="weekdays-checkgrid" role="group" aria-labelledby="recur-weekly-caption">
-            <label class="weekday-check"><input type="checkbox" value="MO" class="recur-byday"> Mo</label>
-            <label class="weekday-check"><input type="checkbox" value="TU" class="recur-byday"> Di</label>
-            <label class="weekday-check"><input type="checkbox" value="WE" class="recur-byday"> Mi</label>
-            <label class="weekday-check"><input type="checkbox" value="TH" class="recur-byday"> Do</label>
-            <label class="weekday-check"><input type="checkbox" value="FR" class="recur-byday"> Fr</label>
-            <label class="weekday-check"><input type="checkbox" value="SA" class="recur-byday"> Sa</label>
-            <label class="weekday-check"><input type="checkbox" value="SU" class="recur-byday"> So</label>
-          </div>
-        </div>
-
-        <!-- Monthly options selector (hidden by default) -->
-        <div class="form-group hidden" id="recur-monthly-opts">
-          <div class="form-label" id="recur-monthly-caption">Wiederholen am</div>
-          <div class="radio-group" role="group" aria-labelledby="recur-monthly-caption">
-            <label class="radio-option">
-              <input type="radio" name="recur-monthly-type" value="BYMONTHDAY" checked>
-              <span id="recur-monthly-day-lbl">Am gleichen Kalendertag</span>
-            </label>
-            <div class="radio-option-row">
-              <label class="radio-option">
-                <input type="radio" name="recur-monthly-type" value="BYDAY">
-                Am:
-              </label>
-              <select class="form-select inline-select" id="recur-monthly-week-idx" aria-label="Woche des Monats">
-                <option value="1">ersten</option>
-                <option value="2">zweiten</option>
-                <option value="3">dritten</option>
-                <option value="4">vierten</option>
-                <option value="5">fünften</option>
-                <option value="-1">letzten</option>
-              </select>
-              <select class="form-select inline-select" id="recur-monthly-weekday" aria-label="Wochentag">
-                <option value="MO">Montag</option>
-                <option value="TU">Dienstag</option>
-                <option value="WE">Mittwoch</option>
-                <option value="TH">Donnerstag</option>
-                <option value="FR">Freitag</option>
-                <option value="SA">Samstag</option>
-                <option value="SU">Sonntag</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Recurrence End Section (hidden by default) -->
-        <div class="form-group hidden" id="recur-end-section">
-          <div class="form-label" id="recur-end-caption">Ende der Wiederholung</div>
-          <div class="radio-group" role="group" aria-labelledby="recur-end-caption">
-            <label class="radio-option">
-              <input type="radio" name="recur-end-type" value="NEVER" checked>
-              <span>Nie</span>
-            </label>
-            <div class="radio-option-row">
-              <label class="radio-option">
-                <input type="radio" name="recur-end-type" value="UNTIL">
-                Am:
-              </label>
-              <input class="form-input inline-input" type="date" id="recur-end-date" aria-label="Enddatum der Wiederholung">
-            </div>
-            <div class="radio-option-row">
-              <label class="radio-option">
-                <input type="radio" name="recur-end-type" value="COUNT">
-                Nach:
-              </label>
-              <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;" aria-label="Anzahl Wiederholungen">
-              <span>Wiederholungen</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="form-group">
           <label class="form-label" for="ev-location">Ort</label>
           <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" />
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="ev-attachment-url">Dateianhang / Drive Link</label>
-            <input class="form-input" id="ev-attachment-url" type="url" placeholder="https://files.freeshard.local/d/..." />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="ev-attachment-name">Dateiname (optional)</label>
-            <input class="form-input" id="ev-attachment-name" type="text" placeholder="z. B. Dokument.pdf" />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="ev-categories">Kategorien / Tags</label>
-          <input class="form-input" id="ev-categories" type="text" placeholder="Kategorien (z. B. Arbeit, Meeting)" />
         </div>
 
         <div class="form-group">
@@ -736,16 +621,173 @@
                     placeholder="Optionale Beschreibung…" rows="3"></textarea>
         </div>
 
-        <!-- Attendees -->
-        <div class="form-group">
-          <div class="form-label" id="ev-attendees-caption">Teilnehmende</div>
-          <div class="attendee-input-row" role="group" aria-labelledby="ev-attendees-caption">
-            <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" aria-label="Name der teilnehmenden Person" />
-            <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" aria-label="E-Mail der teilnehmenden Person" />
-            <button type="button" class="btn btn-ghost" id="add-attendee-btn">Hinzufügen</button>
+        <!-- #506: rarely used fields, collapsed unless the event uses them -->
+        <details class="form-section" id="ev-section-recurrence">
+          <summary class="form-section-summary">Wiederholung</summary>
+          <div class="form-section-body">
+            <div class="form-group">
+              <label class="form-label sr-only" for="ev-recurrence">Wiederholung</label>
+              <select class="form-select" id="ev-recurrence">
+                <option value="">Keine Wiederholung</option>
+                <option value="DAILY">Täglich</option>
+                <option value="WEEKLY">Wöchentlich</option>
+                <option value="MONTHLY">Monatlich</option>
+                <option value="YEARLY">Jährlich</option>
+              </select>
+            </div>
+
+            <!-- Weekly days selector (hidden by default) -->
+            <div class="form-group hidden" id="recur-weekly-days">
+              <div class="form-label" id="recur-weekly-caption">Wiederholen am</div>
+              <div class="weekdays-checkgrid" role="group" aria-labelledby="recur-weekly-caption">
+                <label class="weekday-check"><input type="checkbox" value="MO" class="recur-byday"> Mo</label>
+                <label class="weekday-check"><input type="checkbox" value="TU" class="recur-byday"> Di</label>
+                <label class="weekday-check"><input type="checkbox" value="WE" class="recur-byday"> Mi</label>
+                <label class="weekday-check"><input type="checkbox" value="TH" class="recur-byday"> Do</label>
+                <label class="weekday-check"><input type="checkbox" value="FR" class="recur-byday"> Fr</label>
+                <label class="weekday-check"><input type="checkbox" value="SA" class="recur-byday"> Sa</label>
+                <label class="weekday-check"><input type="checkbox" value="SU" class="recur-byday"> So</label>
+              </div>
+            </div>
+
+            <!-- Monthly options selector (hidden by default) -->
+            <div class="form-group hidden" id="recur-monthly-opts">
+              <div class="form-label" id="recur-monthly-caption">Wiederholen am</div>
+              <div class="radio-group" role="group" aria-labelledby="recur-monthly-caption">
+                <label class="radio-option">
+                  <input type="radio" name="recur-monthly-type" value="BYMONTHDAY" checked>
+                  <span id="recur-monthly-day-lbl">Am gleichen Kalendertag</span>
+                </label>
+                <div class="radio-option-row">
+                  <label class="radio-option">
+                    <input type="radio" name="recur-monthly-type" value="BYDAY">
+                    Am:
+                  </label>
+                  <select class="form-select inline-select" id="recur-monthly-week-idx" aria-label="Woche des Monats">
+                    <option value="1">ersten</option>
+                    <option value="2">zweiten</option>
+                    <option value="3">dritten</option>
+                    <option value="4">vierten</option>
+                    <option value="5">fünften</option>
+                    <option value="-1">letzten</option>
+                  </select>
+                  <select class="form-select inline-select" id="recur-monthly-weekday" aria-label="Wochentag">
+                    <option value="MO">Montag</option>
+                    <option value="TU">Dienstag</option>
+                    <option value="WE">Mittwoch</option>
+                    <option value="TH">Donnerstag</option>
+                    <option value="FR">Freitag</option>
+                    <option value="SA">Samstag</option>
+                    <option value="SU">Sonntag</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recurrence End Section (hidden by default) -->
+            <div class="form-group hidden" id="recur-end-section">
+              <div class="form-label" id="recur-end-caption">Ende der Wiederholung</div>
+              <div class="radio-group" role="group" aria-labelledby="recur-end-caption">
+                <label class="radio-option">
+                  <input type="radio" name="recur-end-type" value="NEVER" checked>
+                  <span>Nie</span>
+                </label>
+                <div class="radio-option-row">
+                  <label class="radio-option">
+                    <input type="radio" name="recur-end-type" value="UNTIL">
+                    Am:
+                  </label>
+                  <input class="form-input inline-input" type="date" id="recur-end-date" aria-label="Enddatum der Wiederholung">
+                </div>
+                <div class="radio-option-row">
+                  <label class="radio-option">
+                    <input type="radio" name="recur-end-type" value="COUNT">
+                    Nach:
+                  </label>
+                  <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;" aria-label="Anzahl Wiederholungen">
+                  <span>Wiederholungen</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <ul class="attendee-list" id="ev-attendee-list"></ul>
-        </div>
+        </details>
+
+        <details class="form-section" id="ev-section-alarm">
+          <summary class="form-section-summary">Erinnerung</summary>
+          <div class="form-section-body">
+            <div class="form-group">
+              <label class="form-label sr-only" for="ev-alarm">Erinnerung</label>
+              <select class="form-select" id="ev-alarm">
+                <option value="">Keine Erinnerung</option>
+                <option value="PT0S">Zum Zeitpunkt des Termins</option>
+                <option value="-PT5M">5 Minuten vorher</option>
+                <option value="-PT15M">15 Minuten vorher</option>
+                <option value="-PT30M">30 Minuten vorher</option>
+                <option value="-PT1H">1 Stunde vorher</option>
+                <option value="-P1D">1 Tag vorher</option>
+              </select>
+              <span class="form-hint hidden" id="ev-alarm-extra"></span>
+            </div>
+          </div>
+        </details>
+
+        <details class="form-section" id="ev-section-attendees">
+          <summary class="form-section-summary">Teilnehmende</summary>
+          <div class="form-section-body">
+            <div class="form-group">
+              <div class="form-label sr-only" id="ev-attendees-caption">Teilnehmende</div>
+              <div class="attendee-input-row" role="group" aria-labelledby="ev-attendees-caption">
+                <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" aria-label="Name der teilnehmenden Person" />
+                <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" aria-label="E-Mail der teilnehmenden Person" />
+                <button type="button" class="btn btn-ghost" id="add-attendee-btn">Hinzufügen</button>
+              </div>
+              <ul class="attendee-list" id="ev-attendee-list"></ul>
+            </div>
+          </div>
+        </details>
+
+        <details class="form-section" id="ev-section-link">
+          <summary class="form-section-summary">Link</summary>
+          <div class="form-section-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="ev-attachment-url">Link</label>
+                <input class="form-input" id="ev-attachment-url" type="url" placeholder="https://…" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="ev-attachment-name">Name des Links (optional)</label>
+                <input class="form-input" id="ev-attachment-name" type="text" placeholder="z. B. Protokoll" />
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="form-section" id="ev-section-more">
+          <summary class="form-section-summary">Weitere Angaben</summary>
+          <div class="form-section-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="ev-transp">Verfügbarkeit</label>
+                <select class="form-select" id="ev-transp">
+                  <option value="OPAQUE">Beschäftigt</option>
+                  <option value="TRANSPARENT">Frei</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="ev-class">Sichtbarkeit</label>
+                <select class="form-select" id="ev-class">
+                  <option value="PUBLIC">Öffentlich</option>
+                  <option value="PRIVATE">Privat</option>
+                  <option value="CONFIDENTIAL">Vertraulich</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ev-categories">Kategorien</label>
+              <input class="form-input" id="ev-categories" type="text" placeholder="z. B. Arbeit, Meeting" />
+            </div>
+          </div>
+        </details>
 
         <div id="event-form-error" class="form-error hidden" role="alert"></div>
 
