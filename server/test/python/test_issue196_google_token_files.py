@@ -147,7 +147,7 @@ class TestIssue196GoogleTokenFiles(unittest.TestCase):
             ok, err = self._sync_user()
 
         self.assertTrue(ok, err)
-        self.assertEqual(commands, ["discover", "sync"])
+        self.assertEqual(commands, ["discover", "sync", "metasync"])
         configs = [v for k, v in self.seen.items() if not k.startswith("google_token_")]
         self.assertEqual(len(configs), 1, self.seen)
         config_path, file_mode, dir_mode, content = configs[0]

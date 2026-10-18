@@ -155,13 +155,22 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph → Radicale import, the only Graph sync path).
   Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
   `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google
-  name as `displayname` (one-way; no metasync, which would push app renames to Google) and a VEVENT-only
+  name as `displayname` and a VEVENT-only
   `supported-calendar-component-set`, since Google's CalDAV has no tasks (#495). Radicale itself stores a
   VTODO in any collection, so `routes/tasks.js` PROPFINDs the target's component set and refuses (422) a task
   write into a collection without VTODO; the task dialog offers only VTODO collections, and a changed list
   moves the task (`sourceCalendarId`, create in target then delete source, like event moves #494). A `google-<slug>`
   collection from older worker versions is adopted only if that account's pair has vdirsyncer status for it.
   The create route never puts app calendars under `google-` (#193).
+- Calendar colour and name (#505): every Google and Basic-auth CalDAV pair declares
+  `metadata = ["color", "displayname"]` and the worker runs `vdirsyncer metasync` after `sync`. metasync compares
+  both sides with its last run (`<status>/<pair>/<collection>.metadata`), so whichever side changed since then wins;
+  if both changed, the pair's `conflict_resolution = "b wins"` keeps the shard's value, since every app change
+  queues a sync at once and is the newer one. `PATCH /api/calendars/:id` on a calendar the user may write
+  PROPPATCHes `displayname`/`apple:calendar-color` into the collection (a refused PROPPATCH fails the request)
+  and drops the user's colour override, which would hide colours synced from the provider. On a read-only
+  calendar (shared read-only) the colour is only the user's override in `user_calendar_color_overrides` (#4):
+  it never reaches Radicale, so it is never pushed. The sidebar offers such calendars a colour-only dialog.
 - Collection types (#500): `POST /api/calendars` requires `type` — `calendar` (VEVENT, "Kalender"), `tasklist`
   (VTODO, "Aufgabenliste") or `mixed` (both) — and MKCALENDARs that `supported-calendar-component-set`. A new
   user gets `/personal/` (Kalender) and `/tasks/` (Aufgabenliste). Calendar views and the event/import/booking

@@ -7554,4 +7554,100 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       ]);
     });
   });
+
+  test.describe('Issue #505 — calendar colours live in the collection, where the sync worker picks them up', () => {
+    const { Agent } = require('undici');
+
+    // PROPFIND/PROPPATCH of the collection's apple:calendar-color, straight on Radicale.
+    async function radicale(id, method, prop) {
+      const dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      try {
+        const body = method === 'PROPFIND'
+          ? '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">'
+            + '<d:prop><a:calendar-color/></d:prop></d:propfind>'
+          : '<?xml version="1.0" encoding="utf-8"?><d:propertyupdate xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">'
+            + `<d:set><d:prop><a:calendar-color>${prop}</a:calendar-color></d:prop></d:set></d:propertyupdate>`;
+        const res = await fetch(`${webServer.env.INTERNAL_CALDAV_URL}${id.split('::')[1]}`, {
+          method, dispatcher, body,
+          headers: {
+            Authorization: 'Basic ' + Buffer.from(`${E2E_USER}:${webServer.env.SYSTEM_SYNC_SECRET}`).toString('base64'),
+            'Accept-Encoding': 'identity',
+            'Content-Type': 'application/xml; charset=utf-8',
+            Depth: '0',
+          },
+        });
+        expect(res.status, `${method} ${id}`).toBe(207);
+        const match = (await res.text()).match(/calendar-color[^>]*>([^<]+)</);
+        return match ? match[1] : null;
+      } finally {
+        await dispatcher.close();
+      }
+    }
+
+    const dot = (page, id) => page.locator(`#calendar-list [data-cal-id="${id}"] .calendar-dot`);
+
+    test('a colour picked in the dialog is stored in Radicale, and a colour synced into Radicale shows after reload', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const name = `E2E 505 ${Date.now().toString(36)}`;
+      const created = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN,
+        data: { accountId: 'internal-caldav', name, color: '#3366cc', type: 'calendar' },
+      });
+      expect(created.status()).toBe(201);
+      // The run's teardown removes the collection with the run's principal (#217).
+      const id = (await created.json()).id;
+      await page.reload();
+      await expect(dot(page, id)).toBeVisible({ timeout: 10000 });
+      await page.locator(`#calendar-list [data-cal-id="${id}"] [data-edit-cal]`).click();
+      const dialog = page.locator('#edit-cal-dialog-backdrop');
+      await expect(dialog.locator('#edit-cal-name')).toHaveValue(name);
+      await dialog.locator('#edit-cal-color').fill('#ab12cd');
+      const saved = page.waitForResponse(r => r.request().method() === 'PATCH' && r.url().includes('/api/calendars/'));
+      await dialog.locator('#edit-cal-submit').click();
+      expect((await saved).status()).toBe(200);
+      await expect(dialog).toHaveCount(0);
+      await expect(dot(page, id)).toHaveCSS('background-color', 'rgb(171, 18, 205)');
+      expect((await radicale(id, 'PROPFIND')).toLowerCase()).toMatch(/^#ab12cd/);
+
+      // The sync worker writes the provider's colour into the collection; nothing in the app hides it.
+      await radicale(id, 'PROPPATCH', '#00aa11');
+      await page.reload();
+      await expect(dot(page, id)).toHaveCSS('background-color', 'rgb(0, 170, 17)', { timeout: 10000 });
+    });
+
+    test('a read-only shared calendar gets a colour-only dialog that stores a local colour', async ({ page }) => {
+      const sharedCal = 'internal-caldav::/testuser-owner/e2e-505-shared/';
+      const calendars = [
+        { id: sharedCal, accountId: 'internal-caldav', name: 'E2E 505 Geteilt', color: '#123456',
+          href: '/testuser-owner/e2e-505-shared/', owner: 'testuser-owner',
+          isShared: true, readOnly: true, supportsVEVENT: true, supportsVTODO: false },
+      ];
+      const patches = [];
+      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+        ? route.fulfill({ json: { calendars, errors: [] } })
+        : route.fallback()));
+      await page.route('**/api/calendars/*', route => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        patches.push(route.request().postDataJSON());
+        return route.fulfill({ json: { message: 'Calendar updated', calendarId: sharedCal, color: '#ec4899' } });
+      });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+      const edit = page.locator(`#calendar-list [data-cal-id="${sharedCal}"] [data-edit-cal]`);
+      await expect(edit).toHaveAccessibleName('Farbe ändern');
+      await edit.click();
+      const dialog = page.locator('#edit-cal-dialog-backdrop');
+      await expect(dialog.locator('#edit-cal-dialog-title')).toHaveText('Farbe von „E2E 505 Geteilt“');
+      await expect(dialog.locator('#edit-cal-name')).toHaveCount(0);
+      await expect(dialog.locator('#edit-cal-color')).toHaveAccessibleDescription('Nur für dich. Die Farbe wird nicht synchronisiert.');
+      await expect(dialog.locator('#edit-cal-color')).toBeFocused();
+      await dialog.locator('#edit-cal-color').fill('#ec4899');
+      await dialog.locator('#edit-cal-submit').click();
+      await expect(dialog).toHaveCount(0);
+      expect(patches).toEqual([{ color: '#ec4899' }]);
+      await expect(dot(page, sharedCal)).toHaveCSS('background-color', 'rgb(236, 72, 153)');
+    });
+  });
 });
