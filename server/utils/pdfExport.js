@@ -105,6 +105,11 @@ class PdfDocumentBuilder {
   }
 }
 
+// #497: the browser sends its own event shape (start/title); dtstart/summary are the iCal names.
+function eventStart(ev) {
+  return ev.start || ev.dtstart || ev.start_time || null;
+}
+
 function generateCalendarPDF(opts = {}) {
   const {
     view = 'month',
@@ -190,7 +195,7 @@ function renderMonthGrid(doc, width, height, year, month, events) {
         // Find events for this day
         const dayStr = `${year}-${String(month).padStart(2, '0')}-${String(currentDay).padStart(2, '0')}`;
         const dayEvents = events.filter((ev) => {
-          const evDate = (ev.dtstart || ev.start_time || '').slice(0, 10);
+          const evDate = (eventStart(ev) || '').slice(0, 10);
           return evDate === dayStr;
         });
 
@@ -254,7 +259,8 @@ function renderWeekGrid(doc, width, height, year, week, events) {
 
   // Draw week events if any match
   events.forEach((ev) => {
-    const dt = new Date(ev.dtstart || ev.start_time || Date.now());
+    if (!eventStart(ev)) return;
+    const dt = new Date(eventStart(ev));
     let dayOfWeek = dt.getUTCDay() - 1;
     if (dayOfWeek < 0) dayOfWeek = 6;
 
