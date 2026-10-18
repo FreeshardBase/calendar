@@ -4,7 +4,7 @@ const { sendError } = require('../utils/errorSanitizer');
 const express = require('express');
 const router = express.Router();
 const Db = require('../db');
-const { calculateFreeSlots } = require('../utils/availabilityBooking');
+const { calculateFreeSlots, parseBookingSettings, BookingSettingsError } = require('../utils/availabilityBooking');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { getBusyIntervals, createBookingEvent } = require('../utils/bookingCalendar');
 const {
@@ -42,7 +42,7 @@ function serializeForOwner(ownerId, fn) {
 
 /**
  * Free slots of the page on dateStr: owner's busy time and existing bookings
- * removed, only slots from now up to one year ahead.
+ * removed, only slots from now plus the page's minimum notice up to one year ahead.
  */
 async function freeSlotsFor(page, dateStr, { cached = false } = {}) {
   const now = Date.now();
@@ -50,7 +50,8 @@ async function freeSlotsFor(page, dateStr, { cached = false } = {}) {
   const dayEnd = new Date(dayStart.getTime() + DAY_MS);
   if (dayEnd.getTime() <= now || dayStart.getTime() > now + BOOKING_HORIZON_MS) return [];
   const slots = await (cached ? cachedDaySlots(page, dateStr, dayStart, dayEnd) : daySlots(page, dateStr, dayStart, dayEnd));
-  return slots.filter(slot => new Date(slot.startTime).getTime() > now);
+  const earliest = now + page.minNoticeMinutes * 60 * 1000;
+  return slots.filter(slot => new Date(slot.startTime).getTime() > earliest);
 }
 
 async function daySlots(page, dateStr, dayStart, dayEnd) {
@@ -158,9 +159,16 @@ router.post('/availability-slots', async (req, res) => {
       return res.status(401).json({ error: 'Nicht authentifiziert' });
     }
 
-    const { slug, title, calendarId, durationMinutes, startHour, endHour, daysOfWeek } = req.body;
+    const { slug, title, calendarId } = req.body;
     if (!slug || !title || !calendarId) {
       return res.status(400).json({ error: 'Slug, Titel und Kalender-ID sind erforderlich' });
+    }
+    let settings;
+    try {
+      settings = parseBookingSettings(req.body);
+    } catch (err) {
+      if (err instanceof BookingSettingsError) return res.status(400).json({ error: err.message });
+      throw err;
     }
     const busyCalendarIds = req.body.busyCalendarIds === undefined ? [] : req.body.busyCalendarIds;
     if (!Array.isArray(busyCalendarIds) || busyCalendarIds.length > MAX_BUSY_CALENDARS ||
@@ -193,10 +201,7 @@ router.post('/availability-slots', async (req, res) => {
       slug: cleanSlug,
       title: title.trim(),
       calendarId,
-      durationMinutes: durationMinutes || 30,
-      startHour: startHour !== undefined ? startHour : 9,
-      endHour: endHour !== undefined ? endHour : 17,
-      daysOfWeek: daysOfWeek || '1,2,3,4,5',
+      ...settings,
       busyCalendarIds: [...new Set(busyCalendarIds)].filter(id => id !== calendarId)
     });
 

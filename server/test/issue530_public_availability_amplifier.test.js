@@ -137,13 +137,15 @@ function freshIp() {
   return `203.0.113.${ipCounter}`;
 }
 
+const everyDay = (start, end) => Array.from({ length: 7 }, () => [{ start, end }]);
+
 async function createPage(slug, extra = {}) {
   const res = await fetch(`${base}/api/availability-slots`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       slug, title: 'Test Consultation', calendarId: CAL_TARGET,
-      durationMinutes: 30, startHour: 9, endHour: 17, daysOfWeek: '0,1,2,3,4,5,6', ...extra
+      durationMinutes: 30, weeklyHours: everyDay('09:00', '17:00'), ...extra
     })
   });
   assert.equal(res.status, 201);
@@ -234,8 +236,8 @@ test('#530 a booking re-checks fresh busy time instead of the cached slots', asy
 });
 
 test('#530 cached slots expire after a minute and are kept per page', async (t) => {
-  await createPage('testuser-early', { startHour: 9, endHour: 10 });
-  await createPage('testuser-late', { startHour: 13, endHour: 14 });
+  await createPage('testuser-early', { weeklyHours: everyDay('09:00', '10:00') });
+  await createPage('testuser-late', { weeklyHours: everyDay('13:00', '14:00') });
   const early = await startsFor('testuser-early', dayAfter(2));
   const late = await startsFor('testuser-late', dayAfter(2));
   assert.deepEqual(early, [`${dayAfter(2)}T09:00:00.000Z`, `${dayAfter(2)}T09:30:00.000Z`]);

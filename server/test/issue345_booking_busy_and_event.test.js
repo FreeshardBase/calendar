@@ -168,7 +168,7 @@ async function createPage(slug, extra = {}, user = OWNER) {
     headers: { 'Content-Type': 'application/json', 'x-test-user': user },
     body: JSON.stringify({
       slug, title: 'Test Consultation', calendarId: CAL_TARGET,
-      durationMinutes: 30, startHour: 9, endHour: 17, daysOfWeek: '1,2,3,4,5', ...extra
+      durationMinutes: 30, ...extra
     })
   });
   return res;
@@ -391,7 +391,7 @@ test('#345 an upstream credential failure reaches the booker as "page unavailabl
 });
 
 test('#345 slots in the past are neither offered nor bookable', async () => {
-  assert.equal((await createPage('testuser-past', { daysOfWeek: '0,1,2,3,4,5,6' })).status, 201);
+  assert.equal((await createPage('testuser-past', { weeklyHours: Array.from({ length: 7 }, () => [{ start: '09:00', end: '17:00' }]) })).status, 201);
   const res = await slotsFor('testuser-past', '2020-01-06');
   assert.equal(res.status, 200);
   assert.deepEqual((await res.json()).availableSlots, []);

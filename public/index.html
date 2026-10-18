@@ -1161,7 +1161,7 @@
           </div>
           <div class="form-group">
             <label class="form-label" for="ap-duration">Dauer (Minuten)</label>
-            <input class="form-input" id="ap-duration" type="number" value="30" min="15" step="15" required />
+            <input class="form-input" id="ap-duration" type="number" value="30" min="15" max="720" step="15" required />
           </div>
         </div>
         <fieldset class="form-group" id="ap-busy-fieldset" style="border: none; padding: 0; margin: 0 0 12px;">
@@ -1169,14 +1169,23 @@
           <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;">Termine in diesen Kalendern blockieren Zeitslots. Der Ziel-Kalender zählt immer.</p>
           <div id="ap-busy-calendars"></div>
         </fieldset>
+        <fieldset class="form-group" id="ap-weekly-hours" style="border: none; padding: 0; margin: 0 0 12px;">
+          <legend class="form-label">Wochentage und Zeitfenster</legend>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;">Nur in diesen Zeitfenstern sind Termine buchbar. Zeitfenster eines Tages dürfen sich nicht überschneiden.</p>
+          <div id="ap-weekdays"></div>
+        </fieldset>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="ap-start-hour">Start-Uhrzeit (Std.)</label>
-            <input class="form-input" id="ap-start-hour" type="number" value="9" min="0" max="23" required />
+            <label class="form-label" for="ap-buffer">Puffer zwischen Terminen (Minuten)</label>
+            <input class="form-input" id="ap-buffer" type="number" value="0" min="0" max="1440" step="5" required />
           </div>
           <div class="form-group">
-            <label class="form-label" for="ap-end-hour">End-Uhrzeit (Std.)</label>
-            <input class="form-input" id="ap-end-hour" type="number" value="17" min="1" max="24" required />
+            <label class="form-label" for="ap-max-per-day">Höchstens Buchungen pro Tag</label>
+            <input class="form-input" id="ap-max-per-day" type="number" min="1" max="1000" placeholder="unbegrenzt" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ap-min-notice">Mindestvorlauf (Stunden)</label>
+            <input class="form-input" id="ap-min-notice" type="number" value="0" min="0" max="8760" required />
           </div>
         </div>
         <div class="modal-footer" style="padding-top:8px;">
