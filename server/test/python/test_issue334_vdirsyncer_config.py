@@ -123,7 +123,7 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
 
         (ok, err), _ = self._run_basic_sync(fake_run)
         self.assertTrue(ok, err)
-        self.assertEqual(len(seen), 2)
+        self.assertEqual(len(seen), 3)  # discover, sync, metasync (#505)
         path, file_mode, dir_mode = seen[0]
         self.assertNotEqual(path, f"/tmp/vdir_basic_{USER_ID}.ini")
         self.assertNotEqual(os.path.dirname(path), tempfile.gettempdir())
@@ -136,7 +136,7 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
         (ok, err), run_mock = self._run_basic_sync(
             lambda *a, **k: MagicMock(returncode=0, stdout="", stderr=""))
         self.assertTrue(ok, err)
-        self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(run_mock.call_count, 3)  # discover, sync, metasync (#505)
         for call in run_mock.call_args_list:
             self.assertIsInstance(call.kwargs.get("timeout"), (int, float))
             self.assertGreater(call.kwargs["timeout"], 0)

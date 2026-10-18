@@ -259,7 +259,7 @@ class StoredUrlRevalidationTest(WorkerOutboundGuardBase):
         (status, error), run = self.run_job({})
         self.assertEqual(status, "SUCCESS", error)
         self.assertEqual([m for m, _, _ in self.internal.requests], ["PROPFIND"])
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 3)  # discover, sync, metasync (#505)
 
 
 class DiscoveryPinningTest(WorkerOutboundGuardBase):

@@ -859,9 +859,10 @@ function calendarListItemHtml(c, hidden, orderGroup) {
           </svg>
         </button>`;
 
-  const editBtnHtml = c.readOnly
-    ? ''
-    : `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="Umbenennen" aria-label="Umbenennen">
+  // A read-only calendar can still get the user's own colour (#4), which is never synced (#505).
+  const editLabel = c.readOnly ? 'Farbe ändern' : 'Umbenennen';
+  const editBtnHtml =
+    `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="${editLabel}" aria-label="${editLabel}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -1236,6 +1237,8 @@ function renderSyncProgress(jobs) {
 
 function openEditCalendarDialog(cal) {
   document.getElementById('edit-cal-dialog-backdrop')?.remove();
+  // Read-only: only the user's local colour override, never the name (#4, #505).
+  const colorOnly = Boolean(cal.readOnly);
 
   const backdrop = document.createElement('div');
   backdrop.id = 'edit-cal-dialog-backdrop';
@@ -1243,7 +1246,7 @@ function openEditCalendarDialog(cal) {
   backdrop.innerHTML = `
     <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="edit-cal-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title" id="edit-cal-dialog-title">${collectionNoun(cal)} bearbeiten</h3>
+        <h3 class="modal-title" id="edit-cal-dialog-title">${colorOnly ? `Farbe von „${escHtml(cal.name)}“` : `${collectionNoun(cal)} bearbeiten`}</h3>
         <button class="icon-btn" id="edit-cal-close" aria-label="Schließen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -1252,16 +1255,18 @@ function openEditCalendarDialog(cal) {
       </div>
       <div class="modal-body">
         <form id="edit-cal-form" novalidate>
-          <div class="form-group">
+          ${colorOnly ? '' : `<div class="form-group">
             <label class="form-label" for="edit-cal-name">Name</label>
             <input class="form-input" id="edit-cal-name" type="text"
                    value="${escHtml(cal.name)}" required />
-          </div>
+          </div>`}
           <div class="form-group">
             <label class="form-label" for="edit-cal-color">Farbe</label>
             <input class="form-input" id="edit-cal-color" type="color"
                    value="${escHtml(sanitizeColor(cal.color, '#007080'))}"
+                   ${colorOnly ? 'aria-describedby="edit-cal-color-hint"' : ''}
                    style="height:40px;padding:4px 8px;cursor:pointer;" />
+            ${colorOnly ? '<p class="form-hint" id="edit-cal-color-hint">Nur für dich. Die Farbe wird nicht synchronisiert.</p>' : ''}
           </div>
           <div id="edit-cal-error" class="form-error hidden" role="alert"></div>
           <div class="modal-actions">
@@ -1286,13 +1291,14 @@ function openEditCalendarDialog(cal) {
 
   setTimeout(() => {
     const nameInput = document.getElementById('edit-cal-name');
+    if (colorOnly) document.getElementById('edit-cal-color')?.focus();
     nameInput?.focus();
     nameInput?.select();
   }, 50);
 
   backdrop.querySelector('#edit-cal-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const name  = document.getElementById('edit-cal-name').value.trim();
+    const name  = colorOnly ? cal.name : document.getElementById('edit-cal-name').value.trim();
     const color = document.getElementById('edit-cal-color').value;
 
     if (!name) {
@@ -1308,14 +1314,14 @@ function openEditCalendarDialog(cal) {
     btn.disabled = true;
 
     try {
-      await CalendarsAPI.update(cal.id, { name, color });
+      await CalendarsAPI.update(cal.id, colorOnly ? { color } : { name, color });
       // Optimistic update in store
       const cals = store.get('calendars').map(c =>
         c.id === cal.id ? { ...c, name, color } : c
       );
       store.set({ calendars: cals });
       close();
-      showToast(`${collectionNoun(cal)} umbenannt in „${name}“.`, 'success');
+      showToast(colorOnly ? 'Farbe gespeichert.' : `${collectionNoun(cal)} umbenannt in „${name}“.`, 'success');
       renderCalendarList();
       renderCalendarView();
     } catch (err) {

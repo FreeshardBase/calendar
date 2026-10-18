@@ -176,7 +176,7 @@ class TestSyncWorker(unittest.TestCase):
 
         conn.close()
 
-        self.assertEqual(len(captured_content), 2)
+        self.assertEqual(len(captured_content), 3)  # discover, sync, metasync (#505)
         content = captured_content[0]
 
         self.assertNotIn("verify_fingerprint", content)

@@ -519,7 +519,7 @@ class GoogleSyncDespiteMicrosoftErrorTest(unittest.TestCase):
              patch("subprocess.run", side_effect=fake_run):
             ok, error = sync_worker.sync_user(issue193.USER_ID)
 
-        self.assertEqual(commands, ["discover", "sync"], "the Google pair is synced")
+        self.assertEqual(commands, ["discover", "sync", "metasync"], "the Google pair is synced")
         self.assertFalse(ok)
         self.assertEqual(error, reconnect)
 

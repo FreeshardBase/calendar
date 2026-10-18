@@ -207,9 +207,9 @@ class TestIssue193GoogleCollectionMapping(unittest.TestCase):
         name, req = created[local]
         self.assertEqual(name, "Privat &amp; &lt;Co&gt;")
         self.assertEqual(req.get_header("Accept-encoding"), "identity")
-        # Names only travel Google -> local: no metasync, which would push app renames to Google.
-        self.assertNotIn("metadata", config["pair sync_0"])
-        self.assertEqual(commands, ["discover", "sync"])
+        # From then on metasync keeps name and colour in step both ways (#505).
+        self.assertEqual(config["pair sync_0"]["metadata"], ["color", "displayname"])
+        self.assertEqual(commands, ["discover", "sync", "metasync"])
 
         # Second run: the collection exists and is not created again.
         self.run_sync()
