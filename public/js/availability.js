@@ -7,6 +7,17 @@ import { showToast } from './app.js';
 import { holdsEvents } from './calendarLabels.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 
+// #503: weekly hours are indexed like Date#getUTCDay (0 = Sunday); the dialog lists Monday first.
+const WEEKDAYS = [
+  { day: 1, name: 'Montag', short: 'Mo' }, { day: 2, name: 'Dienstag', short: 'Di' },
+  { day: 3, name: 'Mittwoch', short: 'Mi' }, { day: 4, name: 'Donnerstag', short: 'Do' },
+  { day: 5, name: 'Freitag', short: 'Fr' }, { day: 6, name: 'Samstag', short: 'Sa' },
+  { day: 0, name: 'Sonntag', short: 'So' }
+];
+const DEFAULT_WINDOW = { start: '09:00', end: '17:00' };
+// A new page is open Monday to Friday 09:00–17:00, as on the server.
+const DEFAULT_WEEKLY_HOURS = [0, 1, 2, 3, 4, 5, 6].map(d => (d >= 1 && d <= 5 ? [DEFAULT_WINDOW] : []));
+
 export function initAvailabilityManager() {
   const btn = document.getElementById('availability-btn');
   const backdrop = document.getElementById('availability-modal-backdrop');
@@ -15,8 +26,11 @@ export function initAvailabilityManager() {
   const calSelect = document.getElementById('ap-calendar');
   const busyList = document.getElementById('ap-busy-calendars');
   const pagesList = document.getElementById('availability-pages-list');
+  const weekdaysEl = document.getElementById('ap-weekdays');
 
   if (!btn || !backdrop) return;
+
+  renderWeekdays(DEFAULT_WEEKLY_HOURS);
 
   let calendarNames = new Map();
 
@@ -41,8 +55,7 @@ export function initAvailabilityManager() {
       const slug = document.getElementById('ap-slug').value;
       const calendarId = calSelect.value;
       const durationMinutes = parseInt(document.getElementById('ap-duration').value, 10) || 30;
-      const startHour = parseInt(document.getElementById('ap-start-hour').value, 10) || 9;
-      const endHour = parseInt(document.getElementById('ap-end-hour').value, 10) || 17;
+      const maxPerDay = document.getElementById('ap-max-per-day').value;
       const busyCalendarIds = [...busyList.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value);
 
       await AvailabilityAPI.createPage({
@@ -50,20 +63,96 @@ export function initAvailabilityManager() {
         slug,
         calendarId,
         durationMinutes,
-        startHour,
-        endHour,
-        daysOfWeek: '1,2,3,4,5',
+        weeklyHours: readWeekdays(),
+        bufferMinutes: Number(document.getElementById('ap-buffer').value),
+        maxBookingsPerDay: maxPerDay === '' ? null : Number(maxPerDay),
+        minNoticeMinutes: Number(document.getElementById('ap-min-notice').value) * 60,
         busyCalendarIds
       });
 
       showToast('Buchbare Zeiten veröffentlicht', 'success');
       form.reset();
+      renderWeekdays(DEFAULT_WEEKLY_HOURS);
       await loadCalendars();
       await loadPages();
     } catch (err) {
       showToast(err.message || 'Fehler beim Veröffentlichen der buchbaren Zeiten', 'error');
     }
   });
+
+  function windowRow(name, win) {
+    return `
+      <span class="ap-window" style="display: inline-flex; gap: 4px; align-items: center;">
+        <input class="form-input ap-window-start" type="time" value="${win.start}" aria-label="${name} von" style="width: auto;" />
+        –
+        <input class="form-input ap-window-end" type="time" value="${win.end}" aria-label="${name} bis" style="width: auto;" />
+        <button type="button" class="btn btn-ghost btn-sm ap-window-remove" aria-label="Zeitfenster am ${name} entfernen">×</button>
+      </span>`;
+  }
+
+  // One row per weekday: a switch and that day's windows, shown only while the day is on.
+  function renderWeekdays(weeklyHours) {
+    weekdaysEl.innerHTML = WEEKDAYS.map(({ day, name }) => {
+      const windows = weeklyHours[day];
+      return `
+        <div class="ap-day" data-day="${day}" style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; font-size: 13px;">
+          <label style="display: flex; gap: 6px; align-items: center; min-width: 110px; padding-top: 6px;">
+            <input type="checkbox" class="ap-day-toggle" ${windows.length ? 'checked' : ''} />
+            ${name}
+          </label>
+          <div class="ap-day-windows" ${windows.length ? '' : 'hidden'}>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+              ${(windows.length ? windows : [DEFAULT_WINDOW]).map(win => windowRow(name, win)).join('')}
+              <button type="button" class="btn btn-ghost btn-sm ap-window-add" aria-label="Zeitfenster am ${name} hinzufügen">+ Zeitfenster</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  weekdaysEl?.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('ap-day-toggle')) return;
+    const dayEl = e.target.closest('.ap-day');
+    const windowsEl = dayEl.querySelector('.ap-day-windows');
+    windowsEl.hidden = !e.target.checked;
+    // A day switched on gets the default window back if all of its windows were removed.
+    if (e.target.checked && !windowsEl.querySelector('.ap-window')) {
+      const { name } = WEEKDAYS.find(w => w.day === Number(dayEl.dataset.day));
+      windowsEl.querySelector('.ap-window-add').insertAdjacentHTML('beforebegin', windowRow(name, DEFAULT_WINDOW));
+    }
+  });
+
+  weekdaysEl?.addEventListener('click', (e) => {
+    const dayEl = e.target.closest('.ap-day');
+    if (!dayEl) return;
+    const { name } = WEEKDAYS.find(w => w.day === Number(dayEl.dataset.day));
+    if (e.target.classList.contains('ap-window-add')) {
+      e.target.insertAdjacentHTML('beforebegin', windowRow(name, DEFAULT_WINDOW));
+      e.target.previousElementSibling.querySelector('.ap-window-start').focus();
+    } else if (e.target.classList.contains('ap-window-remove')) {
+      const addBtn = dayEl.querySelector('.ap-window-add');
+      e.target.closest('.ap-window').remove();
+      addBtn.focus();
+      // Without a window the day is off.
+      if (!dayEl.querySelector('.ap-window')) {
+        dayEl.querySelector('.ap-day-toggle').checked = false;
+        dayEl.querySelector('.ap-day-windows').hidden = true;
+        dayEl.querySelector('.ap-day-toggle').focus();
+      }
+    }
+  });
+
+  function readWeekdays() {
+    const week = [[], [], [], [], [], [], []];
+    for (const dayEl of weekdaysEl.querySelectorAll('.ap-day')) {
+      if (!dayEl.querySelector('.ap-day-toggle').checked) continue;
+      week[Number(dayEl.dataset.day)] = [...dayEl.querySelectorAll('.ap-window')].map(win => ({
+        start: win.querySelector('.ap-window-start').value,
+        end: win.querySelector('.ap-window-end').value
+      }));
+    }
+    return week;
+  }
 
   async function loadCalendars() {
     let list;
@@ -123,7 +212,10 @@ export function initAvailabilityManager() {
             <div>
               <strong style="font-size: 14px;">${escapeHtml(p.title)}</strong>
               <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                Dauer: ${p.durationMinutes} Min. | Zeitfenster: ${p.startHour}:00 - ${p.endHour}:00 | Slug: <code>${escapeHtml(p.slug)}</code>
+                Dauer: ${p.durationMinutes} Min. | Slug: <code>${escapeHtml(p.slug)}</code>
+              </div>
+              <div class="availability-page-hours" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                ${escapeHtml(describeHours(p))}
               </div>
               <div class="availability-page-busy" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
                 Belegt aus: ${busyNames.map(escapeHtml).join(', ')}
@@ -166,6 +258,16 @@ export function initAvailabilityManager() {
       console.error('[availability] Error loading pages:', err);
       pagesList.innerHTML = '<p class="empty-state">Fehler beim Laden der buchbaren Zeiten.</p>';
     }
+  }
+
+  function describeHours(p) {
+    const days = WEEKDAYS.filter(({ day }) => p.weeklyHours[day].length)
+      .map(({ day, short }) => `${short} ${p.weeklyHours[day].map(w => `${w.start}–${w.end}`).join(', ')}`);
+    const limits = [];
+    if (p.bufferMinutes) limits.push(`Puffer ${p.bufferMinutes} Min.`);
+    if (p.maxBookingsPerDay !== null) limits.push(`höchstens ${p.maxBookingsPerDay} pro Tag`);
+    if (p.minNoticeMinutes) limits.push(`Vorlauf ${p.minNoticeMinutes / 60} Std.`);
+    return [days.join(' · '), ...limits].join(' | ');
   }
 
   function escapeHtml(str) {

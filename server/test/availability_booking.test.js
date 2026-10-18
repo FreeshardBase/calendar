@@ -10,7 +10,7 @@ require('dotenv').config();
 const test = require('node:test');
 const assert = require('node:assert');
 const Db = require('../db');
-const { calculateFreeSlots } = require('../utils/availabilityBooking');
+const { calculateFreeSlots, DEFAULT_WEEKLY_HOURS } = require('../utils/availabilityBooking');
 const { app, server } = require('../index');
 const { loginAs } = require('./helpers/testSession');
 
@@ -47,9 +47,9 @@ test('Availability Slots Booking Engine Suite', async (t) => {
   await t.test('calculateFreeSlots utility logic', () => {
     const pageConfig = {
       durationMinutes: 30,
-      startHour: 9,
-      endHour: 12,
-      daysOfWeek: '1,2,3,4,5' // Mon-Fri
+      weeklyHours: [0, 1, 2, 3, 4, 5, 6].map(d => (d >= 1 && d <= 5 ? [{ start: '09:00', end: '12:00' }] : [])), // Mon-Fri
+      bufferMinutes: 0,
+      maxBookingsPerDay: null
     };
 
     // Test Monday: 2026-08-17 (which is a Monday)
@@ -58,7 +58,7 @@ test('Availability Slots Booking Engine Suite', async (t) => {
       { start: '2026-08-17T10:00:00.000Z', end: '2026-08-17T10:30:00.000Z' }
     ];
     const existingBookings = [
-      { start_time: '2026-08-17T11:00:00.000Z', end_time: '2026-08-17T11:30:00.000Z' }
+      { startTime: '2026-08-17T11:00:00.000Z', endTime: '2026-08-17T11:30:00.000Z' }
     ];
 
     const slots = calculateFreeSlots(pageConfig, existingEvents, existingBookings, dateStr);
@@ -84,9 +84,7 @@ test('Availability Slots Booking Engine Suite', async (t) => {
       title: 'Test User Consultation',
       calendarId: testCalendarId,
       durationMinutes: 30,
-      startHour: 9,
-      endHour: 17,
-      daysOfWeek: '1,2,3,4,5'
+      weeklyHours: DEFAULT_WEEKLY_HOURS
     });
 
     assert.ok(page.id);
@@ -116,9 +114,7 @@ test('Availability Slots Booking Engine Suite', async (t) => {
         title: 'Quick 15m Chat',
         calendarId: testCalendarId,
         durationMinutes: 15,
-        startHour: 10,
-        endHour: 16,
-        daysOfWeek: '1,3,5'
+        weeklyHours: [[], [{ start: '10:00', end: '16:00' }], [], [{ start: '10:00', end: '16:00' }], [], [{ start: '10:00', end: '16:00' }], []]
       })
     });
 

@@ -341,9 +341,10 @@ db.serialize(() => {
       title TEXT NOT NULL,
       calendar_id TEXT NOT NULL,
       duration_minutes INTEGER NOT NULL DEFAULT 30,
-      start_hour INTEGER NOT NULL DEFAULT 9,
-      end_hour INTEGER NOT NULL DEFAULT 17,
-      days_of_week TEXT NOT NULL DEFAULT '1,2,3,4,5',
+      weekly_hours TEXT NOT NULL,
+      buffer_minutes INTEGER NOT NULL DEFAULT 0,
+      max_bookings_per_day INTEGER,
+      min_notice_minutes INTEGER NOT NULL DEFAULT 0,
       busy_calendar_ids TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL
     )
@@ -2209,14 +2210,15 @@ const Db = {
   },
 
   // ── Availability Slots Booking Engine ──────────────────────────────────
-  createAvailabilityPage({ id, userId, slug, title, calendarId, durationMinutes = 30, startHour = 9, endHour = 17, daysOfWeek = '1,2,3,4,5', busyCalendarIds = [] }) {
+  // #503: weeklyHours is required (see utils/availabilityBooking.js); there is no implicit week.
+  createAvailabilityPage({ id, userId, slug, title, calendarId, durationMinutes = 30, weeklyHours, bufferMinutes = 0, maxBookingsPerDay = null, minNoticeMinutes = 0, busyCalendarIds = [] }) {
     return new Promise((resolve, reject) => {
       const pageId = id || `ap-${uuidv4()}`;
       const now = Date.now();
       db.run(
-        `INSERT INTO availability_pages (id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, busy_calendar_ids, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [pageId, userId, slug, title, calendarId, durationMinutes, startHour, endHour, daysOfWeek, JSON.stringify(busyCalendarIds), now],
+        `INSERT INTO availability_pages (id, user_id, slug, title, calendar_id, duration_minutes, weekly_hours, buffer_minutes, max_bookings_per_day, min_notice_minutes, busy_calendar_ids, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [pageId, userId, slug, title, calendarId, durationMinutes, JSON.stringify(weeklyHours), bufferMinutes, maxBookingsPerDay, minNoticeMinutes, JSON.stringify(busyCalendarIds), now],
         (err) => {
           if (err) return reject(err);
           resolve({
@@ -2226,9 +2228,10 @@ const Db = {
             title,
             calendarId,
             durationMinutes,
-            startHour,
-            endHour,
-            daysOfWeek,
+            weeklyHours,
+            bufferMinutes,
+            maxBookingsPerDay,
+            minNoticeMinutes,
             busyCalendarIds,
             createdAt: now
           });
@@ -2240,7 +2243,7 @@ const Db = {
   getAvailabilityPages(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, busy_calendar_ids, created_at
+        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, weekly_hours, buffer_minutes, max_bookings_per_day, min_notice_minutes, busy_calendar_ids, created_at
          FROM availability_pages WHERE user_id = ? ORDER BY created_at DESC`,
         [userId],
         (err, rows) => {
@@ -2252,9 +2255,10 @@ const Db = {
             title: r.title,
             calendarId: r.calendar_id,
             durationMinutes: r.duration_minutes,
-            startHour: r.start_hour,
-            endHour: r.end_hour,
-            daysOfWeek: r.days_of_week,
+            weeklyHours: JSON.parse(r.weekly_hours),
+            bufferMinutes: r.buffer_minutes,
+            maxBookingsPerDay: r.max_bookings_per_day,
+            minNoticeMinutes: r.min_notice_minutes,
             busyCalendarIds: JSON.parse(r.busy_calendar_ids),
             createdAt: r.created_at
           })));
@@ -2266,7 +2270,7 @@ const Db = {
   getAvailabilityPageBySlug(slug) {
     return new Promise((resolve, reject) => {
       db.get(
-        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, start_hour, end_hour, days_of_week, busy_calendar_ids, created_at
+        `SELECT id, user_id, slug, title, calendar_id, duration_minutes, weekly_hours, buffer_minutes, max_bookings_per_day, min_notice_minutes, busy_calendar_ids, created_at
          FROM availability_pages WHERE slug = ?`,
         [slug],
         (err, r) => {
@@ -2279,9 +2283,10 @@ const Db = {
             title: r.title,
             calendarId: r.calendar_id,
             durationMinutes: r.duration_minutes,
-            startHour: r.start_hour,
-            endHour: r.end_hour,
-            daysOfWeek: r.days_of_week,
+            weeklyHours: JSON.parse(r.weekly_hours),
+            bufferMinutes: r.buffer_minutes,
+            maxBookingsPerDay: r.max_bookings_per_day,
+            minNoticeMinutes: r.min_notice_minutes,
             busyCalendarIds: JSON.parse(r.busy_calendar_ids),
             createdAt: r.created_at
           });

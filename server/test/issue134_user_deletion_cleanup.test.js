@@ -77,9 +77,9 @@ test('Issue #134 — Comprehensive User Deletion Cleanup & Radicale ASP Revocati
 
   // Availability pages & slot bookings
   await runQuery(
-    `INSERT OR REPLACE INTO availability_pages (id, user_id, slug, title, calendar_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    ['avail-134', userId, 'slug-134', 'Title', 'cal-134', Date.now()]
+    `INSERT OR REPLACE INTO availability_pages (id, user_id, slug, title, calendar_id, weekly_hours, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ['avail-134', userId, 'slug-134', 'Title', 'cal-134', '[[],[],[],[],[],[],[]]', Date.now()]
   );
   await runQuery(
     `INSERT OR REPLACE INTO slot_bookings (id, page_id, guest_name, guest_email, start_time, end_time, created_at)

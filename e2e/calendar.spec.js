@@ -6653,7 +6653,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const calendar = { id: 'e2e-404-cal" data-pwn="calendar', name: `${markup('calendar')}Test User`, color: '#3b82f6', supportsVEVENT: true, supportsVTODO: false };
       const bookingPage = {
         id: 'e2e-404-page" data-pwn="page', slug: 'e2e-404"slug', title: `${markup('page')}Sprechstunde`,
-        calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, startHour: 9, endHour: 17,
+        calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, weeklyHours: [[], [{ start: '09:00', end: '17:00' }], [], [], [], [], []], bufferMinutes: 0, maxBookingsPerDay: null, minNoticeMinutes: 0,
       };
       await openApp(page);
       await page.route('**/api/calendars', route => route.fulfill({ json: { calendars: [calendar], errors: [] } }));
@@ -7202,7 +7202,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.route('**/api/calendars', route => route.fulfill({ json: { calendars: [calendar], errors: [] } }));
       await page.route('**/api/availability-slots', route => {
         if (route.request().method() === 'POST') {
-          pages = [{ id: 'e2e-502-page', slug: 'e2e-502', title: 'Sprechstunde', calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, startHour: 9, endHour: 17 }];
+          pages = [{ id: 'e2e-502-page', slug: 'e2e-502', title: 'Sprechstunde', calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, weeklyHours: [[], [{ start: '09:00', end: '17:00' }], [], [], [], [], []], bufferMinutes: 0, maxBookingsPerDay: null, minNoticeMinutes: 0 }];
           return route.fulfill({ status: 201, json: pages[0] });
         }
         return route.fulfill({ json: pages });
@@ -7234,6 +7234,120 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#toast-container .toast.success', { hasText: 'Buchbare Zeiten gelöscht' })).toBeVisible();
       await expect(page.locator('#availability-pages-list')).toHaveText('Noch keine buchbaren Zeiten veröffentlicht.');
       await expect(page.locator('body')).not.toContainText(/Termin-Buchung|Buchungsseite/);
+    });
+  });
+
+  test.describe('Issue #503 — Buchbare Zeiten: weekdays, time windows and limits', () => {
+    test('the owner sets weekdays and several windows per day, overlaps are refused, and the public page offers only those slots up to the daily maximum', async ({ page }) => {
+      const monday = mondayWeeksAhead(9);
+      const plusDays = (n) => new Date(Date.parse(`${monday}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+      const tuesday = plusDays(1);
+      const saturday = plusDays(5);
+      const day = (d) => page.locator(`#ap-weekdays .ap-day[data-day="${d}"]`);
+      const windowsOf = (d) => day(d).locator('.ap-window');
+      const slotTimes = async (date) => {
+        await page.fill('#booking-date', date);
+        await page.locator('#booking-date').dispatchEvent('change');
+        await expect(page.locator('#slots-container')).not.toContainText('werden geladen', { timeout: 10000 });
+        return page.locator('.slot-btn').allTextContents();
+      };
+
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+      await page.click('#availability-btn');
+      await expect(page.locator('#availability-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ap-calendar option')).not.toHaveCount(0, { timeout: 10000 });
+      const calendarId = await page.locator('#ap-calendar').inputValue();
+
+      // A new page starts as before: Monday to Friday 09:00–17:00, weekend off.
+      await expect(page.locator('#ap-weekdays .ap-day')).toHaveCount(7);
+      await expect(page.locator('#ap-weekdays .ap-day').first()).toContainText('Montag');
+      for (const d of [1, 2, 3, 4, 5]) {
+        await expect(day(d).locator('.ap-day-toggle')).toBeChecked();
+        await expect(windowsOf(d)).toHaveCount(1);
+        await expect(windowsOf(d).locator('.ap-window-start')).toHaveValue('09:00');
+        await expect(windowsOf(d).locator('.ap-window-end')).toHaveValue('17:00');
+      }
+      for (const d of [6, 0]) {
+        await expect(day(d).locator('.ap-day-toggle')).not.toBeChecked();
+        await expect(day(d).locator('.ap-day-windows')).toBeHidden();
+      }
+
+      const slug = `e2e-503-${Date.now()}`;
+      await page.fill('#ap-title', 'E2E 503 Sprechstunde');
+      await page.fill('#ap-slug', slug);
+      // Monday 09:00–12:00 plus 11:00–13:00 overlaps: the server refuses and nothing is published.
+      await windowsOf(1).nth(0).locator('.ap-window-end').fill('12:00');
+      await day(1).getByRole('button', { name: 'Zeitfenster am Montag hinzufügen' }).click();
+      await expect(windowsOf(1)).toHaveCount(2);
+      await expect(windowsOf(1).nth(1).locator('.ap-window-start')).toBeFocused();
+      await windowsOf(1).nth(1).locator('.ap-window-start').fill('11:00');
+      await windowsOf(1).nth(1).locator('.ap-window-end').fill('13:00');
+      const refused = page.waitForResponse(resp => resp.url().includes('/api/availability-slots') && resp.request().method() === 'POST');
+      await page.click('#ap-save-btn');
+      expect((await refused).status()).toBe(400);
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Montag: Zeitfenster dürfen sich nicht überschneiden' })).toBeVisible();
+      await expect(page.locator(`.availability-page-card:has-text("${slug}")`)).toHaveCount(0);
+
+      // Monday 09:00–10:00 and 14:00–15:00, Tuesday to Friday off, Saturday 10:00–11:00, one booking per day.
+      await windowsOf(1).nth(0).locator('.ap-window-end').fill('10:00');
+      await windowsOf(1).nth(1).locator('.ap-window-start').fill('14:00');
+      await windowsOf(1).nth(1).locator('.ap-window-end').fill('15:00');
+      for (const d of [2, 3, 4]) await day(d).locator('.ap-day-toggle').uncheck();
+      await expect(day(2).locator('.ap-day-windows')).toBeHidden();
+      // Removing a day's last window switches the day off.
+      await day(5).getByRole('button', { name: 'Zeitfenster am Freitag entfernen' }).click();
+      await expect(day(5).locator('.ap-day-toggle')).not.toBeChecked();
+      await expect(day(5).locator('.ap-day-windows')).toBeHidden();
+      await day(6).locator('.ap-day-toggle').check();
+      await expect(day(6).locator('.ap-day-windows')).toBeVisible();
+      await windowsOf(6).locator('.ap-window-start').fill('10:00');
+      await windowsOf(6).locator('.ap-window-end').fill('11:00');
+      await page.fill('#ap-max-per-day', '1');
+      await page.fill('#ap-buffer', '0');
+      await page.fill('#ap-min-notice', '0');
+      const saved = page.waitForResponse(resp => resp.url().includes('/api/availability-slots') && resp.request().method() === 'POST');
+      await page.click('#ap-save-btn');
+      expect((await saved).status()).toBe(201);
+      const card = page.locator(`.availability-page-card:has-text("${slug}")`);
+      await expect(card.locator('.availability-page-hours')).toHaveText('Mo 09:00–10:00, 14:00–15:00 · Sa 10:00–11:00 | höchstens 1 pro Tag', { timeout: 10000 });
+      // The form is back at the default week for the next page.
+      await expect(day(3).locator('.ap-day-toggle')).toBeChecked();
+      await expect(windowsOf(1)).toHaveCount(1);
+      await expect(day(6).locator('.ap-day-toggle')).not.toBeChecked();
+
+      const range = `start=${monday}T00:00:00Z&end=${monday}T23:59:59Z`;
+      try {
+        await page.goto(`/public/booking/?slug=${slug}`);
+        await expect(page.locator('#page-title')).toHaveText('E2E 503 Sprechstunde', { timeout: 10000 });
+        expect(await slotTimes(monday)).toEqual(['09:00 Uhr', '09:30 Uhr', '14:00 Uhr', '14:30 Uhr']);
+        expect(await slotTimes(tuesday)).toEqual([]);
+        await expect(page.locator('#slots-container')).toContainText('keine freien Zeitslots');
+        expect(await slotTimes(saturday)).toEqual(['10:00 Uhr', '10:30 Uhr']);
+
+        expect(await slotTimes(monday)).toHaveLength(4);
+        await page.locator('.slot-btn', { hasText: '14:00 Uhr' }).click();
+        await page.fill('#guest-name', 'Test User');
+        await page.fill('#guest-email', 'testuser@example.com');
+        await page.click('#confirm-booking-btn');
+        await expect(page.locator('#booking-success')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+        // One booking per day: Monday is full, Saturday is still open.
+        await page.reload();
+        expect(await slotTimes(monday)).toEqual([]);
+        expect(await slotTimes(saturday)).toEqual(['10:00 Uhr', '10:30 Uhr']);
+      } finally {
+        const list = await page.request.get(`/api/events?${range}&calendarId=${encodeURIComponent(calendarId)}`);
+        expect(list.ok()).toBeTruthy();
+        for (const ev of (await list.json()).events.filter(e => e.title.startsWith('E2E 503'))) {
+          const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+            headers: SAME_ORIGIN,
+            data: { calendarId, href: ev.href, etag: ev.etag }
+          });
+          expect(del.ok()).toBeTruthy();
+        }
+      }
     });
   });
 });
