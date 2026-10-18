@@ -407,6 +407,14 @@ db.serialize(() => {
       updated_at INTEGER NOT NULL
     )
   `);
+  // #498: what a user last chose to see; one row per user, absent until they choose.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY,
+      task_view TEXT NOT NULL CHECK (task_view IN ('list', 'kanban')),
+      updated_at INTEGER NOT NULL
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS cross_user_deletions (
       id TEXT PRIMARY KEY,
@@ -1070,6 +1078,7 @@ const Db = {
       await tx.run('DELETE FROM sync_conflicts WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM delegate_permissions WHERE principal_user_id = ? OR delegate_user_id = ?', [userId, userId]);
       await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
       await tx.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_calendar_order WHERE user_id = ?', [userId]);
@@ -2535,6 +2544,27 @@ const Db = {
             updatedAt: now
           });
         }
+      );
+    });
+  },
+
+  // #498: the task area shows the kanban board until the user picks the list.
+  getTaskViewPreference(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT task_view FROM user_preferences WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.task_view : 'kanban');
+      });
+    });
+  },
+
+  setTaskViewPreference(userId, taskView) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO user_preferences (user_id, task_view, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET task_view = excluded.task_view, updated_at = excluded.updated_at`,
+        [userId, taskView, Date.now()],
+        (err) => (err ? reject(err) : resolve(taskView))
       );
     });
   },

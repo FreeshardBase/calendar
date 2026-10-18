@@ -1,6 +1,7 @@
 'use strict';
 const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
+const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
 
 const express = require('express');
 const router = express.Router();
@@ -63,22 +64,20 @@ router.get('/', async (req, res) => {
             calendars = calendars.filter(c => c.id === req.query.calendarId);
           }
 
-          await Promise.allSettled(
-            calendars.map(async (cal) => {
-              try {
-                const tasksXml = await client.getTasks(cal.url);
-                const parseErrors = [];
-                const tasks = parseTaskList(tasksXml, cal.id, account.id, cal.url, parseErrors);
-                allTasks.push(...tasks);
-                for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
-                successfulCalendars++;
-              } catch (taskErr) {
-                console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
-                const { status, message } = describeError(taskErr);
-                errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
-              }
-            })
-          );
+          await forEachLimited(calendars, CALDAV_REPORT_CONCURRENCY, async (cal) => {
+            try {
+              const tasksXml = await client.getTasks(cal.url);
+              const parseErrors = [];
+              const tasks = parseTaskList(tasksXml, cal.id, account.id, cal.url, parseErrors);
+              allTasks.push(...tasks);
+              for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
+              successfulCalendars++;
+            } catch (taskErr) {
+              console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
+              const { status, message } = describeError(taskErr);
+              errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
+            }
+          });
         } catch (accountErr) {
           console.error(`[tasks GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
           const { status, message } = describeError(accountErr);

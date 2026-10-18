@@ -196,13 +196,21 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `guarded_vdirsyncer.py`, whose socket guard lets a Basic pair reach only those pinned addresses and the
   local Radicale, so a redirect or DNS change away from the account host fails the run. The Google pair
   may reach public addresses only.
+- Per-user preferences (#498): `GET`/`PUT /api/preferences` (`routes/preferences.js`, table `user_preferences`)
+  hold the task area's view, `taskView` `list` or `kanban` (default `kanban`, anything else 400). It needs only a
+  session identity, and `Db.deleteUser` removes the row. The list's sort, grouping and "Erledigte anzeigen" last
+  only for the page's lifetime.
+- CalDAV fan-out (#498): `GET /api/tasks`, `/api/events` and `/api/events/invitations` send one REPORT per
+  collection, at most `CALDAV_REPORT_CONCURRENCY` (4, `utils/caldavFanout.js`) at a time per account; sent all
+  at once, Radicale drops connections from about 60-100 on and those collections went missing.
 - Containers: all three images run their service as uid:gid 1000:1000, because they open the same SQLite
   file. Each image's entrypoint is `drop-privileges.sh` (one copy per build context, kept identical): when
   started as root (the store template sets `user: "0:0"` because shard_core creates the data mount
   root-owned) it chowns the directories in `DATA_DIRS` to 1000:1000 and re-execs itself through `setpriv`;
   started as any other uid it refuses to start if a `DATA_DIRS` entry is not writable (#100).
 - `public/` — no-framework SPA: `js/app.js` (boot, views, sidebar, dialogs), `js/calendar.js`
-  (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer & Kanban board), `js/eventModal.js`, `js/api.js` (fetch wrappers),
+  (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer and the task area: a "Liste | Kanban"
+  switch over a sortable, groupable task list or the Kanban board, #498), `js/eventModal.js`, `js/api.js` (fetch wrappers),
   `js/store.js` (pub/sub state), `js/accountModal.js`, `css/app.css`.
 
 ## Conventions

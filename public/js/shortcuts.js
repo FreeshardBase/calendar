@@ -78,7 +78,7 @@
       { key: 'Alt+W / Alt+2', desc: 'Wochenansicht' },
       { key: 'Alt+D / Alt+3', desc: 'Tagesansicht' },
       { key: 'Alt+A / Alt+4', desc: 'Agendaansicht' },
-      { key: 'Alt+K / Alt+5', desc: 'Kanban-Board' },
+      { key: 'Alt+K / Alt+5', desc: 'Aufgaben' },
       { key: 'Alt+T', desc: 'Heute (Aktueller Tag)' },
       { key: 'Alt+J', desc: 'Nächster Zeitraum' },
       { key: 'Alt+P', desc: 'Vorheriger Zeitraum' },

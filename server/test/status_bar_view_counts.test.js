@@ -68,7 +68,7 @@ function loadApp() {
     navigate: () => {},
     sanitizeColor: (c) => c,
     renderView: () => {},
-    renderKanbanBoard: () => {},
+    renderTaskArea: () => {},
     renderSidebarTasks: () => {},
     renderMiniCalendar: () => {},
     initEventModal: () => {},
