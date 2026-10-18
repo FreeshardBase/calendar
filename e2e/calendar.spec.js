@@ -7164,6 +7164,25 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#toast-container .toast.error', { hasText: 'does not accept tasks' })).toBeVisible({ timeout: 10000 });
       expect(await titlesIn(page, googleId)).toEqual([title]);
     });
+
+    test('#572: a stranded task says Google takes no tasks; a task in a list has no such hint', async ({ page }) => {
+      const hint = page.locator('#task-stranded-hint');
+      await page.locator('#sidebar-task-list .sidebar-task-info', { hasText: title }).click();
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(hint).toBeVisible();
+      await expect(hint).toHaveText('Google nimmt keine Aufgaben an, bitte in eine Aufgabenliste verschieben');
+
+      // Moved out, the same task opens without the hint.
+      await page.selectOption('#task-calendar-id', listId);
+      await page.click('#task-save-btn');
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 10000 });
+      expect(await titlesIn(page, listId)).toEqual([title]);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.locator('#sidebar-task-list .sidebar-task-info', { hasText: title }).click();
+      await expect(page.locator('#task-calendar-id')).toHaveValue(listId);
+      await expect(hint).toBeHidden();
+    });
   });
   test.describe('Issue #500 — a collection is a Kalender, an Aufgabenliste or explicitly both', () => {
     const { Agent } = require('undici');

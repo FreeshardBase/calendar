@@ -359,6 +359,22 @@ def refresh_google_token(refresh_token):
         expires_at_ms = int((time.time() + expires_in) * 1000)
         return res_data["access_token"], expires_at_ms
 
+# The calendar components vdirsyncer syncs (its `item_types`).
+SYNCED_COMPONENTS = ("VEVENT", "VTODO", "VJOURNAL")
+
+
+def supported_components(response_el):
+    """Synced components a collection takes, from its PROPFIND response (#572).
+
+    A collection that names no supported-calendar-component-set takes every component (RFC 4791 5.2.3).
+    """
+    comp_set = response_el.find(".//{urn:ietf:params:xml:ns:caldav}supported-calendar-component-set")
+    if comp_set is None:
+        return SYNCED_COMPONENTS
+    names = {c.get("name", "").upper() for c in comp_set.findall("{urn:ietf:params:xml:ns:caldav}comp")}
+    return tuple(c for c in SYNCED_COMPONENTS if c in names)
+
+
 def discover_google_collections(google_url, access_token):
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -367,9 +383,10 @@ def discover_google_collections(google_url, access_token):
     }
     # PROPFIND body requesting displayname
     body = """<?xml version="1.0" encoding="utf-8" ?>
-<d:propfind xmlns:d="DAV:">
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop>
     <d:displayname />
+    <c:supported-calendar-component-set />
   </d:prop>
 </d:propfind>"""
     
@@ -414,7 +431,8 @@ def discover_google_collections(google_url, access_token):
                     cal_id = urllib.parse.unquote(subparts[0])
                     collections.append({
                         "id": cal_id,
-                        "name": displayname or cal_id
+                        "name": displayname or cal_id,
+                        "components": supported_components(resp),
                     })
         return collections
     except Exception as e:
@@ -586,6 +604,125 @@ def local_collection_for_google_calendar(conn, user_id, account_id, google_calen
     )
     conn.commit()
     return local_collection
+
+
+class MirrorError(Exception):
+    """A mirror collection in the local Radicale could not be checked or corrected (#572)."""
+
+
+def local_collection_request(user_id, collection, method, body, depth=None):
+    """One WebDAV request to a collection of the user's local Radicale principal; returns the body."""
+    url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{collection}/"
+    auth_str = base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Authorization": f"Basic {auth_str}",
+        "Accept-Encoding": "identity",
+    }
+    if depth is not None:
+        headers["Depth"] = depth
+    req = urllib.request.Request(url, data=body.encode("utf-8"), headers=headers, method=method)
+    with urllib.request.urlopen(req, context=ssl_context_for(url, LOCAL_CALDAV_URL), timeout=30) as res:
+        if res.status != 207:
+            raise MirrorError(f"{method} {url} returned {res.status}")
+        return res.read()
+
+
+def enforce_mirror_components(user_id, collection, components):
+    """Set the mirror's supported-calendar-component-set to the components its remote takes (#572).
+
+    Runs on every sync, so a mirror that lacks the set (or holds another one) gets it: the app then
+    labels it by what the remote takes and offers it for tasks only if the remote takes VTODO.
+    """
+    comps = "".join(f'<c:comp name="{c}"/>' for c in components)
+    body = f"""<?xml version="1.0" encoding="utf-8"?>
+<d:propertyupdate xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:set>
+    <d:prop>
+      <c:supported-calendar-component-set>{comps}</c:supported-calendar-component-set>
+    </d:prop>
+  </d:set>
+</d:propertyupdate>"""
+    root = ET.fromstring(local_collection_request(user_id, collection, "PROPPATCH", body))
+    statuses = [(el.text or "").strip() for el in root.iter("{DAV:}status")]
+    if not statuses or any(" 200 " not in f"{st} " for st in statuses):
+        raise MirrorError(f"PROPPATCH of {collection} was not applied: {statuses}")
+
+
+def _ical_text(value):
+    """Unescape an iCalendar TEXT value (RFC 5545 3.3.11) for display."""
+    return re.sub(r"\\([\\;,nN])", lambda m: " " if m.group(1) in "nN" else m.group(1), value)
+
+
+def local_items(user_id, collection, component=None):
+    """[(component, uid, summary)] of the items in a local collection, of one component if given."""
+    comp_filter = f'<c:comp-filter name="{component}"/>' if component else ""
+    body = f"""<?xml version="1.0" encoding="utf-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop><c:calendar-data/></d:prop>
+  <c:filter><c:comp-filter name="VCALENDAR">{comp_filter}</c:comp-filter></c:filter>
+</c:calendar-query>"""
+    root = ET.fromstring(local_collection_request(user_id, collection, "REPORT", body, depth="1"))
+    items = []
+    for data in root.iter("{urn:ietf:params:xml:ns:caldav}calendar-data"):
+        ics = re.sub(r"\r?\n[ \t]", "", data.text or "")
+        comp = re.search(r"^BEGIN:(VEVENT|VTODO|VJOURNAL)\s*$", ics, re.M)
+        if comp is None:
+            continue
+        rest = ics[comp.end():]
+        uid = re.search(r"^UID(?:;[^:\r\n]*)?:(.*?)\s*$", rest, re.M)
+        summary = re.search(r"^SUMMARY(?:;[^:\r\n]*)?:(.*?)\s*$", rest, re.M)
+        items.append((comp.group(1), uid.group(1) if uid else "",
+                      _ical_text(summary.group(1)) if summary else ""))
+    return items
+
+
+COMPONENT_NOUNS = {"VEVENT": "Termine", "VTODO": "Aufgaben", "VJOURNAL": "Journaleinträge"}
+COMPONENT_HOMES = {"VEVENT": "einen Kalender", "VTODO": "eine Aufgabenliste", "VJOURNAL": "einen Kalender"}
+
+
+def stranded_item_reasons(user_id, collection, components, provider):
+    """Why each item of a mirror that its remote does not take cannot sync, naming its title (#572).
+
+    The pair's item_types keeps such items away from the remote; this keeps them from passing silently.
+    """
+    reasons = []
+    for comp in SYNCED_COMPONENTS:
+        if comp in components:
+            continue
+        for _, uid, summary in local_items(user_id, collection, comp):
+            reasons.append(f"Nicht synchronisiert: „{summary or uid}“: {provider} nimmt keine "
+                           f"{COMPONENT_NOUNS[comp]} an, bitte in {COMPONENT_HOMES[comp]} verschieben")
+    return reasons
+
+
+# vdirsyncer reports an item a server refused with aiohttp's error text, which carries the item's URL
+# ("error: ... 403, message='Forbidden', url='https://.../events/<ident>.ics'"), goes on with the
+# pair's other items and exits non-zero at the end.
+REFUSED_ITEM_RE = re.compile(r"\b([45]\d\d), message='([^']*)', url='([^']+)'")
+
+
+def refused_items(stderr):
+    """[(ident, reason)] of the items a vdirsyncer run's log reports as refused by a server."""
+    refused = []
+    for m in REFUSED_ITEM_RE.finditer(stderr):
+        href = urllib.parse.urlsplit(m.group(3)).path.rstrip("/").split("/")[-1]
+        if href.endswith(".ics"):
+            refused.append((urllib.parse.unquote(href[:-len(".ics")]), f"{m.group(1)} {m.group(2)}".strip()))
+    return refused
+
+
+def refused_item_reasons(user_id, collections, stderr, provider):
+    """Messages naming each item a server refused by its title, looked up in the pair's local collections."""
+    refused = refused_items(stderr)
+    if not refused:
+        return []
+    titles = {}
+    for collection in collections:
+        for _, uid, summary in local_items(user_id, collection):
+            titles.setdefault(uid, summary)
+    return [f"Nicht synchronisiert: „{titles.get(ident) or ident}“: {provider} lehnt es ab ({reason})"
+            for ident, reason in refused]
 
 
 # vdirsyncer names a collection by the unquoted last href segment and writes its status to
@@ -983,6 +1120,9 @@ status_path = {ini_value(status_dir)}
 
     config_dir = create_private_config_dir()
     pairs_written = 0
+    # Local mirror collections of the Google pairs, and why items in them cannot sync (#572).
+    mirrors = []
+    stranded = []
     try:
         for idx, acc in enumerate(oauth2_accounts):
             acc_id = acc["id"]
@@ -1049,6 +1189,7 @@ status_path = {ini_value(status_dir)}
                 conn.close()
                 return False, f"Google collection discovery failed: {str(disc_err)}"
             items = []
+            item_types = set()
             for col in google_collections or []:
                 try:
                     local_collection = local_collection_for_google_calendar(
@@ -1058,6 +1199,18 @@ status_path = {ini_value(status_dir)}
                     conn.close()
                     return False, f"Local collection for Google calendar {col['id']} failed: {map_err}"
                 items.append([local_collection, col["id"], local_collection])
+                mirrors.append(local_collection)
+                # A listing without a component set means every component (RFC 4791 5.2.3).
+                components = col.get("components", SYNCED_COMPONENTS)
+                item_types.update(components)
+                if set(components) != set(SYNCED_COMPONENTS):
+                    # The mirror takes what the remote takes; items it holds beyond that are named (#572).
+                    try:
+                        enforce_mirror_components(user_id, local_collection, components)
+                        stranded.extend(stranded_item_reasons(user_id, local_collection, components, "Google"))
+                    except (MirrorError, OSError, ET.ParseError) as mirror_err:
+                        conn.close()
+                        return False, f"Local mirror of Google calendar {col['id']} failed: {mirror_err}"
 
             if not items:
                 # "from a" would let vdirsyncer name local collections itself, unmapped.
@@ -1074,6 +1227,11 @@ status_path = {ini_value(status_dir)}
 
             verify_line = local_caldav_verify_line()
             local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/"
+            # Only the components Google's calendars take reach the pair, from either side (#572):
+            # Google answers any other with 403, e.g. a task left in a mirror.
+            item_types_line = ""
+            if item_types != set(SYNCED_COMPONENTS):
+                item_types_line = f"item_types = {ini_value([c for c in SYNCED_COMPONENTS if c in item_types])}"
 
             config_content += f"""
 [pair {pair_name}]
@@ -1087,6 +1245,7 @@ type = "google_calendar"
 token_file = {ini_value(token_file_path)}
 client_id = {ini_value(GOOGLE_CLIENT_ID)}
 client_secret = {ini_value(GOOGLE_CLIENT_SECRET)}
+{item_types_line}
 
 [storage {storage_local}]
 type = "caldav"
@@ -1094,6 +1253,7 @@ url = {ini_value(local_url)}
 username = {ini_value(user_id)}
 password = {ini_value(SYSTEM_SYNC_SECRET)}
 {verify_line}
+{item_types_line}
 """
 
         conn.close()
@@ -1113,8 +1273,15 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
 
         print(f"[Sync-Worker] Running sync for user {user_id}...")
         sync_res = run_vdirsyncer(config_path, "sync", policy)
+        not_synced = list(stranded)
         if sync_res.returncode != 0:
-            return False, f"vdirsyncer sync failed: {sync_res.stderr}"
+            # vdirsyncer syncs the pair's other items past one a server refuses; name each refused one.
+            refused = refused_item_reasons(user_id, mirrors, sync_res.stderr, "Google")
+            if not refused:
+                return False, f"vdirsyncer sync failed: {sync_res.stderr}"
+            not_synced.extend(refused)
+        if not_synced:
+            return False, "\n".join(not_synced + ([msgraph_err] if not msgraph_ok else []))
 
         print(f"[Sync-Worker] Sync completed successfully for user {user_id}.")
         return msgraph_ok, msgraph_err
