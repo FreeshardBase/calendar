@@ -7192,4 +7192,48 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(sidebarItem(page, id)).toBeVisible();
     });
   });
+
+  test.describe('Issue #502 — the booking feature is called "Buchbare Zeiten"', () => {
+    test('menu item, dialog, empty state, toasts and delete confirmation say "Buchbare Zeiten"', async ({ page }) => {
+      const calendar = { id: 'e2e-502-cal', name: 'Persönlich', color: '#3b82f6', supportsVEVENT: true, supportsVTODO: false };
+      let pages = [];
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.route('**/api/calendars', route => route.fulfill({ json: { calendars: [calendar], errors: [] } }));
+      await page.route('**/api/availability-slots', route => {
+        if (route.request().method() === 'POST') {
+          pages = [{ id: 'e2e-502-page', slug: 'e2e-502', title: 'Sprechstunde', calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, startHour: 9, endHour: 17 }];
+          return route.fulfill({ status: 201, json: pages[0] });
+        }
+        return route.fulfill({ json: pages });
+      });
+      await page.route('**/api/availability-slots/*', route => { pages = []; return route.fulfill({ json: { success: true } }); });
+
+      const btn = page.locator('#availability-btn');
+      await expect(btn).toHaveText('Buchbare Zeiten');
+      await expect(btn).toHaveAttribute('title', 'Buchbare Zeiten');
+      await btn.click();
+      const dialog = page.getByRole('dialog', { name: 'Buchbare Zeiten', exact: true });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAccessibleDescription('Öffentliche Seite, auf der andere einen freien Termin bei dir wählen');
+      await expect(page.locator('#availability-pages-list')).toHaveText('Noch keine buchbaren Zeiten veröffentlicht.');
+      await expect(dialog).not.toContainText(/Termin-Buchung|Buchungsseite/);
+
+      await page.fill('#ap-title', 'Sprechstunde');
+      await page.fill('#ap-slug', 'e2e-502');
+      await expect(page.locator('#ap-calendar option')).toHaveCount(1);
+      await expect(page.locator('#ap-save-btn')).toHaveText('Buchbare Zeiten veröffentlichen');
+      await page.click('#ap-save-btn');
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Buchbare Zeiten veröffentlicht' })).toBeVisible();
+      await expect(page.locator('#availability-pages-list .availability-page-card')).toHaveCount(1);
+      await expect(dialog).not.toContainText(/Termin-Buchung|Buchungsseite/);
+
+      await page.locator('#availability-pages-list .delete-page-btn').click();
+      await expect(page.locator('#confirm-dialog-text')).toHaveText('Möchtest du diese buchbaren Zeiten wirklich löschen?');
+      await page.click('#confirm-dialog-ok');
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Buchbare Zeiten gelöscht' })).toBeVisible();
+      await expect(page.locator('#availability-pages-list')).toHaveText('Noch keine buchbaren Zeiten veröffentlicht.');
+      await expect(page.locator('body')).not.toContainText(/Termin-Buchung|Buchungsseite/);
+    });
+  });
 });
