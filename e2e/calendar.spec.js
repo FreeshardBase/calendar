@@ -7734,4 +7734,246 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       ]);
     });
   });
+
+  test.describe('Issue #498 — the task area offers a list next to the kanban board', () => {
+    let run;
+    let homeName;
+    let otherName;
+
+    async function createList(page, name) {
+      const res = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, type: 'tasklist' }
+      });
+      expect(res.status()).toBe(201);
+      return (await res.json()).id;
+    }
+
+    async function createTask(page, data) {
+      const res = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data });
+      expect(res.status(), JSON.stringify(data)).toBe(201);
+    }
+
+    async function storedTask(page, title) {
+      const res = await page.request.get('/api/tasks');
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()).find(t => t.title === title && !t.recurrenceId);
+    }
+
+    // This run's rows only: earlier specs leave their own tasks in the shared principal.
+    const rows = (page) => page.locator('.task-list-row', { hasText: run });
+    const titles = (page) => rows(page).locator('.task-list-title').allTextContents();
+    const row = (page, title) => page.locator('.task-list-row', { hasText: `${title} ${run}` });
+
+    // The app's next GET /api/tasks (the boot load, or the reload after a change). The list renders
+    // from it, so waiting on it replaces waiting on a timeout. A complete read carries no
+    // X-CalDAV-Error: in CI (PR #563) the reads of some lists failed and their tasks were missing.
+    function tasksLoaded(page) {
+      return page.waitForResponse(r => new URL(r.url()).pathname === '/api/tasks' && r.request().method() === 'GET')
+        .then(res => {
+          expect(res.status()).toBe(200);
+          expect(res.headers()['x-caldav-error']).toBeUndefined();
+          return res;
+        });
+    }
+
+    async function reloadApp(page) {
+      const loaded = tasksLoaded(page);
+      await page.reload();
+      await loaded;
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/);
+    }
+
+    async function openTaskArea(page) {
+      await page.click('#view-kanban');
+      await expect(page.locator('.task-view-switch')).toBeVisible();
+    }
+
+    // The run's four open tasks; Done is hidden by default.
+    async function openList(page) {
+      await openTaskArea(page);
+      await page.locator('.task-view-switch button', { hasText: 'Liste' }).click();
+      await expect(rows(page)).toHaveCount(4);
+    }
+
+    test.beforeEach(async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      run = `r${Date.now().toString(36)}`;
+      homeName = `E2E 498 Haushalt ${run}`;
+      otherName = `E2E 498 Arbeit ${run}`;
+      const home = await createList(page, homeName);
+      const other = await createList(page, otherName);
+      const day = (d) => ({ due: `2036-03-${d}T00:00:00.000Z`, dueIsDate: true });
+      await createTask(page, { calendarId: home, title: `Beta ${run}`, priority: 3, ...day('02') });
+      await createTask(page, { calendarId: home, title: `Alpha ${run}`, priority: 1, ...day('05') });
+      await createTask(page, { calendarId: other, title: `Gamma ${run}`, priority: 2 });
+      await createTask(page, { calendarId: other, title: `Weekly ${run}`, recurrence: 'FREQ=WEEKLY', ...day('01') });
+      await createTask(page, {
+        calendarId: home, title: `Done ${run}`, status: 'COMPLETED', percentComplete: 100, ...day('03')
+      });
+      await reloadApp(page);
+    });
+
+    // The choice is stored for the run's one user; later specs expect the board.
+    test.afterEach(async ({ page }) => {
+      const res = await page.request.put('/api/preferences', { headers: SAME_ORIGIN, data: { taskView: 'kanban' } });
+      expect(res.ok()).toBeTruthy();
+    });
+
+    test('the switch "Liste | Kanban" changes the view and the choice is remembered', async ({ page }) => {
+      await openTaskArea(page);
+      const listBtn = page.locator('.task-view-switch button', { hasText: 'Liste' });
+      const boardBtn = page.locator('.task-view-switch button', { hasText: 'Kanban' });
+      await expect(boardBtn).toHaveAttribute('aria-pressed', 'true');
+      await expect(listBtn).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.locator('.kanban-board')).toBeVisible();
+      await expect(page.locator('.task-list-table')).toHaveCount(0);
+
+      await listBtn.click();
+      await expect(listBtn).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('.task-list-table')).toBeVisible();
+      await expect(page.locator('.kanban-board')).toHaveCount(0);
+      await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).taskView).toBe('list');
+
+      // Another visit (a fresh page) opens the task area in the list.
+      await reloadApp(page);
+      await openTaskArea(page);
+      await expect(page.locator('.task-list-table')).toBeVisible();
+      await expect(page.locator('.kanban-board')).toHaveCount(0);
+
+      await boardBtn.click();
+      await expect(page.locator('.kanban-board')).toBeVisible();
+      await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).taskView).toBe('kanban');
+    });
+
+    test('the list shows title, list, due date, priority and status and sorts by due date, priority and title', async ({ page }) => {
+      await openList(page);
+      const alpha = row(page, 'Alpha');
+      await expect(alpha.locator('.task-list-title')).toHaveText(`Alpha ${run}`);
+      await expect(alpha.locator('.task-list-calendar')).toHaveText(homeName);
+      await expect(alpha.locator('.task-list-due')).toHaveText('05.03.2036');
+      await expect(alpha.locator('.task-list-priority')).toHaveText('Hoch');
+      await expect(alpha.locator('.task-list-status')).toHaveText('Zu erledigen');
+      await expect(row(page, 'Gamma').locator('.task-list-due')).toHaveText('');
+
+      // Due date first by default; a task without one comes last.
+      await expect(page.locator('#task-list-sort')).toHaveValue('due');
+      expect(await titles(page)).toEqual([`Weekly ${run}`, `Beta ${run}`, `Alpha ${run}`, `Gamma ${run}`]);
+
+      await page.selectOption('#task-list-sort', 'priority');
+      await expect.poll(() => titles(page)).toEqual([`Alpha ${run}`, `Gamma ${run}`, `Beta ${run}`, `Weekly ${run}`]);
+
+      await page.selectOption('#task-list-sort', 'title');
+      await expect.poll(() => titles(page)).toEqual([`Alpha ${run}`, `Beta ${run}`, `Gamma ${run}`, `Weekly ${run}`]);
+    });
+
+    test('completed tasks are hidden until shown, and the list can be grouped by list', async ({ page }) => {
+      await openList(page);
+      await expect(page.locator('#task-list-show-completed')).not.toBeChecked();
+      await expect(row(page, 'Done')).toHaveCount(0);
+
+      await page.check('#task-list-show-completed');
+      await expect(row(page, 'Done')).toHaveCount(1);
+      await expect(row(page, 'Done').locator('.task-list-status')).toHaveText('Erledigt');
+      await expect(row(page, 'Done').locator('.task-list-check')).toBeChecked();
+      await page.uncheck('#task-list-show-completed');
+      await expect(row(page, 'Done')).toHaveCount(0);
+
+      await expect(page.locator('.task-list-group-header', { hasText: run })).toHaveCount(0);
+      await page.check('#task-list-group');
+      const home = page.locator('tbody.task-list-group', { has: page.locator('.task-list-group-header', { hasText: homeName }) });
+      const other = page.locator('tbody.task-list-group', { has: page.locator('.task-list-group-header', { hasText: otherName }) });
+      await expect(home.locator('.task-list-title')).toHaveText([`Beta ${run}`, `Alpha ${run}`]);
+      await expect(other.locator('.task-list-title')).toHaveText([`Weekly ${run}`, `Gamma ${run}`]);
+    });
+
+    test('the checkbox completes a task; a recurring one moves on to its next due date (#95)', async ({ page }) => {
+      await openList(page);
+
+      // Each change is saved, then the list is reloaded; the assertions follow that reload.
+      let reloaded = tasksLoaded(page);
+      await row(page, 'Beta').locator('.task-list-check').check();
+      await reloaded;
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Aufgabe als erledigt markiert.' })).toBeVisible();
+      await expect(row(page, 'Beta')).toHaveCount(0);
+      expect((await storedTask(page, `Beta ${run}`)).status).toBe('COMPLETED');
+
+      reloaded = tasksLoaded(page);
+      await row(page, 'Weekly').locator('.task-list-check').check();
+      await reloaded;
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Aufgabe auf 08.03.2036 verschoben.' })).toBeVisible();
+      await expect(row(page, 'Weekly').locator('.task-list-due')).toHaveText('08.03.2036');
+      await expect(row(page, 'Weekly').locator('.task-list-check')).not.toBeChecked();
+      const weekly = await storedTask(page, `Weekly ${run}`);
+      expect(weekly.status).toBe('NEEDS-ACTION');
+      expect(weekly.due).toBe('2036-03-08T00:00:00.000Z');
+
+      // Shown again, a completed task is reopened with its checkbox.
+      await page.check('#task-list-show-completed');
+      reloaded = tasksLoaded(page);
+      await row(page, 'Beta').locator('.task-list-check').uncheck();
+      await reloaded;
+      await expect(row(page, 'Beta').locator('.task-list-status')).toHaveText('Zu erledigen');
+      expect((await storedTask(page, `Beta ${run}`)).status).toBe('NEEDS-ACTION');
+    });
+
+    test('the list is used with the keyboard alone', async ({ page }) => {
+      await openTaskArea(page);
+      const listBtn = page.locator('.task-view-switch button', { hasText: 'Liste' });
+      await listBtn.focus();
+      await page.keyboard.press('Enter');
+      await expect(rows(page)).toHaveCount(4);
+      // Re-rendering keeps the focus where it was.
+      await expect(listBtn).toBeFocused();
+
+      // Tab walks the controls, then into the rows: checkbox, then title.
+      await page.keyboard.press('Tab');
+      await expect(page.locator('.task-view-switch button', { hasText: 'Kanban' })).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-sort')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-group')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-show-completed')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('.task-list-check').first()).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('.task-list-title').first()).toBeFocused();
+
+      // Space on a row's checkbox completes it; the focus stays in the list.
+      const beta = row(page, 'Beta').locator('.task-list-check');
+      await beta.focus();
+      await expect(beta).toHaveAttribute('aria-label', `„Beta ${run}“ als erledigt markieren`);
+      const reloaded = tasksLoaded(page);
+      await page.keyboard.press('Space');
+      await reloaded;
+      await expect(row(page, 'Beta')).toHaveCount(0);
+      await expect(page.locator('.task-list-check:focus')).toHaveCount(1);
+
+      // Enter on a title opens the task.
+      await row(page, 'Alpha').locator('.task-list-title').focus();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#task-title')).toHaveValue(`Alpha ${run}`);
+    });
+
+    // PR #563 failed in CI because, by the time these specs ran, the run's user had many
+    // collections: the server read them all at once, Radicale dropped some of those reads and the
+    // list silently lacked their tasks. A user with many lists sees the tasks of every one.
+    test('with many lists, the list shows the tasks of every list', async ({ page }) => {
+      const LISTS = 100;
+      // Budget for creating 100 lists, not a wait for the UI. Radicale's rights forbid deleting a
+      // collection; the global teardown drops the run's principal with them.
+      test.setTimeout(180000);
+      for (let i = 0; i < LISTS; i++) {
+        const id = await createList(page, `E2E 498 Viele ${run} ${i}`);
+        await createTask(page, { calendarId: id, title: `Viele ${run} ${i}` });
+      }
+      await reloadApp(page);
+      await openTaskArea(page);
+      await page.locator('.task-view-switch button', { hasText: 'Liste' }).click();
+      await expect(page.locator('.task-list-row', { hasText: `Viele ${run} ` })).toHaveCount(LISTS);
+      await expect(rows(page)).toHaveCount(LISTS + 4);
+    });
+  });
 });

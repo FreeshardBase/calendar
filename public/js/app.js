@@ -4,14 +4,14 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, setUnauthorizedHandler } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesAPI, setUnauthorizedHandler } from './api.js';
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
-import { initTaskUI, openTaskModal, renderKanbanBoard, renderSidebarTasks } from './tasks.js';
+import { initTaskUI, openTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
@@ -100,6 +100,7 @@ async function boot() {
       await loadCalendars();
       await loadWebcalSubscriptions();
       await loadEvents();
+      store.set({ taskView: (await PreferencesAPI.get()).taskView });
       await loadTasks();
       await checkOAuthTokenStatus();
       await checkSyncStatus();
@@ -729,7 +730,7 @@ function renderCalendarView() {
   const searchQuery = store.get('searchQuery');
 
   if (view === 'kanban') {
-    $('toolbar-title').textContent = 'Aufgaben (Kanban)';
+    $('toolbar-title').textContent = 'Aufgaben';
     document.querySelectorAll('.view-tab').forEach(btn => {
       const isActive = btn.dataset.view === 'kanban';
       btn.classList.toggle('active', isActive);
@@ -738,7 +739,9 @@ function renderCalendarView() {
     });
     const tasks = getFilteredTasks();
     const tasksError = store.get('tasksError');
-    renderKanbanBoard(container, tasks, { onTaskChanged: loadTasks }, { searchQuery, error: tasksError });
+    renderTaskArea(container, tasks, { onTaskChanged: loadTasks }, {
+      searchQuery, error: tasksError, taskView: store.get('taskView'), onTaskViewChange: changeTaskView
+    });
     const count = tasks.length;
     if (tasksError) {
       announce('Fehler beim Laden der Aufgaben');
@@ -792,6 +795,18 @@ function renderCalendarView() {
       announce(`Datum: ${d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
     }
   );
+}
+
+// #498: "Liste | Kanban" is remembered per user on the server.
+async function changeTaskView(taskView) {
+  store.set({ taskView });
+  renderCalendarView();
+  announce(taskView === 'list' ? 'Aufgaben als Liste' : 'Aufgaben als Kanban-Board');
+  try {
+    await PreferencesAPI.setTaskView(taskView);
+  } catch (err) {
+    showToast('Die Ansicht konnte nicht gespeichert werden: ' + err.message, 'error');
+  }
 }
 
 function getFilteredEvents() {
@@ -2429,7 +2444,7 @@ function attachListeners() {
       workweek: 'Arbeitswoche',
       day: 'Tagesansicht',
       agenda: 'Agendaansicht',
-      kanban: 'Kanban-Ansicht'
+      kanban: 'Aufgaben'
     };
     const label = viewLabels[viewName] || viewName;
     announce(`Ansicht gewechselt: ${label}`);

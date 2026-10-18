@@ -25,6 +25,7 @@ const { canonicalCollectionPath, checkCalendarAccess, extractCalendarIdFromHref,
 const { logEventChange } = require('../utils/eventHistory');
 const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
+const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
 const { assertValidAlarms } = require('../utils/ical');
 
@@ -109,42 +110,40 @@ router.get('/invitations', async (req, res) => {
         const calXml = await client.getCalendars();
         const calendars = parseCalendarList(calXml, account.id, account.url, account.username);
 
-        await Promise.allSettled(
-          calendars.map(async (cal) => {
-            try {
-              const eventsXml = await client.getEvents(cal.url, startDate, endDate);
-              const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
-              for (const ev of events) {
-                const baseUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : ev.uid);
-                if (!baseUid || seenUids.has(baseUid)) continue;
+        await forEachLimited(calendars, CALDAV_REPORT_CONCURRENCY, async (cal) => {
+          try {
+            const eventsXml = await client.getEvents(cal.url, startDate, endDate);
+            const events = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate);
+            for (const ev of events) {
+              const baseUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : ev.uid);
+              if (!baseUid || seenUids.has(baseUid)) continue;
 
-                if (ev.organizer) {
-                  const rawOrg = typeof ev.organizer === 'string' ? ev.organizer : (ev.organizer?.email || ev.organizer?.name || '');
-                  const orgEmail = rawOrg.toLowerCase().replace(/^mailto:/i, '').trim();
-                  if (orgEmail && (validEmails.includes(orgEmail) || sessionIdentifiers.has(orgEmail))) continue;
-                }
-
-                if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
-                  const matchedAtt = ev.attendees.find(a => {
-                    const aEmail = (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim();
-                    return validEmails.includes(aEmail) || sessionIdentifiers.has(aEmail);
-                  });
-                  if (!matchedAtt) continue;
-
-                  const status = (matchedAtt.status || matchedAtt.partstat || 'NEEDS-ACTION').toUpperCase();
-                  if (status === 'ACCEPTED' || status === 'DECLINED' || status === 'DELEGATED' || status === 'TENTATIVE') continue;
-
-                  ev.userEmail = matchedAtt.email;
-                  ev.uid = baseUid;
-                  seenUids.add(baseUid);
-                  invitations.push(ev);
-                }
+              if (ev.organizer) {
+                const rawOrg = typeof ev.organizer === 'string' ? ev.organizer : (ev.organizer?.email || ev.organizer?.name || '');
+                const orgEmail = rawOrg.toLowerCase().replace(/^mailto:/i, '').trim();
+                if (orgEmail && (validEmails.includes(orgEmail) || sessionIdentifiers.has(orgEmail))) continue;
               }
-            } catch (e) {
-              console.error(`[invitations GET] Error for ${cal.id}:`, e.message);
+
+              if (Array.isArray(ev.attendees) && ev.attendees.length > 0) {
+                const matchedAtt = ev.attendees.find(a => {
+                  const aEmail = (a.email || '').toLowerCase().replace(/^mailto:/i, '').trim();
+                  return validEmails.includes(aEmail) || sessionIdentifiers.has(aEmail);
+                });
+                if (!matchedAtt) continue;
+
+                const status = (matchedAtt.status || matchedAtt.partstat || 'NEEDS-ACTION').toUpperCase();
+                if (status === 'ACCEPTED' || status === 'DECLINED' || status === 'DELEGATED' || status === 'TENTATIVE') continue;
+
+                ev.userEmail = matchedAtt.email;
+                ev.uid = baseUid;
+                seenUids.add(baseUid);
+                invitations.push(ev);
+              }
             }
-          })
-        );
+          } catch (e) {
+            console.error(`[invitations GET] Error for ${cal.id}:`, e.message);
+          }
+        });
       })
     );
 
@@ -233,22 +232,20 @@ router.get('/', async (req, res) => {
             calendars = calendars.filter(c => c.id === calendarId);
           }
 
-          await Promise.allSettled(
-            calendars.map(async (cal) => {
-              try {
-                const eventsXml = await client.getEvents(cal.url, startDate, endDate);
-                const parseErrors = [];
-                const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate, parseErrors);
-                allEvents.push(...events);
-                for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
-                successfulCalendars++;
-              } catch (eventErr) {
-                console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
-                const { status, message } = describeError(eventErr);
-                errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
-              }
-            })
-          );
+          await forEachLimited(calendars, CALDAV_REPORT_CONCURRENCY, async (cal) => {
+            try {
+              const eventsXml = await client.getEvents(cal.url, startDate, endDate);
+              const parseErrors = [];
+              const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate, parseErrors);
+              allEvents.push(...events);
+              for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
+              successfulCalendars++;
+            } catch (eventErr) {
+              console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
+              const { status, message } = describeError(eventErr);
+              errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
+            }
+          });
         } catch (accountErr) {
           console.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
           const { status, message } = describeError(accountErr);

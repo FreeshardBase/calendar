@@ -1640,6 +1640,43 @@ textarea.form-input, .form-textarea {
   height: 14px;
 }
 
+/* ── Task area: "Liste | Kanban" (#498) ────────────────────────────────────── */
+.task-area { display: flex; flex-direction: column; height: 100%; }
+.task-view-switch {
+  display: flex; align-self: flex-start; margin: var(--sp-4) var(--sp-4) 0;
+  border: var(--border-w) solid var(--border-cool); border-radius: var(--radius-control); overflow: hidden;
+}
+.task-view-btn {
+  height: 30px; padding: 0 12px;
+  font: 400 var(--fs-small)/30px var(--font-ui);
+  color: var(--ink-muted); background: transparent; border: none; cursor: pointer;
+}
+.task-view-btn + .task-view-btn { border-left: var(--border-w) solid var(--border-cool); }
+.task-view-btn:hover { color: var(--ink); background: var(--bg); }
+.task-view-btn[aria-pressed="true"] { color: var(--line); background: var(--bg); font-weight: 500; }
+.task-view-body { flex: 1; min-height: 0; overflow: auto; }
+
+.task-list-controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-small); color: var(--ink-muted);
+}
+.task-list-control { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.task-list-control .form-select { width: auto; }
+.task-list-empty { padding: var(--sp-4); font-size: var(--fs-small); color: var(--ink-muted); }
+.task-list-table { width: calc(100% - 2 * var(--sp-4)); margin: 0 var(--sp-4) var(--sp-4); border-collapse: collapse; font-size: var(--fs-small); }
+.task-list-table th,
+.task-list-table td { padding: var(--sp-2); text-align: left; border-bottom: var(--border-w) solid var(--border); color: var(--ink); }
+.task-list-table thead th { color: var(--ink-muted); font-weight: 500; }
+.task-list-col-check { width: 32px; }
+.task-list-group-header th { padding-top: var(--sp-4); font-weight: 600; }
+.task-list-group-count { color: var(--ink-muted); font-weight: 400; }
+.task-list-title {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; color: var(--ink); text-align: left;
+}
+.task-list-title:hover { text-decoration: underline; }
+.task-list-row.is-done .task-list-title { text-decoration: line-through; color: var(--ink-muted); }
+
 /* ── Kanban Board View ─────────────────────────────────────────────────────── */
 .kanban-board {
   display: flex;
