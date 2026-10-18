@@ -1583,6 +1583,200 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
   });
 
+  test.describe('Issue #499 — the status changes by moving a card to another lane', () => {
+    const LANES = { 'NEEDS-ACTION': '#kanban-cards-todo', 'IN-PROCESS': '#kanban-cards-in-process',
+      COMPLETED: '#kanban-cards-completed', CANCELLED: '#kanban-cards-cancelled' };
+
+    // A mouse drag in small steps, as a person would do it, from the card's title into a lane.
+    async function mouseDrag(page, card, status) {
+      const from = await card.locator('.kanban-card-title').boundingBox();
+      const to = await page.locator(LANES[status]).boundingBox();
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+      await page.mouse.up();
+    }
+
+    test('dragging stores each RFC 5545 status, with COMPLETED and PERCENT-COMPLETE on completion', async ({ page }) => {
+      const title = `E2E Issue499 Drag ${Date.now()}`;
+      const stored = () => page.evaluate(async (t) => {
+        const res = await fetch('/api/tasks');
+        const body = await res.json();
+        const list = Array.isArray(body) ? body : body.tasks;
+        const found = list.find(x => x.title === t);
+        return found ? { status: found.status, ics: found.rawIcs.replace(/\r?\n[ \t]/g, '') } : null;
+      }, title);
+
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      // The first calendar listing creates the default collections, the task list among them.
+      await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+      const listed = await (await page.request.get('/api/calendars')).json();
+      const taskList = listed.calendars.find(c => c.accountId === 'internal-caldav' && c.supportsVTODO && !c.supportsVEVENT && !c.readOnly);
+      expect(taskList).toBeTruthy();
+      const created = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data: { calendarId: taskList.id, title } });
+      expect(created.status()).toBe(201);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#view-kanban');
+      const card = page.locator('.kanban-card', { hasText: title });
+      await expect(page.locator(LANES['NEEDS-ACTION']).locator('.kanban-card', { hasText: title })).toHaveCount(1, { timeout: 10000 });
+
+      for (const status of ['IN-PROCESS', 'COMPLETED', 'CANCELLED', 'NEEDS-ACTION']) {
+        const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/api/tasks/'));
+        await mouseDrag(page, card, status);
+        expect((await put).status()).toBe(200);
+        await expect(page.locator(LANES[status]).locator('.kanban-card', { hasText: title })).toHaveCount(1, { timeout: 10000 });
+        await expect(page.locator('.kanban-card-pending')).toHaveCount(0, { timeout: 10000 });
+        const s = await stored();
+        expect(s.status).toBe(status);
+        expect(s.ics).toMatch(new RegExp(`^STATUS:${status}\\r?$`, 'm'));
+        if (status === 'COMPLETED') {
+          expect(s.ics).toMatch(/^COMPLETED:\d{8}T\d{6}Z\r?$/m);
+          expect(s.ics).toMatch(/^PERCENT-COMPLETE:100\r?$/m);
+        } else {
+          expect(s.ics).not.toMatch(/^COMPLETED:/m);
+          expect(s.ics).not.toMatch(/^PERCENT-COMPLETE:100\r?$/m);
+        }
+      }
+
+      await card.locator('.btn-delete').click();
+      await page.click('#confirm-dialog-ok');
+      await expect(card).toHaveCount(0, { timeout: 10000 });
+    });
+
+    test.describe('against a served task list', () => {
+      test.use({ serviceWorkers: 'block' });
+      const writableCal = `internal-caldav::/${E2E_USER}/personal/`;
+      const sharedCal = `internal-caldav::/${E2E_USER}/e2e-499-shared/`;
+      let tasks;
+      let failPut;
+      let releasePut;
+      let puts;
+
+      test.beforeEach(async ({ page }) => {
+        tasks = [
+          { uid: 'e2e-499-own', title: 'E2E 499 Eigene', status: 'NEEDS-ACTION', percentComplete: 0,
+            calendarId: writableCal, href: `/${E2E_USER}/personal/e2e-499-own.ics`, etag: '"1"' },
+          { uid: 'e2e-499-shared', title: 'E2E 499 Geteilt', status: 'NEEDS-ACTION', percentComplete: 0,
+            calendarId: sharedCal, href: `/${E2E_USER}/e2e-499-shared/e2e-499-shared.ics`, etag: '"1"' },
+        ];
+        failPut = false;
+        releasePut = null;
+        puts = [];
+        const calendars = [
+          { id: writableCal, accountId: 'internal-caldav', name: 'Persönlich', color: '#6366f1', href: `/${E2E_USER}/personal/`,
+            isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: true },
+          { id: sharedCal, accountId: 'internal-caldav', name: 'Geteilt', color: '#123456', href: `/${E2E_USER}/e2e-499-shared/`,
+            isShared: true, readOnly: true, supportsVEVENT: false, supportsVTODO: true },
+        ];
+        await page.route('**/api/calendars', route => (route.request().method() === 'GET'
+          ? route.fulfill({ json: { calendars, errors: [] } })
+          : route.fallback()));
+        await page.route(/\/api\/tasks(\?.*)?$/, route => (route.request().method() === 'GET'
+          ? route.fulfill({ json: tasks })
+          : route.fallback()));
+        await page.route(/\/api\/tasks\/[^/?]+$/, async route => {
+          if (route.request().method() !== 'PUT') return route.fallback();
+          const body = route.request().postDataJSON();
+          puts.push(body);
+          if (releasePut) await releasePut;
+          if (failPut) return route.fulfill({ status: 500, json: { error: 'CalDAV nicht erreichbar' } });
+          tasks = tasks.map(t => (t.uid === body.uid ? { ...t, status: body.status } : t));
+          return route.fulfill({ json: { ...body } });
+        });
+        await page.goto('/');
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await page.click('#view-kanban');
+        await expect(page.locator('.kanban-card', { hasText: 'E2E 499 Eigene' })).toBeVisible({ timeout: 10000 });
+      });
+
+      test('the move is shown at once and rolled back visibly when the save fails', async ({ page }) => {
+        failPut = true;
+        let release;
+        releasePut = new Promise(r => { release = r; });
+        const card = page.locator('.kanban-card', { hasText: 'E2E 499 Eigene' });
+        await mouseDrag(page, card, 'IN-PROCESS');
+
+        // Optimistic: while the server has not answered, the card already sits in the new lane.
+        const inProcess = page.locator(LANES['IN-PROCESS']).locator('.kanban-card', { hasText: 'E2E 499 Eigene' });
+        await expect(inProcess).toHaveCount(1);
+        await expect(inProcess).toHaveClass(/kanban-card-pending/);
+        await expect(page.locator('.count-in-process')).toHaveText('1');
+        expect(puts).toHaveLength(1);
+        expect(puts[0]).toMatchObject({ uid: 'e2e-499-own', status: 'IN-PROCESS', calendarId: writableCal });
+
+        release();
+        const back = page.locator(LANES['NEEDS-ACTION']).locator('.kanban-card', { hasText: 'E2E 499 Eigene' });
+        await expect(back).toHaveCount(1, { timeout: 10000 });
+        await expect(back).toHaveClass(/kanban-card-rolled-back/);
+        await expect(page.locator('.count-in-process')).toHaveText('0');
+        await expect(page.locator('#toast-container .toast.error', { hasText: 'CalDAV nicht erreichbar' })).toBeVisible();
+      });
+
+      test('the status menu on a card moves it with the keyboard alone', async ({ page }) => {
+        const card = page.locator('.kanban-card', { hasText: 'E2E 499 Eigene' });
+        const menu = card.locator('.kanban-status-select');
+        await expect(menu).toHaveAccessibleName('Status von „E2E 499 Eigene“');
+        await expect(menu).toHaveValue('NEEDS-ACTION');
+        await expect(menu.locator('option')).toHaveText(['Zu erledigen', 'In Bearbeitung', 'Erledigt', 'Abgebrochen']);
+
+        // A native select: arrow keys pick the next status, as does a tap on a phone.
+        await menu.focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(page.locator(LANES['IN-PROCESS']).locator('.kanban-card', { hasText: 'E2E 499 Eigene' })).toHaveCount(1, { timeout: 10000 });
+        expect(puts.at(-1)).toMatchObject({ status: 'IN-PROCESS' });
+        // Focus follows the card into its new lane.
+        await expect(page.locator(LANES['IN-PROCESS']).locator('.kanban-status-select')).toBeFocused();
+
+        // A card waits for its save before it moves again.
+        await expect(page.locator('.kanban-card-pending')).toHaveCount(0, { timeout: 10000 });
+        await page.keyboard.press('ArrowDown');
+        await expect(page.locator(LANES.COMPLETED).locator('.kanban-status-select')).toBeFocused({ timeout: 10000 });
+        await expect(page.locator('.kanban-card-pending')).toHaveCount(0, { timeout: 10000 });
+        await page.keyboard.press('ArrowDown');
+        await expect(page.locator(LANES.CANCELLED).locator('.kanban-card', { hasText: 'E2E 499 Eigene' })).toHaveCount(1, { timeout: 10000 });
+        expect(puts.map(p => p.status)).toEqual(['IN-PROCESS', 'COMPLETED', 'CANCELLED']);
+        expect(puts[1]).toMatchObject({ percentComplete: 100 });
+      });
+
+      test('a card is dragged by touch on its grip', async ({ page }) => {
+        const card = page.locator('.kanban-card', { hasText: 'E2E 499 Eigene' });
+        const grip = await card.locator('.kanban-drag-handle').boundingBox();
+        const to = await page.locator(LANES.COMPLETED).boundingBox();
+        const cdp = await page.context().newCDPSession(page);
+        const x0 = grip.x + grip.width / 2;
+        const y0 = grip.y + grip.height / 2;
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+        for (let i = 1; i <= 12; i++) {
+          const x = x0 + ((to.x + to.width / 2) - x0) * i / 12;
+          const y = y0 + ((to.y + to.height / 2) - y0) * i / 12;
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+        }
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await expect(page.locator(LANES.COMPLETED).locator('.kanban-card', { hasText: 'E2E 499 Eigene' })).toHaveCount(1, { timeout: 10000 });
+        expect(puts).toHaveLength(1);
+        expect(puts[0]).toMatchObject({ status: 'COMPLETED', percentComplete: 100 });
+      });
+
+      test('a card of a read-only collection cannot be dragged and has no status menu', async ({ page }) => {
+        const card = page.locator('.kanban-card', { hasText: 'E2E 499 Geteilt' });
+        await expect(card).toBeVisible();
+        await expect(card.locator('.kanban-status-select')).toHaveCount(0);
+        await expect(card.locator('.kanban-drag-handle')).toHaveCount(0);
+        await expect(card.locator('.btn-status-next, .btn-complete, .btn-reopen')).toHaveCount(0);
+        await mouseDrag(page, card, 'COMPLETED');
+        await expect(page.locator(LANES.COMPLETED).locator('.kanban-card')).toHaveCount(0);
+        await expect(page.locator(LANES['NEEDS-ACTION']).locator('.kanban-card', { hasText: 'E2E 499 Geteilt' })).toHaveCount(1);
+        expect(puts).toHaveLength(0);
+        // The writable card next to it still has both.
+        const own = page.locator('.kanban-card', { hasText: 'E2E 499 Eigene' });
+        await expect(own.locator('.kanban-status-select')).toHaveCount(1);
+        await expect(own.locator('.kanban-drag-handle')).toHaveCount(1);
+      });
+    });
+  });
+
   test.describe('Issue #182 — sidebar controls are keyboard operable', () => {
     // The sidebar shows only the first 10 pending tasks, so a task created on
     // the shared Radicale could be pushed out by leftovers from other runs.

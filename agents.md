@@ -167,6 +167,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   user gets `/personal/` (Kalender) and `/tasks/` (Aufgabenliste). Calendar views and the event/import/booking
   pickers list collections with VEVENT, the Kanban view and task dialog those with VTODO; mixed ones show in both.
   The add dialog defaults to Aufgabenliste in the Kanban view, otherwise to Kalender.
+- Kanban lanes (#499): one lane per VTODO STATUS (Zu erledigen, In Bearbeitung, Erledigt, Abgebrochen). A card
+  changes status by a pointer drag (mouse anywhere on the card, touch on its grip) or its status `<select>`
+  (keyboard, phones). The move is drawn at once and redrawn back, marked `.kanban-card-rolled-back`, when the PUT
+  fails. Cards of `readOnly` collections and finished occurrences (#264) have no drag and no status controls.
+  `reconcileTaskStatus` keeps an explicit CANCELLED and drops its COMPLETED date.
   Basic-auth CalDAV accounts work the same way (#531): the worker PROPFINDs the account's calendar home,
   refuses (job error) any calendar whose name — the unquoted last href segment, which vdirsyncer puts into
   its status path — is outside `[A-Za-z0-9_.-]`, and pairs each remote calendar with `caldav-<hex>`

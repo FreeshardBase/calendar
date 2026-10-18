@@ -421,6 +421,7 @@ function resolveUrl(base, href) {
  * Enforces mutual consistency across all 3 fields:
  * - STATUS:COMPLETED <-> PERCENT-COMPLETE:100 <-> COMPLETED:<ISO string>
  * - STATUS:NEEDS-ACTION/IN-PROCESS/etc <-> COMPLETED:null (removed) <-> PERCENT-COMPLETE != 100
+ * - STATUS:CANCELLED <-> COMPLETED:null (removed), PERCENT-COMPLETE kept as it was
  */
 function reconcileTaskStatus(task) {
   if (!task || typeof task !== 'object') return task;
@@ -458,7 +459,10 @@ function reconcileTaskStatus(task) {
     if (percentComplete === 100 || percentComplete === null) {
       percentComplete = 0;
     }
-  } else if (status && status !== 'CANCELLED') {
+  } else if (status === 'CANCELLED') {
+    // An explicit cancellation wins over the progress the task had (#499); it was not completed.
+    completed = null;
+  } else if (status) {
     completed = null;
     if (percentComplete === 100) percentComplete = 0;
   } else if (percentComplete === 100) {

@@ -42,6 +42,32 @@ function completionPayload(task) {
   return { ...task, status: 'COMPLETED', percentComplete: 100 };
 }
 
+// The board has one lane per VTODO STATUS of RFC 5545 (#499).
+const KANBAN_LANES = [
+  { status: 'NEEDS-ACTION', label: 'Zu erledigen', key: 'todo' },
+  { status: 'IN-PROCESS', label: 'In Bearbeitung', key: 'in-process' },
+  { status: 'COMPLETED', label: 'Erledigt', key: 'completed' },
+  { status: 'CANCELLED', label: 'Abgebrochen', key: 'cancelled' },
+];
+
+function laneOf(task) {
+  return KANBAN_LANES.some(l => l.status === task.status) ? task.status : 'NEEDS-ACTION';
+}
+
+// Only COMPLETED carries PERCENT-COMPLETE:100 and a COMPLETED date; leaving it drops both.
+// The server fills in a progress for IN-PROCESS when none is left.
+function statusPayload(task, status) {
+  if (status === 'COMPLETED') return completionPayload(task);
+  if (status === 'NEEDS-ACTION') return { ...task, status, completed: null, percentComplete: 0 };
+  const pct = task.percentComplete;
+  return { ...task, status, completed: null, percentComplete: pct === 100 || pct === undefined ? null : pct };
+}
+
+function isReadOnlyTask(task) {
+  const cal = (store.get('calendars') || []).find(c => c.id === task.calendarId);
+  return Boolean(cal && cal.readOnly);
+}
+
 export function getTaskCompletionToast(task, payload) {
   if (task && task.recurrence && payload && payload.status !== 'COMPLETED') {
     const isDate = Boolean(
@@ -367,65 +393,136 @@ export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}
     }
   }
 
-  container.innerHTML = `
-    ${emptyNoticeHtml}
-    <div class="kanban-board">
-      <div class="kanban-column" data-status="NEEDS-ACTION">
+  const lanesHtml = KANBAN_LANES.map(l => `
+      <div class="kanban-column" data-status="${l.status}">
         <div class="kanban-column-header">
-          <span class="kanban-column-title">Zu erledigen</span>
-          <span class="kanban-badge count-todo">0</span>
+          <span class="kanban-column-title">${l.label}</span>
+          <span class="kanban-badge count-${l.key}">0</span>
         </div>
-        <div class="kanban-cards-container" id="kanban-cards-todo"></div>
-      </div>
-      <div class="kanban-column" data-status="IN-PROCESS">
-        <div class="kanban-column-header">
-          <span class="kanban-column-title">In Bearbeitung</span>
-          <span class="kanban-badge count-in-process">0</span>
-        </div>
-        <div class="kanban-cards-container" id="kanban-cards-in-process"></div>
-      </div>
-      <div class="kanban-column" data-status="COMPLETED">
-        <div class="kanban-column-header">
-          <span class="kanban-column-title">Erledigt</span>
-          <span class="kanban-badge count-completed">0</span>
-        </div>
-        <div class="kanban-cards-container" id="kanban-cards-completed"></div>
-      </div>
-    </div>
-  `;
+        <div class="kanban-cards-container" id="kanban-cards-${l.key}"></div>
+      </div>`).join('');
 
-  const todoList = container.querySelector('#kanban-cards-todo');
-  const inProcessList = container.querySelector('#kanban-cards-in-process');
-  const completedList = container.querySelector('#kanban-cards-completed');
+  // `shown` is what the board currently draws: the loaded tasks plus any move not yet saved.
+  let shown = tasks;
+  const marks = new Map();
 
-  const todoTasks = tasks.filter(t => (t.status || 'NEEDS-ACTION') === 'NEEDS-ACTION');
-  const inProcessTasks = tasks.filter(t => t.status === 'IN-PROCESS');
-  const completedTasks = tasks.filter(t => t.status === 'COMPLETED' || t.status === 'CANCELLED');
+  const draw = () => {
+    // A redraw replaces the cards; a status menu that had focus gets it back on its card's new place.
+    const active = document.activeElement;
+    const refocusUid = active && container.contains(active) && active.classList.contains('kanban-status-select')
+      ? active.closest('.kanban-card').getAttribute('data-task-id')
+      : null;
 
-  container.querySelector('.count-todo').textContent = todoTasks.length;
-  container.querySelector('.count-in-process').textContent = inProcessTasks.length;
-  container.querySelector('.count-completed').textContent = completedTasks.length;
+    container.innerHTML = `${emptyNoticeHtml}<div class="kanban-board">${lanesHtml}</div>`;
+    const board = container.querySelector('.kanban-board');
+    for (const lane of KANBAN_LANES) {
+      const list = container.querySelector(`#kanban-cards-${lane.key}`);
+      const laneTasks = shown.filter(t => laneOf(t) === lane.status);
+      container.querySelector(`.count-${lane.key}`).textContent = laneTasks.length;
+      if (laneTasks.length === 0) {
+        list.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
+        continue;
+      }
+      for (const t of laneTasks) {
+        const card = createKanbanCard(t, callbacks, { board, onMove: status => moveTask(t, status) });
+        const mark = marks.get(t);
+        if (mark) card.classList.add(mark);
+        if (mark === 'kanban-card-pending') card.setAttribute('aria-busy', 'true');
+        list.appendChild(card);
+      }
+    }
 
-  if (todoTasks.length > 0) {
-    todoTasks.forEach(t => todoList.appendChild(createKanbanCard(t, callbacks)));
-  } else {
-    todoList.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
-  }
+    if (refocusUid) {
+      const menu = Array.from(container.querySelectorAll('.kanban-card:not([data-recurrence-id]) .kanban-status-select'))
+        .find(el => el.closest('.kanban-card').getAttribute('data-task-id') === refocusUid);
+      if (menu) menu.focus();
+    }
+  };
 
-  if (inProcessTasks.length > 0) {
-    inProcessTasks.forEach(t => inProcessList.appendChild(createKanbanCard(t, callbacks)));
-  } else {
-    inProcessList.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
-  }
+  // Optimistic (#499): the card moves at once and goes back, marked, when the save fails.
+  const moveTask = async (task, status) => {
+    if (laneOf(task) === status || marks.get(task) === 'kanban-card-pending') return draw();
+    const moved = { ...task, status };
+    shown = shown.map(t => (t === task ? moved : t));
+    marks.delete(task);
+    marks.set(moved, 'kanban-card-pending');
+    draw();
 
-  if (completedTasks.length > 0) {
-    completedTasks.forEach(t => completedList.appendChild(createKanbanCard(t, callbacks)));
-  } else {
-    completedList.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
-  }
+    const payload = statusPayload(task, status);
+    let updated;
+    try {
+      updated = await TasksAPI.update(task.uid, payload);
+    } catch (err) {
+      shown = shown.map(t => (t === moved ? task : t));
+      marks.delete(moved);
+      marks.set(task, 'kanban-card-rolled-back');
+      draw();
+      notifyToast('Status konnte nicht gespeichert werden: ' + err.message, 'error');
+      return;
+    }
+    marks.delete(moved);
+    draw();
+    notifyToast(status === 'COMPLETED' ? getTaskCompletionToast(task, updated || payload) : 'Aufgabenstatus aktualisiert.', 'success');
+    if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
+  };
+
+  draw();
 }
 
-function createKanbanCard(task, callbacks) {
+// Pointer events serve mouse, pen and touch alike. A touch only starts a drag on the grip
+// (touch-action: none there); elsewhere on the card the browser keeps it for scrolling and
+// cancels the pointer, which ends the gesture without a move.
+const DRAG_THRESHOLD_PX = 5;
+
+function laneAtPoint(board, x, y) {
+  return Array.from(board.querySelectorAll('.kanban-column')).find(col => {
+    const r = col.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }) || null;
+}
+
+function enableCardDrag(card, board, onMove) {
+  card.addEventListener('pointerdown', (down) => {
+    if (down.button !== 0 || down.target.closest('button, select')) return;
+    if (card.classList.contains('kanban-card-pending')) return;
+    let dragging = false;
+    let lane = null;
+
+    const move = (e) => {
+      if (e.pointerId !== down.pointerId) return;
+      const dx = e.clientX - down.clientX;
+      const dy = e.clientY - down.clientY;
+      if (!dragging) {
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+        dragging = true;
+        card.classList.add('kanban-card-dragging');
+      }
+      e.preventDefault();
+      card.style.transform = `translate(${dx}px, ${dy}px)`;
+      const over = laneAtPoint(board, e.clientX, e.clientY);
+      if (over !== lane) {
+        if (lane) lane.classList.remove('kanban-column-drop-target');
+        if (over) over.classList.add('kanban-column-drop-target');
+        lane = over;
+      }
+    };
+    const end = (e) => {
+      if (e.pointerId !== down.pointerId) return;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      if (lane) lane.classList.remove('kanban-column-drop-target');
+      card.classList.remove('kanban-card-dragging');
+      card.style.transform = '';
+      if (dragging && e.type === 'pointerup' && lane) onMove(lane.dataset.status);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  });
+}
+
+function createKanbanCard(task, callbacks, { board, onMove }) {
   const card = document.createElement('div');
   card.className = `kanban-card status-${(task.status || 'NEEDS-ACTION').toLowerCase()}`;
   card.setAttribute('data-task-id', task.uid);
@@ -436,6 +533,19 @@ function createKanbanCard(task, callbacks) {
     card.setAttribute('data-recurrence-id', task.recurrenceId);
     card.title = 'Erledigtes Vorkommen einer wiederkehrenden Aufgabe';
   }
+  // A task in a read-only collection keeps its status: no drag, no status controls (#499).
+  const movable = !task.recurrenceId && !isReadOnlyTask(task);
+  if (movable) card.classList.add('kanban-card-movable');
+  const statusMenu = movable ? `
+      <select class="kanban-status-select" aria-label="Status von „${escapeHtml(task.title)}“">
+        ${KANBAN_LANES.map(l => `<option value="${l.status}"${l.status === laneOf(task) ? ' selected' : ''}>${l.label}</option>`).join('')}
+      </select>` : '';
+  const statusButtons = !movable ? '' : task.status !== 'COMPLETED' ? `
+        <button class="kanban-btn btn-status-next" title="Status weiterschalten" aria-label="Status weiterschalten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+        <button class="kanban-btn btn-complete" title="Als erledigt markieren" aria-label="Als erledigt markieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
+      ` : `
+        <button class="kanban-btn btn-reopen" title="Wieder öffnen" aria-label="Wieder öffnen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
+      `;
 
   let dueBadge = '';
   if (task.due) {
@@ -456,6 +566,7 @@ function createKanbanCard(task, callbacks) {
   }
 
   card.innerHTML = `
+    ${movable ? `<span class="kanban-drag-handle" title="Ziehen, um den Status zu ändern" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span>` : ''}
     <div class="kanban-card-body">
       <div class="kanban-card-title">${escapeHtml(task.title)}</div>
       ${task.description ? `<div class="kanban-card-desc">${escapeHtml(task.description)}</div>` : ''}
@@ -466,18 +577,19 @@ function createKanbanCard(task, callbacks) {
       </div>
     </div>
     ${task.recurrenceId ? '' : `<div class="kanban-card-actions">
-      ${task.status !== 'COMPLETED' ? `
-        <button class="kanban-btn btn-status-next" title="Status weiterschalten" aria-label="Status weiterschalten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
-        <button class="kanban-btn btn-complete" title="Als erledigt markieren" aria-label="Als erledigt markieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
-      ` : `
-        <button class="kanban-btn btn-reopen" title="Wieder öffnen" aria-label="Wieder öffnen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
-      `}
+      ${statusMenu}
+      ${statusButtons}
       <button class="kanban-btn btn-edit" title="Bearbeiten" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
       <button class="kanban-btn btn-delete" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg></button>
     </div>`}
   `;
 
   card.querySelector('.btn-edit')?.addEventListener('click', () => openTaskModal(task));
+
+  if (movable) {
+    enableCardDrag(card, board, onMove);
+    card.querySelector('.kanban-status-select').addEventListener('change', (e) => onMove(e.target.value));
+  }
 
   card.querySelector('.btn-delete')?.addEventListener('click', async () => {
     if (await confirmDialog(`Aufgabe „${task.title}“ wirklich löschen?`)) {
