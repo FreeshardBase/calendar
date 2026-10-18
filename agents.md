@@ -229,6 +229,10 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   canonical source `~/knowledge_base/freeshard/ui-style/tokens/`). Light-first, no shadows,
   depth = border + surface tone. Reuse `.btn`, `.modal`, `.fs-label` etc. before inventing new classes.
 - No build step, no bundler; plain CommonJS server-side, plain script tags client-side.
+- Container base images (#557): every `FROM` pins `<image>:<tag>@sha256:<multi-arch index digest>`
+  (`server/test/base_image_digest_pinning.test.js`). Bump with `docker buildx imagetools inspect <image>:<tag>`,
+  replace the digest in every `FROM` of that image and in the test's expected list; never use a
+  single-platform manifest digest (arm64 shards) and never push an image. Details in README.
 - Do not add METHOD to CalDAV VCALENDAR objects (RFC 4791 §4.1) — see `eventToICS`.
 - Multi-process SQLite: node app, Radicale plugins, and sync-worker all open the same DB file —
   keep writes short-lived; schema changes must be additive and go into a new numbered entry in

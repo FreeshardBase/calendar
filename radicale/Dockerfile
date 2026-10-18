@@ -1,5 +1,6 @@
 # Pinned Python minor and Debian release: python:3-slim follows the newest Python major (#103).
-FROM python:3.12-slim-trixie
+# Pinned by multi-arch index digest as well (#557); see README "Bumping a base image pin".
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 LABEL org.opencontainers.image.title="freeshard-radicale"
 LABEL org.opencontainers.image.description="FreeShard Radicale CalDAV Server"

@@ -1,13 +1,14 @@
 # Pinned Python minor and Debian release: python:3-slim follows the newest Python major (#103).
+# Both stages are pinned by multi-arch index digest as well (#557); see README "Bumping a base image pin".
 # Build stage (#536): installs the hash-locked wheels into a venv; pip never builds from source, so
 # no compiler is needed and none reaches the runtime image.
-FROM python:3.12-slim-trixie AS build
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS build
 
 RUN python -m venv /opt/venv
 COPY locked-requirements.txt /tmp/locked-requirements.txt
 RUN /opt/venv/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/locked-requirements.txt
 
-FROM python:3.12-slim-trixie
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 LABEL org.opencontainers.image.title="freeshard-sync-worker"
 LABEL org.opencontainers.image.description="FreeShard CalDAV Sync Worker Daemon"

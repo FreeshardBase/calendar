@@ -1,4 +1,5 @@
-FROM node:22-alpine
+# Base image pinned by tag plus multi-arch index digest (#557); see README "Bumping a base image pin".
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 
 LABEL org.opencontainers.image.title="FreeShard WebCalendar"
 LABEL org.opencontainers.image.description="CalDAV web client for FreeShard"
