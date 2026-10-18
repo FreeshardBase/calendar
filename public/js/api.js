@@ -181,6 +181,12 @@ export const TasksAPI = {
   remove: (uid, data) => request('DELETE', `/api/tasks/${encodeURIComponent(uid)}`, data),
 };
 
+// ── Per-user preferences (#498) ───────────────────────────────────────────────
+export const PreferencesAPI = {
+  get:         ()         => request('GET', '/api/preferences'),
+  setTaskView: (taskView) => request('PUT', '/api/preferences', { taskView }),
+};
+
 // ── Resources & Room Booking ──────────────────────────────────────────────────
 export const ResourcesAPI = {
   list:   (type, minCapacity) => request('GET', `/api/resources?type=${encodeURIComponent(type || '')}&minCapacity=${minCapacity || ''}`),

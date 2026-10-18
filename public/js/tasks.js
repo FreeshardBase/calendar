@@ -3,7 +3,7 @@
  */
 
 import { store } from './store.js';
-import { fillCalendarSelect } from './calendarLabels.js';
+import { fillCalendarSelect, calendarLabel } from './calendarLabels.js';
 import { TasksAPI } from './api.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { showToast } from './app.js';
@@ -529,6 +529,246 @@ function createKanbanCard(task, callbacks) {
   });
 
   return card;
+}
+
+// ── Task area: "Liste | Kanban" (#498) ────────────────────────────────────────
+
+const STATUS_LABELS = {
+  'NEEDS-ACTION': 'Zu erledigen',
+  'IN-PROCESS': 'In Bearbeitung',
+  'COMPLETED': 'Erledigt',
+  'CANCELLED': 'Abgebrochen',
+};
+
+// The same names the task dialog offers; any other RFC 5545 value is shown as its number.
+const PRIORITY_LABELS = { 1: 'Hoch', 2: 'Mittel', 3: 'Niedrig' };
+
+function isDone(task) {
+  return task.status === 'COMPLETED' || task.status === 'CANCELLED';
+}
+
+function hasPriority(task) {
+  return typeof task.priority === 'number' && task.priority > 0;
+}
+
+function dueTime(task) {
+  return task.due ? new Date(task.due).getTime() : null;
+}
+
+const byTitle = (a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'de', { sensitivity: 'base' });
+
+// Missing values (no due date, no priority) sort last.
+function byMissingLast(av, bv) {
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return av - bv;
+}
+
+const TASK_SORTS = {
+  due: (a, b) => byMissingLast(dueTime(a), dueTime(b)) || byTitle(a, b),
+  priority: (a, b) => byMissingLast(hasPriority(a) ? a.priority : null, hasPriority(b) ? b.priority : null)
+    || byMissingLast(dueTime(a), dueTime(b)) || byTitle(a, b),
+  title: (a, b) => byTitle(a, b) || byMissingLast(dueTime(a), dueTime(b)),
+};
+
+// How the list is sorted, grouped and filtered; kept for the page's lifetime.
+const listOptions = { sort: 'due', groupByList: false, showCompleted: false };
+
+function calendarName(calendarId) {
+  const cal = (store.get('calendars') || []).find(c => c.id === calendarId);
+  return cal ? calendarLabel(cal) : calendarId;
+}
+
+/**
+ * The task area: a "Liste | Kanban" switch above the chosen view.
+ * options.taskView is 'list' or 'kanban'; options.onTaskViewChange(view) stores a new choice.
+ */
+export function renderTaskArea(container, tasks, callbacks = {}, options = {}) {
+  if (!container) return;
+  const taskView = options.taskView;
+  if (taskView !== 'list' && taskView !== 'kanban') throw new Error(`Unknown task view "${taskView}"`);
+
+  const focusKey = focusedKey(container);
+  container.innerHTML = `
+    <div class="task-area">
+      <div class="task-view-switch" role="group" aria-label="Aufgabenansicht">
+        <button type="button" class="task-view-btn" data-task-view="list" data-focus-key="view-list" aria-pressed="${taskView === 'list'}">Liste</button>
+        <button type="button" class="task-view-btn" data-task-view="kanban" data-focus-key="view-kanban" aria-pressed="${taskView === 'kanban'}">Kanban</button>
+      </div>
+      <div class="task-view-body"></div>
+    </div>
+  `;
+  container.querySelectorAll('.task-view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.taskView !== taskView) options.onTaskViewChange(btn.dataset.taskView);
+    });
+  });
+
+  const body = container.querySelector('.task-view-body');
+  if (taskView === 'kanban') {
+    renderKanbanBoard(body, tasks, callbacks, options);
+  } else {
+    renderTaskList(body, tasks, callbacks, options, () => renderTaskArea(container, tasks, callbacks, options));
+  }
+  restoreFocus(container, focusKey);
+}
+
+// Re-rendering replaces every control; the focused one is found again by its data-focus-key so a
+// keyboard user keeps their place. A row that left the list (a completed task) hands the focus to
+// the row now at its position.
+function focusedKey(container) {
+  const active = document.activeElement;
+  if (!active || !container.contains(active) || !active.dataset.focusKey) return null;
+  const kind = active.dataset.focusKind;
+  const index = kind ? [...container.querySelectorAll(`[data-focus-kind="${kind}"]`)].indexOf(active) : -1;
+  return { key: active.dataset.focusKey, kind, index };
+}
+
+function restoreFocus(container, focus) {
+  if (!focus) return;
+  const exact = [...container.querySelectorAll('[data-focus-key]')].find(el => el.dataset.focusKey === focus.key);
+  if (exact) {
+    exact.focus();
+    return;
+  }
+  if (!focus.kind) return;
+  const sameKind = container.querySelectorAll(`[data-focus-kind="${focus.kind}"]`);
+  if (sameKind.length > 0) sameKind[Math.min(focus.index, sameKind.length - 1)].focus();
+}
+
+function renderTaskList(container, tasks, callbacks, options, rerender) {
+  if (options.error) {
+    container.innerHTML = `
+      <div class="kanban-empty-state kanban-error-state">
+        <div class="kanban-empty-title">Fehler beim Laden der Aufgaben</div>
+        <div class="kanban-empty-subtitle">Die Aufgaben konnten nicht geladen werden.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const shown = tasks.filter(t => listOptions.showCompleted || !isDone(t)).sort(TASK_SORTS[listOptions.sort]);
+  const groups = listOptions.groupByList
+    ? [...new Set(shown.map(t => t.calendarId))]
+        .map(id => ({ id, name: calendarName(id), tasks: shown.filter(t => t.calendarId === id) }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
+    : [{ id: null, name: null, tasks: shown }];
+
+  const searchQuery = (options.searchQuery || '').trim();
+  let emptyText = '';
+  if (shown.length === 0) {
+    if (searchQuery) emptyText = `Keine Aufgaben für „${escapeHtml(searchQuery)}“ gefunden.`;
+    else if (tasks.length > 0) emptyText = 'Keine offenen Aufgaben.';
+    else emptyText = 'Keine Aufgaben vorhanden. Klicke oben auf „Neue Aufgabe“, um die erste Aufgabe zu erstellen.';
+  }
+
+  container.innerHTML = `
+    <div class="task-list-controls">
+      <label class="task-list-control">Sortieren nach
+        <select id="task-list-sort" class="form-select" data-focus-key="sort">
+          <option value="due">Fälligkeit</option>
+          <option value="priority">Priorität</option>
+          <option value="title">Titel</option>
+        </select>
+      </label>
+      <label class="task-list-control">
+        <input type="checkbox" id="task-list-group" data-focus-key="group" ${listOptions.groupByList ? 'checked' : ''} />
+        Nach Liste gruppieren
+      </label>
+      <label class="task-list-control">
+        <input type="checkbox" id="task-list-show-completed" data-focus-key="show-completed" ${listOptions.showCompleted ? 'checked' : ''} />
+        Erledigte anzeigen
+      </label>
+    </div>
+    ${emptyText ? `<div class="task-list-empty">${emptyText}</div>` : `
+    <table class="task-list-table" aria-label="Aufgaben">
+      <thead>
+        <tr>
+          <th scope="col" class="task-list-col-check"><span class="sr-only">Erledigt</span></th>
+          <th scope="col">Titel</th>
+          <th scope="col">Liste</th>
+          <th scope="col">Fällig</th>
+          <th scope="col">Priorität</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      ${groups.map(g => `
+      <tbody class="task-list-group">
+        ${g.name === null ? '' : `<tr class="task-list-group-header"><th scope="rowgroup" colspan="6">${escapeHtml(g.name)} <span class="task-list-group-count">(${g.tasks.length})</span></th></tr>`}
+        ${g.tasks.map(taskListRow).join('')}
+      </tbody>`).join('')}
+    </table>`}
+  `;
+
+  const sortSelect = container.querySelector('#task-list-sort');
+  sortSelect.value = listOptions.sort;
+  sortSelect.addEventListener('change', () => {
+    listOptions.sort = sortSelect.value;
+    rerender();
+  });
+  container.querySelector('#task-list-group').addEventListener('change', (e) => {
+    listOptions.groupByList = e.target.checked;
+    rerender();
+  });
+  container.querySelector('#task-list-show-completed').addEventListener('change', (e) => {
+    listOptions.showCompleted = e.target.checked;
+    rerender();
+  });
+
+  container.querySelectorAll('.task-list-row').forEach(tr => {
+    const task = shown.find(t => rowKey(t) === tr.dataset.rowKey);
+    tr.querySelector('.task-list-title').addEventListener('click', () => openTaskModal(task));
+    tr.querySelector('.task-list-check').addEventListener('change', (e) => {
+      setTaskDone(task, e.target.checked, callbacks);
+    });
+  });
+}
+
+// A finished occurrence of a recurring task (#264) shares its series' uid.
+function rowKey(task) {
+  return `${task.calendarId}|${task.uid}|${task.recurrenceId || ''}`;
+}
+
+function taskListRow(task) {
+  const key = escapeHtml(rowKey(task));
+  const done = isDone(task);
+  const title = escapeHtml(task.title);
+  // An occurrence finished from a series cannot be reopened on its own (#264).
+  const checkLabel = task.recurrenceId
+    ? `„${title}“ ist ein erledigtes Vorkommen`
+    : `„${title}“ ${done ? 'wieder öffnen' : 'als erledigt markieren'}`;
+  const prio = hasPriority(task) ? (PRIORITY_LABELS[task.priority] || String(task.priority)) : '';
+  return `
+    <tr class="task-list-row${done ? ' is-done' : ''}" data-task-id="${escapeHtml(task.uid)}" data-row-key="${key}">
+      <td class="task-list-col-check">
+        <input type="checkbox" class="task-list-check" data-focus-key="check|${key}" data-focus-kind="check"
+          aria-label="${checkLabel}" ${done ? 'checked' : ''} ${task.recurrenceId ? 'disabled' : ''} />
+      </td>
+      <td><button type="button" class="task-list-title" data-focus-key="title|${key}" data-focus-kind="title">${title}</button></td>
+      <td class="task-list-calendar">${escapeHtml(calendarName(task.calendarId))}</td>
+      <td class="task-list-due">${task.due ? formatDueDate(new Date(task.due), Boolean(task.dueIsDate || task.allDay)) : ''}</td>
+      <td class="task-list-priority">${escapeHtml(prio)}</td>
+      <td class="task-list-status">${STATUS_LABELS[task.status || 'NEEDS-ACTION'] || escapeHtml(task.status)}</td>
+    </tr>
+  `;
+}
+
+async function setTaskDone(task, done, callbacks) {
+  try {
+    if (done) {
+      const payload = completionPayload(task);
+      const updated = await TasksAPI.update(task.uid, payload);
+      notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
+    } else {
+      await TasksAPI.update(task.uid, { ...task, status: 'NEEDS-ACTION', completed: null, percentComplete: 0 });
+      notifyToast('Aufgabe wieder geöffnet.', 'info');
+    }
+  } catch (err) {
+    notifyToast('Fehler beim Aktualisieren: ' + err.message, 'error');
+  }
+  // Reload either way: after a failure the checkbox shows the stored state again.
+  if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
 }
 
 export function renderSidebarTasks(container, countBadge, tasks, callbacks = {}, options = {}) {

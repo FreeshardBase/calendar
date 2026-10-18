@@ -62,6 +62,7 @@ export const store = createStore({
   // Tasks state (VTODO)
   tasks:           [],
   loadingTasks:    false,
+  taskView:        'kanban', // 'list' | 'kanban' — the user's stored choice, loaded at boot (#498)
 
   // Loading state
   loadingEvents:   false,

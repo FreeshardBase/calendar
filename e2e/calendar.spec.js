@@ -6998,4 +6998,200 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(sidebarItem(page, id)).toBeVisible();
     });
   });
+
+  test.describe('Issue #498 — the task area offers a list next to the kanban board', () => {
+    let run;
+    let homeName;
+    let otherName;
+
+    async function createList(page, name) {
+      const res = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, type: 'tasklist' }
+      });
+      expect(res.status()).toBe(201);
+      return (await res.json()).id;
+    }
+
+    async function createTask(page, data) {
+      const res = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data });
+      expect(res.status(), JSON.stringify(data)).toBe(201);
+    }
+
+    async function storedTask(page, title) {
+      const res = await page.request.get('/api/tasks');
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()).find(t => t.title === title && !t.recurrenceId);
+    }
+
+    // This run's rows only: earlier specs leave their own tasks in the shared principal.
+    const rows = (page) => page.locator('.task-list-row', { hasText: run });
+    const titles = (page) => rows(page).locator('.task-list-title').allTextContents();
+    const row = (page, title) => page.locator('.task-list-row', { hasText: `${title} ${run}` });
+
+    async function openTaskArea(page) {
+      await page.click('#view-kanban');
+      await expect(page.locator('.task-view-switch')).toBeVisible({ timeout: 10000 });
+    }
+
+    async function openList(page) {
+      await openTaskArea(page);
+      await page.locator('.task-view-switch button', { hasText: 'Liste' }).click();
+      await expect(rows(page).first()).toBeVisible({ timeout: 10000 });
+    }
+
+    test.beforeEach(async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      run = `r${Date.now().toString(36)}`;
+      homeName = `E2E 498 Haushalt ${run}`;
+      otherName = `E2E 498 Arbeit ${run}`;
+      const home = await createList(page, homeName);
+      const other = await createList(page, otherName);
+      const day = (d) => ({ due: `2036-03-${d}T00:00:00.000Z`, dueIsDate: true });
+      await createTask(page, { calendarId: home, title: `Beta ${run}`, priority: 3, ...day('02') });
+      await createTask(page, { calendarId: home, title: `Alpha ${run}`, priority: 1, ...day('05') });
+      await createTask(page, { calendarId: other, title: `Gamma ${run}`, priority: 2 });
+      await createTask(page, { calendarId: other, title: `Weekly ${run}`, recurrence: 'FREQ=WEEKLY', ...day('01') });
+      await createTask(page, {
+        calendarId: home, title: `Done ${run}`, status: 'COMPLETED', percentComplete: 100, ...day('03')
+      });
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    });
+
+    // The choice is stored for the run's one user; later specs expect the board.
+    test.afterEach(async ({ page }) => {
+      const res = await page.request.put('/api/preferences', { headers: SAME_ORIGIN, data: { taskView: 'kanban' } });
+      expect(res.ok()).toBeTruthy();
+    });
+
+    test('the switch "Liste | Kanban" changes the view and the choice is remembered', async ({ page }) => {
+      await openTaskArea(page);
+      const listBtn = page.locator('.task-view-switch button', { hasText: 'Liste' });
+      const boardBtn = page.locator('.task-view-switch button', { hasText: 'Kanban' });
+      await expect(boardBtn).toHaveAttribute('aria-pressed', 'true');
+      await expect(listBtn).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.locator('.kanban-board')).toBeVisible();
+      await expect(page.locator('.task-list-table')).toHaveCount(0);
+
+      await listBtn.click();
+      await expect(listBtn).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('.task-list-table')).toBeVisible();
+      await expect(page.locator('.kanban-board')).toHaveCount(0);
+      await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).taskView).toBe('list');
+
+      // Another visit (a fresh page) opens the task area in the list.
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await openTaskArea(page);
+      await expect(page.locator('.task-list-table')).toBeVisible();
+      await expect(page.locator('.kanban-board')).toHaveCount(0);
+
+      await boardBtn.click();
+      await expect(page.locator('.kanban-board')).toBeVisible();
+      await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).taskView).toBe('kanban');
+    });
+
+    test('the list shows title, list, due date, priority and status and sorts by due date, priority and title', async ({ page }) => {
+      await openList(page);
+      const alpha = row(page, 'Alpha');
+      await expect(alpha.locator('.task-list-title')).toHaveText(`Alpha ${run}`);
+      await expect(alpha.locator('.task-list-calendar')).toHaveText(homeName);
+      await expect(alpha.locator('.task-list-due')).toHaveText('05.03.2036');
+      await expect(alpha.locator('.task-list-priority')).toHaveText('Hoch');
+      await expect(alpha.locator('.task-list-status')).toHaveText('Zu erledigen');
+      await expect(row(page, 'Gamma').locator('.task-list-due')).toHaveText('');
+
+      // Due date first by default; a task without one comes last.
+      await expect(page.locator('#task-list-sort')).toHaveValue('due');
+      expect(await titles(page)).toEqual([`Weekly ${run}`, `Beta ${run}`, `Alpha ${run}`, `Gamma ${run}`]);
+
+      await page.selectOption('#task-list-sort', 'priority');
+      await expect.poll(() => titles(page)).toEqual([`Alpha ${run}`, `Gamma ${run}`, `Beta ${run}`, `Weekly ${run}`]);
+
+      await page.selectOption('#task-list-sort', 'title');
+      await expect.poll(() => titles(page)).toEqual([`Alpha ${run}`, `Beta ${run}`, `Gamma ${run}`, `Weekly ${run}`]);
+    });
+
+    test('completed tasks are hidden until shown, and the list can be grouped by list', async ({ page }) => {
+      await openList(page);
+      await expect(page.locator('#task-list-show-completed')).not.toBeChecked();
+      await expect(row(page, 'Done')).toHaveCount(0);
+
+      await page.check('#task-list-show-completed');
+      await expect(row(page, 'Done')).toHaveCount(1);
+      await expect(row(page, 'Done').locator('.task-list-status')).toHaveText('Erledigt');
+      await expect(row(page, 'Done').locator('.task-list-check')).toBeChecked();
+      await page.uncheck('#task-list-show-completed');
+      await expect(row(page, 'Done')).toHaveCount(0);
+
+      await expect(page.locator('.task-list-group-header', { hasText: run })).toHaveCount(0);
+      await page.check('#task-list-group');
+      const home = page.locator('tbody.task-list-group', { has: page.locator('.task-list-group-header', { hasText: homeName }) });
+      const other = page.locator('tbody.task-list-group', { has: page.locator('.task-list-group-header', { hasText: otherName }) });
+      await expect(home.locator('.task-list-title')).toHaveText([`Beta ${run}`, `Alpha ${run}`]);
+      await expect(other.locator('.task-list-title')).toHaveText([`Weekly ${run}`, `Gamma ${run}`]);
+    });
+
+    test('the checkbox completes a task; a recurring one moves on to its next due date (#95)', async ({ page }) => {
+      await openList(page);
+
+      await row(page, 'Beta').locator('.task-list-check').check();
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Aufgabe als erledigt markiert.' })).toBeVisible({ timeout: 10000 });
+      await expect(row(page, 'Beta')).toHaveCount(0, { timeout: 10000 });
+      expect((await storedTask(page, `Beta ${run}`)).status).toBe('COMPLETED');
+
+      await row(page, 'Weekly').locator('.task-list-check').check();
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Aufgabe auf 08.03.2036 verschoben.' })).toBeVisible({ timeout: 10000 });
+      await expect(row(page, 'Weekly').locator('.task-list-due')).toHaveText('08.03.2036', { timeout: 10000 });
+      await expect(row(page, 'Weekly').locator('.task-list-check')).not.toBeChecked();
+      const weekly = await storedTask(page, `Weekly ${run}`);
+      expect(weekly.status).toBe('NEEDS-ACTION');
+      expect(weekly.due).toBe('2036-03-08T00:00:00.000Z');
+
+      // Shown again, a completed task is reopened with its checkbox.
+      await page.check('#task-list-show-completed');
+      await row(page, 'Beta').locator('.task-list-check').uncheck();
+      await expect(row(page, 'Beta').locator('.task-list-status')).toHaveText('Zu erledigen', { timeout: 10000 });
+      expect((await storedTask(page, `Beta ${run}`)).status).toBe('NEEDS-ACTION');
+    });
+
+    test('the list is used with the keyboard alone', async ({ page }) => {
+      await openTaskArea(page);
+      const listBtn = page.locator('.task-view-switch button', { hasText: 'Liste' });
+      await listBtn.focus();
+      await page.keyboard.press('Enter');
+      await expect(rows(page).first()).toBeVisible({ timeout: 10000 });
+      // Re-rendering keeps the focus where it was.
+      await expect(listBtn).toBeFocused();
+
+      // Tab walks the controls, then into the rows: checkbox, then title.
+      await page.keyboard.press('Tab');
+      await expect(page.locator('.task-view-switch button', { hasText: 'Kanban' })).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-sort')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-group')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-show-completed')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('.task-list-check').first()).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('.task-list-title').first()).toBeFocused();
+
+      // Space on a row's checkbox completes it; the focus stays in the list.
+      const beta = row(page, 'Beta').locator('.task-list-check');
+      await beta.focus();
+      await expect(beta).toHaveAttribute('aria-label', `„Beta ${run}“ als erledigt markieren`);
+      await page.keyboard.press('Space');
+      await expect(row(page, 'Beta')).toHaveCount(0, { timeout: 10000 });
+      await expect(page.locator('.task-list-check:focus')).toHaveCount(1);
+
+      // Enter on a title opens the task.
+      await row(page, 'Alpha').locator('.task-list-title').focus();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#task-title')).toHaveValue(`Alpha ${run}`);
+    });
+  });
 });

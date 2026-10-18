@@ -167,6 +167,10 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   user gets `/personal/` (Kalender) and `/tasks/` (Aufgabenliste). Calendar views and the event/import/booking
   pickers list collections with VEVENT, the Kanban view and task dialog those with VTODO; mixed ones show in both.
   The add dialog defaults to Aufgabenliste in the Kanban view, otherwise to Kalender.
+- Per-user preferences (#498): `GET`/`PUT /api/preferences` (`routes/preferences.js`, table `user_preferences`)
+  hold the task area's view, `taskView` `list` or `kanban` (default `kanban`, anything else 400). It needs only a
+  session identity, and `Db.deleteUser` removes the row. The list's sort, grouping and "Erledigte anzeigen" last
+  only for the page's lifetime.
   Basic-auth CalDAV accounts work the same way (#531): the worker PROPFINDs the account's calendar home,
   refuses (job error) any calendar whose name — the unquoted last href segment, which vdirsyncer puts into
   its status path — is outside `[A-Za-z0-9_.-]`, and pairs each remote calendar with `caldav-<hex>`
@@ -185,7 +189,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   root-owned) it chowns the directories in `DATA_DIRS` to 1000:1000 and re-execs itself through `setpriv`;
   started as any other uid it refuses to start if a `DATA_DIRS` entry is not writable (#100).
 - `public/` — no-framework SPA: `js/app.js` (boot, views, sidebar, dialogs), `js/calendar.js`
-  (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer & Kanban board), `js/eventModal.js`, `js/api.js` (fetch wrappers),
+  (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer and the task area: a "Liste | Kanban"
+  switch over a sortable, groupable task list or the Kanban board, #498), `js/eventModal.js`, `js/api.js` (fetch wrappers),
   `js/store.js` (pub/sub state), `js/accountModal.js`, `css/app.css`.
 
 ## Conventions
