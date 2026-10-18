@@ -7384,20 +7384,31 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     // A mouse drag in small steps, as a person would do it, onto the upper edge of `target`.
     // The sidebar scrolls, so both entries are brought into view first.
-    async function dragOntoTop(page, source, target) {
-      // A late load may re-render the list before the drag starts; measuring is then repeated.
-      let from, to;
+    // #569: content above the list can still change height mid-drag (a late event load badges a
+    // calendar "Nicht erreichbar"), which moves the entries away from coordinates measured once.
+    // The drop lands on the entry the UI marks, so the pointer follows `target` until it rests on
+    // it, and the release waits for its drop-before mark (or, across groups, for no mark at all).
+    async function dragOntoTop(page, source, target, { dropsThere = true } = {}) {
+      let from;
       await expect(async () => {
         await target.scrollIntoViewIfNeeded({ timeout: 1000 });
         await source.scrollIntoViewIfNeeded({ timeout: 1000 });
         await expect(target).toBeInViewport({ timeout: 1000 });
         from = await source.boundingBox();
-        to = await target.boundingBox();
-        expect(from && to).toBeTruthy();
+        expect(from).toBeTruthy();
       }).toPass({ timeout: 10000 });
       await page.mouse.move(from.x + 20, from.y + from.height / 2);
       await page.mouse.down();
-      await page.mouse.move(to.x + 20, to.y + 3, { steps: 12 });
+      await page.mouse.move(from.x + 20, from.y + from.height / 2 - 10, { steps: 4 });
+      await expect(source, 'the pointer grabbed the dragged entry').toHaveClass(/\bdragging\b/);
+      await expect(async () => {
+        const to = await target.boundingBox();
+        expect(to).toBeTruthy();
+        await page.mouse.move(to.x + 20, to.y + 3, { steps: 8 });
+        expect((await target.boundingBox()).y, 'the target stayed under the pointer').toBe(to.y);
+        if (dropsThere) await expect(target).toHaveClass(/\bdrop-before\b/, { timeout: 500 });
+      }).toPass({ timeout: 10000 });
+      if (!dropsThere) await expect(page.locator('.drop-before, .drop-after')).toHaveCount(0);
       await page.mouse.up();
     }
 
@@ -7414,19 +7425,25 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
 
     test('dragging and Alt+↑ reorder the user\'s calendars; the order survives a reload and reaches Radicale', async ({ page }) => {
-      const tag = Date.now().toString(36);
       const ids = [];
       await openApp(page);
+      // #569: Radicale refuses to delete collections, so a run reuses the three of an earlier one
+      // (--repeat-each) instead of piling up calendars until loading the sidebar outlasts appReady.
+      const existing = await page.request.get('/api/calendars');
+      expect(existing.status()).toBe(200);
+      const byName = new Map((await existing.json()).calendars.map(cal => [cal.name, cal.id]));
       for (const letter of ['A', 'B', 'C']) {
+        const name = `E2E 504 ${letter}`;
+        if (byName.has(name)) { ids.push(byName.get(name)); continue; }
         const res = await page.request.post('/api/calendars', {
           headers: SAME_ORIGIN,
-          data: { accountId: 'internal-caldav', name: `E2E 504 ${letter} ${tag}`, color: '#3366cc', type: 'calendar' },
+          data: { accountId: 'internal-caldav', name, color: '#3366cc', type: 'calendar' },
         });
         expect(res.status()).toBe(201);
         ids.push((await res.json()).id);
       }
-      // Earlier tests leave many collections with this user; the new ones go first and stay
-      // adjacent, so dragging does not have to scroll the sidebar.
+      // Earlier tests leave many collections with this user; these go first and stay adjacent,
+      // so dragging does not have to scroll the sidebar.
       const listed = await page.request.get('/api/calendars');
       expect(listed.status()).toBe(200);
       const others = (await listed.json()).calendars.map(cal => cal.id).filter(id => !ids.includes(id));
@@ -7465,6 +7482,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const orders = await Promise.all([c, b, a].map(calendarOrderInRadicale));
       expect(orders.every(Number.isInteger), JSON.stringify(orders)).toBe(true);
       expect([...orders].sort((x, y) => x - y)).toEqual(orders);
+
     });
 
     test('calendars move only inside their group: own calendars and each linked account', async ({ page }) => {
@@ -7501,7 +7519,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#calendar-list .calendar-group-label')).toHaveText(['Privat']);
 
       // Across groups nothing moves: dragging a linked calendar onto an own one, Alt+↑ at a group's top.
-      await dragOntoTop(page, item(page, linked1), item(page, own1));
+      await dragOntoTop(page, item(page, linked1), item(page, own1), { dropsThere: false });
       await item(page, linked1).focus();
       await page.keyboard.press('Alt+ArrowUp');
       await item(page, own2).focus();
@@ -7522,7 +7540,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(puts).toEqual([[linked2, linked1], [own2, own1]]);
     });
 
-    test('subscriptions are their own group and are reordered the same way', async ({ page }) => {
+    // Three subscriptions sub-504-a…c; returns the order saves the page sends.
+    async function mockSubscriptions(page) {
       const subs = ['sub-504-a', 'sub-504-b', 'sub-504-c'].map((id, i) => ({
         id, user_id: E2E_USER, name: `Abo ${i + 1}`, url: `https://example.com/${id}.ics`, color: '#3366cc', last_error: null
       }));
@@ -7535,6 +7554,48 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         puts.push(route.request().postDataJSON().calendarIds);
         return route.fulfill({ json: { calendarIds: route.request().postDataJSON().calendarIds } });
       });
+      return puts;
+    }
+    const subOrder = page => page.locator('#webcal-list [data-webcal-id]').evaluateAll(els => els.map(el => el.dataset.webcalId));
+    const sub = (page, id) => page.locator(`#webcal-list [data-webcal-id="${id}"]`);
+
+    // #569: in CI the event load finished while the drag ran; its "Nicht erreichbar" badge made the
+    // calendar list taller and pushed the subscriptions below the pointer, so the drop was lost.
+    test('a drag still lands when the calendar list above grows during it', async ({ page }) => {
+      const puts = await mockSubscriptions(page);
+      const personal = `internal-caldav::/${E2E_USER}/personal/`;
+      let releaseEvents;
+      const eventsHeld = new Promise(resolve => { releaseEvents = resolve; });
+      await page.route(url => url.pathname === '/api/events', async route => {
+        await eventsHeld;
+        await route.fulfill({ json: { events: [], errors: [{ calendarId: personal, accountId: 'internal-caldav', error: 'Testfehler' }] } });
+      });
+      // The held event load answers the moment the pointer goes down on an entry.
+      await page.exposeFunction('e2ePointerDown', () => releaseEvents());
+      const eventsRequested = page.waitForRequest(r => new URL(r.url()).pathname === '/api/events', { timeout: 30000 });
+
+      await page.goto('/');
+      await appReady(page);
+      await expect.poll(() => subOrder(page)).toEqual(['sub-504-a', 'sub-504-b', 'sub-504-c']);
+      await eventsRequested;
+      await expect(page.locator('#calendar-list .calendar-load-error')).toHaveCount(0);
+      // Layout position, independent of how far the sidebar is scrolled.
+      const listTop = () => page.locator('#webcal-list').evaluate(list => list.offsetTop);
+      const before = await listTop();
+      await page.locator('#webcal-list').evaluate(list => {
+        list.addEventListener('pointerdown', () => window.e2ePointerDown(), { capture: true, once: true });
+      });
+
+      await dragOntoTop(page, sub(page, 'sub-504-c'), sub(page, 'sub-504-a'));
+      await expect.poll(() => subOrder(page)).toEqual(['sub-504-c', 'sub-504-a', 'sub-504-b']);
+      expect(puts).toEqual([['webcal::sub-504-c', 'webcal::sub-504-a', 'webcal::sub-504-b']]);
+      // The list really moved during the drag.
+      await expect(page.locator(`#calendar-list [data-cal-id="${personal}"] .calendar-load-error`)).toBeVisible();
+      expect(await listTop()).toBeGreaterThan(before);
+    });
+
+    test('subscriptions are their own group and are reordered the same way', async ({ page }) => {
+      const puts = await mockSubscriptions(page);
       const webcalOrder = () => page.locator('#webcal-list [data-webcal-id]').evaluateAll(els => els.map(el => el.dataset.webcalId));
 
       await openApp(page);
