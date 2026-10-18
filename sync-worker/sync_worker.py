@@ -532,8 +532,8 @@ def legacy_google_collection_name(display_name):
 def create_local_collection(user_id, collection, display_name, components=None):
     """MKCALENDAR the paired collection in the user's Radicale principal, named by the provider's calendar.
 
-    The worker creates it rather than vdirsyncer so that the display name is set once, provider -> local;
-    vdirsyncer metasync would also push renames made in the app back to Google.
+    The worker creates it rather than vdirsyncer so that it starts with the provider's display name;
+    from then on vdirsyncer metasync keeps name and colour in step both ways (#505).
     `components` restricts the collection's supported-calendar-component-set; without it Radicale
     accepts every component.
     """
@@ -915,6 +915,33 @@ def run_vdirsyncer(config_path, command, policy, stdin=None):
     return result
 
 
+# Collection properties `vdirsyncer metasync` keeps in step for every linked calendar (#505): a colour
+# or name set in the app (PROPPATCHed into Radicale) reaches the provider and vice versa. metasync
+# compares both sides with the value of its last run, so the side that changed since then wins; only
+# when both changed it falls back to the pair's conflict_resolution ("b wins": the app queues a sync
+# right after every change, so the shard's change is the newer one). A per-user colour override on a
+# read-only calendar lives in the app database, not in Radicale, and is never pushed.
+PAIR_METADATA = ["color", "displayname"]
+
+
+def run_metasync(config_path, policy, label):
+    """vdirsyncer metasync. Returns an error message, or "" on success."""
+    print(f"[Sync-Worker] Running {label} metasync...")
+    res = run_vdirsyncer(config_path, "metasync", policy)
+    if res.returncode != 0:
+        return f"vdirsyncer {label} metasync failed: {res.stderr}"
+    return ""
+
+
+def run_sync_and_metasync(config_path, policy, label):
+    """vdirsyncer sync, then metasync. Returns an error message, or "" on success."""
+    print(f"[Sync-Worker] Running {label} sync...")
+    res = run_vdirsyncer(config_path, "sync", policy)
+    if res.returncode != 0:
+        return f"vdirsyncer {label} sync failed: {res.stderr}"
+    return run_metasync(config_path, policy, label)
+
+
 def sync_basic_caldav_accounts(user_id, conn):
     """Replicate external CalDAV (Basic Auth) accounts into the local Radicale.
 
@@ -1000,6 +1027,7 @@ a = "{storage_ext}"
 b = "{storage_loc}"
 collections = {ini_value(items)}
 conflict_resolution = "b wins"
+metadata = {ini_value(PAIR_METADATA)}
 
 [storage {storage_ext}]
 type = "caldav"
@@ -1031,10 +1059,9 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
         if disc_res.returncode != 0:
             return False, f"vdirsyncer basic discover failed: {disc_res.stderr}"
 
-        print(f"[Sync-Worker] Running Basic-CalDAV sync for user {user_id}...")
-        sync_res = run_vdirsyncer(config_path, "sync", policy)
-        if sync_res.returncode != 0:
-            return False, f"vdirsyncer basic sync failed: {sync_res.stderr}"
+        sync_err = run_sync_and_metasync(config_path, policy, f"basic (user {user_id})")
+        if sync_err:
+            return False, sync_err
 
         print(f"[Sync-Worker] Basic-CalDAV sync completed for user {user_id}.")
         return True, ""
@@ -1239,6 +1266,7 @@ a = "{storage_google}"
 b = "{storage_local}"
 {collections_toml}
 conflict_resolution = "b wins"
+metadata = {ini_value(PAIR_METADATA)}
 
 [storage {storage_google}]
 type = "google_calendar"
@@ -1280,6 +1308,10 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
             if not refused:
                 return False, f"vdirsyncer sync failed: {sync_res.stderr}"
             not_synced.extend(refused)
+        # Colour and name (#505) sync even when single items were refused.
+        meta_err = run_metasync(config_path, policy, f"Google (user {user_id})")
+        if meta_err:
+            return False, "\n".join(not_synced + [meta_err])
         if not_synced:
             return False, "\n".join(not_synced + ([msgraph_err] if not msgraph_ok else []))
 

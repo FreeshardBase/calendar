@@ -57,14 +57,29 @@ async function waitForJobs(userId, timeoutMs = 3000) {
 
 describe('Issue #323 — non-UUID session identity cannot enqueue a victim sync', () => {
   let port;
+  // The rename reaches a CalDAV collection; a refused or unreachable PROPPATCH fails the PATCH (#505).
+  const dav = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(207, { 'Content-Type': 'application/xml' });
+      res.end('<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"><d:response>'
+        + `<d:href>${req.url}</d:href><d:propstat><d:prop><d:displayname/></d:prop>`
+        + '<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>');
+    });
+  });
 
   before(async () => {
     for (const v of VICTIMS) await Db.upsertUser(v, `testvictim-${v.slice(-1)}`);
+    await new Promise(r => dav.listen(0, '127.0.0.1', r));
+    process.env.INTERNAL_CALDAV_URL = `http://127.0.0.1:${dav.address().port}`;
     port = Number(process.env.PORT);
     if (!appServer.listening) await new Promise(r => appServer.listen(port, r));
   });
 
-  after(() => { if (appServer.listening) appServer.close(); });
+  after(() => {
+    if (appServer.listening) appServer.close();
+    dav.close();
+  });
 
   beforeEach(async () => {
     await Db.clearSyncJobsForUser(CALLER);

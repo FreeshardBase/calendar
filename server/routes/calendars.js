@@ -703,23 +703,27 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
-    if (color !== undefined && req.session?.userId) {
+    const writeAccess = await checkCalendarAccess(req, calendarId, 'write');
+    // #505: on a calendar the user may write, colour and name live in the collection, where the sync
+    // worker's metasync carries them to the linked account. A read-only calendar only gets the user's
+    // local override (#4), which never reaches the collection and so is never pushed upstream.
+    if (!writeAccess.allowed) {
       if (color === null) {
         await Db.deleteUserCalendarColorOverride(req.session.userId, calendarId);
-      } else {
+      } else if (color !== undefined) {
         await Db.setUserCalendarColorOverride(req.session.userId, calendarId, color);
       }
+      return res.json({ message: 'Calendar updated', calendarId, name, color });
     }
 
-    const writeAccess = await checkCalendarAccess(req, calendarId, 'write');
-    if (writeAccess.allowed) {
+    if (name || color) {
       const { client, calendarUrl } = await resolveCalendar(req, calendarId);
-      if (client) {
-        const props = [];
-        if (name)  props.push(`<d:displayname>${escXML(name)}</d:displayname>`);
-        if (color) props.push(`<a:calendar-color>${escXML(color)}</a:calendar-color>`);
+      if (!client) return res.status(404).json({ error: 'Account not found' });
+      const props = [];
+      if (name)  props.push(`<d:displayname>${escXML(name)}</d:displayname>`);
+      if (color) props.push(`<a:calendar-color>${escXML(color)}</a:calendar-color>`);
 
-        const body = `<?xml version="1.0" encoding="utf-8"?>
+      const body = `<?xml version="1.0" encoding="utf-8"?>
 <d:propertyupdate xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">
   <d:set>
     <d:prop>
@@ -728,17 +732,18 @@ router.patch('/:id', async (req, res) => {
   </d:set>
 </d:propertyupdate>`;
 
-        try {
-          const patchRes = await client._request('PROPPATCH', calendarUrl, { body });
-          if (!patchRes.ok && patchRes.status !== 207) {
-            console.warn(`[calendars PATCH] PROPPATCH returned ${patchRes.status}`);
-          }
-        } catch (patchErr) {
-          console.warn('[calendars PATCH] PROPPATCH error:', patchErr.message);
-        }
-
-        queueSyncForCalendar(calendarId, req.session.userId);
+      const patchRes = await client._request('PROPPATCH', calendarUrl, { body });
+      const patchXml = await patchRes.text();
+      // A 207 carries one status per property; any non-2xx one means the change was not stored.
+      const refused = patchXml.match(/<(?:[\w-]+:)?status>\s*HTTP\/\d\.\d\s+([013-9]\d\d)\b/i);
+      if ((!patchRes.ok && patchRes.status !== 207) || refused) {
+        throw new Error(`PROPPATCH ${refused ? refused[1] : patchRes.status}`);
       }
+      queueSyncForCalendar(calendarId, req.session.userId);
+    }
+    // An override would hide the collection's colour, and with it every colour synced from the provider.
+    if (color !== undefined) {
+      await Db.deleteUserCalendarColorOverride(req.session.userId, calendarId);
     }
 
     res.json({ message: 'Calendar updated', calendarId, name, color });
