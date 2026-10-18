@@ -35,7 +35,8 @@ module.exports = defineConfig({
     // platform proxy adds the header to every request). Each such failed registration races the
     // test's own network events, and on a slow host Playwright then aborts the test with "Object
     // with guid response@… was not bound in the connection" or "Target page … has been closed".
-    // No spec exercises the worker, so it is blocked for all of them, not only per describe.
+    // So it is blocked for all specs; only the #571 describe runs it, in its own context behind a
+    // forward proxy that adds the header to every request, as the platform proxy does.
     serviceWorkers: 'block',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

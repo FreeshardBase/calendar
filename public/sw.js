@@ -1,4 +1,6 @@
-const CACHE_NAME = 'webcalendar-v2';
+// #571: the server fills in a hash of the deployed files (server/utils/serviceWorker.js), so each
+// deploy is a new worker and `activate` below drops the previous version's cache.
+const CACHE_NAME = 'webcalendar-__ASSET_VERSION__';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -42,7 +44,8 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event — Network-First for API calls, Stale-While-Revalidate for static assets
+// Fetch Event — Network-First for everything: API calls and the app shell (#571). The cache only
+// answers when the network is unreachable, so after a deploy the next page load runs the new code.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
@@ -77,31 +80,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static Assets — Cache-First, fallback to network
+  // App shell (HTML/JS/CSS) — Network-First; the cached copy only when offline
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch background update
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
-          }
-        }).catch((err) => {
-          // Offline: fetch rejects with a TypeError and the cached response is served.
-          if (!(err instanceof TypeError)) throw err;
-        });
-
-        return cachedResponse;
-      }
-
-      return fetch(event.request).then((networkResponse) => {
+    fetch(event.request)
+      .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
         }
         return networkResponse;
-      });
-    })
+      })
+      .catch((err) => {
+        // Offline: fetch rejects with a TypeError; anything else is a bug and stays an error.
+        if (!(err instanceof TypeError)) throw err;
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          throw err;
+        });
+      })
   );
 });
 

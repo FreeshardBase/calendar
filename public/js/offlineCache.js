@@ -101,8 +101,24 @@
     }
   }
 
+  // #571: a newly deployed worker takes over the open page (skipWaiting + clients.claim). The page
+  // still runs the code it loaded, so it offers a reload instead of reloading under the user's input.
+  // On a first visit the first worker claims a page that already runs the current code.
+  function offerReloadOnNewVersion() {
+    let controlled = Boolean(navigator.serviceWorker.controller);
+    document.getElementById('update-reload-btn').addEventListener('click', () => window.location.reload());
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!controlled) {
+        controlled = true;
+        return;
+      }
+      document.getElementById('update-banner').classList.remove('hidden');
+    });
+  }
+
   function registerServiceWorker() {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      offerReloadOnNewVersion();
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
           .then((reg) => {

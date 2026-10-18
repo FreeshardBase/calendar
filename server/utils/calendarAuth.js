@@ -207,6 +207,7 @@ async function queueSyncForCalendar(calendarId, requestingUserId) {
 }
 
 module.exports = {
+  canonicalCollectionPath,
   checkCalendarAccess,
   extractCalendarIdFromHref,
   queueSyncForCalendar

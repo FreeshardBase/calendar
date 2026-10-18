@@ -19,6 +19,7 @@ const fs = require('fs');
 const { validateBaseUrl } = require('./utils/baseUrl');
 const { isSafeStorageId } = require('./utils/storageId');
 const { dispatcherFor } = require('./utils/tlsDispatcher');
+const { buildServiceWorker } = require('./utils/serviceWorker');
 const { OIDC_CONFIG_MISSING, TOKEN_AUTH_METHODS } = require('./utils/oidcClient');
 
 function validateSystemSyncSecret(env = process.env) {
@@ -333,6 +334,14 @@ app.get([...PUBLIC_BOOKING_FILES.keys()], (req, res, next) => {
   const file = PUBLIC_BOOKING_FILES.get(req.path);
   if (!file) return next();
   res.sendFile(file, { root: PUBLIC_DIR });
+});
+
+// #571: the worker script names its cache after the deployed files; read once at boot, so a
+// missing placeholder stops the server instead of shipping a worker that never drops stale code.
+const SERVICE_WORKER = buildServiceWorker(PUBLIC_DIR);
+app.get('/sw.js', (req, res) => {
+  res.set({ 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.send(SERVICE_WORKER.source);
 });
 
 const serveStatic = express.static(PUBLIC_DIR);
