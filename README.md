@@ -79,6 +79,22 @@ with `EADDRINUSE` if that port is taken. The suite uses `webcalendar.test.db` (o
 and empties it, and it must run inside a git checkout (one test runs `git ls-files`). CalDAV route
 tests use an in-process mock DAV server. Details in `agents.md`.
 
+### Bumping a base image pin
+
+Every `FROM` line in `Dockerfile`, `radicale/Dockerfile` and `sync-worker/Dockerfile` pins
+`<image>:<tag>@sha256:<digest>`, so a rebuild cannot silently pick up a different image
+(`server/test/base_image_digest_pinning.test.js` fails on a line without the pin). The digest must be
+the multi-arch index (manifest list), not a single-platform manifest, or arm64 shards stop building.
+To bump, read the index digest and replace it in every `FROM` line that uses the image (the
+sync-worker has two stages), keeping the tag in front:
+
+```sh
+docker buildx imagetools inspect python:3.12-slim-trixie   # "Digest:" line, MediaType ...image.index / manifest.list
+skopeo inspect --raw docker://docker.io/library/python:3.12-slim-trixie | sha256sum   # same hex, without "sha256:"
+```
+
+Then update the expected digests in that test and rebuild all three images.
+
 ## Configuration
 
 All configuration is via environment variables — see [`.env.example`](.env.example)
