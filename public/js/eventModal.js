@@ -8,6 +8,9 @@ import { EventsAPI } from './api.js';
 import { showToast } from './app.js';
 import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFocus.js';
 import { requestNotificationPermission } from './notifications.js';
+import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.js';
+
+export { formatAlarmTriggerLabel };
 
 let _onSaved  = null;
 let _onDeleted = null;
@@ -18,12 +21,7 @@ let _onSettled = null;
 let _formGeneration = 0; // counts openings, so a failed save knows the form still holds its entries
 let _currentEvent = null; // null = create mode, object = edit mode
 let _recurrenceTouched = false;
-// Issue #128: the reminder select edits only the first alarm. The original
-// first alarm (for an option the presets cannot express) and every further
-// alarm are kept here so a save writes them back unchanged.
-const ORIGINAL_ALARM_VALUE = '__original__';
-let _originalFirstAlarm = null;
-let _extraAlarms = [];
+let _reminders = null; // #508: reminder list editor, created in initEventModal
 
 // ── DOM refs (lazily grabbed) ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -47,62 +45,6 @@ const COMMON_TIMEZONES = [
   'Australia/Sydney',
   'UTC'
 ];
-
-export function formatAlarmTriggerLabel(trigger, related = null) {
-  if (!trigger) return 'Keine Erinnerung';
-  let str = String(trigger).trim();
-  if (str.toUpperCase().startsWith('TRIGGER:')) {
-    str = str.substring(8).trim();
-  }
-
-  const abs = str.match(/^(\d{4})-?(\d{2})-?(\d{2})T(\d{2}):?(\d{2}):?(\d{2})(?:\.\d+)?Z$/);
-  if (abs) {
-    const [, y, mo, d, h, mi, sec] = abs;
-    const when = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec));
-    return `Am ${when.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
-  }
-
-  if (String(related || '').toUpperCase() === 'END') {
-    const label = formatAlarmTriggerLabel(str);
-    if (label === 'Zum Zeitpunkt des Termins') return 'Zum Ende des Termins';
-    return label.replace(/ vorher$/, ' vor Ende').replace(/ nachher$/, ' nach Ende');
-  }
-
-  if (str === 'PT0S' || str === 'PT0M' || str === '0') return 'Zum Zeitpunkt des Termins';
-
-  const presets = {
-    'PT0S': 'Zum Zeitpunkt des Termins',
-    '-PT5M': '5 Minuten vorher',
-    '-PT15M': '15 Minuten vorher',
-    '-PT30M': '30 Minuten vorher',
-    '-PT1H': '1 Stunde vorher',
-    '-P1D': '1 Tag vorher'
-  };
-  if (presets[str]) return presets[str];
-
-  const match = str.match(/^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i);
-  if (!match) return `Erinnerung (${str})`;
-
-  const isNegative = match[1] === '-';
-  const weeks = parseInt(match[2] || '0', 10);
-  const days = parseInt(match[3] || '0', 10);
-  const hours = parseInt(match[4] || '0', 10);
-  const minutes = parseInt(match[5] || '0', 10);
-  const seconds = parseInt(match[6] || '0', 10);
-
-  const parts = [];
-  if (weeks > 0) parts.push(`${weeks} Woche${weeks > 1 ? 'n' : ''}`);
-  if (days > 0) parts.push(`${days} Tag${days > 1 ? 'e' : ''}`);
-  if (hours > 0) parts.push(`${hours} Stunde${hours > 1 ? 'n' : ''}`);
-  if (minutes > 0) parts.push(`${minutes} Minute${minutes > 1 ? 'n' : ''}`);
-  if (seconds > 0) parts.push(`${seconds} Sekunde${seconds > 1 ? 'n' : ''}`);
-
-  if (parts.length === 0) return 'Zum Zeitpunkt des Termins';
-
-  const suffix = isNegative ? 'vorher' : 'nachher';
-  return `${parts.join(' ')} ${suffix}`;
-}
-
 
 function populateTimezoneSelects(selectedStartTz, selectedEndTz) {
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
@@ -328,32 +270,8 @@ export function openEditModal(event, callbacks) {
   populateTimezoneSelects(event.startTimeZone, event.endTimeZone);
   updateRecurrenceOptions(true);
 
-  // Alarms: a first alarm the presets cannot express exactly (other duration,
-  // RELATED=END, absolute time) gets its own option that keeps it as is.
   const eventAlarms = Array.isArray(event.alarms) ? event.alarms : [];
-  _originalFirstAlarm = eventAlarms[0] || null;
-  _extraAlarms = eventAlarms.slice(1);
-  const alarmSelect = $('ev-alarm');
-  if (alarmSelect) {
-    removeCustomAlarmOptions();
-    let selected = '';
-    if (_originalFirstAlarm) {
-      const trigger = _originalFirstAlarm.trigger || '';
-      const startRelated = String(_originalFirstAlarm.related || 'START').toUpperCase() === 'START';
-      if (startRelated && Array.from(alarmSelect.options).some(opt => opt.value && opt.value === trigger)) {
-        selected = trigger;
-      } else {
-        const opt = document.createElement('option');
-        opt.value = ORIGINAL_ALARM_VALUE;
-        opt.textContent = formatAlarmTriggerLabel(trigger, _originalFirstAlarm.related);
-        opt.dataset.customAlarm = 'true';
-        alarmSelect.appendChild(opt);
-        selected = ORIGINAL_ALARM_VALUE;
-      }
-    }
-    alarmSelect.value = selected;
-  }
-  updateExtraAlarmsHint();
+  _reminders.setAlarms(eventAlarms);
 
 
   // Attachments
@@ -478,24 +396,6 @@ function updateIntervalLabel() {
   $('recur-interval-unit').textContent = single ? words.one : words.many;
 }
 
-function removeCustomAlarmOptions() {
-  Array.from($('ev-alarm').options).forEach(opt => {
-    if (opt.dataset && opt.dataset.customAlarm === 'true') {
-      opt.remove();
-    }
-  });
-}
-
-function updateExtraAlarmsHint() {
-  const hint = $('ev-alarm-extra');
-  if (!hint) return;
-  const n = _extraAlarms.length;
-  hint.textContent = n === 1
-    ? '1 weitere Erinnerung dieses Termins bleibt unverändert erhalten.'
-    : `${n} weitere Erinnerungen dieses Termins bleiben unverändert erhalten.`;
-  hint.classList.toggle('hidden', n === 0);
-}
-
 function resetForm() {
   _recurrenceTouched = false;
   form().reset();
@@ -503,13 +403,7 @@ function resetForm() {
   $('ev-href').value = '';
   $('ev-etag').value = '';
   $('ev-recurrence').value = '';
-  _originalFirstAlarm = null;
-  _extraAlarms = [];
-  if ($('ev-alarm')) {
-    removeCustomAlarmOptions();
-    $('ev-alarm').value = '';
-  }
-  updateExtraAlarmsHint();
+  _reminders.setAlarms([]);
 
   if ($('ev-attachment-url')) $('ev-attachment-url').value = '';
   if ($('ev-attachment-name')) $('ev-attachment-name').value = '';
@@ -781,17 +675,13 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     }
   }
 
-  const alarmChoice = $('ev-alarm') ? $('ev-alarm').value : '';
-  const alarms = [];
-  const originalIsPreset = _originalFirstAlarm
-    && String(_originalFirstAlarm.related || 'START').toUpperCase() === 'START'
-    && _originalFirstAlarm.trigger === alarmChoice;
-  if (alarmChoice === ORIGINAL_ALARM_VALUE || (alarmChoice && originalIsPreset)) {
-    alarms.push(_originalFirstAlarm);
-  } else if (alarmChoice) {
-    alarms.push({ action: 'DISPLAY', trigger: alarmChoice, description: $('ev-title').value.trim() || 'Erinnerung' });
+  const reminders = _reminders.collect($('ev-title').value.trim() || 'Erinnerung');
+  if (reminders.error) {
+    $('ev-section-alarm').open = true;
+    showError(reminders.error);
+    return;
   }
-  alarms.push(..._extraAlarms);
+  const alarms = reminders.alarms;
 
   const attachUrl = $('ev-attachment-url') ? $('ev-attachment-url').value.trim() : '';
   const attachName = $('ev-attachment-name') ? $('ev-attachment-name').value.trim() : '';
@@ -995,17 +885,19 @@ export function initEventModal() {
   const markRecurrenceTouched = () => { _recurrenceTouched = true; };
 
   $('ev-allday').addEventListener('change', e => updateAlldayUI(e.target.checked));
-  if ($('ev-alarm')) {
-    $('ev-alarm').addEventListener('change', async (e) => {
-      if (e.target.value && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+  _reminders = createReminderEditor($('ev-reminder-list'), $('ev-add-reminder'), {
+    anchor: 'START',
+    anchorName: 'Beginn',
+    onAdd: async () => {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         try {
           await requestNotificationPermission();
         } catch (err) {
-          console.warn('[eventModal] Notification permission request error on alarm select:', err);
+          console.warn('[eventModal] Notification permission request error on adding a reminder:', err);
         }
       }
-    });
-  }
+    }
+  });
   $('ev-recurrence').addEventListener('change', () => {
     markRecurrenceTouched();
     updateRecurrenceOptions(false);

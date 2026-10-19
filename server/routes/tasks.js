@@ -114,11 +114,19 @@ router.get('/', async (req, res) => {
 });
 
 const ICAL = require('ical.js');
+const { assertValidAlarms } = require('../utils/ical');
 const VTODO_STATUSES = new Set(['NEEDS-ACTION', 'COMPLETED', 'IN-PROCESS', 'CANCELLED']);
 
 function validateTaskInput(taskData) {
   if (!taskData || typeof taskData !== 'object') {
     return { error: 'Task data must be an object' };
+  }
+
+  // #508: a malformed TRIGGER is refused before it is serialised, as for events (#128).
+  try {
+    assertValidAlarms(taskData.alarms);
+  } catch (e) {
+    return { error: e.message };
   }
 
   if ('dtstart' in taskData && taskData.dtstart !== null && taskData.dtstart !== undefined && taskData.dtstart !== '') {

@@ -7,6 +7,7 @@ import { fillCalendarSelect, calendarLabel } from './calendarLabels.js';
 import { TasksAPI } from './api.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { showToast } from './app.js';
+import { createReminderEditor } from './reminderEditor.js';
 
 function notifyToast(message, type = 'info') {
   if (typeof showToast === 'function') {
@@ -87,6 +88,7 @@ export function getTaskCompletionToast(task, payload) {
 
 let taskCallbacks = {};
 let _currentTask = null;
+let _reminders = null; // #508: reminder list editor, created in setupTaskModal
 
 export function initTaskUI(callbacks = {}) {
   taskCallbacks = callbacks;
@@ -111,6 +113,12 @@ function setupTaskModal() {
 
   const selectRecur = document.getElementById('task-recurrence');
   if (selectRecur) selectRecur.addEventListener('change', syncCustomRecurrenceField);
+
+  // #508: relative task reminders count from the due date (RELATED=END, RFC 5545 §3.8.6.3).
+  _reminders = createReminderEditor(document.getElementById('task-reminder-list'), document.getElementById('task-add-reminder'), {
+    anchor: 'END',
+    anchorName: 'Fälligkeit'
+  });
 
   if (form) {
     form.addEventListener('submit', async (e) => {
@@ -228,6 +236,7 @@ export function openTaskModal(task = null) {
     if (inputPercent) inputPercent.value = (pct !== null && pct !== undefined) ? String(pct) : '';
     if (selectPrio) selectPrio.value = task.priority !== null && task.priority !== undefined ? String(task.priority) : '';
     setRecurrenceControls(task.recurrence);
+    _reminders.setAlarms(task.alarms);
   } else {
     if (titleEl) titleEl.textContent = 'Neue Aufgabe';
     if (idInput) idInput.value = '';
@@ -242,6 +251,7 @@ export function openTaskModal(task = null) {
     if (inputPercent) inputPercent.value = '';
     if (selectPrio) selectPrio.value = '';
     setRecurrenceControls(null);
+    _reminders.setAlarms([]);
   }
 
   openDialog(backdrop, inputTitle);
@@ -322,6 +332,11 @@ async function handleTaskSave() {
 
   const priority = priorityVal !== '' ? parseInt(priorityVal, 10) : null;
   const recurrence = (recurrenceVal === CUSTOM_RECURRENCE ? customRecurrenceVal : recurrenceVal) || null;
+  const reminders = _reminders.collect(title);
+  if (reminders.error) {
+    notifyToast(reminders.error, 'error');
+    return;
+  }
 
   const taskData = {
     calendarId,
@@ -330,7 +345,8 @@ async function handleTaskSave() {
     status,
     due,
     priority,
-    recurrence
+    recurrence,
+    alarms: reminders.alarms
   };
 
   if (dtstart !== undefined) taskData.dtstart = dtstart;

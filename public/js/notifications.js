@@ -88,62 +88,85 @@ export async function requestNotificationPermission() {
   return typeof Notification !== 'undefined' ? Notification.permission : 'denied';
 }
 
+const DURATION_TRIGGER_RE = /^[+-]?P(?:\d+W)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?$/i;
+
+// The moment one alarm fires: an absolute trigger at its own time, a duration from
+// the item's start, or from its end for RELATED=END (RFC 5545 §3.8.6.3). NaN if it cannot.
+function alarmTimeMs(alarm, item) {
+  const trigger = String(alarm.trigger).trim().replace(/^TRIGGER:/i, '').trim();
+  if (!DURATION_TRIGGER_RE.test(trigger) && trigger !== '0') {
+    return parseTriggerOffsetMs(trigger, null) ?? NaN;
+  }
+  const relatedEnd = String(alarm.related || '').toUpperCase() === 'END' && item.end;
+  const anchorIso = relatedEnd ? item.end : item.start;
+  if (!anchorIso) return NaN;
+  const offsetMs = parseTriggerOffsetMs(trigger, anchorIso);
+  return offsetMs === null ? NaN : new Date(anchorIso).getTime() + offsetMs;
+}
+
+function remindAbout(item, now) {
+  for (const alarm of item.alarms) {
+    if (!alarm.trigger) continue;
+    const alarmTime = alarmTimeMs(alarm, item);
+    if (isNaN(alarmTime)) continue;
+    const relatedEnd = String(alarm.related || '').toUpperCase() === 'END' && item.end;
+    const alarmKey = `${item.key}::${relatedEnd ? 'END:' : ''}${alarm.trigger}::${item.start || item.end || ''}`;
+
+    // Trigger if alarmTime has arrived (lookback up to 24 hours for missed alarms) and not yet notified
+    if (now >= alarmTime && now <= alarmTime + 24 * 60 * 60 * 1000 && !notifiedAlarms.has(alarmKey)) {
+      notifiedAlarms.add(alarmKey);
+      saveNotifiedAlarms();
+
+      const title = `Erinnerung: ${item.title}`;
+      const timeIso = item.timeIso;
+      const timeStr = timeIso ? `${item.timeLabel}: ${new Date(timeIso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : '';
+      const locationStr = item.location ? ` | Ort: ${item.location}` : '';
+      const descStr = alarm.description ? ` (${alarm.description})` : '';
+      const body = `${timeStr}${locationStr}${descStr}`;
+
+      // Trigger Desktop Notification if permitted
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          new Notification(title, {
+            body,
+            icon: '/favicon.ico',
+            tag: alarmKey
+          });
+        } catch (err) {
+          console.warn('[notifications] Desktop Notification error:', err);
+        }
+      }
+
+      // Trigger UI Toast fallback
+      showToast(`${title} — ${body}`, 'info');
+    }
+  }
+}
+
 export function checkAndTriggerAlarms() {
-  const events = store.get('events') || [];
   const now = Date.now();
 
-  for (const ev of events) {
+  for (const ev of store.get('events') || []) {
     // #174's optimistic preview of a save still in flight has a provisional uid, so its alarm key
     // differs from the stored event's: reminding for it too would fire the same reminder twice
     // (#357), and for a save that fails, about an event that does not exist. The stored event
     // reminds once it has landed.
     if (ev.pending) continue;
-    if (!ev.alarms || !Array.isArray(ev.alarms) || ev.alarms.length === 0) continue;
-    if (!ev.start) continue;
+    if (!Array.isArray(ev.alarms) || ev.alarms.length === 0 || !ev.start) continue;
+    remindAbout({
+      key: ev.uid || ev.id, title: ev.title || 'Termin', start: ev.start, end: ev.end,
+      location: ev.location, alarms: ev.alarms, timeIso: ev.start, timeLabel: 'Zeit'
+    }, now);
+  }
 
-    const startMs = new Date(ev.start).getTime();
-    if (isNaN(startMs)) continue;
-
-    for (const alarm of ev.alarms) {
-      if (!alarm.trigger) continue;
-      // A RELATED=END trigger counts from the event's end (RFC 5545 §3.8.6.3).
-      const relatedEnd = String(alarm.related || '').toUpperCase() === 'END' && ev.end;
-      const anchorIso = relatedEnd ? ev.end : ev.start;
-      const anchorMs = relatedEnd ? new Date(ev.end).getTime() : startMs;
-      if (isNaN(anchorMs)) continue;
-      const offsetMs = parseTriggerOffsetMs(alarm.trigger, anchorIso);
-      if (offsetMs === null || isNaN(offsetMs)) continue;
-      const alarmTime = anchorMs + offsetMs;
-      const alarmKey = `${ev.uid || ev.id}::${relatedEnd ? 'END:' : ''}${alarm.trigger}::${ev.start}`;
-
-      // Trigger if alarmTime has arrived (lookback up to 24 hours for missed alarms) and not yet notified
-      if (now >= alarmTime && now <= alarmTime + 24 * 60 * 60 * 1000 && !notifiedAlarms.has(alarmKey)) {
-        notifiedAlarms.add(alarmKey);
-        saveNotifiedAlarms();
-
-        const title = `Erinnerung: ${ev.title || 'Termin'}`;
-        const timeStr = new Date(ev.start).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-        const locationStr = ev.location ? ` | Ort: ${ev.location}` : '';
-        const descStr = alarm.description ? ` (${alarm.description})` : '';
-        const body = `Zeit: ${timeStr}${locationStr}${descStr}`;
-
-        // Trigger Desktop Notification if permitted
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          try {
-            new Notification(title, {
-              body,
-              icon: '/favicon.ico',
-              tag: alarmKey
-            });
-          } catch (err) {
-            console.warn('[notifications] Desktop Notification error:', err);
-          }
-        }
-
-        // Trigger UI Toast fallback
-        showToast(`${title} — ${body}`, 'info');
-      }
-    }
+  // #508: a task reminds relative to DTSTART, or to DUE for RELATED=END; a finished one does not.
+  for (const task of store.get('tasks') || []) {
+    if (!Array.isArray(task.alarms) || task.alarms.length === 0 || task.recurrenceId) continue;
+    if (task.status === 'COMPLETED' || task.status === 'CANCELLED') continue;
+    remindAbout({
+      key: task.uid, title: task.title || 'Aufgabe', start: task.dtstart, end: task.due,
+      alarms: task.alarms, timeIso: task.due, timeLabel: 'Fällig'
+    }, now);
   }
 }
 

@@ -722,20 +722,11 @@
         </details>
 
         <details class="form-section" id="ev-section-alarm">
-          <summary class="form-section-summary">Erinnerung</summary>
+          <summary class="form-section-summary">Erinnerungen</summary>
           <div class="form-section-body">
             <div class="form-group">
-              <label class="form-label sr-only" for="ev-alarm">Erinnerung</label>
-              <select class="form-select" id="ev-alarm">
-                <option value="">Keine Erinnerung</option>
-                <option value="PT0S">Zum Zeitpunkt des Termins</option>
-                <option value="-PT5M">5 Minuten vorher</option>
-                <option value="-PT15M">15 Minuten vorher</option>
-                <option value="-PT30M">30 Minuten vorher</option>
-                <option value="-PT1H">1 Stunde vorher</option>
-                <option value="-P1D">1 Tag vorher</option>
-              </select>
-              <span class="form-hint hidden" id="ev-alarm-extra"></span>
+              <ul class="reminder-list" id="ev-reminder-list" aria-label="Erinnerungen"></ul>
+              <button type="button" class="btn btn-ghost" id="ev-add-reminder">Erinnerung hinzufügen</button>
             </div>
           </div>
         </details>
@@ -1121,6 +1112,11 @@
         <div class="form-group hidden" id="task-recurrence-custom-group">
           <label class="form-label" for="task-recurrence-custom">Eigene Regel (RRULE, RFC 5545)</label>
           <input class="form-input" id="task-recurrence-custom" type="text" placeholder="z. B. FREQ=MONTHLY;INTERVAL=2;BYDAY=1MO;COUNT=10" />
+        </div>
+        <div class="form-group">
+          <div class="form-label" id="task-reminders-caption">Erinnerungen</div>
+          <ul class="reminder-list" id="task-reminder-list" aria-labelledby="task-reminders-caption"></ul>
+          <button type="button" class="btn btn-ghost" id="task-add-reminder">Erinnerung hinzufügen</button>
         </div>
       </div>
       <div class="modal-footer">
