@@ -166,7 +166,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   components as vdirsyncer `item_types`, and on every run the worker PROPPATCHes each restricted mirror to that
   set and names every item outside it ("Nicht synchronisiert: „<title>“: Google nimmt keine Aufgaben an, …")
   in the job's `error_message`. An item Google still refuses (4xx in vdirsyncer's log) is named the same way
-  by title; vdirsyncer syncs the pair's other items past it (#572). The task dialog shows a stranded task's
+  by title; vdirsyncer syncs the pair's other items past it (#572). Every other `error:` line of that run is
+  reported next to the refusals as "Sync-Fehler: <pair>: <reason>" (pair taken from the last `Syncing` line if
+  the line does not name it), capped at `OTHER_FAILURES_CAP` characters with the cut amount stated (#581). The task dialog shows a stranded task's
   hint in `#task-stranded-hint`.
 - Calendar colour and name (#505): every Google and Basic-auth CalDAV pair declares
   `metadata = ["color", "displayname"]` and the worker runs `vdirsyncer metasync` after `sync`. metasync compares
