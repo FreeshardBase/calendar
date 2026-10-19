@@ -999,6 +999,31 @@
   </div>
 </div>
 
+<!-- ── Drag and drop of events (#574) ─────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="notify-dialog-backdrop" inert>
+  <div class="modal modal-sm" id="notify-dialog" role="dialog" aria-modal="true" aria-labelledby="notify-dialog-title">
+    <div class="modal-header">
+      <h3 class="modal-title" id="notify-dialog-title">Termin verschoben</h3>
+      <button class="icon-btn modal-close" id="notify-cancel-btn" aria-label="Verschieben abbrechen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p id="notify-dialog-text" style="margin-bottom: 20px; line-height: 1.5;">Teilnehmer über die Änderung informieren?</p>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button type="button" class="btn btn-ghost" id="notify-no-btn">Nein</button>
+        <button type="button" class="btn btn-primary" id="notify-yes-btn">Ja</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="drag-cancel-zone hidden" id="drag-cancel-zone" aria-hidden="true">Hier loslassen zum Abbrechen</div>
+<div class="undo-bar hidden" id="undo-bar" role="status">
+  <span>Verschoben</span> · <button type="button" class="btn btn-ghost btn-sm" id="undo-bar-btn">Rückgängig</button>
+</div>
+
 <!-- ── Task Modal ───────────────────────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="task-modal-backdrop" inert>
   <div class="modal" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">

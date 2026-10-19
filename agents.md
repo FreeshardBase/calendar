@@ -34,7 +34,8 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   entry (`server/test/source_grep_lint_rule.test.js` fails otherwise). `node scripts/list-source-grep-tests.js`
   prints every test the rule matches, ignoring the allowlist.
 - `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
-- `npx playwright test` — e2e (`e2e/calendar.spec.js`), starts its own server via `playwright.config.js`
+- `npx playwright test` — e2e (`e2e/calendar.spec.js`, and `e2e/dragdrop.spec.js` for drag and drop, #574, which
+  also runs in the `mobile-touch` project: Pixel 7, `hasTouch`, touch drags sent through CDP), starts its own server via `playwright.config.js`
   (`reuseExistingServer` outside CI). That server runs the shipping configuration (`NODE_ENV=production`,
   no test-mode switch, no fake users are seeded); specs seed fixtures themselves (#211). Every run is
   its own fixture (#217): `playwright.config.js` picks a run id (`E2E_RUN_ID`), signs the browser in as
@@ -132,6 +133,12 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   2 s while a job is RUNNING. Event saves are optimistic: the dialog closes and the event is drawn (dashed,
   "wird gespeichert") while the request runs; on failure it is removed or rolled back, an error toast says
   so, and the dialog reopens with the entries.
+- Drag and drop (#574): `public/js/eventDrag.js` moves and resizes events in the day/week view with Pointer
+  Events (mouse after 5 px, touch after a 400 ms long press; 15-minute grid, Alt minute-exact; all-day ↔ timed by
+  dropping into the other area). `app.js` (`onEventDrop`) asks the recurrence scope, then for events with attendees
+  "Teilnehmer über die Änderung informieren?" (Ja resets their PARTSTAT to NEEDS-ACTION with RSVP), saves
+  optimistically and offers "Verschoben · Rückgängig" for 8 s. Esc and the top "Abbrechen" zone cancel a drag.
+  Only events of writable calendars get handles; the server's calendar write check rejects the rest.
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).

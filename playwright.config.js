@@ -50,6 +50,12 @@ module.exports = defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // #574: drag and drop on a phone (touch, long press). Only the drag spec runs here.
+    {
+      name: 'mobile-touch',
+      testMatch: /dragdrop\.spec\.js/,
+      use: { ...devices['Pixel 7'] },
+    },
   ],
   // Issue #211: the server under test runs the shipping configuration (docker-compose.yml:
   // NODE_ENV=production, own DATABASE_PATH) with no test-mode switch, so auth specs probe the
