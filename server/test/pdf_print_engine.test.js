@@ -10,7 +10,9 @@ require('dotenv').config();
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { generateCalendarPDF } = require('../utils/pdfExport');
+const { generateCalendarPDF, parseExportOptions } = require('../utils/pdfExport');
+const CALENDARS = [{ id: 'testuser/personal', name: 'Persönlich', color: '#3b82f6' }];
+const exportOptions = (body) => parseExportOptions({ calendars: CALENDARS, ...body }).options;
 const { app, server: globalServer } = require('../index');
 globalServer.listen(process.env.PORT);
 const { loginAs } = require('./helpers/testSession');
@@ -35,26 +37,28 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
   await t.test('generateCalendarPDF generates vector PDF buffer for Month view', () => {
     const events = [
       {
+        calendarId: 'testuser/personal',
         summary: 'Team Sync Meeting',
         dtstart: '2026-08-12T10:00:00Z',
         dtend: '2026-08-12T11:00:00Z',
         location: 'Conference Room A'
       },
       {
+        calendarId: 'testuser/personal',
         summary: 'Project Sprint Review',
         dtstart: '2026-08-15T14:00:00Z',
         dtend: '2026-08-15T15:30:00Z'
       }
     ];
 
-    const pdfBuffer = generateCalendarPDF({
+    const pdfBuffer = generateCalendarPDF(exportOptions({
       view: 'month',
-      year: 2026,
-      month: 8,
+      from: '2026-08-01',
+      to: '2026-08-31',
       events,
       title: 'Monatsansicht - August 2026',
       orientation: 'landscape'
-    });
+    }));
 
     assert.ok(Buffer.isBuffer(pdfBuffer), 'Output must be a Buffer');
     const pdfString = pdfBuffer.toString('latin1');
@@ -68,26 +72,27 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
   await t.test('generateCalendarPDF generates vector PDF buffer for Week view', () => {
     const events = [
       {
+        calendarId: 'testuser/personal',
         summary: 'Architecture Planning',
         dtstart: '2026-08-12T09:00:00Z',
         dtend: '2026-08-12T10:30:00Z'
       }
     ];
 
-    const pdfBuffer = generateCalendarPDF({
+    const pdfBuffer = generateCalendarPDF(exportOptions({
       view: 'week',
-      year: 2026,
-      week: 33,
+      from: '2026-08-10',
+      to: '2026-08-16',
       events,
       title: 'Wochenansicht - KW 33 (2026)',
       orientation: 'portrait'
-    });
+    }));
 
     assert.ok(Buffer.isBuffer(pdfBuffer), 'Output must be a Buffer');
     const pdfString = pdfBuffer.toString('latin1');
     assert.ok(pdfString.startsWith('%PDF-1.4'), 'PDF must start with %PDF-1.4 header');
     assert.ok(pdfString.includes('Wochenansicht - KW 33'), 'PDF must contain week header title');
-    assert.ok(pdfString.includes('Architecture Planning'), 'PDF must contain week event text');
+    assert.ok(pdfString.includes('(Architec'), 'PDF must contain week event text (cut to the narrow portrait column)');
   });
 
   await t.test('POST /api/calendars/export/pdf without view parameter should return 400 Bad Request', async () => {
@@ -120,11 +125,13 @@ test('PDF Print Engine & Vector Export Suite', async (t) => {
   await t.test('POST /api/calendars/export/pdf returns valid PDF download', async () => {
     const payload = JSON.stringify({
       view: 'month',
-      year: 2026,
-      month: 8,
+      from: '2026-08-01',
+      to: '2026-08-31',
+      calendars: CALENDARS,
       title: 'Export Test Calendar',
       events: [
         {
+          calendarId: 'testuser/personal',
           summary: 'API Test Event',
           dtstart: '2026-08-12T12:00:00Z',
           dtend: '2026-08-12T13:00:00Z'

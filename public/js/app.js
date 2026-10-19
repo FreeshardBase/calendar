@@ -15,6 +15,7 @@ import { initNotificationService, checkAndTriggerAlarms, requestNotificationPerm
 import { initTaskUI, openTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
 import { initListView, loadListPage, renderListView } from './listView.js';
+import { initPdfExport } from './pdfExport.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
 import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, typedConfirmDialog, handleEscapeKey } from './dialogFocus.js';
@@ -2781,57 +2782,7 @@ function attachListeners() {
     announce(`Datum: ${getToolbarTitle(store.get('view'), t)}`);
   });
 
-  const exportPdfBtn = $('export-pdf-btn');
-  if (exportPdfBtn) {
-    exportPdfBtn.addEventListener('click', async () => {
-      const view = store.get('view');
-      const currentDate = store.get('currentDate') || new Date();
-      const events = getFilteredEvents();
-      const exportView = (view === 'week' || view === 'workweek') ? 'week' : 'month';
-
-      // #497: the file is checked completely before the download starts; a failed export is shown
-      // as an error, never handed to the browser as a broken download or replaced by a print dialog.
-      let blob;
-      try {
-        const res = await fetch('/api/calendars/export/pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            view: exportView,
-            year: currentDate.getFullYear(),
-            month: currentDate.getMonth() + 1,
-            events: events,
-            title: $('toolbar-title').textContent || 'Calendar Export',
-            orientation: 'landscape'
-          })
-        });
-
-        const type = res.headers.get('Content-Type') || '';
-        if (!res.ok) {
-          const body = type.includes('application/json') ? await res.json() : null;
-          throw new Error(body?.error || `HTTP ${res.status}`);
-        }
-        blob = await res.blob();
-        if (!type.startsWith('application/pdf') || await blob.slice(0, 5).text() !== '%PDF-') {
-          throw new Error('Die Antwort ist keine PDF-Datei');
-        }
-      } catch (err) {
-        console.error('[PDF Export Error]', err);
-        showToast(`PDF-Export fehlgeschlagen: ${err.message}`, 'error');
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `calendar-${exportView}-${Date.now()}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Revoking right after click() lets Chromium's download manager find the blob gone and fail
-      // the download it has just announced (#497); the URL lives until the download has read it.
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    });
-  }
+  initPdfExport({ showToast });
 
 
   // New event button

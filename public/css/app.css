@@ -1095,6 +1095,17 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   overflow: hidden;
 }
 .modal-sm { max-width: 400px; }
+
+/* #511: PDF export — settings beside a preview of the first page */
+.pdf-export-modal { max-width: 960px; }
+.pdf-export-body { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: var(--sp-5); align-items: start; }
+.pdf-export-calendars { border: 0; padding: 0; margin: 0 0 var(--sp-4); }
+.pdf-export-check { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); font-size: 0.85rem; }
+.pdf-export-preview { margin: 0; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
+.pdf-export-preview img { max-width: 100%; max-height: 62vh; border: var(--border-w) solid var(--border); background: #fff; }
+.pdf-export-preview figcaption { font-size: 0.8rem; color: var(--text-muted); }
+.pdf-export-preview figcaption.error { color: var(--danger); }
+@media (max-width: 720px) { .pdf-export-body { grid-template-columns: 1fr; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 .modal form {

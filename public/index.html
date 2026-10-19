@@ -1169,6 +1169,80 @@
     </div>
   </div>
 </div>
+<!-- ── PDF export (#511): settings and a preview of the first page ───────── -->
+<div class="modal-backdrop hidden" id="pdf-export-backdrop" inert>
+  <div class="modal pdf-export-modal" id="pdf-export-modal" role="dialog" aria-modal="true" aria-labelledby="pdf-export-title">
+    <div class="modal-header">
+      <h3 class="modal-title" id="pdf-export-title">PDF exportieren</h3>
+      <button class="icon-btn modal-close" id="pdf-export-close" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body pdf-export-body">
+      <form id="pdf-export-form" class="pdf-export-settings" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="pdf-view">Ansicht</label>
+          <select class="form-input" id="pdf-view">
+            <option value="month">Monat</option>
+            <option value="week">Woche</option>
+            <option value="day">Tag</option>
+            <option value="list">Liste</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="pdf-from">Von</label>
+            <input type="date" class="form-input" id="pdf-from" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pdf-to">Bis</label>
+            <input type="date" class="form-input" id="pdf-to" required>
+          </div>
+        </div>
+        <fieldset class="form-group pdf-export-calendars">
+          <legend class="form-label">Kalender</legend>
+          <div id="pdf-calendars"></div>
+        </fieldset>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="pdf-paper">Papier</label>
+            <select class="form-input" id="pdf-paper">
+              <option value="a4">A4</option>
+              <option value="letter">Letter</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pdf-orientation">Ausrichtung</label>
+            <select class="form-input" id="pdf-orientation">
+              <option value="landscape">Querformat</option>
+              <option value="portrait">Hochformat</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="pdf-color">Druck</label>
+          <select class="form-input" id="pdf-color">
+            <option value="color">Farbe</option>
+            <option value="bw">Schwarzweiß</option>
+          </select>
+        </div>
+        <label class="pdf-export-check"><input type="checkbox" id="pdf-descriptions"> Beschreibungen drucken</label>
+      </form>
+      <figure class="pdf-export-preview">
+        <img id="pdf-preview-img" alt="Vorschau der ersten Seite">
+        <figcaption id="pdf-preview-status" aria-live="polite"></figcaption>
+      </figure>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-actions-right">
+        <button type="button" class="btn btn-ghost" id="pdf-export-cancel">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="pdf-export-download">PDF herunterladen</button>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- ── MS Graph / Office 365 Modal ────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="msgraph-modal-backdrop" inert>
   <div class="modal modal-sm" id="msgraph-modal" role="dialog" aria-modal="true" aria-labelledby="msgraph-modal-title">

@@ -176,13 +176,15 @@ test('Issue #497 — PDF export through the reverse proxy in production', async 
     }
   }
 
+  const ranges = { month: ['2026-10-01', '2026-10-31'], week: ['2026-10-12', '2026-10-18'] };
+  const calendars = [{ id: 'testuser/personal', name: 'Persönlich', color: '#3b82f6' }];
   for (const view of ['month', 'week']) {
     await t.test(`${view} view: 200, application/pdf attachment, complete valid PDF`, async () => {
       const res = await rawRequest(proxyPort, {
         method: 'POST',
         path: '/api/calendars/export/pdf',
         headers: browserHeaders,
-        body: JSON.stringify({ view, year: 2026, month: 10, week: 42, events, title: 'Oktober 2026', orientation: 'landscape' }),
+        body: JSON.stringify({ view, from: ranges[view][0], to: ranges[view][1], calendars, events, title: 'Oktober 2026', orientation: 'landscape' }),
       });
       assert.equal(res.status, 200, `export answered ${res.status}: ${res.body.toString('utf8').slice(0, 300)}`);
       assert.match(res.headers['content-type'], /^application\/pdf\b/);
@@ -203,7 +205,7 @@ test('Issue #497 — PDF export through the reverse proxy in production', async 
       method: 'POST',
       path: '/api/calendars/export/pdf',
       headers: browserHeaders,
-      body: JSON.stringify({ view: 'agenda', year: 2026, month: 10, events: [] }),
+      body: JSON.stringify({ view: 'agenda', from: '2026-10-01', to: '2026-10-31', calendars: [], events: [] }),
     });
     assert.equal(res.status, 400);
     assert.match(res.headers['content-type'], /^application\/json\b/);
