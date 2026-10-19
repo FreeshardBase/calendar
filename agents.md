@@ -159,13 +159,19 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   client) and `BASE_URL`; without them `GET /api/msgraph/accounts` reports `available: false`, the modal says so and
   `/api/msgraph/authorize` answers 503. `server/utils/msgraph.js` + `routes/msgraph.js`: authorization code flow
   with PKCE (S256) at tenant `common`, state mandatory and single-use per session, scopes
-  `offline_access User.Read Calendars.ReadWrite` (write only for trash restores, #597). Microsoft returns cross-site, where a `SameSite=Strict` session
+  `offline_access User.Read Calendars.ReadWrite` (write for the two-way sync, #613). Microsoft returns cross-site, where a `SameSite=Strict` session
   cookie (`COOKIE_SAME_SITE=strict`; the default is `lax`, #491) would be withheld, so the registered `/api/msgraph/callback` (no auth) only serves a page that forwards
   code/state/error same-site to `/api/msgraph/callback/complete`, which checks the state, stores the tokens
   (re-connecting the same mailbox updates its row and clears `reconnect_required`) and enqueues a sync job. There is no token entry by request
   body. `POST /api/msgraph/accounts/:id/sync` only enqueues a job (202). The only Graph sync path is
-  `sync-worker/msgraph_worker.py`: import (Graph → Radicale; the one write is #597's re-creation of an event restored from the trash, queued in `msgraph_restores` and POSTed to `/me/events` before the delta round), `/me/calendarView/delta` (window −365/+730 days,
-  fixed per delta round; a round older than 30 days, `delta_started_at`, restarts with a current window), pages `@odata.nextLink`, persists only `@odata.deltaLink`, applies `@removed` (the local copy goes to the trash first, #597), sends
+  `sync-worker/msgraph_worker.py`, two-way per Microsoft calendar (#613): `GET /me/calendars`; each calendar gets its own opaque,
+  VEVENT-only mirror `/<user-uuid>/msgraph-<hex>/` (row in `msgraph_calendar_collections` per account and Graph calendar id,
+  created with the provider's name and `hexColor`, relabelled when they change at Microsoft); nothing goes into "Persönlich".
+  Per sync: #597's trash restores (queued in `msgraph_restores`) are POSTed first; then per mirror the local changes since the
+  last sync are written to Graph (`msgraph_event_mappings.href`/`local_etag`: unmapped item → POST `/me/calendars/<id>/events`,
+  changed ETag → PATCH `/me/events/<id>`, mapping without item → DELETE; a series created in the shard and edits in a calendar
+  Microsoft marks `canEdit: false` are not written and are named in the job error); then `/me/calendars/<id>/calendarView/delta` (window −365/+730 days,
+  fixed per delta round; a round older than 30 days, `delta_started_at`, restarts with a current window; both kept per calendar), pages `@odata.nextLink`, persists only `@odata.deltaLink`, applies `@removed` (the local copy goes to the trash first, #597), sends
   `Prefer: outlook.timezone="UTC"` and rejects any other `timeZone`. Refresh sends `client_id`, `scope` and
   `client_secret` if set; `invalid_grant` sets `msgraph_accounts.reconnect_required` and the job fails with a
   "please reconnect" message, shown in the modal. A failing account does not stop the user's other Microsoft
@@ -177,7 +183,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)
   and `radicale_custom_rights` (owner full access, others via `user_calendar_shares` — only reachable once
   shards have an OIDC provider and thus a second user, #121).
-- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph → Radicale import, the only Graph sync path).
+- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph ↔ Radicale, one mirror per Microsoft calendar, the only Graph sync path). Disconnecting a Microsoft account or deleting one of its mirrors unpairs it; the local copy stays and nothing is deleted at Microsoft (a deleted mirror is mirrored afresh on the next sync).
   Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
   `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google
   name as `displayname` and a VEVENT-only

@@ -50,9 +50,10 @@ test('MS Graph account storage and REST API Suite', async (t) => {
     assert.ok(fetched);
     assert.equal(fetched.accountEmail, 'testuser@example.com');
 
-    await Db.updateMSGraphAccount(account.id, { deltaLink: 'https://graph.microsoft.com/delta-link-1' });
+    // #613: delta links are kept per Microsoft calendar (msgraph_calendar_collections), by the worker.
+    await Db.updateMSGraphAccount(account.id, { expiresAt: 4102444800000 });
     const updated = await Db.getMSGraphAccountById(account.id);
-    assert.equal(updated.deltaLink, 'https://graph.microsoft.com/delta-link-1');
+    assert.equal(updated.expiresAt, 4102444800000);
 
     await Db.upsertMSGraphEventMapping('local-1', 'graph-1', account.id, 'etag-1');
     const mapping = await Db.getMSGraphEventMapping('local-1');

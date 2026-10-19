@@ -2,7 +2,7 @@
 
 Drives the sync worker's job loop (process_next_job -> sync_user -> msgraph_worker) against a fake
 Microsoft Graph and a fake local Radicale (urlopen is routed to them; no request leaves the process):
-  - a Graph event is PUT as a VEVENT into the account's target calendar before the job is SUCCESS;
+  - a Graph event is PUT as a VEVENT into its calendar's mirror (#613) before the job is SUCCESS;
   - a Radicale PUT that fails makes the job ERROR, records no mapping and does not advance the delta link;
   - a Graph deletion DELETEs the local event; a failed DELETE makes the job ERROR and keeps the mapping.
 """
@@ -25,14 +25,21 @@ if SYNC_WORKER_DIR not in sys.path:
 import sync_worker  # noqa: E402
 
 GRAPH = "https://graph.microsoft.com/v1.0"
-DELTA = f"{GRAPH}/me/calendarView/delta"
+CALENDARS = f"{GRAPH}/me/calendars"
+DELTA = f"{CALENDARS}/cal1/calendarView/delta"
 NEXT_DELTA = f"{DELTA}?$deltatoken=round2"
 USER_ID = "testuser"
+MIRROR = "msgraph-0123456789abcdef0123456789abcdef"
+EVENT_HREF = f"/{USER_ID}/{MIRROR}/msgraph-event-g1.ics"
+MIRRORED_ICS = ("BEGIN:VCALENDAR&#13;\nBEGIN:VEVENT&#13;\nUID:msgraph-event-g1&#13;\n"
+                "SUMMARY:Test User review&#13;\nEND:VEVENT&#13;\nEND:VCALENDAR&#13;\n")
 
 
 class _Response:
-    def __init__(self, body=""):
+    def __init__(self, body="", status=200, headers=None):
         self._body = body.encode("utf-8")
+        self.status = status
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -45,10 +52,12 @@ class _Response:
 
 
 class FakeGraphAndRadicale:
-    def __init__(self, page, put_status=201, delete_status=204):
+    def __init__(self, page, put_status=201, delete_status=204, local_items=None):
         self.page = page
         self.put_status = put_status
         self.delete_status = delete_status
+        # #613: {href: etag} the mirror holds, as the push phase's REPORT sees it.
+        self.local_items = local_items or {}
         self.requests = []
 
     def __call__(self, req, context=None, timeout=None):
@@ -58,14 +67,23 @@ class FakeGraphAndRadicale:
                               "body": req.data.decode("utf-8") if req.data else ""})
         if url.startswith(DELTA):
             return _Response(json.dumps(self.page))
+        if url.startswith(CALENDARS):
+            return _Response(json.dumps({"value": [{"id": "cal1", "name": "Arbeit", "hexColor": "", "canEdit": True}]}))
         if url.startswith(sync_worker.LOCAL_CALDAV_URL.rstrip("/")):
+            if method == "REPORT":
+                responses = "".join(
+                    f"<d:response><d:href>{href}</d:href><d:propstat><d:prop><d:getetag>{etag}</d:getetag>"
+                    f"<c:calendar-data>{MIRRORED_ICS}</c:calendar-data></d:prop></d:propstat></d:response>"
+                    for href, etag in self.local_items.items())
+                return _Response('<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+                                 f"{responses}</d:multistatus>", 207)
             if method == "GET":
                 # #597: the copy read for the trash; this Radicale keeps no content.
                 raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
             status = self.put_status if method == "PUT" else self.delete_status
             if status >= 400:
                 raise urllib.error.HTTPError(url, status, "error", {}, io.BytesIO(b""))
-            return _Response()
+            return _Response(status=status, headers={"ETag": '"e2"'} if method == "PUT" else {})
         raise AssertionError(f"unexpected request {method} {url}")
 
     def radicale(self, method):
@@ -85,11 +103,15 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
             CREATE TABLE cross_user_deletions (id TEXT PRIMARY KEY, owner_user_id TEXT, uid TEXT,
                 calendar_id TEXT, deleted_by TEXT, href TEXT, ics TEXT);
             CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
-                account_email TEXT NOT NULL, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT,
-                delta_started_at INTEGER, target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0,
+                account_email TEXT NOT NULL, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
+                reconnect_required INTEGER NOT NULL DEFAULT 0,
                 sync_lock_until INTEGER, created_at INTEGER, updated_at INTEGER);
             CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT NOT NULL,
-                account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT);
+                account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT, href TEXT, local_etag TEXT);
+            CREATE TABLE msgraph_calendar_collections (account_id TEXT NOT NULL, user_id TEXT NOT NULL,
+                graph_calendar_id TEXT NOT NULL, local_collection TEXT NOT NULL, graph_name TEXT, graph_color TEXT,
+                delta_link TEXT, delta_started_at INTEGER, created_at INTEGER NOT NULL,
+                PRIMARY KEY (account_id, graph_calendar_id), UNIQUE (user_id, local_collection));
             CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
                 created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href));
             CREATE TABLE sync_queue (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
@@ -99,10 +121,14 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
         """)
         # A fresh access token, so the job goes straight to Graph.
         conn.execute(
-            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " target_calendar_id) VALUES ('acc1', ?, 'testuser@example.com', ?, ?, 4102444800000, 'arbeit')",
+            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at)"
+            " VALUES ('acc1', ?, 'testuser@example.com', ?, ?, 4102444800000)",
             (USER_ID, sync_worker.encrypt_token("testuser-access-token", sync_worker.KEY_BYTES),
              sync_worker.encrypt_token("testuser-refresh-token", sync_worker.KEY_BYTES)))
+        # The mirror of Microsoft calendar cal1, paired by an earlier sync (#613).
+        conn.execute("INSERT INTO msgraph_calendar_collections (account_id, user_id, graph_calendar_id,"
+                     " local_collection, graph_name, created_at) VALUES ('acc1', ?, 'cal1', ?, 'Arbeit', 0)",
+                     (USER_ID, MIRROR))
         conn.execute("INSERT INTO sync_queue (id, user_id, status, attempts, max_attempts, created_at, updated_at)"
                      " VALUES ('job-60', ?, 'PENDING', 0, 1, 1, 1)", (USER_ID,))
         conn.commit()
@@ -130,13 +156,14 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
         return self._query("SELECT local_uid, graph_id FROM msgraph_event_mappings")
 
     def _delta_link(self):
-        return self._query("SELECT delta_link FROM msgraph_accounts WHERE id = 'acc1'")[0][0]
+        return self._query("SELECT delta_link FROM msgraph_calendar_collections WHERE graph_calendar_id = 'cal1'")[0][0]
 
     def _set_delta_link_and_mapping(self):
         conn = sqlite3.connect(self.db_path)
-        conn.execute("UPDATE msgraph_accounts SET delta_link = ?, delta_started_at = strftime('%s','now') * 1000",
-                     (f"{DELTA}?$deltatoken=round1",))
-        conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '')")
+        conn.execute("UPDATE msgraph_calendar_collections SET delta_link = ?,"
+                     " delta_started_at = strftime('%s','now') * 1000", (f"{DELTA}?$deltatoken=round1",))
+        conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '', ?, ?)",
+                     (EVENT_HREF, '"e1"'))
         conn.commit()
         conn.close()
 
@@ -147,7 +174,7 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
             "end": {"dateTime": "2026-10-05T09:00:00.0000000", "timeZone": "UTC"},
         }], "@odata.deltaLink": NEXT_DELTA}
 
-    def test_a_graph_event_is_written_into_the_target_calendar_before_the_job_succeeds(self):
+    def test_a_graph_event_is_written_into_its_mirror_before_the_job_succeeds(self):
         fake = FakeGraphAndRadicale(self._event_page())
 
         self._run_job(fake)
@@ -155,7 +182,7 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
         self.assertEqual(self._job(), ("SUCCESS", None))
         puts = fake.radicale("PUT")
         self.assertEqual(len(puts), 1, "the event data is written to Radicale, not only a mapping row")
-        self.assertTrue(puts[0]["url"].endswith(f"/{USER_ID}/arbeit/msgraph-event-g1.ics"), puts[0]["url"])
+        self.assertTrue(puts[0]["url"].endswith(EVENT_HREF), puts[0]["url"])
         self.assertIn("BEGIN:VEVENT\r\n", puts[0]["body"])
         self.assertIn("UID:msgraph-event-g1\r\n", puts[0]["body"])
         self.assertIn("SUMMARY:Test User review\r\n", puts[0]["body"])
@@ -178,21 +205,22 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
     def test_a_graph_deletion_deletes_the_local_event(self):
         self._set_delta_link_and_mapping()
         fake = FakeGraphAndRadicale({"value": [{"id": "g1", "@removed": {"reason": "deleted"}}],
-                                     "@odata.deltaLink": NEXT_DELTA})
+                                     "@odata.deltaLink": NEXT_DELTA}, local_items={EVENT_HREF: '"e1"'})
 
         self._run_job(fake)
 
         self.assertEqual(self._job(), ("SUCCESS", None))
         deletes = fake.radicale("DELETE")
         self.assertEqual(len(deletes), 1, "the local event is deleted, not only its mapping row")
-        self.assertTrue(deletes[0]["url"].endswith(f"/{USER_ID}/arbeit/msgraph-event-g1.ics"), deletes[0]["url"])
+        self.assertTrue(deletes[0]["url"].endswith(EVENT_HREF), deletes[0]["url"])
         self.assertEqual(self._mappings(), [])
         self.assertEqual(self._delta_link(), NEXT_DELTA)
 
     def test_a_failed_radicale_delete_fails_the_job_and_keeps_the_mapping(self):
         self._set_delta_link_and_mapping()
         fake = FakeGraphAndRadicale({"value": [{"id": "g1", "@removed": {"reason": "deleted"}}],
-                                     "@odata.deltaLink": NEXT_DELTA}, delete_status=500)
+                                     "@odata.deltaLink": NEXT_DELTA}, delete_status=500,
+                                    local_items={EVENT_HREF: '"e1"'})
 
         self._run_job(fake)
 

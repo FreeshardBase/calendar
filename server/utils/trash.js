@@ -99,9 +99,7 @@ async function isLinkedCalendar(userId, calendarId) {
   if (accountId !== 'internal-caldav') return true;
   const collection = calendarId.slice(sep + 2).split('/').filter(Boolean)[1];
   const mirrored = await Db.getMirroredCollectionAccounts(userId);
-  if (mirrored.has(collection)) return true;
-  const graph = await Db.getMSGraphAccounts(userId);
-  return graph.some(a => a.targetCalendarId === calendarId);
+  return mirrored.has(collection);
 }
 
 /** Keep a copy of one event or task that is about to be deleted; returns the trash id. */

@@ -4975,6 +4975,81 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
+  test.describe('Issue #613 — every Microsoft calendar has its own mirror', () => {
+    const { Agent } = require('undici');
+    const crypto = require('crypto');
+
+    // The mirror collection as msgraph_worker.py creates it: opaque name, VEVENT only, the provider's
+    // name and colour.
+    async function davRequest(method, path, body) {
+      const dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      try {
+        const res = await fetch(`${webServer.env.INTERNAL_CALDAV_URL}${path}`, {
+          method, dispatcher, body,
+          headers: {
+            Authorization: 'Basic ' + Buffer.from(`${E2E_USER}:${webServer.env.SYSTEM_SYNC_SECRET}`).toString('base64'),
+            'Accept-Encoding': 'identity',
+            'Content-Type': 'application/xml; charset=utf-8',
+          },
+        });
+        return res.status;
+      } finally {
+        await dispatcher.close();
+      }
+    }
+
+    async function mkMirror(path, name, color) {
+      const status = await davRequest('MKCALENDAR', path, `<?xml version="1.0" encoding="utf-8"?>
+<c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:ical="http://apple.com/ns/ical/"><d:set><d:prop>
+<d:displayname>${name}</d:displayname>
+<c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set>
+<ical:calendar-color>${color}</ical:calendar-color>
+</d:prop></d:set></c:mkcalendar>`);
+      expect(status, `MKCALENDAR ${path}`).toBe(201);
+    }
+
+    test('the sidebar lists the Microsoft calendars under the account with their names and colours', async ({ page }) => {
+      const accountId = `e2e-issue613-${Date.now()}`;
+      const work = `msgraph-${crypto.randomBytes(16).toString('hex')}`;
+      const family = `msgraph-${crypto.randomBytes(16).toString('hex')}`;
+      await mkMirror(`/${E2E_USER}/${work}/`, 'Arbeit', '#a1b2c3');
+      await mkMirror(`/${E2E_USER}/${family}/`, 'Familie', '#123456');
+      await runSql(
+        `INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,
+           reconnect_required, created_at, updated_at) VALUES (?, ?, 'testuser@example.com', '', '', 0, 0, ?, ?)`,
+        [accountId, E2E_USER, Date.now(), Date.now()]);
+      for (const [graphId, collection] of [['graph-cal-work', work], ['graph-cal-family', family]]) {
+        await runSql(
+          `INSERT INTO msgraph_calendar_collections (account_id, user_id, graph_calendar_id, local_collection, created_at)
+           VALUES (?, ?, ?, ?, ?)`, [accountId, E2E_USER, graphId, collection, Date.now()]);
+      }
+      try {
+        await page.goto('/');
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+
+        const workItem = page.locator(`#calendar-list .calendar-item[data-cal-id="internal-caldav::/${E2E_USER}/${work}/"]`);
+        const familyItem = page.locator(`#calendar-list .calendar-item[data-cal-id="internal-caldav::/${E2E_USER}/${family}/"]`);
+        await expect(workItem).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('#calendar-list .calendar-group-label')).toHaveText(['testuser@example.com']);
+        // Both are listed after the account's label, not among the shard's own calendars.
+        const order = await page.locator('#calendar-list').evaluate(list => [...list.children].map(el =>
+          el.classList.contains('calendar-group-label') ? `label:${el.textContent}` : el.querySelector('.calendar-name')?.textContent));
+        const group = order.slice(order.indexOf('label:testuser@example.com'));
+        expect(group[0]).toBe('label:testuser@example.com');
+        expect(group.slice(1).sort()).toEqual(['Arbeit', 'Familie']);
+        await expect(workItem.locator('.calendar-dot')).toHaveCSS('background-color', 'rgb(161, 178, 195)');
+        await expect(familyItem.locator('.calendar-name')).toHaveText('Familie');
+        await expect(familyItem.locator('.calendar-dot')).toHaveCSS('background-color', 'rgb(18, 52, 86)');
+      } finally {
+        await runSql('DELETE FROM msgraph_calendar_collections WHERE account_id = ?', [accountId]);
+        await runSql('DELETE FROM msgraph_accounts WHERE id = ?', [accountId]);
+        for (const collection of [work, family]) {
+          expect(await davRequest('DELETE', `/${E2E_USER}/${collection}/`), `DELETE ${collection}`).toBe(200);
+        }
+      }
+    });
+  });
+
   test.describe('Issue #97 — Microsoft 365 connection', () => {
     test.use({ serviceWorkers: 'block' });
 

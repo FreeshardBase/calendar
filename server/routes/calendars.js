@@ -521,7 +521,10 @@ router.get('/', async (req, res) => {
       cal.linkedAccountId = null;
     } else if (cal.accountId === 'internal-caldav') {
       const collectionName = cal.href.replace(/\/$/, '').split('/').pop();
-      cal.linkedAccountId = mirroredAccounts.get(collectionName) || null;
+      const mirrored = mirroredAccounts.get(collectionName);
+      cal.linkedAccountId = mirrored ? mirrored.accountId : null;
+      // #613: a Microsoft 365 account is not in the client's account list; its name comes along.
+      if (mirrored && mirrored.accountName) cal.linkedAccountName = mirrored.accountName;
     } else {
       cal.linkedAccountId = cal.accountId;
     }

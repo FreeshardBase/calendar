@@ -14,7 +14,10 @@ export function accountLabel(account) {
 
 function linkedAccount(cal) {
   if (!cal.linkedAccountId) return null;
-  return store.get('accounts').find(a => a.id === cal.linkedAccountId) || null;
+  const account = store.get('accounts').find(a => a.id === cal.linkedAccountId);
+  if (account) return account;
+  // #613: a Microsoft 365 account is not in the account list; the calendar names it.
+  return cal.linkedAccountName ? { id: cal.linkedAccountId, username: cal.linkedAccountName, displayName: null } : null;
 }
 
 // A provider names an account's primary calendar after its user name (Google: the e-mail

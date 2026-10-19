@@ -62,47 +62,89 @@ class TokenCryptoTest(unittest.TestCase):
 
 
 class GraphSyncTest(unittest.TestCase):
-    ENDPOINT = "https://graph.example.com/v1.0/me/calendarView/delta?$deltatoken=previous"
+    ENDPOINT = "https://graph.microsoft.com/v1.0/me/calendars/cal1/calendarView/delta?$deltatoken=previous"
+    CALENDARS = {"value": [{"id": "cal1", "name": "Kalender", "hexColor": "", "canEdit": True}]}
+    EMPTY_MIRROR = b'<d:multistatus xmlns:d="DAV:"></d:multistatus>'
 
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT,
             account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
-            delta_link TEXT, target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0,
-            sync_lock_until INTEGER, updated_at INTEGER, delta_started_at INTEGER)""")
+            reconnect_required INTEGER NOT NULL DEFAULT 0, sync_lock_until INTEGER, updated_at INTEGER)""")
         self.conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,
-            account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
+            account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT, href TEXT, local_etag TEXT)""")
         self.conn.execute("""CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
             created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href))""")
+        self.conn.execute("""CREATE TABLE msgraph_calendar_collections (account_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            graph_calendar_id TEXT NOT NULL, local_collection TEXT NOT NULL, graph_name TEXT, graph_color TEXT,
+            delta_link TEXT, delta_started_at INTEGER, created_at INTEGER NOT NULL,
+            PRIMARY KEY (account_id, graph_calendar_id))""")
         self.conn.execute(
             "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', "
-            "?, NULL, 4102444800000, ?, 'persoenlich', 0, NULL, 0, NULL)",
-            (msgraph_worker.encrypt_token("testuser-graph-token"), self.ENDPOINT),
+            "?, NULL, 4102444800000, 0, NULL, 0)",
+            (msgraph_worker.encrypt_token("testuser-graph-token"),),
         )
+        # The calendar's mirror from an earlier sync, mid delta round.
+        self.conn.execute(
+            "INSERT INTO msgraph_calendar_collections (account_id, user_id, graph_calendar_id, local_collection,"
+            " graph_name, graph_color, delta_link, created_at) VALUES ('acc1', 'testuser', 'cal1', 'msgraph-m1',"
+            " 'Kalender', NULL, ?, 0)", (self.ENDPOINT,))
         self.conn.commit()
+
+        self.mirror = self.EMPTY_MIRROR
 
     def tearDown(self):
         self.conn.close()
 
+    def _delta_link(self):
+        return self.conn.execute("SELECT delta_link FROM msgraph_calendar_collections WHERE account_id = 'acc1'").fetchone()["delta_link"]
+
+    @staticmethod
+    def _answer(body, headers=None):
+        res = MagicMock()
+        res.__enter__.return_value.read.return_value = body
+        res.__enter__.return_value.status = 207
+        res.__enter__.return_value.headers = headers or {}
+        return res
+
+    def _route(self, delta, local=None):
+        """urlopen: the calendar list and the (empty) mirror answer as usual; `delta` answers the delta
+        request, `local` (a list, consumed in order) every other request to the local Radicale."""
+        local = list(local or [])
+
+        def urlopen(req, context=None, timeout=None):
+            url = req.full_url
+            if url.startswith(msgraph_worker.CALENDARS_URL + "?"):
+                return self._answer(json.dumps(self.CALENDARS).encode("utf-8"))
+            if req.get_method() == "REPORT":
+                return self._answer(self.mirror)
+            if url.startswith("https://graph.microsoft.com/"):
+                if isinstance(delta, Exception):
+                    raise delta
+                return delta
+            outcome = local.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+        return urlopen
+
     def test_fetch_failure_fails_the_sync_and_keeps_the_delta_link(self):
         unreachable = urllib.error.URLError("connection refused")
-        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=unreachable):
+        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=self._route(unreachable)):
             ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertFalse(ok, "an unreachable Graph API must fail the sync job")
         self.assertIn("connection refused", error)
-        row = self.conn.execute("SELECT delta_link FROM msgraph_accounts WHERE id = 'acc1'").fetchone()
-        self.assertEqual(row["delta_link"], self.ENDPOINT, "the delta link must not advance past unfetched changes")
+        self.assertEqual(self._delta_link(), self.ENDPOINT, "the delta link must not advance past unfetched changes")
 
     def test_other_http_errors_keep_the_delta_link(self):
         unavailable = urllib.error.HTTPError(self.ENDPOINT, 503, "Service Unavailable", {}, None)
-        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=unavailable):
+        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=self._route(unavailable)):
             ok, _ = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertFalse(ok)
-        row = self.conn.execute("SELECT delta_link FROM msgraph_accounts WHERE id = 'acc1'").fetchone()
-        self.assertEqual(row["delta_link"], self.ENDPOINT, "only an expired (410) delta link restarts the delta round")
+        self.assertEqual(self._delta_link(), self.ENDPOINT, "only an expired (410) delta link restarts the delta round")
 
     def test_token_refresh_failure_fails_the_sync(self):
         self.conn.execute("UPDATE msgraph_accounts SET refresh_token = ?, expires_at = 0",
@@ -117,15 +159,24 @@ class GraphSyncTest(unittest.TestCase):
         urlopen.assert_not_called()
 
     def _graph_page(self, items):
-        page = MagicMock()
-        page.__enter__.return_value.read.return_value = json.dumps({"value": items, "@odata.deltaLink": self.ENDPOINT}).encode("utf-8")
-        return page
+        return self._answer(json.dumps({"value": items, "@odata.deltaLink": self.ENDPOINT}).encode("utf-8"))
+
+    def _map_g1(self):
+        """g1 is in the mirror, unchanged since the last sync wrote it, so only the delta round touches it."""
+        self.conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '',"
+                          " '/testuser/msgraph-m1/msgraph-event-g1.ics', '\"e1\"')")
+        self.mirror = ('<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>'
+                       '<d:href>/testuser/msgraph-m1/msgraph-event-g1.ics</d:href><d:propstat><d:prop>'
+                       '<d:getetag>"e1"</d:getetag><c:calendar-data>BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:msgraph-event-g1\n'
+                       'END:VEVENT\nEND:VCALENDAR\n</c:calendar-data></d:prop></d:propstat></d:response>'
+                       '</d:multistatus>').encode("utf-8")
 
     def test_failed_local_write_fails_the_sync_and_records_no_mapping(self):
         event = {"id": "g1", "subject": "Test", "start": {"dateTime": "2026-01-01T09:00:00", "timeZone": "UTC"},
                  "end": {"dateTime": "2026-01-01T10:00:00", "timeZone": "UTC"}}
         local_down = urllib.error.URLError("connection refused")
-        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=[self._graph_page([event]), local_down]):
+        with patch.object(msgraph_worker.urllib.request, "urlopen",
+                          side_effect=self._route(self._graph_page([event]), [local_down])):
             ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertFalse(ok, "a failed local write fails the sync job")
@@ -135,10 +186,10 @@ class GraphSyncTest(unittest.TestCase):
         self.assertEqual(mapped, 0, "an event that was never written locally must not be recorded as synced")
 
     def test_failed_local_delete_keeps_the_mapping(self):
-        self.conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '')")
+        self._map_g1()
         forbidden = urllib.error.HTTPError("https://caldav.example.com/", 403, "Forbidden", {}, None)
-        with patch.object(msgraph_worker.urllib.request, "urlopen",
-                          side_effect=[self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}]), forbidden]):
+        removed = self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}])
+        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=self._route(removed, [forbidden])):
             ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertFalse(ok, "a failed local delete fails the sync job")
@@ -148,11 +199,11 @@ class GraphSyncTest(unittest.TestCase):
         self.assertEqual(mapped, 1)
 
     def test_local_delete_of_an_already_gone_event_succeeds(self):
-        self.conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '')")
+        self._map_g1()
         gone = urllib.error.HTTPError("https://caldav.example.com/", 404, "Not Found", {}, None)
-        with patch.object(msgraph_worker.urllib.request, "urlopen",
-                          # #597: the local copy is read (for the trash) before it is deleted.
-                          side_effect=[self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}]), gone, gone]):
+        removed = self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}])
+        # #597: the local copy is read (for the trash) before it is deleted.
+        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=self._route(removed, [gone, gone])):
             ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertTrue(ok, error)
@@ -161,13 +212,12 @@ class GraphSyncTest(unittest.TestCase):
 
     def test_expired_delta_link_fails_the_sync_and_restarts_the_delta_round(self):
         gone = urllib.error.HTTPError(self.ENDPOINT, 410, "Gone", {}, None)
-        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=gone):
+        with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=self._route(gone)):
             ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertFalse(ok)
         self.assertIn("410", error)
-        row = self.conn.execute("SELECT delta_link FROM msgraph_accounts WHERE id = 'acc1'").fetchone()
-        self.assertIsNone(row["delta_link"], "an expired delta link must not block every later sync")
+        self.assertIsNone(self._delta_link(), "an expired delta link must not block every later sync")
 
 
 EVENT_ICS = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:evt-1\r\nSUMMARY:Test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"

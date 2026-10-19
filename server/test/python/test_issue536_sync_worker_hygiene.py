@@ -116,9 +116,11 @@ class TestGraphPathSegments(unittest.TestCase):
         self.conn.row_factory = sqlite3.Row
         self.conn.execute(
             "CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,"
-            " account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)"
+            " account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT, href TEXT, local_etag TEXT)"
         )
         self.urlopen = mock.patch.object(msgraph_worker.urllib.request, "urlopen").start()
+        # #613: Radicale answers a PUT with the item's ETag, which the sync records.
+        self.urlopen.return_value.__enter__.return_value.headers = {"ETag": '"etag-1"'}
         self.addCleanup(mock.patch.stopall)
 
     def tearDown(self):
@@ -138,8 +140,8 @@ class TestGraphPathSegments(unittest.TestCase):
 
     def test_unsafe_target_calendar_is_refused_for_removals(self):
         self.conn.execute(
-            "INSERT INTO msgraph_event_mappings (local_uid, graph_id, account_id) VALUES (?, ?, ?)",
-            ("msgraph-event-AAMkAGI2", "AAMkAGI2", "acc-1"),
+            "INSERT INTO msgraph_event_mappings (local_uid, graph_id, account_id, href) VALUES (?, ?, ?, ?)",
+            ("msgraph-event-AAMkAGI2", "AAMkAGI2", "acc-1", "/testuser/persoenlich/msgraph-event-AAMkAGI2.ics"),
         )
         with self.assertRaises(ValueError):
             self.apply("../otheruser/persoenlich", {"id": "AAMkAGI2", "@removed": {"reason": "deleted"}})
@@ -160,10 +162,11 @@ class TestGraphPathSegments(unittest.TestCase):
         body = self.urlopen.call_args.args[0].data.decode("utf-8")
         self.assertIn("\r\nUID:msgraph-event-AAMk+AGI2==\r\n", body)
 
-    def test_removal_of_unsafe_mapped_uid_is_refused(self):
+    def test_removal_of_unsafe_mapped_href_is_refused(self):
+        # #613: a removal deletes the mapped resource; one outside the mirror never reaches Radicale.
         self.conn.execute(
-            "INSERT INTO msgraph_event_mappings (local_uid, graph_id, account_id) VALUES (?, ?, ?)",
-            ("../../otheruser/persoenlich/x", "AAMkAGI2", "acc-1"),
+            "INSERT INTO msgraph_event_mappings (local_uid, graph_id, account_id, href) VALUES (?, ?, ?, ?)",
+            ("x", "AAMkAGI2", "acc-1", "/testuser/persoenlich/../../otheruser/persoenlich/x.ics"),
         )
         with self.assertRaises(ValueError):
             self.apply("persoenlich", {"id": "AAMkAGI2", "@removed": {"reason": "deleted"}})
