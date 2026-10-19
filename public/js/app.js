@@ -8,7 +8,7 @@ import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesA
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
-import { searchTimeZones, zoneOffsetLabel } from './timezones.js';
+import { searchTimeZones, zoneOffsetLabel, localTimeZone } from './timezones.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
@@ -818,7 +818,10 @@ function renderCalendarView() {
       const ev = (store.get('events') || []).find(x => x.uid === uid);
       if (ev?.pending) openPendingEvent(ev, e);
       else if (ev) showEventPopover(ev, e);
-    }
+    },
+    canDrag: eventDragPermission,
+    onEventDrop,
+    readOnlyNotice: message => showToast(message, 'warning')
   });
 
   const query = searchQuery ? searchQuery.trim() : '';
@@ -2475,6 +2478,120 @@ const EVENT_MODAL_CALLBACKS = {
   onPending: onEventPending,
   onSettled: settlePendingSave
 };
+
+// ── Drag and drop of events (#574) ───────────────────────────────────────────
+
+// True when the user may change the event (write access to its calendar; the server checks the
+// same), otherwise the notice a drag attempt shows.
+function eventDragPermission(ev) {
+  const cal = calendarsById()[ev.calendarId] || {};
+  if (!ev.readOnly && !ev.isSubscription && !cal.readOnly) return true;
+  const organizer = ev.organizer?.name || ev.organizer?.email || cal.name || 'einem anderen Kalender';
+  return `Nur lesbar: Termin von ${organizer}`;
+}
+
+// Ja → true, Nein → false, closed → null (the drop is undone).
+function askNotifyAttendees() {
+  return new Promise(resolve => {
+    const bd = $('notify-dialog-backdrop');
+    const buttons = { 'notify-yes-btn': true, 'notify-no-btn': false, 'notify-cancel-btn': null };
+    const listeners = Object.entries(buttons).map(([id, value]) => {
+      const fn = () => {
+        listeners.forEach(([bid, f]) => $(bid).removeEventListener('click', f));
+        closeDialog(bd);
+        resolve(value);
+      };
+      $(id).addEventListener('click', fn);
+      return [id, fn];
+    });
+    openDialog(bd, $('notify-yes-btn'));
+  });
+}
+
+const recurrenceIdOf = ev => ev.recurrenceId || (ev.uid?.includes('::') ? ev.uid.split('::')[1] : null);
+const masterUidOf = ev => ev.masterUid || ev.uid.split('::')[0];
+
+async function onEventDrop(ev, change) {
+  const recurrenceId = recurrenceIdOf(ev);
+  let scope = null;
+  if (recurrenceId) {
+    scope = await chooseRecurrenceScope(`„${ev.title}“ verschieben:`);
+    // Cancelling puts the event back: the view is drawn from the unchanged state.
+    if (!scope) { renderCalendarView(); return; }
+  }
+  const attendees = Array.isArray(ev.attendees) ? ev.attendees : [];
+  let sendAttendees = attendees;
+  if (attendees.length > 0) {
+    const notify = await askNotifyAttendees();
+    if (notify === null) { renderCalendarView(); return; }
+    // Informing asks every attendee again: their answer goes back to open (an invitation in their
+    // inbox, and for CalDAV scheduling clients a new request).
+    const organizer = (ev.organizer?.email || '').toLowerCase();
+    if (notify) {
+      sendAttendees = attendees.map(a => (a.email || '').toLowerCase() === organizer
+        ? a : { ...a, status: 'NEEDS-ACTION', rsvp: true });
+    }
+  }
+  const before = { start: ev.start, end: ev.end, allDay: Boolean(ev.allDay) };
+  if (!(await saveEventTimes(ev, change, { scope, recurrenceId, attendees: sendAttendees }))) return;
+  showUndoBar(async () => {
+    const now = (store.get('events') || []).find(x => x.uid === ev.uid)
+      || (store.get('events') || []).find(x => masterUidOf(x) === masterUidOf(ev)
+        && new Date(x.start).getTime() === new Date(change.start).getTime());
+    if (!now) {
+      showToast(`„${ev.title}“ konnte nicht zurückgesetzt werden: Der Termin ist nicht mehr geladen.`, 'error');
+      return;
+    }
+    await saveEventTimes(now, before, { scope, recurrenceId: recurrenceIdOf(now), attendees });
+  });
+}
+
+// Optimistic save of new times (#174): drawn at once, rolled back with an error toast on failure.
+async function saveEventTimes(ev, change, { scope, recurrenceId, attendees }) {
+  const zone = ev.allDay ? localTimeZone() : null;
+  const payload = {
+    uid: masterUidOf(ev), calendarId: ev.calendarId, sourceCalendarId: ev.calendarId,
+    href: ev.href, etag: ev.etag,
+    title: ev.title, location: ev.location ?? null, description: ev.description ?? null,
+    categories: ev.categories, attendees, alarms: ev.alarms, attachments: ev.attachments,
+    transp: ev.transp, classification: ev.classification,
+    recurrence: scope === 'occurrence' ? null : (ev.recurrence ?? null),
+    start: change.start, end: change.end, allDay: change.allDay,
+    startTimeZone: change.allDay ? null : (ev.startTimeZone || zone),
+    endTimeZone: change.allDay ? null : (ev.endTimeZone || zone),
+    ...(scope ? { scope, recurrenceId } : {})
+  };
+  const token = onEventPending({ ...ev, start: change.start, end: change.end, allDay: change.allDay, attendees }, ev.uid);
+  try {
+    const saved = await EventsAPI.update(payload.uid, payload);
+    await onEventSaved(saved, token);
+    return true;
+  } catch (err) {
+    settlePendingSave(token);
+    const reason = err.status === 409
+      ? 'Konflikt: Der Termin wurde von einem anderen Client geändert. Seite neu laden.'
+      : err.message;
+    showToast(`„${ev.title}“ wurde nicht verschoben. ${reason}`, 'error');
+    return false;
+  }
+}
+
+let undoTimer = null;
+
+// "Verschoben · Rückgängig" for about 8 s after a drop.
+function showUndoBar(onUndo) {
+  const bar = $('undo-bar');
+  const btn = $('undo-bar-btn');
+  clearTimeout(undoTimer);
+  bar.classList.remove('hidden');
+  btn.onclick = () => {
+    clearTimeout(undoTimer);
+    bar.classList.add('hidden');
+    btn.onclick = null;
+    onUndo();
+  };
+  undoTimer = setTimeout(() => { bar.classList.add('hidden'); btn.onclick = null; }, 8000);
+}
 
 // ── UI Event Listeners ────────────────────────────────────────────────────────
 

@@ -1,11 +1,12 @@
 /**
  * calendar.js — Calendar rendering engine.
  * Renders month, week, day, and agenda views.
- * Handles drag-to-move (month view) and time-grid click-to-create.
+ * Handles time-grid click-to-create; drag and drop in the day/week view lives in eventDrag.js (#574).
  */
 
 import { store, visibleCalendars, calendarById } from './store.js';
 import { zoneAbbreviation, zoneOffsetLabel, timeInZone, localTimeZone } from './timezones.js';
+import { enableEventDrag, deferRenderWhileDragging } from './eventDrag.js';
 
 const DAYS   = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const MONTHS = ['Januar','Februar','März','April','Mai','Juni',
@@ -27,6 +28,7 @@ export function clearCurrentTimeLineTimer() {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function renderView(container, events, view, currentDate, callbacks) {
+  if (deferRenderWhileDragging(() => renderView(container, events, view, currentDate, callbacks))) return;
   clearCurrentTimeLineTimer();
   container.innerHTML = '';
   switch (view) {
@@ -457,6 +459,7 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   });
 
   container.appendChild(wrap);
+  enableDrag(wrap, events, cb);
 
   // Scroll to 8am
   setTimeout(() => { body.scrollTop = 8 * HOUR_H - 30; }, 10);
@@ -545,7 +548,17 @@ function renderDay(container, events, currentDate, cb) {
   });
 
   container.appendChild(wrap);
+  enableDrag(wrap, events, cb);
   setTimeout(() => { body.scrollTop = 8 * HOUR_H - 30; }, 10);
+}
+
+// #574: events move and resize by drag and drop when the app passes the drop handler.
+function enableDrag(wrap, events, cb) {
+  if (!cb.onEventDrop) return;
+  enableEventDrag(wrap, {
+    events, hourHeight: HOUR_H,
+    canDrag: cb.canDrag, onDrop: cb.onEventDrop, readOnlyNotice: cb.readOnlyNotice
+  });
 }
 
 function createTimeCol(allEvents, date, cb) {
@@ -555,6 +568,8 @@ function createTimeCol(allEvents, date, cb) {
   const isWorkDay = workDaysList.includes(date.getDay());
 
   col.className = `week-day-col${!isWorkDay ? ' non-working-day' : ''}`;
+  const midnight = new Date(date); midnight.setHours(0, 0, 0, 0);
+  col.dataset.date = midnight.toISOString();
   col.style.height = `${TOTAL_HOURS * HOUR_H}px`;
   col.style.position = 'relative';
 
