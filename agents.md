@@ -225,7 +225,10 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   root-owned) it chowns the directories in `DATA_DIRS` to 1000:1000 and re-execs itself through `setpriv`;
   started as any other uid it refuses to start if a `DATA_DIRS` entry is not writable (#100).
 - `public/` — no-framework SPA: `js/app.js` (boot, views, sidebar, dialogs), `js/calendar.js`
-  (month/week/day/agenda grid rendering), `js/tasks.js` (VTODO sidebar drawer and the task area: a "Liste | Kanban"
+  (month/week/day/agenda grid rendering), `js/listView.js` (the list view, #510: unlike the day-grouped agenda a flat
+  table of date, time, title, calendar and location over a chosen range; `GET /api/events` with `limit`/`offset`/`sort`/
+  `order`/`q` sorts and filters the whole range on the server and answers one page plus `total`; rows can be selected to
+  move them to another calendar or delete them), `js/tasks.js` (VTODO sidebar drawer and the task area: a "Liste | Kanban"
   switch over a sortable, groupable task list or the Kanban board, #498), `js/eventModal.js`, `js/api.js` (fetch wrappers),
   `js/store.js` (pub/sub state), `js/accountModal.js`, `css/app.css`.
 

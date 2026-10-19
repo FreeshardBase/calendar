@@ -8,7 +8,8 @@
 > real calendar data yet.
 
 A self-hosted CalDAV web calendar for [Freeshard](https://freeshard.net) shards.
-Month/week/day/agenda views, recurring events, calendar sharing between shard
+Month/week/day/agenda views and a list view (a sortable, filterable table over a chosen range,
+loaded page by page, with bulk move and delete), recurring events, calendar sharing between shard
 users (once shards have an identity provider, see below), public ICS links, app-passwords for internal service integration, and optional
 two-way sync with Google Calendar and external CalDAV servers.
 

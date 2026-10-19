@@ -143,6 +143,17 @@ export const EventsAPI = {
       throw err;
     }
   },
+  // #510: one page of the range, sorted and filtered on the server; resolves to
+  // { events, total, offset, limit, errors }. Pages are not written to the offline cache.
+  page: async (start, end, { limit, offset, sort, order, q }) => {
+    const params = new URLSearchParams({ start, end, limit: String(limit), offset: String(offset), sort, order });
+    if (q) params.set('q', q);
+    const body = await request('GET', `/api/events?${params}`);
+    if (!Array.isArray(body.events) || !Array.isArray(body.errors) || !Number.isInteger(body.total)) {
+      throw new Error('Unerwartete Antwort von /api/events');
+    }
+    return body;
+  },
   create: (data)          => request('POST',   '/api/events', data),
   update: (uid, data)     => request('PUT',    `/api/events/${encodeURIComponent(uid)}`, data),
   remove: (uid, data)     => request('DELETE', `/api/events/${encodeURIComponent(uid)}`, data),

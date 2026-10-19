@@ -164,6 +164,60 @@ router.get('/invitations', async (req, res) => {
 });
 
 
+const LIST_SORT_KEYS = ['start', 'title', 'calendar', 'location'];
+const LIST_MAX_LIMIT = 500;
+
+/**
+ * Paging parameters of the list view (#510): `limit` (1..500) switches paging on, `offset`,
+ * `sort` (start | title | calendar | location), `order` (asc | desc) and the text filter `q`.
+ * A malformed value is refused with its reason instead of being replaced by a default.
+ */
+function parseListPaging(query) {
+  if (query.limit === undefined) return { limit: null };
+  const isCount = v => /^\d+$/.test(String(v));
+  if (!isCount(query.limit) || Number(query.limit) < 1 || Number(query.limit) > LIST_MAX_LIMIT) {
+    return { error: `limit must be an integer from 1 to ${LIST_MAX_LIMIT}` };
+  }
+  if (query.offset !== undefined && !isCount(query.offset)) {
+    return { error: 'offset must be a non-negative integer' };
+  }
+  const sort = query.sort === undefined ? 'start' : query.sort;
+  if (!LIST_SORT_KEYS.includes(sort)) return { error: `sort must be one of ${LIST_SORT_KEYS.join(', ')}` };
+  const order = query.order === undefined ? 'asc' : query.order;
+  if (order !== 'asc' && order !== 'desc') return { error: 'order must be asc or desc' };
+  return {
+    limit: Number(query.limit),
+    offset: query.offset === undefined ? 0 : Number(query.offset),
+    sort,
+    order,
+    q: typeof query.q === 'string' ? query.q.trim().toLowerCase() : '',
+  };
+}
+
+const compareText = (a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' });
+
+function pageEvents(events, { limit, offset, sort, order, q }, calendarNames) {
+  const matching = q
+    ? events.filter(ev => `${ev.title || ''}\n${ev.location || ''}`.toLowerCase().includes(q))
+    : events;
+  const byStart = (a, b) => (new Date(a.start) - new Date(b.start)) || compareText(a.uid || '', b.uid || '');
+  const textKey = ev => sort === 'calendar' ? (calendarNames.get(ev.calendarId) || '') : (ev[sort] || '');
+  const direction = order === 'desc' ? -1 : 1;
+  const sorted = [...matching].sort((a, b) => {
+    if (sort !== 'start') {
+      const ka = textKey(a);
+      const kb = textKey(b);
+      // Rows without a value (no location) stay at the end in either direction.
+      if (!ka !== !kb) return ka ? -1 : 1;
+      const byKey = compareText(ka, kb);
+      if (byKey) return direction * byKey;
+      return byStart(a, b);
+    }
+    return direction * byStart(a, b);
+  });
+  return { events: sorted.slice(offset, offset + limit), total: sorted.length };
+}
+
 // ── GET /api/events?start=ISO&end=ISO ─────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -190,8 +244,12 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid date format' });
     }
 
+    const paging = parseListPaging(req.query);
+    if (paging.error) return res.status(400).json({ error: paging.error });
+
     const accounts = req.session.accounts || [];
     const allEvents = [];
+    const calendarNames = new Map();
     const errors = [];
     const unparseable = [];
     let successfulCalendars = 0;
@@ -241,6 +299,7 @@ router.get('/', async (req, res) => {
           if (calendarId) {
             calendars = calendars.filter(c => c.id === calendarId);
           }
+          for (const cal of calendars) calendarNames.set(cal.id, cal.name || '');
 
           await forEachLimited(calendars, CALDAV_REPORT_CONCURRENCY, async (cal) => {
             try {
@@ -289,6 +348,11 @@ router.get('/', async (req, res) => {
 
     // A calendar or account that could not be read is named in `errors` even
     // when others succeeded, so a partial failure never looks like a free week (#65).
+    if (paging.limit) {
+      // #510: the list view gets one page of the sorted, filtered range and the total.
+      const page = pageEvents(filteredEvents, paging, calendarNames);
+      return res.json({ ...page, offset: paging.offset, limit: paging.limit, errors });
+    }
     res.json({ events: filteredEvents, errors });
   } catch (err) {
     return sendError(res, err, '[events GET]');
