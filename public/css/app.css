@@ -316,6 +316,10 @@ a { color: inherit; text-decoration: none; }
 .cal-action-btn:hover { background: var(--border); color: var(--ink); }
 .cal-action-btn.cal-action-delete:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 .cal-action-btn svg { width: 11px; height: 11px; display: block; }
+/* #518: a task list whose due tasks are kept out of the calendar says so without a hover */
+.cal-action-btn[data-tasks-in-cal][aria-pressed="false"] { color: var(--ink-faint, var(--ink-muted)); }
+.calendar-item:has(.cal-action-btn[data-tasks-in-cal][aria-pressed="false"]) .cal-item-actions { opacity: 1; }
+.cal-action-btn[data-tasks-in-cal][aria-pressed="false"] svg { opacity: 0.45; }
 
 .calendar-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .calendar-name { font-size: var(--fs-small); color: var(--ink); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1787,6 +1791,12 @@ textarea.form-input, .form-textarea {
 }
 .task-list-control { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .task-list-control .form-select { width: auto; }
+/* #518: the task dialog's checklist of subtasks */
+.task-subtask-list { list-style: none; margin: 0 0 var(--sp-2); padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.task-subtask-item { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-small); }
+.task-subtask-item.is-done .task-subtask-title { text-decoration: line-through; color: var(--ink-muted); }
+.task-subtask-empty { font-size: var(--fs-small); color: var(--ink-muted); }
+.task-subtask-add { display: flex; gap: var(--sp-2); }
 .task-list-empty { padding: var(--sp-4); font-size: var(--fs-small); color: var(--ink-muted); }
 .task-list-table { width: calc(100% - 2 * var(--sp-4)); margin: 0 var(--sp-4) var(--sp-4); border-collapse: collapse; font-size: var(--fs-small); }
 .task-list-table th,

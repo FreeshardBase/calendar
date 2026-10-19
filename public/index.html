@@ -1096,6 +1096,15 @@
           <label class="form-label" for="task-description">Beschreibung</label>
           <textarea class="form-input" id="task-description" rows="2" placeholder="Zusätzliche Details..."></textarea>
         </div>
+        <!-- #518: subtasks (RELATED-TO;RELTYPE=PARENT) as a checklist; a saved task only -->
+        <div class="form-group hidden" id="task-subtasks-group">
+          <span class="form-label" id="task-subtasks-label">Teilaufgaben</span>
+          <ul class="task-subtask-list" id="task-subtask-list" aria-labelledby="task-subtasks-label"></ul>
+          <div class="task-subtask-add" id="task-subtask-add">
+            <input class="form-input" id="task-subtask-new" type="text" placeholder="Neue Teilaufgabe" aria-label="Neue Teilaufgabe" />
+            <button type="button" class="btn btn-ghost" id="task-subtask-add-btn">Hinzufügen</button>
+          </div>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="task-status">Status</label>
@@ -1136,9 +1145,9 @@
             <label class="form-label" for="task-priority">Priorität</label>
             <select class="form-select" id="task-priority">
               <option value="">Keine</option>
-              <option value="1">Hoch (1)</option>
-              <option value="2">Mittel (2)</option>
-              <option value="3">Niedrig (3)</option>
+              <option value="high">Hoch</option>
+              <option value="medium">Mittel</option>
+              <option value="low">Niedrig</option>
             </select>
           </div>
           <div class="form-group">

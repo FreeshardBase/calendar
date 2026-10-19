@@ -177,6 +177,14 @@ function validateTaskInput(taskData) {
     }
   }
 
+  // #518: the parent's UID, written as RELATED-TO;RELTYPE=PARENT.
+  if ('parentUid' in taskData && taskData.parentUid !== null && taskData.parentUid !== undefined) {
+    const p = taskData.parentUid;
+    if (typeof p !== 'string' || p.length > 255 || /[\x00-\x1f\x7f]/.test(p)) {
+      return { error: 'Invalid parentUid (must be a single-line UID of at most 255 characters)' };
+    }
+  }
+
   // RFC 5545 §3.8.1.11: the only STATUS values defined for VTODO.
   if ('status' in taskData && taskData.status !== null && taskData.status !== undefined && taskData.status !== '') {
     if (!VTODO_STATUSES.has(String(taskData.status).trim().toUpperCase())) {

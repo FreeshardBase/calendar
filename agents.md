@@ -241,8 +241,16 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   sees the copy, before "Speichern"; the copy's attendees start at `NEEDS-ACTION`.
 - Per-user preferences (#498): `GET`/`PUT /api/preferences` (`routes/preferences.js`, table `user_preferences`)
   hold the task area's view, `taskView` `list` or `kanban` (default `kanban`, anything else 400). It needs only a
-  session identity, and `Db.deleteUser` removes the row. The list's sort, grouping and "Erledigte anzeigen" last
-  only for the page's lifetime.
+  session identity, and `Db.deleteUser` removes the row. The list's sort, priority filter, grouping and "Erledigte
+  anzeigen" last only for the page's lifetime.
+- Tasks (#518): a subtask is a VTODO whose `RELATED-TO;RELTYPE=PARENT` (or no RELTYPE, as Thunderbird writes it)
+  names the parent's UID; the task API carries it as `parentUid` and only ever rewrites that one relation, so
+  other RELATED-TO values and foreign properties stay. The task dialog lists a saved task's subtasks as a
+  checklist. PRIORITY 1–4 shows as Hoch, 5 Mittel, 6–9 Niedrig (RFC 5545); the app writes 1/5/9 and keeps
+  another client's number while its level is unchanged. Open tasks with a due date show in the calendar views
+  unless the user turned their list off with the toggle in the task view's sidebar: `PUT /api/preferences`
+  `{ taskListInCalendar: { calendarId, shown } }`, read back as `tasksHiddenInCalendar` (table
+  `user_tasks_hidden_in_calendar`, cleared by `Db.deleteUser` and `Db.deleteCalendarData`).
   Since #509 they also hold `secondaryTimezone`: the second hour column of the week/day grid, any IANA zone
   (checked by `Intl`, stored under its proper name) or `null` for off (the default). `PUT` takes either field
   alone. The settings drawer searches every zone `Intl.supportedValuesOf('timeZone')` knows

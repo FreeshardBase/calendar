@@ -252,7 +252,9 @@ test.describe('Issue #515 — duplicate an event or task, and templates', () => 
     const [made] = await eventsIn(page);
     expect(made.title).toBe('E2E 515 Teamrunde');
     expect(made.location).toBe('Raum 2');
-    expect(made.start.slice(0, 10)).toBe('2038-05-12');
+    // The default start time is near "now"; late in the evening it is past midnight in Berlin while the
+    // stored UTC instant is still the day before, so compare the day in the browser's zone.
+    expect(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(made.start))).toBe('2038-05-12');
 
     // Editing an event offers no templates; a template can be deleted.
     await page.locator('.event-chip', { hasText: 'E2E 515 Teamrunde' }).first().click();
@@ -276,7 +278,7 @@ test.describe('Issue #515 — duplicate an event or task, and templates', () => 
     await page.fill('#task-title', 'E2E 515 Wochenbericht');
     await page.fill('#task-description', 'Zahlen eintragen');
     await page.selectOption('#task-calendar-id', listId);
-    await page.selectOption('#task-priority', '1');
+    await page.selectOption('#task-priority', 'high');
     await page.fill('#task-due', '2038-05-20T12:00');
     await page.click('#task-template-btn');
     await expect(page.locator('#toast-container .toast.success', { hasText: 'Vorlage „E2E 515 Wochenbericht“ gespeichert.' })).toBeVisible();
@@ -294,7 +296,7 @@ test.describe('Issue #515 — duplicate an event or task, and templates', () => 
     await expect(page.locator('#task-title')).toHaveValue('E2E 515 Wochenbericht');
     await expect(page.locator('#task-description')).toHaveValue('Zahlen eintragen');
     await expect(page.locator('#task-calendar-id')).toHaveValue(listId);
-    await expect(page.locator('#task-priority')).toHaveValue('1');
+    await expect(page.locator('#task-priority')).toHaveValue('high');
     await expect(page.locator('#task-due')).toHaveValue('');
     await page.click('#task-save-btn');
     await expect(page.locator('#toast-container .toast.success', { hasText: 'Aufgabe erstellt.' })).toBeVisible({ timeout: 10000 });
