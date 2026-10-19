@@ -636,6 +636,15 @@
               </select>
             </div>
 
+            <!-- #507: "every N days/weeks/months/years", the RRULE INTERVAL (hidden without recurrence) -->
+            <div class="form-group hidden" id="recur-interval-group">
+              <div class="radio-option-row">
+                <span id="recur-interval-prefix">Alle</span>
+                <input class="form-input inline-input" type="number" id="recur-interval" min="1" step="1" value="1" style="width:70px !important;" aria-labelledby="recur-interval-prefix recur-interval-unit">
+                <span id="recur-interval-unit">Tage</span>
+              </div>
+            </div>
+
             <!-- Weekly days selector (hidden by default) -->
             <div class="form-group hidden" id="recur-weekly-days">
               <div class="form-label" id="recur-weekly-caption">Wiederholen am</div>
