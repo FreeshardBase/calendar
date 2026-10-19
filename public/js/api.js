@@ -187,6 +187,7 @@ export const TasksAPI = {
 export const PreferencesAPI = {
   get:         ()         => request('GET', '/api/preferences'),
   setTaskView: (taskView) => request('PUT', '/api/preferences', { taskView }),
+  setSecondaryTimezone: (secondaryTimezone) => request('PUT', '/api/preferences', { secondaryTimezone }),
 };
 
 // ── Resources & Room Booking ──────────────────────────────────────────────────

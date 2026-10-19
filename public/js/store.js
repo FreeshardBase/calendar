@@ -77,10 +77,9 @@ export const store = createStore({
   // CTag & RFC 6578 Delta Sync Cache: Map<calendarId, { ctag, syncToken }>
   calendarSyncCache: new Map(),
 
-  // Timezone Settings
-  primaryTimezone:       localStorage.getItem('primaryTimezone') || 'Europe/Berlin',
-  secondaryTimezone:     localStorage.getItem('secondaryTimezone') || null,
-  showSecondaryTimezone: localStorage.getItem('showSecondaryTimezone') === 'true',
+  // #509: second time zone of the week/day grid (IANA name), null while switched off.
+  // A per-user setting on the server, loaded with the other preferences.
+  secondaryTimezone: null,
 
   // Working Hours Policy
   workingHours:          { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' },
