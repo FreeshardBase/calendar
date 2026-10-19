@@ -2,6 +2,7 @@
 
 // Issue #498: per-user UI choices that follow the user to every browser.
 // Issue #509: the week/day grid's second time zone is one of them (the user's calendar setting, #355).
+// Issue #518: so is, per task list, whether its due tasks show in the calendar views.
 
 const express = require('express');
 const router = express.Router();
@@ -27,6 +28,7 @@ async function readPreferences(userId) {
   return {
     taskView: await Db.getTaskViewPreference(userId),
     secondaryTimezone: await Db.getSecondaryTimezonePreference(userId),
+    tasksHiddenInCalendar: await Db.getTasksHiddenInCalendar(userId),
   };
 }
 
@@ -39,13 +41,15 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// PUT /api/preferences — { taskView?: 'list' | 'kanban', secondaryTimezone?: '<IANA zone>' | null }
+// PUT /api/preferences — { taskView?: 'list' | 'kanban', secondaryTimezone?: '<IANA zone>' | null,
+//   taskListInCalendar?: { calendarId: '<id>', shown: boolean } }
 router.put('/', async (req, res, next) => {
   const body = req.body || {};
   const hasTaskView = Object.prototype.hasOwnProperty.call(body, 'taskView');
   const hasZone = Object.prototype.hasOwnProperty.call(body, 'secondaryTimezone');
-  if (!hasTaskView && !hasZone) {
-    return res.status(400).json({ error: 'Expected taskView or secondaryTimezone' });
+  const hasListToggle = Object.prototype.hasOwnProperty.call(body, 'taskListInCalendar');
+  if (!hasTaskView && !hasZone && !hasListToggle) {
+    return res.status(400).json({ error: 'Expected taskView, secondaryTimezone or taskListInCalendar' });
   }
   if (hasTaskView && !TASK_VIEWS.includes(body.taskView)) {
     return res.status(400).json({ error: `taskView must be one of: ${TASK_VIEWS.join(', ')}` });
@@ -54,10 +58,16 @@ router.put('/', async (req, res, next) => {
   if (hasZone && body.secondaryTimezone !== null && zone === null) {
     return res.status(400).json({ error: 'secondaryTimezone must be an IANA time zone name or null' });
   }
+  const toggle = body.taskListInCalendar;
+  if (hasListToggle && !(toggle && typeof toggle.calendarId === 'string' && toggle.calendarId.length > 0
+    && toggle.calendarId.length <= 1024 && typeof toggle.shown === 'boolean')) {
+    return res.status(400).json({ error: 'taskListInCalendar must be { calendarId: string, shown: boolean }' });
+  }
   try {
     const userId = req.session.userId;
     if (hasTaskView) await Db.setTaskViewPreference(userId, body.taskView);
     if (hasZone) await Db.setSecondaryTimezonePreference(userId, zone);
+    if (hasListToggle) await Db.setTaskListInCalendar(userId, toggle.calendarId, toggle.shown);
     res.json(await readPreferences(userId));
   } catch (err) {
     next(err);

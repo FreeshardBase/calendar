@@ -1599,7 +1599,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const taskTitle = `E2E VTODO Task ${Date.now()}`;
     await page.fill('#task-title', taskTitle);
     await page.fill('#task-description', 'Testing VTODO Kanban and RRULE advancement');
-    await page.selectOption('#task-priority', '1');
+    await page.selectOption('#task-priority', 'high');
     await page.selectOption('#task-recurrence', 'FREQ=WEEKLY');
     await page.fill('#task-due', '2036-08-11T09:00');
 
@@ -8769,6 +8769,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('.task-view-switch button', { hasText: 'Kanban' })).toBeFocused();
       await page.keyboard.press('Tab');
       await expect(page.locator('#task-list-sort')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#task-list-priority')).toBeFocused();
       await page.keyboard.press('Tab');
       await expect(page.locator('#task-list-group')).toBeFocused();
       await page.keyboard.press('Tab');

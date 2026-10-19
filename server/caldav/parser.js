@@ -542,6 +542,26 @@ function parseCompletedOccurrences(icsString, master, meta = {}) {
   return occurrences;
 }
 
+// #518: a subtask names its parent with RELATED-TO;RELTYPE=PARENT (RFC 9253 §5). RELTYPE defaults
+// to PARENT (RFC 5545 §3.2.15), which is how Thunderbird writes it.
+function parentRelation(vtodo) {
+  return vtodo.getAllProperties('related-to')
+    .find(p => String(p.getParameter('reltype') || 'PARENT').toUpperCase() === 'PARENT') || null;
+}
+
+// Sets or removes the parent relation; every other RELATED-TO (SIBLING, CHILD, …) stays.
+function setParentRelation(vtodo, parentUid) {
+  const existing = parentRelation(vtodo);
+  // An unchanged parent is left exactly as the other client wrote it.
+  if (existing && parentUid && existing.getFirstValue() === String(parentUid)) return;
+  if (existing) vtodo.removeProperty(existing);
+  if (!parentUid) return;
+  const prop = new ICAL.Property('related-to', vtodo);
+  prop.setParameter('reltype', 'PARENT');
+  prop.setValue(String(parentUid));
+  vtodo.addProperty(prop);
+}
+
 function parseVTodoToTask(vtodo, meta = {}) {
   const rawIcs = meta.rawIcs || null;
   const uid = vtodo.getFirstPropertyValue('uid') || `${uuidv4()}@freeshard.webcalendar`;
@@ -597,6 +617,8 @@ function parseVTodoToTask(vtodo, meta = {}) {
 
   const prioVal = vtodo.getFirstPropertyValue('priority');
   const priority = (prioVal !== null && prioVal !== undefined) ? parseInt(prioVal, 10) : null;
+
+  const parentUid = parentRelation(vtodo)?.getFirstValue() || null;
 
   const pctVal = vtodo.getFirstPropertyValue('percent-complete');
   const percentComplete = (pctVal !== null && pctVal !== undefined) ? parseInt(pctVal, 10) : null;
@@ -669,6 +691,7 @@ function parseVTodoToTask(vtodo, meta = {}) {
     completed,
     priority,
     percentComplete,
+    parentUid,
     recurrence,
     categories,
     alarms: parseValarms(vtodo),
@@ -910,6 +933,8 @@ function taskToICS(rawTask, existingIcs = null) {
 
         if ('alarms' in task && task.alarms !== undefined) writeValarms(vtodo, task.alarms);
 
+        if ('parentUid' in task && task.parentUid !== undefined) setParentRelation(vtodo, task.parentUid);
+
         if ('completedHistory' in task && Array.isArray(task.completedHistory)) {
           const history = cleanCompletedHistory(task.completedHistory);
           if (history.length > 0) {
@@ -1016,6 +1041,7 @@ function taskToICS(rawTask, existingIcs = null) {
   if (history.length > 0) {
     lines.push(`X-COMPLETED-DATES:${history.join(',')}`);
   }
+  if (task.parentUid) lines.push(`RELATED-TO;RELTYPE=PARENT:${escIcal(task.parentUid)}`);
   if (task.categories) {
     const rawCats = Array.isArray(task.categories)
       ? task.categories
@@ -1398,6 +1424,7 @@ function isNoOpTaskSave(existingIcs, incomingTaskData) {
     }],
     ['duration', (e, i) => (e.duration || null) === (i.duration || null)],
     ['recurrence', (e, i) => normRrule(e.recurrence) === normRrule(i.recurrence)],
+    ['parentUid', (e, i) => (e.parentUid || null) === (i.parentUid || null)],
     ['alarms', (e, i) => alarmsKey(e.alarms) === alarmsKey(i.alarms)]
   ];
 

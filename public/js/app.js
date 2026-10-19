@@ -109,7 +109,11 @@ async function boot() {
       showApp();
       // Preferences first: the first render of the grid already needs the second time zone.
       const prefs = await PreferencesAPI.get();
-      store.set({ taskView: prefs.taskView, secondaryTimezone: prefs.secondaryTimezone });
+      store.set({
+        taskView: prefs.taskView,
+        secondaryTimezone: prefs.secondaryTimezone,
+        tasksHiddenInCalendar: new Set(prefs.tasksHiddenInCalendar),
+      });
       await loadCalendars();
       await loadWebcalSubscriptions();
       await loadEvents();
@@ -909,9 +913,21 @@ function renderSidebar() {
 
 const CALENDARS_LOAD_FAILED = 'Kalender konnten nicht geladen werden.';
 
-function calendarListItemHtml(c, hidden, orderGroup) {
+function calendarListItemHtml(c, hidden, orderGroup, taskView) {
   const checked = !hidden.has(c.id);
   const name = calendarLabel(c);
+
+  // #518: in the task view, each task list says whether its due tasks show in the calendar views.
+  const inCalendar = !store.get('tasksHiddenInCalendar').has(c.id);
+  const tasksInCalLabel = `Fällige Aufgaben von „${name}“ im Kalender anzeigen`;
+  const tasksInCalBtnHtml = !taskView ? '' :
+    `<button class="cal-action-btn" data-tasks-in-cal="${escHtml(c.id)}" aria-pressed="${inCalendar}" title="${escHtml(tasksInCalLabel)}" aria-label="${escHtml(tasksInCalLabel)}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="18" rx="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+            <polyline points="8 15 11 18 16 12"/>
+          </svg>
+        </button>`;
 
   const shareBtnHtml = c.isShared
     ? ''
@@ -965,6 +981,7 @@ function calendarListItemHtml(c, hidden, orderGroup) {
         ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">⚠ Nicht erreichbar – Termine fehlen</span>` : ''}
       </div>
       <div class="cal-item-actions">
+        ${tasksInCalBtnHtml}
         ${shareBtnHtml}
         ${editBtnHtml}
         ${exportBtnHtml}
@@ -1012,6 +1029,30 @@ async function listAfterOrderSaves(fetchList) {
   }
 }
 
+// #518: shows or hides a task list's due tasks in the calendar views; stored per user on the server.
+async function toggleTasksInCalendar(calendarId) {
+  const before = store.get('tasksHiddenInCalendar');
+  const shown = before.has(calendarId);
+  const next = new Set(before);
+  if (shown) next.delete(calendarId);
+  else next.add(calendarId);
+  const apply = set => {
+    store.set({ tasksHiddenInCalendar: set });
+    renderCalendarList();
+    const btn = [...$('calendar-list').querySelectorAll('[data-tasks-in-cal]')].find(b => b.dataset.tasksInCal === calendarId);
+    if (btn) btn.focus();
+  };
+  apply(next);
+  try {
+    const prefs = await PreferencesAPI.setTaskListInCalendar(calendarId, shown);
+    apply(new Set(prefs.tasksHiddenInCalendar));
+    announce(shown ? 'Fällige Aufgaben werden im Kalender angezeigt' : 'Fällige Aufgaben werden im Kalender ausgeblendet');
+  } catch (err) {
+    apply(before);
+    showToast('Die Einstellung konnte nicht gespeichert werden: ' + err.message, 'error');
+  }
+}
+
 function renderCalendarList() {
   const list   = $('calendar-list');
   if (renderLater(list, renderCalendarList)) return;
@@ -1038,7 +1079,7 @@ function renderCalendarList() {
   const focusedId = focusedItemId(list, 'calId');
   list.innerHTML = groupCalendarsByAccount(cals).map(group =>
     (group.label === null ? '' : `<div class="calendar-group-label">${escHtml(group.label)}</div>`) +
-    group.calendars.map(c => calendarListItemHtml(c, hidden, c.linkedAccountId || 'own')).join('')
+    group.calendars.map(c => calendarListItemHtml(c, hidden, c.linkedAccountId || 'own', taskView)).join('')
   ).join('');
   refocusItem(list, 'calId', focusedId);
   enableReorder(list, {
@@ -1052,9 +1093,10 @@ function renderCalendarList() {
   });
 
   // Toggle visibility on main area click or keypress
+  const onActionButton = target => target.closest('[data-edit-cal], [data-share-cal], [data-export-cal], [data-tasks-in-cal]');
   list.querySelectorAll('[data-cal-id]').forEach(el => {
     const handleToggle = e => {
-      if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]') || e.target.closest('[data-export-cal]')) return;
+      if (onActionButton(e.target)) return;
       toggleCalendar(el.dataset.calId);
       renderCalendarList();
       renderCalendarView();
@@ -1063,7 +1105,7 @@ function renderCalendarList() {
     el.addEventListener('click', handleToggle);
     el.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') {
-        if (e.target.closest('[data-edit-cal]') || e.target.closest('[data-share-cal]') || e.target.closest('[data-export-cal]')) return;
+        if (onActionButton(e.target)) return;
         e.preventDefault();
         handleToggle(e);
       }
@@ -1085,6 +1127,13 @@ function renderCalendarList() {
       e.stopPropagation();
       const cal = store.get('calendars').find(c => c.id === btn.dataset.shareCal);
       if (cal) openShareCalendarDialog(cal);
+    });
+  });
+
+  list.querySelectorAll('[data-tasks-in-cal]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleTasksInCalendar(btn.dataset.tasksInCal);
     });
   });
 
@@ -2646,8 +2695,10 @@ const taskInstant = (value, isDate) => {
 const taskValue = (d, isDate) => (isDate ? `${dayString(d)}T00:00:00.000Z` : d.toISOString());
 
 function calendarTaskItems() {
+  // #518: each task list can keep its due tasks out of the calendar views.
+  const offCalendar = store.get('tasksHiddenInCalendar');
   return getFilteredTasks()
-    .filter(t => t.due && t.status !== 'COMPLETED' && t.status !== 'CANCELLED')
+    .filter(t => t.due && t.status !== 'COMPLETED' && t.status !== 'CANCELLED' && !offCalendar.has(t.calendarId))
     .map(t => {
       const due = taskInstant(t.due, t.dueIsDate);
       const times = t.dueIsDate

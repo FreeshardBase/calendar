@@ -56,6 +56,26 @@ function laneOf(task) {
   return KANBAN_LANES.some(l => l.status === task.status) ? task.status : 'NEEDS-ACTION';
 }
 
+// #518: PRIORITY 1–4 is high, 5 medium, 6–9 low; 0 or none is undefined (RFC 5545 §3.8.1.9).
+// The app writes 1, 5 and 9; another client's value keeps its number while its level is unchanged.
+const PRIORITY_LEVELS = {
+  high: { label: 'Hoch', value: 1, cls: 'prio-high' },
+  medium: { label: 'Mittel', value: 5, cls: 'prio-med' },
+  low: { label: 'Niedrig', value: 9, cls: 'prio-low' },
+};
+
+export function priorityLevel(priority) {
+  if (typeof priority !== 'number' || priority < 1 || priority > 9) return null;
+  if (priority <= 4) return 'high';
+  return priority === 5 ? 'medium' : 'low';
+}
+
+// The PRIORITY to store for the level chosen in a select, given the stored value.
+function priorityFromLevel(level, stored) {
+  if (!level) return null;
+  return priorityLevel(stored) === level ? stored : PRIORITY_LEVELS[level].value;
+}
+
 // Only COMPLETED carries PERCENT-COMPLETE:100 and a COMPLETED date; leaving it drops both.
 // The server fills in a progress for IN-PROCESS when none is left.
 function statusPayload(task, status) {
@@ -130,6 +150,15 @@ function setupTaskModal() {
     select: document.getElementById('task-template'),
     deleteBtn: document.getElementById('task-template-delete'),
     onApply: applyTaskTemplate,
+  });
+
+  document.getElementById('task-subtask-add-btn').addEventListener('click', addSubtask);
+  document.getElementById('task-subtask-new').addEventListener('keydown', (e) => {
+    // Enter adds the subtask instead of submitting the dialog.
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addSubtask();
+    }
   });
 
   if (form) {
@@ -246,9 +275,10 @@ export function openTaskModal(task = null) {
     if (inputDuration) inputDuration.value = task.duration || '';
     const pct = task.percentComplete !== undefined ? task.percentComplete : task['percent-complete'];
     if (inputPercent) inputPercent.value = (pct !== null && pct !== undefined) ? String(pct) : '';
-    if (selectPrio) selectPrio.value = task.priority !== null && task.priority !== undefined ? String(task.priority) : '';
+    if (selectPrio) selectPrio.value = priorityLevel(task.priority) || '';
     setRecurrenceControls(task.recurrence);
     _reminders.setAlarms(task.alarms);
+    renderSubtasks();
     document.getElementById('task-duplicate-btn').classList.remove('hidden');
     _templates.hide();
   } else {
@@ -266,6 +296,7 @@ export function openTaskModal(task = null) {
     if (selectPrio) selectPrio.value = '';
     setRecurrenceControls(null);
     _reminders.setAlarms([]);
+    renderSubtasks();
     document.getElementById('task-duplicate-btn').classList.add('hidden');
     _templates.show();
   }
@@ -295,6 +326,7 @@ function duplicateCurrentTask() {
   document.getElementById('task-href').value = '';
   document.getElementById('task-etag').value = '';
   document.getElementById('task-duplicate-btn').classList.add('hidden');
+  renderSubtasks();
   document.getElementById('task-title').focus();
 }
 
@@ -310,12 +342,11 @@ async function saveTaskAsTemplate() {
     notifyToast(reminders.error, 'error');
     return;
   }
-  const priorityVal = document.getElementById('task-priority').value;
   await _templates.save({
     title,
     calendarId: document.getElementById('task-calendar-id').value || null,
     description: document.getElementById('task-description').value.trim() || null,
-    priority: priorityVal !== '' ? parseInt(priorityVal, 10) : null,
+    priority: priorityFromLevel(document.getElementById('task-priority').value, null),
     duration: document.getElementById('task-duration').value.trim() || null,
     alarms: templateAlarms(reminders.alarms),
   });
@@ -328,9 +359,87 @@ function applyTaskTemplate(fields) {
     selectCal.value = fields.calendarId;
   }
   document.getElementById('task-description').value = fields.description || '';
-  document.getElementById('task-priority').value = fields.priority !== null && fields.priority !== undefined ? String(fields.priority) : '';
+  document.getElementById('task-priority').value = priorityLevel(fields.priority) || '';
   document.getElementById('task-duration').value = fields.duration || '';
   _reminders.setAlarms(fields.alarms || []);
+}
+
+// ── Subtasks (#518) ──────────────────────────────────────────────────────────
+// A subtask is a task of its own whose RELATED-TO;RELTYPE=PARENT names the parent's UID, as Tasks.org,
+// jtx Board and Thunderbird write it. The dialog of a saved task lists its subtasks as a checklist.
+
+function subtasksOf(task) {
+  return (store.get('tasks') || []).filter(t => t.parentUid === task.uid && !t.recurrenceId);
+}
+
+function renderSubtasks() {
+  const group = document.getElementById('task-subtasks-group');
+  const parent = _currentTask;
+  const saved = Boolean(parent && parent.uid && parent.href);
+  group.classList.toggle('hidden', !saved);
+  if (!saved) return;
+  const readOnly = isReadOnlyTask(parent);
+  document.getElementById('task-subtask-add').classList.toggle('hidden', readOnly);
+  const list = document.getElementById('task-subtask-list');
+  const subtasks = subtasksOf(parent).sort(byTitle);
+  if (subtasks.length === 0) {
+    list.innerHTML = '<li class="task-subtask-empty">Keine Teilaufgaben</li>';
+    return;
+  }
+  list.innerHTML = subtasks.map((t, i) => {
+    const done = isDone(t);
+    return `<li class="task-subtask-item${done ? ' is-done' : ''}" data-subtask-id="${escapeHtml(t.uid)}">
+        <input type="checkbox" class="task-subtask-check" id="task-subtask-${i}" ${done ? 'checked' : ''} ${readOnly ? 'disabled' : ''} />
+        <label class="task-subtask-title" for="task-subtask-${i}">${escapeHtml(t.title)}</label>
+      </li>`;
+  }).join('');
+  list.querySelectorAll('.task-subtask-item').forEach(li => {
+    const subtask = subtasks.find(t => t.uid === li.dataset.subtaskId);
+    li.querySelector('.task-subtask-check').addEventListener('change', e => setSubtaskDone(subtask, e.target.checked));
+  });
+}
+
+async function afterSubtaskChange() {
+  if (taskCallbacks.onTaskChanged) await taskCallbacks.onTaskChanged();
+  // The dialog may have been closed meanwhile.
+  if (_currentTask) renderSubtasks();
+}
+
+function focusSubtask(uid) {
+  const item = [...document.querySelectorAll('#task-subtask-list .task-subtask-item')].find(li => li.dataset.subtaskId === uid);
+  if (item) item.querySelector('.task-subtask-check').focus();
+}
+
+async function setSubtaskDone(subtask, done) {
+  const parentUid = _currentTask.uid;
+  try {
+    await TasksAPI.update(subtask.uid, done
+      ? completionPayload(subtask)
+      : { ...subtask, status: 'NEEDS-ACTION', completed: null, percentComplete: 0 });
+  } catch (err) {
+    notifyToast('Teilaufgabe konnte nicht gespeichert werden: ' + err.message, 'error');
+  }
+  // Reload either way: after a failure the checkbox shows the stored state again.
+  if (_currentTask && _currentTask.uid === parentUid) {
+    await afterSubtaskChange();
+    focusSubtask(subtask.uid);
+  }
+}
+
+async function addSubtask() {
+  const input = document.getElementById('task-subtask-new');
+  const title = input.value.trim();
+  const parent = _currentTask;
+  if (!title || !parent || !parent.uid) return;
+  try {
+    await TasksAPI.create({ calendarId: parent.calendarId, title, status: 'NEEDS-ACTION', parentUid: parent.uid });
+  } catch (err) {
+    notifyToast('Teilaufgabe konnte nicht angelegt werden: ' + err.message, 'error');
+    return;
+  }
+  input.value = '';
+  await afterSubtaskChange();
+  input.focus();
 }
 
 export function closeTaskModal() {
@@ -406,7 +515,7 @@ async function handleTaskSave() {
     if (pct !== undefined) percentComplete = pct;
   }
 
-  const priority = priorityVal !== '' ? parseInt(priorityVal, 10) : null;
+  const priority = priorityFromLevel(priorityVal, _currentTask ? _currentTask.priority : null);
   const recurrence = (recurrenceVal === CUSTOM_RECURRENCE ? customRecurrenceVal : recurrenceVal) || null;
   const reminders = _reminders.collect(title);
   if (reminders.error) {
@@ -435,6 +544,8 @@ async function handleTaskSave() {
     if (_currentTask.completed !== undefined) taskData.completed = _currentTask.completed;
     if (_currentTask.completedHistory !== undefined) taskData.completedHistory = _currentTask.completedHistory;
     if (_currentTask.categories !== undefined) taskData.categories = _currentTask.categories;
+    // A duplicated subtask stays a subtask of the same parent (#518); an edit leaves RELATED-TO alone.
+    if (!uid && _currentTask.parentUid) taskData.parentUid = _currentTask.parentUid;
   } else {
     if (dtstartIsDate) taskData.dtstartIsDate = true;
     if (dueIsDate) taskData.dueIsDate = true;
@@ -655,10 +766,8 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
     dueBadge = `<span class="kanban-due-date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:-1px;margin-right:4px;" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${dateStr}</span>`;
   }
 
-  let prioBadge = '';
-  if (task.priority === 1) prioBadge = `<span class="kanban-prio prio-high">Hoch</span>`;
-  else if (task.priority === 2) prioBadge = `<span class="kanban-prio prio-med">Mittel</span>`;
-  else if (task.priority === 3) prioBadge = `<span class="kanban-prio prio-low">Niedrig</span>`;
+  const level = PRIORITY_LEVELS[priorityLevel(task.priority)];
+  const prioBadge = level ? `<span class="kanban-prio ${level.cls}">${level.label}</span>` : '';
 
   let recurBadge = '';
   if (task.recurrence) {
@@ -753,15 +862,12 @@ const STATUS_LABELS = {
   'CANCELLED': 'Abgebrochen',
 };
 
-// The same names the task dialog offers; any other RFC 5545 value is shown as its number.
-const PRIORITY_LABELS = { 1: 'Hoch', 2: 'Mittel', 3: 'Niedrig' };
-
 function isDone(task) {
   return task.status === 'COMPLETED' || task.status === 'CANCELLED';
 }
 
 function hasPriority(task) {
-  return typeof task.priority === 'number' && task.priority > 0;
+  return priorityLevel(task.priority) !== null;
 }
 
 function dueTime(task) {
@@ -786,7 +892,13 @@ const TASK_SORTS = {
 };
 
 // How the list is sorted, grouped and filtered; kept for the page's lifetime.
-const listOptions = { sort: 'due', groupByList: false, showCompleted: false };
+const listOptions = { sort: 'due', groupByList: false, showCompleted: false, priority: 'all' };
+
+// #518: the list's priority filter — 'all', a level, or 'none' for tasks without a priority.
+function matchesPriority(task) {
+  if (listOptions.priority === 'all') return true;
+  return (priorityLevel(task.priority) || 'none') === listOptions.priority;
+}
 
 // The options of the latest render per task-area container, read by the switch's click handlers.
 const taskAreaOptions = new WeakMap();
@@ -873,7 +985,7 @@ function renderTaskList(container, tasks, callbacks, options, rerender) {
     return;
   }
 
-  const shown = tasks.filter(t => listOptions.showCompleted || !isDone(t)).sort(TASK_SORTS[listOptions.sort]);
+  const shown = tasks.filter(t => (listOptions.showCompleted || !isDone(t)) && matchesPriority(t)).sort(TASK_SORTS[listOptions.sort]);
   const groups = listOptions.groupByList
     ? [...new Set(shown.map(t => t.calendarId))]
         .map(id => ({ id, name: calendarName(id), tasks: shown.filter(t => t.calendarId === id) }))
@@ -884,6 +996,7 @@ function renderTaskList(container, tasks, callbacks, options, rerender) {
   let emptyText = '';
   if (shown.length === 0) {
     if (searchQuery) emptyText = `Keine Aufgaben für „${escapeHtml(searchQuery)}“ gefunden.`;
+    else if (listOptions.priority !== 'all') emptyText = 'Keine Aufgaben mit dieser Priorität.';
     else if (tasks.length > 0) emptyText = 'Keine offenen Aufgaben.';
     else emptyText = 'Keine Aufgaben vorhanden. Klicke oben auf „Neue Aufgabe“, um die erste Aufgabe zu erstellen.';
   }
@@ -895,6 +1008,15 @@ function renderTaskList(container, tasks, callbacks, options, rerender) {
           <option value="due">Fälligkeit</option>
           <option value="priority">Priorität</option>
           <option value="title">Titel</option>
+        </select>
+      </label>
+      <label class="task-list-control">Priorität
+        <select id="task-list-priority" class="form-select" data-focus-key="priority">
+          <option value="all">Alle</option>
+          <option value="high">Hoch</option>
+          <option value="medium">Mittel</option>
+          <option value="low">Niedrig</option>
+          <option value="none">Ohne</option>
         </select>
       </label>
       <label class="task-list-control">
@@ -932,6 +1054,12 @@ function renderTaskList(container, tasks, callbacks, options, rerender) {
     listOptions.sort = sortSelect.value;
     rerender();
   });
+  const prioritySelect = container.querySelector('#task-list-priority');
+  prioritySelect.value = listOptions.priority;
+  prioritySelect.addEventListener('change', () => {
+    listOptions.priority = prioritySelect.value;
+    rerender();
+  });
   container.querySelector('#task-list-group').addEventListener('change', (e) => {
     listOptions.groupByList = e.target.checked;
     rerender();
@@ -963,7 +1091,7 @@ function taskListRow(task) {
   const checkLabel = task.recurrenceId
     ? `„${title}“ ist ein erledigtes Vorkommen`
     : `„${title}“ ${done ? 'wieder öffnen' : 'als erledigt markieren'}`;
-  const prio = hasPriority(task) ? (PRIORITY_LABELS[task.priority] || String(task.priority)) : '';
+  const prio = hasPriority(task) ? PRIORITY_LEVELS[priorityLevel(task.priority)].label : '';
   return `
     <tr class="task-list-row${done ? ' is-done' : ''}" data-task-id="${escapeHtml(task.uid)}" data-row-key="${key}">
       <td class="task-list-col-check">
@@ -1029,10 +1157,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
     item.className = 'sidebar-task-item';
     item.setAttribute('data-task-id', task.uid);
 
-    let prioClass = '';
-    if (task.priority === 1) prioClass = 'prio-high';
-    else if (task.priority === 2) prioClass = 'prio-med';
-    else if (task.priority === 3) prioClass = 'prio-low';
+    const prioClass = PRIORITY_LEVELS[priorityLevel(task.priority)]?.cls || '';
 
     item.innerHTML = `
       <input type="checkbox" class="sidebar-task-checkbox" title="Als erledigt markieren" />

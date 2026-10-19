@@ -51,7 +51,7 @@ test('Issue #509 — second time zone preference', async (t) => {
   });
 
   await t.test('a user who never chose has no second time zone', async () => {
-    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'kanban', secondaryTimezone: null });
+    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [] });
   });
 
   await t.test('any IANA zone is stored for that user only, beside the task view', async () => {
@@ -65,11 +65,11 @@ test('Issue #509 — second time zone preference', async (t) => {
       assert.strictEqual(local(stored), local(zone), zone);
       assert.strictEqual((await getPrefs(aliceCookie)).secondaryTimezone, stored);
     }
-    assert.deepStrictEqual(await getPrefs(bobCookie), { taskView: 'kanban', secondaryTimezone: null });
+    assert.deepStrictEqual(await getPrefs(bobCookie), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [] });
 
     await putPrefs(aliceCookie, { secondaryTimezone: 'America/New_York' });
     await putPrefs(aliceCookie, { taskView: 'list' });
-    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'list', secondaryTimezone: 'America/New_York' });
+    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'list', secondaryTimezone: 'America/New_York', tasksHiddenInCalendar: [] });
   });
 
   await t.test('a zone given in another letter case is stored under its proper name', async () => {
@@ -81,7 +81,7 @@ test('Issue #509 — second time zone preference', async (t) => {
   await t.test('null switches the second time zone off', async () => {
     const put = await putPrefs(aliceCookie, { secondaryTimezone: null });
     assert.strictEqual(put.status, 200);
-    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'list', secondaryTimezone: null });
+    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [] });
   });
 
   await t.test('a value that is not an IANA zone is refused and nothing changes', async () => {
@@ -97,7 +97,7 @@ test('Issue #509 — second time zone preference', async (t) => {
       const res = await putPrefs(bobCookie, body);
       assert.strictEqual(res.status, 400, JSON.stringify(body));
     }
-    assert.deepStrictEqual(await getPrefs(bobCookie), { taskView: 'kanban', secondaryTimezone: 'Asia/Tokyo' });
+    assert.deepStrictEqual(await getPrefs(bobCookie), { taskView: 'kanban', secondaryTimezone: 'Asia/Tokyo', tasksHiddenInCalendar: [] });
   });
 
   await t.test('deleting the user deletes the setting', async () => {

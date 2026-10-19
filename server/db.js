@@ -428,6 +428,15 @@ db.serialize(() => {
       updated_at INTEGER NOT NULL
     )
   `);
+  // #518: the task lists whose due tasks a user does not want in the calendar views; every other
+  // list shows them. Absent until the user turns a list off.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_tasks_hidden_in_calendar (
+      user_id TEXT NOT NULL,
+      calendar_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, calendar_id)
+    )
+  `);
   // #515: "Als Vorlage speichern" — an event's or task's fields without date and time, per user.
   // Kept here only, never written to Radicale, so no provider sees them.
   db.run(`
@@ -1123,6 +1132,7 @@ const Db = {
       await tx.run('DELETE FROM delegate_permissions WHERE principal_user_id = ? OR delegate_user_id = ?', [userId, userId]);
       await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM user_tasks_hidden_in_calendar WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM item_templates WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
       await tx.run('DELETE FROM trash_items WHERE user_id = ?', [userId]);
@@ -1155,6 +1165,7 @@ const Db = {
       await tx.run('DELETE FROM calendar_shares WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM user_calendar_color_overrides WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM user_calendar_order WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      await tx.run('DELETE FROM user_tasks_hidden_in_calendar WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM calendar_sync_cache WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM sync_conflicts WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
@@ -1215,6 +1226,7 @@ const Db = {
       await tx.run('DELETE FROM event_history');
       await tx.run('DELETE FROM user_calendar_color_overrides');
       await tx.run('DELETE FROM user_calendar_order');
+      await tx.run('DELETE FROM user_tasks_hidden_in_calendar');
       await tx.run('DELETE FROM webcal_subscriptions');
       await tx.run('DELETE FROM sync_queue');
       await tx.run('DELETE FROM trash_items');
@@ -2614,6 +2626,22 @@ const Db = {
         [userId, taskView, Date.now()],
         (err) => (err ? reject(err) : resolve(taskView))
       );
+    });
+  },
+
+  // #518: ids of the task lists whose due tasks stay out of the user's calendar views.
+  async getTasksHiddenInCalendar(userId) {
+    const rows = await dbAll(db,
+      'SELECT calendar_id FROM user_tasks_hidden_in_calendar WHERE user_id = ? ORDER BY calendar_id', [userId]);
+    return rows.map(r => r.calendar_id);
+  },
+
+  setTaskListInCalendar(userId, calendarId, shown) {
+    const sql = shown
+      ? 'DELETE FROM user_tasks_hidden_in_calendar WHERE user_id = ? AND calendar_id = ?'
+      : 'INSERT OR IGNORE INTO user_tasks_hidden_in_calendar (user_id, calendar_id) VALUES (?, ?)';
+    return new Promise((resolve, reject) => {
+      db.run(sql, [userId, calendarId], (err) => (err ? reject(err) : resolve()));
     });
   },
 
