@@ -12,6 +12,8 @@ const ICAL = require('ical.js');
 const { v4: uuidv4 } = require('uuid');
 const {
   parseValarms,
+  writeValarms,
+  valarmLines,
   parseVEventToEvent,
   parseICSToEvent,
   parseICSToEvents,
@@ -669,6 +671,7 @@ function parseVTodoToTask(vtodo, meta = {}) {
     percentComplete,
     recurrence,
     categories,
+    alarms: parseValarms(vtodo),
     completedHistory,
     rawIcs: rawIcs || meta.rawIcs || null,
     calendarId: meta.calendarId || null,
@@ -905,6 +908,8 @@ function taskToICS(rawTask, existingIcs = null) {
           }
         }
 
+        if ('alarms' in task && task.alarms !== undefined) writeValarms(vtodo, task.alarms);
+
         if ('completedHistory' in task && Array.isArray(task.completedHistory)) {
           const history = cleanCompletedHistory(task.completedHistory);
           if (history.length > 0) {
@@ -1035,6 +1040,8 @@ function taskToICS(rawTask, existingIcs = null) {
       }
     }
   }
+
+  if (Array.isArray(task.alarms)) lines.push(...valarmLines(task.alarms));
 
   lines.push('END:VTODO');
   lines.push('END:VCALENDAR');
@@ -1336,6 +1343,13 @@ function buildItipReply(event, attendeeEmail, status, attendeeName) {
  * @param {object}      incomingTaskData - Incoming PUT body fields (partial is OK).
  * @returns {boolean}
  */
+// Order-insensitive identity of a reminder list, as the no-op check compares it.
+function alarmsKey(alarms) {
+  return (Array.isArray(alarms) ? alarms : [])
+    .map(a => [String(a.action || 'DISPLAY').toUpperCase(), String(a.related || 'START').toUpperCase(), String(a.trigger || '').trim(), a.description || ''].join('|'))
+    .sort().join('\n');
+}
+
 function isNoOpTaskSave(existingIcs, incomingTaskData) {
   if (!existingIcs || typeof existingIcs !== 'string' || !existingIcs.trim()) return false;
   if (!incomingTaskData || typeof incomingTaskData !== 'object') return false;
@@ -1383,7 +1397,8 @@ function isNoOpTaskSave(existingIcs, incomingTaskData) {
       return ep === ip;
     }],
     ['duration', (e, i) => (e.duration || null) === (i.duration || null)],
-    ['recurrence', (e, i) => normRrule(e.recurrence) === normRrule(i.recurrence)]
+    ['recurrence', (e, i) => normRrule(e.recurrence) === normRrule(i.recurrence)],
+    ['alarms', (e, i) => alarmsKey(e.alarms) === alarmsKey(i.alarms)]
   ];
 
   for (const [field, eq] of checks) {

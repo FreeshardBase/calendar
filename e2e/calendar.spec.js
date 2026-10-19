@@ -29,6 +29,22 @@ async function openEventSection(page, name) {
   if (await section.getAttribute('open') === null) await section.locator('> summary').click();
 }
 
+// #508: appends a reminder row in the event ('ev') or task ('task') dialog and fills it in.
+async function addReminder(page, prefix, { amount, unit = 'M', direction = '-', at } = {}) {
+  if (prefix === 'ev') await openEventSection(page, 'alarm');
+  await page.click(`#${prefix}-add-reminder`);
+  const row = page.locator(`#${prefix}-reminder-list .reminder-row`).last();
+  if (at !== undefined) {
+    await row.locator('.reminder-kind').selectOption('absolute');
+    await row.locator('.reminder-at').fill(at);
+  } else {
+    await row.locator('.reminder-amount').fill(String(amount));
+    await row.locator('.reminder-unit').selectOption(unit);
+    await row.locator('.reminder-direction').selectOption(direction);
+  }
+  return row;
+}
+
 // Computed value of a design token, as an rgb() string comparable to getComputedStyle colours.
 async function tokenColor(page, token) {
   return page.evaluate(t => {
@@ -1254,9 +1270,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-end-date', '2027-12-15');
     await page.check('#ev-allday');
 
-    // Select 15 minutes before alarm
-    await openEventSection(page, 'alarm');
-    await page.selectOption('#ev-alarm', '-PT15M');
+    // Add a reminder 15 minutes before the start
+    await addReminder(page, 'ev', { amount: 15 });
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
@@ -1270,13 +1285,16 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#popover-edit-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
 
-    // Verify ev-alarm selected value is -PT15M
-    const alarmVal = await page.locator('#ev-alarm').inputValue();
-    expect(alarmVal).toBe('-PT15M');
+    // The reminder is loaded as 15 minutes before the start
+    const row = page.locator('#ev-reminder-list .reminder-row');
+    await expect(row).toHaveCount(1);
+    await expect(row.locator('.reminder-amount')).toHaveValue('15');
+    await expect(row.locator('.reminder-unit')).toHaveValue('M');
+    await expect(row.locator('.reminder-direction')).toHaveValue('-');
 
-    // Update alarm to 1 hour before
-    await openEventSection(page, 'alarm');
-    await page.selectOption('#ev-alarm', '-PT1H');
+    // Update the reminder to 1 hour before
+    await row.locator('.reminder-amount').fill('1');
+    await row.locator('.reminder-unit').selectOption('H');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
 
@@ -1411,8 +1429,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-date', today);
     await page.fill('#ev-end-date', today);
     await page.check('#ev-allday');
-    await openEventSection(page, 'alarm');
-    await page.selectOption('#ev-alarm', 'PT0S');
+    await addReminder(page, 'ev', { amount: 0 });
 
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
@@ -1470,8 +1487,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-date', today);
     await page.fill('#ev-end-date', today);
     await page.check('#ev-allday');
-    await openEventSection(page, 'alarm');
-    await page.selectOption('#ev-alarm', 'PT0S');
+    await addReminder(page, 'ev', { amount: 0 });
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
 
@@ -2965,10 +2981,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#popover-edit-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
-    // RELATED=END is not the "15 Minuten vorher" preset: it gets its own, selected option.
-    await expect(page.locator('#ev-alarm option:checked')).toHaveText('15 Minuten vor Ende');
-    await expect(page.locator('#ev-alarm-extra')).toBeVisible();
-    await expect(page.locator('#ev-alarm-extra')).toHaveText('2 weitere Erinnerungen dieses Termins bleiben unverändert erhalten.');
+    // RELATED=END is not editable relative to the start: it is listed as it is (#508).
+    const rows = page.locator('#ev-reminder-list .reminder-row');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0).locator('.reminder-fixed')).toHaveText('15 Minuten vor Ende');
+    await expect(rows.nth(1).locator('.reminder-kind')).toHaveValue('absolute');
+    await expect(rows.nth(2).locator('.reminder-amount')).toHaveValue('1');
+    await expect(rows.nth(2).locator('.reminder-unit')).toHaveValue('H');
 
     const firstSave = page.waitForRequest(r => r.method() === 'PUT' && r.url().includes('/api/events/'));
     await page.click('#event-save-btn');
@@ -2985,18 +3004,19 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       'TRIGGER:-PT1H'
     ]);
 
-    // Choosing a preset replaces only the first alarm; the others stay.
+    // Removing the first and editing the last changes only those; the absolute one stays.
     await chip.click();
     await page.click('#popover-edit-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
-    await openEventSection(page, 'alarm');
-    await page.selectOption('#ev-alarm', '-PT5M');
+    await rows.nth(0).locator('.reminder-remove').click();
+    await expect(rows).toHaveCount(2);
+    await rows.nth(1).locator('.reminder-amount').fill('5');
+    await rows.nth(1).locator('.reminder-unit').selectOption('M');
     await page.click('#event-save-btn');
     await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
     await expect.poll(() => storedTriggers(page, sent.calendarId, title)).toEqual([
-      'TRIGGER:-PT5M',
       'TRIGGER;VALUE=DATE-TIME:20360415T180000Z',
-      'TRIGGER:-PT1H'
+      'TRIGGER:-PT5M'
     ]);
 
     await chip.click();
@@ -3013,8 +3033,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#popover-edit-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
-    await expect(page.locator('#ev-alarm option:checked')).toHaveText(/^Am 22\.04\.2036/);
-    await expect(page.locator('#ev-alarm-extra')).toBeHidden();
+    const row = page.locator('#ev-reminder-list .reminder-row');
+    await expect(row).toHaveCount(1);
+    await expect(row.locator('.reminder-kind')).toHaveValue('absolute');
+    await expect(row.locator('.reminder-at')).toHaveValue(/^2036-04-2[23]T/);
 
     const save = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/api/events/'));
     await page.click('#event-save-btn');
@@ -3038,7 +3060,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.click('#popover-edit-btn');
     await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
-    await expect(page.locator('#ev-alarm')).toHaveValue('-PT15M');
+    await expect(page.locator('#ev-reminder-list .reminder-fixed')).toHaveText('15 Minuten vorher (Ton)');
     const save = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/api/events/'));
     await page.click('#event-save-btn');
     const res = await save;
@@ -3096,6 +3118,242 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       });
       expect(del.ok()).toBeTruthy();
     }
+  });
+
+  test.describe('Issue #508 — any number of reminders per event and task', () => {
+    test('an event gets reminders before and after the start and at a time, added and removed in the dialog', async ({ page }) => {
+      const testDate = '2036-06-10';
+      const title = `E2E Issue508 Event ${Date.now()}`;
+      await page.goto(`/?date=${testDate}`);
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+      await page.click('#view-week');
+      await page.click('#new-event-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      await page.fill('#ev-title', title);
+      await page.fill('#ev-start-date', testDate);
+      await page.fill('#ev-end-date', testDate);
+      await page.fill('#ev-start-time', '10:00');
+      await page.fill('#ev-end-time', '11:00');
+
+      // The reminders are their own section, not part of the recurrence section.
+      await expect(page.locator('#ev-section-recurrence #ev-reminder-list')).toHaveCount(0);
+      await addReminder(page, 'ev', { amount: 15 });
+      await addReminder(page, 'ev', { amount: 2, unit: 'H', direction: '+' });
+      await addReminder(page, 'ev', { amount: 1, unit: 'D' });
+      await addReminder(page, 'ev', { at: '2036-06-09T18:30' });
+      const rows = page.locator('#ev-reminder-list .reminder-row');
+      await expect(rows).toHaveCount(4);
+      // Removing a row takes exactly that reminder out of the list.
+      await rows.nth(2).locator('.reminder-remove').click();
+      await expect(rows).toHaveCount(3);
+
+      const create = page.waitForRequest(r => r.method() === 'POST' && new URL(r.url()).pathname === '/api/events');
+      await page.click('#event-save-btn');
+      const sent = (await create).postDataJSON();
+      const absolute = new Date(2036, 5, 9, 18, 30).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+      expect(sent.alarms.map(a => [a.action, a.trigger, a.related || null])).toEqual([
+        ['DISPLAY', '-PT15M', null],
+        ['DISPLAY', 'PT2H', null],
+        ['DISPLAY', absolute, null]
+      ]);
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      await expectSavesLanded(page);
+      expect(await storedTriggers(page, sent.calendarId, title)).toEqual([
+        'TRIGGER:-PT15M', 'TRIGGER:PT2H', `TRIGGER;VALUE=DATE-TIME:${absolute}`
+      ]);
+
+      // Opened again, each reminder is shown as stored and can be removed.
+      const chip = page.locator('.event-block, .event-chip').filter({ hasText: title }).first();
+      await chip.click();
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#ev-section-alarm')).toHaveAttribute('open', '');
+      await expect(rows).toHaveCount(3);
+      await expect(rows.nth(1).locator('.reminder-amount')).toHaveValue('2');
+      await expect(rows.nth(1).locator('.reminder-unit')).toHaveValue('H');
+      await expect(rows.nth(1).locator('.reminder-direction')).toHaveValue('+');
+      await expect(rows.nth(2).locator('.reminder-kind')).toHaveValue('absolute');
+      await expect(rows.nth(2).locator('.reminder-at')).toHaveValue('2036-06-09T18:30');
+      await rows.nth(0).locator('.reminder-remove').click();
+      await page.click('#event-save-btn');
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      await expect.poll(() => storedTriggers(page, sent.calendarId, title)).toEqual([
+        'TRIGGER:PT2H', `TRIGGER;VALUE=DATE-TIME:${absolute}`
+      ]);
+
+      await chip.click();
+      await expect(page.locator('#popover-delete-btn')).toBeVisible({ timeout: 5000 });
+      await deleteViaPopover(page, chip);
+    });
+
+    test('DISPLAY, AUDIO and EMAIL reminders from another client survive adding one in the dialog', async ({ page }) => {
+      const testDate = '2036-06-17';
+      const title = `E2E Issue508 Foreign ${Date.now()}`;
+      const chip = await importIcsAndOpenPopover(page, testDate, title, [
+        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder', 'TRIGGER:-PT1H', 'X-TEST-MARK:keep', 'END:VALARM',
+        'BEGIN:VALARM', 'ACTION:AUDIO', 'TRIGGER:-PT30M', 'REPEAT:2', 'DURATION:PT5M', 'END:VALARM',
+        'BEGIN:VALARM', 'ACTION:EMAIL', 'SUMMARY:Soon', 'DESCRIPTION:Mail reminder',
+        'ATTENDEE:mailto:testuser@example.com', 'TRIGGER:-P1D', 'END:VALARM'
+      ]);
+      await page.click('#popover-edit-btn');
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      const rows = page.locator('#ev-reminder-list .reminder-row');
+      await expect(rows).toHaveCount(3);
+      await expect(rows.nth(1).locator('.reminder-fixed')).toHaveText('30 Minuten vorher (Ton)');
+      await expect(rows.nth(2).locator('.reminder-fixed')).toHaveText('1 Tag vorher (E-Mail)');
+      await addReminder(page, 'ev', { amount: 1, unit: 'W' });
+
+      const save = page.waitForRequest(r => r.method() === 'PUT' && r.url().includes('/api/events/'));
+      await page.click('#event-save-btn');
+      const sent = (await save).postDataJSON();
+      await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      await expectSavesLanded(page);
+      const res = await page.request.get(`/api/calendars/${encodeURIComponent(sent.calendarId)}/export`);
+      const block = (await res.text()).replace(/\r?\n[ \t]/g, '').split('BEGIN:VEVENT').find(b => b.includes(`SUMMARY:${title}`));
+      const valarms = block.split('BEGIN:VALARM').slice(1).map(v => v.slice(0, v.indexOf('END:VALARM')));
+      expect(valarms).toHaveLength(4);
+      expect(valarms[0]).toMatch(/X-TEST-MARK:keep/);
+      expect(valarms[1]).toMatch(/ACTION:AUDIO[\s\S]*REPEAT:2/);
+      expect(valarms[2]).toMatch(/ACTION:EMAIL/);
+      expect(valarms[2]).toMatch(/ATTENDEE:mailto:testuser@example\.com/);
+      expect(valarms[2]).toMatch(/SUMMARY:Soon/);
+      // ical.js writes a week back as seven days; both mean the same trigger.
+      expect(valarms[3]).toMatch(/TRIGGER:-P(1W|7D)\r?\n/);
+
+      await chip.click();
+      await expect(page.locator('#popover-delete-btn')).toBeVisible({ timeout: 5000 });
+      await deleteViaPopover(page, chip);
+    });
+
+    test('two due reminders of one event each fire exactly once', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#new-event-btn');
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      const calendarId = await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value');
+      await page.keyboard.press('Escape');
+      const now = Date.now();
+      const title = `E2E Issue508 Twice ${now}`;
+      const created = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: {
+          calendarId, title,
+          start: new Date(now - 10 * 60 * 1000).toISOString(),
+          end: new Date(now + 50 * 60 * 1000).toISOString(),
+          alarms: [
+            { action: 'DISPLAY', trigger: '-PT5M', description: 'first' },
+            { action: 'DISPLAY', trigger: 'PT5M', description: 'second' },
+            { action: 'DISPLAY', trigger: 'PT1H', description: 'later' }
+          ]
+        }
+      });
+      expect(created.status()).toBe(201);
+      const ev = await created.json();
+      try {
+        await page.reload();
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await page.evaluate(() => {
+          window.desktopNotifications = [];
+          window.Notification = class {
+            constructor(t, options) { window.desktopNotifications.push({ title: t, options }); }
+            static permission = 'granted';
+            static requestPermission() { return Promise.resolve('granted'); }
+          };
+        });
+        const fired = () => page.evaluate(t => window.desktopNotifications
+          .filter(n => n.title === `Erinnerung: ${t}`).map(n => n.options.body.match(/\((\w+)\)$/)[1]).sort(), title);
+        await expect.poll(async () => {
+          await page.evaluate(() => window.__checkAndTriggerAlarms());
+          return fired();
+        }, { timeout: 10000 }).toEqual(['first', 'second']);
+        await page.evaluate(() => window.__checkAndTriggerAlarms());
+        expect(await fired()).toEqual(['first', 'second']);
+      } finally {
+        const del = await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+          headers: SAME_ORIGIN,
+          data: { calendarId, href: ev.href, etag: ev.etag }
+        });
+        expect(del.ok()).toBeTruthy();
+      }
+    });
+
+    test('a task gets reminders before its due date and at a time, removable in the dialog, and they fire', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list')).toContainText('Persönlich', { timeout: 10000 });
+      const listed = await (await page.request.get('/api/calendars')).json();
+      const taskList = listed.calendars.find(c => c.accountId === 'internal-caldav' && c.supportsVTODO && !c.supportsVEVENT && !c.readOnly);
+      const storedTask = (t) => page.evaluate(async (wanted) => {
+        const body = await (await fetch('/api/tasks')).json();
+        return (Array.isArray(body) ? body : body.tasks).find(x => x.title === wanted) || null;
+      }, t);
+
+      // A malformed trigger is refused, not written.
+      const bad = await page.request.post('/api/tasks', {
+        headers: SAME_ORIGIN, data: { calendarId: taskList.id, title: 'E2E Issue508 Bad', alarms: [{ trigger: 'soon' }] }
+      });
+      expect(bad.status()).toBe(400);
+
+      const title = `E2E Issue508 Task ${Date.now()}`;
+      await page.click('#new-task-btn');
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.selectOption('#task-calendar-id', taskList.id);
+      await page.fill('#task-title', title);
+      await page.fill('#task-due', '2036-08-11T09:00');
+      await addReminder(page, 'task', { amount: 1, unit: 'D' });
+      await addReminder(page, 'task', { amount: 3, unit: 'H' });
+      await addReminder(page, 'task', { at: '2036-08-10T20:00' });
+      await expect(page.locator('#task-reminder-list .reminder-direction').first().locator('option:checked')).toHaveText('vor Fälligkeit');
+      await page.click('#task-save-btn');
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      const absolute = new Date(2036, 7, 10, 20, 0).toISOString().replace(/\.\d+Z$/, 'Z');
+      await expect.poll(async () => ((await storedTask(title)) || {}).alarms, { timeout: 10000 }).toEqual([
+        { action: 'DISPLAY', trigger: '-P1D', related: 'END', description: title },
+        { action: 'DISPLAY', trigger: '-PT3H', related: 'END', description: title },
+        { action: 'DISPLAY', trigger: absolute, description: title }
+      ]);
+
+      await page.click('#view-kanban');
+      const card = page.locator('.kanban-card', { hasText: title });
+      await card.locator('.btn-edit').click();
+      await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const rows = page.locator('#task-reminder-list .reminder-row');
+      await expect(rows).toHaveCount(3);
+      await expect(rows.nth(0).locator('.reminder-amount')).toHaveValue('1');
+      await expect(rows.nth(0).locator('.reminder-unit')).toHaveValue('D');
+      await expect(rows.nth(2).locator('.reminder-at')).toHaveValue('2036-08-10T20:00');
+      await rows.nth(1).locator('.reminder-remove').click();
+      await page.click('#task-save-btn');
+      await expect(page.locator('#task-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+      await expect.poll(async () => (await storedTask(title)).alarms.map(a => a.trigger), { timeout: 10000 })
+        .toEqual(['-P1D', absolute]);
+
+      // A due task reminder fires in the browser.
+      const now = Date.now();
+      const dueTitle = `E2E Issue508 Due Task ${now}`;
+      const created = await page.request.post('/api/tasks', {
+        headers: SAME_ORIGIN,
+        data: {
+          calendarId: taskList.id, title: dueTitle, due: new Date(now + 10 * 60 * 1000).toISOString(),
+          alarms: [{ action: 'DISPLAY', trigger: '-PT15M', related: 'END', description: dueTitle }]
+        }
+      });
+      expect(created.status()).toBe(201);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#sidebar-task-list')).toContainText(dueTitle, { timeout: 10000 });
+      await page.evaluate(() => window.__checkAndTriggerAlarms());
+      await expect(page.locator('#toast-container .toast', { hasText: `Erinnerung: ${dueTitle}` })).toBeVisible({ timeout: 5000 });
+
+      await page.click('#view-kanban');
+      for (const t of [title, dueTitle]) {
+        await page.locator('.kanban-card', { hasText: t }).locator('.btn-delete').click();
+        await page.click('#confirm-dialog-ok');
+        await expect(page.locator('.kanban-card', { hasText: t })).toHaveCount(0, { timeout: 10000 });
+      }
+    });
   });
 
   // These tests observe and stub /api requests on the page; once the service
@@ -8185,7 +8443,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test.describe('Issue #506 — event dialog: core fields up front, rarely used fields collapsible', () => {
     const SECTIONS = {
       'ev-section-recurrence': ['#ev-recurrence'],
-      'ev-section-alarm':      ['#ev-alarm'],
+      'ev-section-alarm':      ['#ev-add-reminder'],
       'ev-section-attendees':  ['#ev-attendee-name', '#ev-attendee-email', '#add-attendee-btn'],
       'ev-section-link':       ['#ev-attachment-url', '#ev-attachment-name'],
       'ev-section-more':       ['#ev-transp', '#ev-class', '#ev-categories'],
@@ -8242,7 +8500,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         for (const id of fields) await expect(dialog.locator(id), `${id} is collapsed`).toBeHidden();
       }
       await expect(dialog.locator('details.form-section > summary')).toHaveText([
-        'Wiederholung', 'Erinnerung', 'Teilnehmende', 'Link', 'Weitere Angaben'
+        'Wiederholung', 'Erinnerungen', 'Teilnehmende', 'Link', 'Weitere Angaben'
       ]);
 
       // The URL field is a link, not a file attachment (#12).
@@ -8352,7 +8610,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         await expect(page.locator(`#${section}`), `${section} has content`).toHaveAttribute('open', '');
       }
       await expect(page.locator('#ev-recurrence')).toHaveValue('WEEKLY');
-      await expect(page.locator('#ev-alarm')).toHaveValue('-PT15M');
+      await expect(page.locator('#ev-reminder-list .reminder-amount')).toHaveValue('15');
       await expect(page.locator('#ev-attendee-list .attendee-email')).toHaveText('testuser@example.com');
       await expect(page.locator('#ev-attachment-url')).toHaveValue('https://example.com/protokoll');
       await expect(page.locator('#ev-attachment-name')).toHaveValue('Protokoll');

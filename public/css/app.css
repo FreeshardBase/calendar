@@ -971,6 +971,14 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
 
 /* Attendees */
 .attendee-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+/* #508: one row per reminder */
+.reminder-list { list-style: none; margin: 0 0 var(--sp-2); padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.reminder-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.reminder-row .inline-select,
+.reminder-row .inline-input { width: auto !important; padding: 2px 8px; height: 28px; font-size: 13px; margin: 0; }
+.reminder-row .reminder-amount { width: 70px !important; }
+.reminder-row [hidden] { display: none !important; }
+.reminder-fixed { font-size: 13px; color: var(--ink-muted); }
 .attendee-item {
   display: flex; align-items: center; gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);

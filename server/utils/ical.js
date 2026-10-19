@@ -195,6 +195,46 @@ function assertValidAlarms(alarms) {
   for (const alarm of alarms) alarmTriggerLine(alarm);
 }
 
+/**
+ * Replace the VALARMs of `component` (VEVENT or VTODO) by `alarms`. A stored
+ * VALARM whose identity matches an incoming alarm is kept as it is, so the
+ * properties the app does not model (REPEAT, ATTACH, ATTENDEE, X- …) survive.
+ */
+function writeValarms(component, alarms) {
+  const stored = component.getAllSubcomponents('valarm')
+    .map(comp => ({ comp, key: alarmIdentity(valarmToAlarm(comp, component)) }));
+  component.removeAllSubcomponents('valarm');
+  for (const alarm of Array.isArray(alarms) ? alarms : []) {
+    const keep = stored.findIndex(st => st.key === alarmIdentity(alarm));
+    if (keep !== -1) {
+      component.addSubcomponent(stored.splice(keep, 1)[0].comp);
+      continue;
+    }
+    const alarmComp = new ICAL.Component('valarm', component);
+    alarmComp.addPropertyWithValue('action', (alarm.action || 'DISPLAY').toUpperCase());
+    alarmComp.addProperty(ICAL.Property.fromString(alarmTriggerLine(alarm)));
+    if (alarm.description) alarmComp.addPropertyWithValue('description', alarm.description);
+    component.addSubcomponent(alarmComp);
+  }
+}
+
+/**
+ * Content lines of one VALARM per alarm, for an ICS built from scratch.
+ */
+function valarmLines(alarms) {
+  const lines = [];
+  for (const alarm of alarms) {
+    lines.push('BEGIN:VALARM');
+    lines.push(`ACTION:${String(alarm.action || 'DISPLAY').replace(/[\r\n]/g, '')}`);
+    lines.push(alarmTriggerLine(alarm));
+    if (alarm.description) {
+      lines.push(`DESCRIPTION:${escIcal(alarm.description)}`);
+    }
+    lines.push('END:VALARM');
+  }
+  return lines;
+}
+
 const TRANSP_VALUES = ['OPAQUE', 'TRANSPARENT'];
 const CLASS_VALUES = ['PUBLIC', 'PRIVATE', 'CONFIDENTIAL'];
 
@@ -996,24 +1036,7 @@ function eventToICS(event, existingIcs = null) {
         }
 
         // Alarms
-        if ('alarms' in event && event.alarms !== undefined) {
-          const stored = master.getAllSubcomponents('valarm')
-            .map(comp => ({ comp, key: alarmIdentity(valarmToAlarm(comp, master)) }));
-          master.removeAllSubcomponents('valarm');
-          const alarms = Array.isArray(event.alarms) ? event.alarms : [];
-          for (const alarm of alarms) {
-            const keep = stored.findIndex(st => st.key === alarmIdentity(alarm));
-            if (keep !== -1) {
-              master.addSubcomponent(stored.splice(keep, 1)[0].comp);
-              continue;
-            }
-            const alarmComp = new ICAL.Component('valarm', master);
-            alarmComp.addPropertyWithValue('action', (alarm.action || 'DISPLAY').toUpperCase());
-            alarmComp.addProperty(ICAL.Property.fromString(alarmTriggerLine(alarm)));
-            if (alarm.description) alarmComp.addPropertyWithValue('description', alarm.description);
-            master.addSubcomponent(alarmComp);
-          }
-        }
+        if ('alarms' in event && event.alarms !== undefined) writeValarms(master, event.alarms);
 
         // LAST-MODIFIED
         setEventDateProp('last-modified', new Date().toISOString(), false, null);
@@ -1159,16 +1182,7 @@ function eventToICS(event, existingIcs = null) {
     lines.push(`RRULE:${String(normRecur).replace(/^RRULE:/i, '').replace(/[\r\n]/g, '')}`);
   }
 
-  const alarms = Array.isArray(event.alarms) ? event.alarms : (event.valarm ? [event.valarm] : []);
-  for (const alarm of alarms) {
-    lines.push('BEGIN:VALARM');
-    lines.push(`ACTION:${String(alarm.action || 'DISPLAY').replace(/[\r\n]/g, '')}`);
-    lines.push(alarmTriggerLine(alarm));
-    if (alarm.description) {
-      lines.push(`DESCRIPTION:${escIcal(alarm.description)}`);
-    }
-    lines.push('END:VALARM');
-  }
+  lines.push(...valarmLines(Array.isArray(event.alarms) ? event.alarms : (event.valarm ? [event.valarm] : [])));
 
   const rawCats = Array.isArray(event.categories)
     ? event.categories
@@ -2308,6 +2322,8 @@ module.exports = {
   parseValarms,
   alarmTriggerLine,
   assertValidAlarms,
+  writeValarms,
+  valarmLines,
   assertValidTranspClass,
   parseVEventToEvent,
   parseICSToEvent,
