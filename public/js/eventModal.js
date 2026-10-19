@@ -263,6 +263,8 @@ export function openEditModal(event, callbacks) {
   else if (rruleStr.includes('FREQ=MONTHLY')) freq = 'MONTHLY';
   else if (rruleStr.includes('FREQ=YEARLY')) freq = 'YEARLY';
   $('ev-recurrence').value = freq;
+  const intervalMatch = rruleStr.match(/(?:^|;)INTERVAL=(\d+)/);
+  $('recur-interval').value = intervalMatch ? intervalMatch[1] : '1';
 
   // Reset checkboxes and radio buttons
   document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
@@ -453,9 +455,27 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
   }
 
   const freq = $('ev-recurrence').value;
+  $('recur-interval-group').classList.toggle('hidden', freq === '');
+  updateIntervalLabel();
   $('recur-weekly-days').classList.toggle('hidden', freq !== 'WEEKLY');
   $('recur-monthly-opts').classList.toggle('hidden', freq !== 'MONTHLY');
   $('recur-end-section').classList.toggle('hidden', freq === '');
+}
+
+// "Jede Woche" for INTERVAL=1, "Alle 3 Wochen" otherwise (#507).
+const INTERVAL_WORDS = {
+  DAILY:   { every: 'Jeden', one: 'Tag',   many: 'Tage' },
+  WEEKLY:  { every: 'Jede',  one: 'Woche', many: 'Wochen' },
+  MONTHLY: { every: 'Jeden', one: 'Monat', many: 'Monate' },
+  YEARLY:  { every: 'Jedes', one: 'Jahr',  many: 'Jahre' },
+};
+
+function updateIntervalLabel() {
+  const words = INTERVAL_WORDS[$('ev-recurrence').value];
+  if (!words) return;
+  const single = $('recur-interval').value === '1';
+  $('recur-interval-prefix').textContent = single ? words.every : 'Alle';
+  $('recur-interval-unit').textContent = single ? words.one : words.many;
 }
 
 function removeCustomAlarmOptions() {
@@ -602,6 +622,11 @@ async function handleSubmit(e) {
     showError('Bitte gib einen Titel ein.');
     return;
   }
+  const intervalVal = $('recur-interval').value;
+  if ($('ev-recurrence').value && !/^[1-9]\d*$/.test(intervalVal)) {
+    showError('Bitte gib als Wiederholungsabstand eine ganze Zahl ab 1 ein.');
+    return;
+  }
   if (!$('ev-calendar').value) {
     showError('Bitte wähle einen Kalender aus.');
     return;
@@ -706,6 +731,10 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     }
 
     if (recurrence) {
+      // INTERVAL=1 is the RFC 5545 default and is left out; any other value was validated above.
+      const interval = Number(intervalVal);
+      if (interval > 1) recurrence = recurrence.replace(/^FREQ=[A-Z]+/, m => `${m};INTERVAL=${interval}`);
+
       const endTypeEl = document.querySelector('input[name="recur-end-type"]:checked');
       const endType = endTypeEl ? endTypeEl.value : 'NEVER';
       if (endType === 'UNTIL') {
@@ -742,7 +771,8 @@ function getUtcDate(dateStr, timeStr, timeZone) {
         const mergedParts = [...newParts];
         origParts.forEach(part => {
           const key = part.split('=')[0];
-          if (!newKeys.has(key) && key !== '') {
+          // INTERVAL is shown in the dialog, so a dropped one was set back to 1 (#507).
+          if (!newKeys.has(key) && key !== '' && key !== 'INTERVAL') {
             mergedParts.push(part);
           }
         });
@@ -993,6 +1023,10 @@ export function initEventModal() {
   if ($('recur-monthly-week-idx')) $('recur-monthly-week-idx').addEventListener('change', markRecurrenceTouched);
   if ($('recur-monthly-weekday')) $('recur-monthly-weekday').addEventListener('change', markRecurrenceTouched);
   document.querySelectorAll('input[name="recur-end-type"]').forEach(r => r.addEventListener('change', markRecurrenceTouched));
+  $('recur-interval').addEventListener('input', () => {
+    markRecurrenceTouched();
+    updateIntervalLabel();
+  });
   if ($('recur-end-date')) {
     $('recur-end-date').addEventListener('input', markRecurrenceTouched);
     $('recur-end-date').addEventListener('change', markRecurrenceTouched);

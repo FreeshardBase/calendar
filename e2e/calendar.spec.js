@@ -442,6 +442,60 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await deleteSeries(page, title);
   });
 
+  // #507: Berlin switches to summer time on 2037-03-29. A series every 3 weeks from Monday
+  // 2037-03-02 09:00 stays at 09:00 wall clock: 08:00Z before the change, 07:00Z after it.
+  test('Issue #507 — a series created "every 3 weeks" expands every 21 days at 09:00 Berlin across the DST change', async ({ page }) => {
+    await page.goto('/?date=2037-03-02');
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+
+    await page.click('#new-event-btn');
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+    await page.selectOption('#ev-calendar', await page.locator('#ev-calendar option:not([value=""])').first().getAttribute('value'));
+    const title = `E2E Issue507 Interval ${Date.now()}`;
+    await page.fill('#ev-title', title);
+    await page.fill('#ev-start-date', '2037-03-02');
+    await page.dispatchEvent('#ev-start-date', 'change');
+    await page.fill('#ev-start-time', '09:00');
+    await page.fill('#ev-end-date', '2037-03-02');
+    await page.fill('#ev-end-time', '10:00');
+    await page.selectOption('#ev-start-tz', 'Europe/Berlin');
+    await openEventSection(page, 'recurrence');
+    await page.selectOption('#ev-recurrence', 'WEEKLY');
+    await page.fill('#recur-interval', '3');
+    await page.check('input[name="recur-end-type"][value="COUNT"]');
+    await page.fill('#recur-end-count', '4');
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/, { timeout: 15000 });
+    await expectSavesLanded(page);
+
+    const res = await page.request.get('/api/events?start=2037-02-01T00:00:00Z&end=2037-06-01T00:00:00Z');
+    expect(res.ok()).toBeTruthy();
+    const instances = (await res.json()).events.filter(e => e.title === title).sort((a, b) => a.start.localeCompare(b.start));
+    expect(instances.map(e => new Date(e.start).toISOString())).toEqual([
+      '2037-03-02T08:00:00.000Z',
+      '2037-03-23T08:00:00.000Z',
+      '2037-04-13T07:00:00.000Z',
+      '2037-05-04T07:00:00.000Z',
+    ]);
+    expect(instances[0].recurrence).toMatch(/(^|;)INTERVAL=3(;|$)/);
+
+    // The month view draws them on those days at 09:00. The March grid runs 23 Feb – 5 Apr, the
+    // April grid 30 Mar – 10 May (local midnights; summer time from 29 Mar).
+    const chips = page.locator('.event-chip').filter({ hasText: title });
+    const chipDays = () => page.locator('.month-grid .month-day').filter({ has: chips })
+      .evaluateAll(cells => cells.map(c => c.dataset.date));
+    await expect(chips).toHaveCount(2, { timeout: 10000 });
+    expect(await chipDays()).toEqual(['2037-03-01T23:00:00.000Z', '2037-03-22T23:00:00.000Z']);
+    await page.goto('/?date=2037-04-13');
+    await expect(chips).toHaveCount(2, { timeout: 10000 });
+    expect(await chipDays()).toEqual(['2037-04-12T22:00:00.000Z', '2037-05-03T22:00:00.000Z']);
+    for (const chip of await chips.all()) await expect(chip).toContainText('09:00');
+
+    await deleteSeries(page, title);
+  });
+
   // #403: what the event dialog sends when a recurring event is saved. The events are routed and
   // every save is captured instead of stored, so each test reads the exact payload of one save.
   test.describe('Issue #403 — the event dialog saves recurrence and series edits as the user left them', () => {
@@ -611,6 +665,91 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         expect(saves[0].method).toBe('POST');
         expect(saves[0].body.recurrence).toBe('FREQ=MONTHLY;BYMONTHDAY=15');
       });
+    });
+
+    test('Issue #507 — daily, weekly, monthly and yearly series offer "every N" and write INTERVAL=N', async ({ page }) => {
+      const saves = await serve(page, []);
+      await openAt(page, '2037-06-15');
+      const expected = {
+        DAILY: ['Alle', 'Tage', 'FREQ=DAILY;INTERVAL=3'],
+        WEEKLY: ['Alle', 'Wochen', 'FREQ=WEEKLY;INTERVAL=3;BYDAY=MO'],
+        MONTHLY: ['Alle', 'Monate', 'FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=15'],
+        YEARLY: ['Alle', 'Jahre', 'FREQ=YEARLY;INTERVAL=3'],
+      };
+      for (const [freq, [prefix, unit, rule]] of Object.entries(expected)) {
+        await openCreate(page);
+        await page.fill('#ev-title', `E2E 507 ${freq}`);
+        await setStartDate(page, '2037-06-15'); // a Monday
+        await page.fill('#ev-end-date', '2037-06-15');
+        await openEventSection(page, 'recurrence');
+        const interval = page.getByRole('spinbutton', { name: /Jede|Jeden|Jedes|Alle/ });
+        await expect(interval).toBeHidden();
+        await page.selectOption('#ev-recurrence', freq);
+        await expect(interval).toBeVisible();
+        await expect(interval).toHaveValue('1');
+        await interval.fill('3');
+        await expect(page.locator('#recur-interval-prefix')).toHaveText(prefix);
+        await expect(page.locator('#recur-interval-unit')).toHaveText(unit);
+        const before = saves.length;
+        await page.click('#event-save-btn');
+        await expect.poll(() => saves.length).toBe(before + 1);
+        expect(saves[before].body.recurrence).toBe(rule);
+        await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+      }
+    });
+
+    test('Issue #507 — "every 1 week" reads "Jede Woche" and writes no INTERVAL; an invalid interval is refused', async ({ page }) => {
+      const saves = await serve(page, []);
+      await openAt(page, '2037-06-15');
+      await openCreate(page);
+      await page.fill('#ev-title', 'E2E 507 Single');
+      await setStartDate(page, '2037-06-15');
+      await page.fill('#ev-end-date', '2037-06-15');
+      await openEventSection(page, 'recurrence');
+      await page.selectOption('#ev-recurrence', 'WEEKLY');
+      await expect(page.locator('#recur-interval-prefix')).toHaveText('Jede');
+      await expect(page.locator('#recur-interval-unit')).toHaveText('Woche');
+
+      await page.fill('#recur-interval', '0');
+      await page.click('#event-save-btn');
+      await expect(page.locator('#event-form-error')).toBeVisible();
+      await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+      expect(saves).toHaveLength(0);
+
+      await page.fill('#recur-interval', '1');
+      await page.click('#event-save-btn');
+      await expect.poll(() => saves.length).toBe(1);
+      expect(saves[0].body.recurrence).toBe('FREQ=WEEKLY;BYDAY=MO');
+    });
+
+    test('Issue #507 — an INTERVAL from another client is shown, kept on save, and can be changed or reset to 1', async ({ page }) => {
+      const title = 'E2E 507 Foreign Interval';
+      const saves = await serve(page, weekly(title));
+      await openAt(page, '2037-06-03');
+      const interval = page.locator('#recur-interval');
+
+      await openEdit(page, title);
+      await expect(interval).toBeVisible();
+      await expect(interval).toHaveValue('2');
+      await expect(page.locator('#recur-interval-prefix')).toHaveText('Alle');
+      await expect(page.locator('#recur-interval-unit')).toHaveText('Wochen');
+      // Another recurrence edit keeps the interval.
+      await page.check('.recur-byday[value="FR"]');
+      let parts = (await saveSeries(page, saves)).recurrence.split(';');
+      expect(parts).toEqual(expect.arrayContaining(['FREQ=WEEKLY', 'INTERVAL=2', 'BYDAY=MO,WE,FR', 'WKST=SU', 'COUNT=6']));
+      expect(parts).toHaveLength(5);
+
+      await openEdit(page, title);
+      await interval.fill('4');
+      parts = (await saveSeries(page, saves)).recurrence.split(';');
+      expect(parts).toContain('INTERVAL=4');
+      expect(parts.filter(p => p.startsWith('INTERVAL='))).toHaveLength(1);
+
+      await openEdit(page, title);
+      await interval.fill('1');
+      parts = (await saveSeries(page, saves)).recurrence.split(';');
+      expect(parts.filter(p => p.startsWith('INTERVAL='))).toHaveLength(0);
+      expect(parts).toEqual(expect.arrayContaining(['FREQ=WEEKLY', 'BYDAY=MO,WE', 'WKST=SU', 'COUNT=6']));
     });
 
     test('Issue #231 — calendar names and attendee names are shown as text in the event and task dialogs', async ({ page }) => {
