@@ -46,8 +46,10 @@ test.describe('Issue #516 — time zone per event, separately for start and end'
       window.localStorage.setItem('welcome-popup-closed', 'true');
       window.localStorage.setItem('activeView', 'month');
     });
-    await openApp(page, '2038-03-14');
+    // Created before the app loads: #app is shown before the calendar list is fetched, so a
+    // calendar created afterwards may be missing from the dialog's calendar select.
     calendarId = await createCalendar(page, `E2E 516 Kalender ${Date.now().toString(36)}`);
+    await openApp(page, '2038-03-14');
   });
 
   const FLIGHTS = [

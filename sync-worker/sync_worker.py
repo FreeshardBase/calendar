@@ -530,21 +530,24 @@ def legacy_google_collection_name(display_name):
     return slug if slug.startswith("google-") else f"google-{slug}"
 
 
-def create_local_collection(user_id, collection, display_name, components=None):
+def create_local_collection(user_id, collection, display_name, components=None, color=None):
     """MKCALENDAR the paired collection in the user's Radicale principal, named by the provider's calendar.
 
     The worker creates it rather than vdirsyncer so that it starts with the provider's display name;
     from then on vdirsyncer metasync keeps name and colour in step both ways (#505).
     `components` restricts the collection's supported-calendar-component-set; without it Radicale
-    accepts every component.
+    accepts every component. `color` sets the collection's colour (#613: the Microsoft 365 mirrors,
+    which vdirsyncer metasync does not reach).
     """
     url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{collection}/"
     component_set = ""
     if components:
         comps = "".join(f'<c:comp name="{c}"/>' for c in components)
         component_set = f"\n      <c:supported-calendar-component-set>{comps}</c:supported-calendar-component-set>"
+    if color:
+        component_set += f"\n      <ical:calendar-color>{xml_escape(color)}</ical:calendar-color>"
     body = f"""<?xml version="1.0" encoding="utf-8"?>
-<c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+<c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:ical="http://apple.com/ns/ical/">
   <d:set>
     <d:prop>
       <d:displayname>{xml_escape(display_name)}</d:displayname>{component_set}

@@ -17,6 +17,7 @@ import ssl
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -86,10 +87,12 @@ class _RecordingServer:
                     "authorization": self.headers.get("Authorization"),
                     "body": body.decode("utf-8", "replace"),
                 })
-                status, content_type, payload = routes.get((self.command, self.path), (404, "text/plain", "not found"))
+                status, content_type, payload, *extra = routes.get((self.command, self.path), (404, "text/plain", "not found"))
                 data = payload.encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
+                for name, value in (extra[0] if extra else {}).items():
+                    self.send_header(name, value)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -97,6 +100,7 @@ class _RecordingServer:
             do_GET = _handle
             do_PUT = _handle
             do_DELETE = _handle
+            do_REPORT = _handle
 
             def log_message(self, *args):
                 pass
@@ -129,6 +133,7 @@ class WorkerTlsVerificationTest(unittest.TestCase):
         self.servers = []
         self._saved_sync_local = sync_worker.LOCAL_CALDAV_URL
         self._saved_graph_local = msgraph_worker.LOCAL_CALDAV_URL
+        self._saved_calendars_url = msgraph_worker.CALENDARS_URL
 
     def tearDown(self):
         for server in self.servers:
@@ -140,6 +145,7 @@ class WorkerTlsVerificationTest(unittest.TestCase):
                 os.environ[k] = v
         sync_worker.LOCAL_CALDAV_URL = self._saved_sync_local
         msgraph_worker.LOCAL_CALDAV_URL = self._saved_graph_local
+        msgraph_worker.CALENDARS_URL = self._saved_calendars_url
         shutil.rmtree(self.tmp)
 
     def _server(self, kind, routes):
@@ -176,27 +182,41 @@ class WorkerTlsVerificationTest(unittest.TestCase):
 
     # --- msgraph_worker ------------------------------------------------------------------
 
-    def _graph_db(self, endpoint):
+    MIRROR = "msgraph-0123456789abcdef0123456789abcdef"
+    CALENDARS_PATH = "/v1.0/me/calendars?%24select=id%2Cname%2ChexColor%2CcanEdit"
+    CALENDARS_BODY = json.dumps({"value": [{"id": "cal1", "name": "Arbeit", "hexColor": "", "canEdit": True}]})
+
+    def _graph_db(self, graph_url):
+        # #613: the calendar list and the stored delta link both point at the stand-in Graph server.
+        msgraph_worker.CALENDARS_URL = f"{graph_url}/v1.0/me/calendars"
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT,
-            account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT,
-            target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0, sync_lock_until INTEGER,
-            updated_at INTEGER, delta_started_at INTEGER)""")
+            account_email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
+            reconnect_required INTEGER NOT NULL DEFAULT 0, sync_lock_until INTEGER, updated_at INTEGER)""")
         conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,
-            account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
+            account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT, href TEXT, local_etag TEXT)""")
         conn.execute("""CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
             created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href))""")
+        conn.execute("""CREATE TABLE msgraph_calendar_collections (account_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            graph_calendar_id TEXT NOT NULL, local_collection TEXT NOT NULL, graph_name TEXT, graph_color TEXT,
+            delta_link TEXT, delta_started_at INTEGER, created_at INTEGER NOT NULL,
+            PRIMARY KEY (account_id, graph_calendar_id), UNIQUE (user_id, local_collection))""")
         conn.execute(
-            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', ?, NULL, ?, ?, 'persoenlich', 0, NULL, 0, NULL)",
-            (msgraph_worker.encrypt_token("testuser-graph-token"), 4102444800000, endpoint),
+            "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', ?, NULL, ?, 0, NULL, 0)",
+            (msgraph_worker.encrypt_token("testuser-graph-token"), 4102444800000),
+        )
+        conn.execute(
+            "INSERT INTO msgraph_calendar_collections VALUES ('acc1', 'testuser', 'cal1', ?, 'Arbeit', NULL, ?, ?, 0)",
+            (self.MIRROR, f"{graph_url}/v1.0/me/events", int(time.time() * 1000)),
         )
         conn.commit()
         return conn
 
     def test_graph_fetch_rejects_self_signed_certificate(self):
-        graph = self._server("untrusted", {("GET", "/v1.0/me/events"): (200, "application/json", json.dumps({"value": []}))})
-        conn = self._graph_db(f"{graph.url}/v1.0/me/events")
+        graph = self._server("untrusted", {("GET", self.CALENDARS_PATH): (200, "application/json", self.CALENDARS_BODY),
+                                           ("GET", "/v1.0/me/events"): (200, "application/json", json.dumps({"value": []}))})
+        conn = self._graph_db(graph.url)
         msgraph_worker.sync_msgraph_accounts("testuser", conn)
         self.assertEqual(graph.requests, [], "Graph bearer token must never reach an unverified host")
 
@@ -205,14 +225,18 @@ class WorkerTlsVerificationTest(unittest.TestCase):
             "value": [{"id": "g1", "subject": "Test", "start": {"dateTime": "2026-01-01T09:00:00", "timeZone": "UTC"}, "end": {"dateTime": "2026-01-01T10:00:00", "timeZone": "UTC"}}],
             "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=x",
         }
-        graph = self._server("trusted", {("GET", "/v1.0/me/events"): (200, "application/json", json.dumps(payload))})
-        internal = self._server("internal", {("PUT", "/testuser/persoenlich/msgraph-event-g1.ics"): (201, "text/plain", "")})
+        graph = self._server("trusted", {("GET", self.CALENDARS_PATH): (200, "application/json", self.CALENDARS_BODY),
+                                         ("GET", "/v1.0/me/events"): (200, "application/json", json.dumps(payload))})
+        internal = self._server("internal", {
+            ("REPORT", f"/testuser/{self.MIRROR}/"): (207, "application/xml", '<d:multistatus xmlns:d="DAV:"/>'),
+            ("PUT", f"/testuser/{self.MIRROR}/msgraph-event-g1.ics"): (201, "text/plain", "", {"ETag": '"e1"'}),
+        })
         msgraph_worker.LOCAL_CALDAV_URL = internal.url
-        conn = self._graph_db(f"{graph.url}/v1.0/me/events")
+        conn = self._graph_db(graph.url)
 
-        msgraph_worker.sync_msgraph_accounts("testuser", conn)
+        self.assertEqual(msgraph_worker.sync_msgraph_accounts("testuser", conn), (True, ""))
 
-        self.assertEqual(graph.requests[0]["authorization"], "Bearer testuser-graph-token")
+        self.assertEqual([r["authorization"] for r in graph.requests], ["Bearer testuser-graph-token"] * 2)
         puts = [r for r in internal.requests if r["method"] == "PUT"]
         self.assertEqual(len(puts), 1)
         self.assertIn("UID:msgraph-event-g1", puts[0]["body"])

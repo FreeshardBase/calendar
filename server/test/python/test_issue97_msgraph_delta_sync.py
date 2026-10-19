@@ -1,8 +1,10 @@
-"""Issue #97 — the Microsoft Graph import in sync-worker/msgraph_worker.py, the only Graph sync path.
+"""Issue #97 — the Microsoft Graph sync in sync-worker/msgraph_worker.py, the only Graph sync path.
 
 Microsoft is replaced by a local fake (urlopen is routed to it) that answers as the documented Graph
-and identity-platform contracts do; no request leaves the process.
-  (a) change tracking runs on /me/calendarView/delta, pages nextLink, persists only the deltaLink;
+and identity-platform contracts do; no request leaves the process. Since #613 each Microsoft calendar
+has its own mirror and its own delta round; the fake account has one calendar.
+  (a) change tracking runs on /me/calendars/<id>/calendarView/delta, pages nextLink, persists only
+      the deltaLink (per calendar);
   (b) token refresh sends client_id, scope and client_secret; invalid_grant means "reconnect";
   (d) a database lease keeps two syncs of one account apart, across connections;
   (e) times are requested in UTC (Prefer: outlook.timezone) and timeZone is read, not assumed.
@@ -19,6 +21,7 @@ import unittest
 import urllib.error
 import urllib.parse
 from unittest.mock import MagicMock, patch
+from xml.sax.saxutils import escape
 
 SYNC_WORKER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../sync-worker"))
 if SYNC_WORKER_DIR not in sys.path:
@@ -29,6 +32,10 @@ import msgraph_worker  # noqa: E402
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH = "https://graph.microsoft.com/v1.0"
 CLIENT_ID = "00000000-0000-0000-0000-00000000c1d0"
+# The account's one Microsoft calendar and its delta endpoint.
+CALENDAR_ID = "cal1"
+CALENDARS = f"{GRAPH}/me/calendars"
+DELTA = f"{GRAPH}/me/calendars/{CALENDAR_ID}/calendarView/delta"
 
 
 def graph_event(graph_id, start="2026-10-05T12:00:00.0000000", end="2026-10-05T13:00:00.0000000", zone="UTC", **extra):
@@ -39,8 +46,10 @@ def graph_event(graph_id, start="2026-10-05T12:00:00.0000000", end="2026-10-05T1
 
 
 class _Response:
-    def __init__(self, body):
+    def __init__(self, body, status=200, headers=None):
         self._body = body.encode("utf-8")
+        self.status = status
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -53,13 +62,16 @@ class _Response:
 
 
 class FakeMicrosoft:
-    """Routes urlopen: the token endpoint, Graph delta pages by URL, and the local Radicale."""
+    """Routes urlopen: the token endpoint, the calendar list, Graph delta pages by URL, and the local Radicale."""
 
-    def __init__(self, pages=None, token_response=None, on_graph=None):
+    def __init__(self, pages=None, token_response=None, on_graph=None, local_items=None):
         self.pages = pages or {}
         self.token_response = token_response
         self.on_graph = on_graph
+        # {href path: (etag, ics)} the local mirrors hold, reported by REPORT.
+        self.local_items = local_items or {}
         self.requests = []
+        self.etags = 0
 
     def __call__(self, req, context=None, timeout=None):
         assert timeout, "every request to Microsoft or Radicale carries a timeout"
@@ -75,15 +87,33 @@ class FakeMicrosoft:
         if url.startswith(GRAPH):
             if self.on_graph:
                 self.on_graph()
+            if url.startswith(CALENDARS + "?"):
+                return _Response(json.dumps({"value": [
+                    {"id": CALENDAR_ID, "name": "Kalender", "hexColor": "", "canEdit": True}]}))
             for prefix, page in self.pages.items():
                 if url.startswith(prefix):
                     if isinstance(page, int):
                         raise urllib.error.HTTPError(url, page, "error", {}, io.BytesIO(b"{}"))
                     return _Response(json.dumps(page))
-            raise AssertionError(f"unexpected Graph request {url}")
-        # Local Radicale: PUT / DELETE succeed; it keeps no content to read for the trash (#597).
-        if req.get_method() == "GET":
+            raise AssertionError(f"unexpected Graph request {req.get_method()} {url}")
+        # Local Radicale. GET finds nothing (no content to read for the trash, #597).
+        method = req.get_method()
+        if method == "GET":
             raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
+        if method == "MKCALENDAR":
+            return _Response("", 201)
+        if method == "REPORT":
+            collection = urllib.parse.urlsplit(url).path
+            responses = "".join(
+                f"<d:response><d:href>{href}</d:href><d:propstat><d:prop><d:getetag>{escape(etag)}</d:getetag>"
+                f"<c:calendar-data>{escape(ics)}</c:calendar-data></d:prop>"
+                "<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+                for href, (etag, ics) in self.local_items.items() if href.startswith(collection))
+            return _Response('<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+                             f"{responses}</d:multistatus>", 207)
+        if method == "PUT":
+            self.etags += 1
+            return _Response("", 201, {"ETag": f'"e{self.etags}"'})
         return _Response("")
 
     def of(self, kind):
@@ -91,6 +121,8 @@ class FakeMicrosoft:
             return [r for r in self.requests if r["url"] == TOKEN_URL]
         if kind == "graph":
             return [r for r in self.requests if r["url"].startswith(GRAPH)]
+        if kind == "delta":
+            return [r for r in self.requests if r["url"].startswith(GRAPH) and not r["url"].startswith(CALENDARS + "?")]
         return [r for r in self.requests if r["method"] == kind and not r["url"].startswith(("https://login", GRAPH))]
 
 
@@ -100,17 +132,20 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.db_path = os.path.join(self.tmp, "webcalendar.db")
         self.conn = self._connect()
         self.conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
-            account_email TEXT NOT NULL, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT,
-            delta_started_at INTEGER, target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0,
+            account_email TEXT NOT NULL, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
+            reconnect_required INTEGER NOT NULL DEFAULT 0,
             sync_lock_until INTEGER, created_at INTEGER, updated_at INTEGER)""")
         self.conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT NOT NULL,
-            account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT)""")
+            account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT, href TEXT, local_etag TEXT)""")
         self.conn.execute("""CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
             created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href))""")
+        self.conn.execute("""CREATE TABLE msgraph_calendar_collections (account_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            graph_calendar_id TEXT NOT NULL, local_collection TEXT NOT NULL, graph_name TEXT, graph_color TEXT,
+            delta_link TEXT, delta_started_at INTEGER, created_at INTEGER NOT NULL,
+            PRIMARY KEY (account_id, graph_calendar_id), UNIQUE (user_id, local_collection))""")
         self.conn.execute(
-            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " delta_link, target_calendar_id) VALUES ('acc1', 'testuser', 'testuser@example.com',"
-            " ?, ?, 4102444800000, NULL, 'persoenlich')",
+            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at)"
+            " VALUES ('acc1', 'testuser', 'testuser@example.com', ?, ?, 4102444800000)",
             (msgraph_worker.encrypt_token("testuser-access-token"), msgraph_worker.encrypt_token("testuser-refresh-token")))
         self.conn.commit()
         self.env = patch.dict(os.environ, {"MSGRAPH_CLIENT_ID": CLIENT_ID})
@@ -130,6 +165,20 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
     def _account(self):
         return self.conn.execute("SELECT * FROM msgraph_accounts WHERE id = 'acc1'").fetchone()
 
+    def _mirror(self, acc="acc1"):
+        """The delta round state of the account's calendar; None before its first sync."""
+        return self.conn.execute("SELECT * FROM msgraph_calendar_collections WHERE account_id = ?", (acc,)).fetchone()
+
+    def _set_round(self, delta_link, started=None, acc="acc1"):
+        """A mirror an earlier sync created, with its delta round state; returns its collection."""
+        collection = f"msgraph-{acc}"
+        self.conn.execute(
+            "INSERT INTO msgraph_calendar_collections (account_id, user_id, graph_calendar_id, local_collection,"
+            " graph_name, graph_color, delta_link, delta_started_at, created_at) VALUES (?, 'testuser', ?, ?, 'Kalender',"
+            " NULL, ?, ?, 0)", (acc, CALENDAR_ID, collection, delta_link, started))
+        self.conn.commit()
+        return collection
+
     def _sync(self, fake, conn=None):
         with patch.object(msgraph_worker.urllib.request, "urlopen", side_effect=fake):
             return msgraph_worker.sync_msgraph_accounts("testuser", conn or self.conn)
@@ -137,52 +186,55 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
     # --- (a) delta endpoint, paging, deltaLink -------------------------------------------------
 
     def test_first_round_uses_calendar_view_delta_pages_next_link_and_persists_only_the_delta_link(self):
-        next_link = f"{GRAPH}/me/calendarView/delta?$skiptoken=page2"
-        delta_link = f"{GRAPH}/me/calendarView/delta?$deltatoken=round1"
+        next_link = f"{DELTA}?$skiptoken=page2"
+        delta_link = f"{DELTA}?$deltatoken=round1"
         fake = FakeMicrosoft(pages={
             next_link: {"value": [graph_event("g2")], "@odata.deltaLink": delta_link},
-            f"{GRAPH}/me/calendarView/delta?startDateTime=": {"value": [graph_event("g1")], "@odata.nextLink": next_link},
+            f"{DELTA}?startDateTime=": {"value": [graph_event("g1")], "@odata.nextLink": next_link},
         })
 
         ok, error = self._sync(fake)
 
         self.assertTrue(ok, error)
-        urls = [r["url"] for r in fake.of("graph")]
+        urls = [r["url"] for r in fake.of("delta")]
         self.assertEqual(len(urls), 2)
         first = urllib.parse.urlsplit(urls[0])
-        self.assertEqual(f"{first.scheme}://{first.netloc}{first.path}", f"{GRAPH}/me/calendarView/delta")
+        self.assertEqual(f"{first.scheme}://{first.netloc}{first.path}", DELTA)
         window = urllib.parse.parse_qs(first.query)
         self.assertIn("startDateTime", window)
         self.assertIn("endDateTime", window)
         self.assertEqual(urls[1], next_link, "the nextLink is followed within the same run")
-        self.assertEqual(self._account()["delta_link"], delta_link, "only the deltaLink is a delta token")
+        self.assertEqual(self._mirror()["delta_link"], delta_link, "only the deltaLink is a delta token")
         self.assertEqual(len(fake.of("PUT")), 2)
 
     def test_a_page_with_neither_next_link_nor_delta_link_fails_and_stores_nothing(self):
-        fake = FakeMicrosoft(pages={f"{GRAPH}/me/calendarView/delta": {"value": []}})
+        fake = FakeMicrosoft(pages={DELTA: {"value": []}})
 
         ok, error = self._sync(fake)
 
         self.assertFalse(ok)
         self.assertIn("neither nextLink nor deltaLink", error)
-        self.assertIsNone(self._account()["delta_link"], "a page URL must never be stored as a delta token")
+        self.assertIsNone(self._mirror()["delta_link"], "a page URL must never be stored as a delta token")
 
     def test_removed_item_in_a_delta_round_deletes_the_local_copy(self):
-        stored = f"{GRAPH}/me/calendarView/delta?$deltatoken=round1"
-        self.conn.execute("UPDATE msgraph_accounts SET delta_link = ?", (stored,))
-        self.conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '')")
+        stored = f"{DELTA}?$deltatoken=round1"
+        collection = self._set_round(stored)
+        href = f"/testuser/{collection}/msgraph-event-g1.ics"
+        self.conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '', ?, '\"e0\"')",
+                          (href,))
         self.conn.commit()
         fake = FakeMicrosoft(pages={stored: {
             "value": [{"id": "g1", "@removed": {"reason": "deleted"}}],
-            "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=round2"}})
+            "@odata.deltaLink": f"{DELTA}?$deltatoken=round2"}},
+            local_items={href: ('"e0"', "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:msgraph-event-g1\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")})
 
         ok, error = self._sync(fake)
 
         self.assertTrue(ok, error)
-        self.assertEqual(fake.of("graph")[0]["url"], stored, "a stored delta link continues the round")
+        self.assertEqual(fake.of("delta")[0]["url"], stored, "a stored delta link continues the round")
         deletes = fake.of("DELETE")
         self.assertEqual(len(deletes), 1)
-        self.assertTrue(deletes[0]["url"].endswith("/testuser/persoenlich/msgraph-event-g1.ics"))
+        self.assertTrue(deletes[0]["url"].endswith(href))
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM msgraph_event_mappings").fetchone()[0], 0)
 
     # --- (b) token refresh ---------------------------------------------------------------------
@@ -192,7 +244,7 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.conn.commit()
 
     def _delta_page(self):
-        return {f"{GRAPH}/me/calendarView/delta": {"value": [], "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=x"}}
+        return {DELTA: {"value": [], "@odata.deltaLink": f"{DELTA}?$deltatoken=x"}}
 
     def test_refresh_sends_client_id_scope_and_secret_and_stores_the_rotated_tokens(self):
         self._expire()
@@ -209,7 +261,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.assertEqual(body["grant_type"], ["refresh_token"])
         self.assertEqual(body["refresh_token"], ["testuser-refresh-token"])
         self.assertEqual(set(body["scope"][0].split()), {"offline_access", "User.Read", "Calendars.ReadWrite"})
-        self.assertEqual(fake.of("graph")[0]["headers"]["Authorization"], "Bearer testuser-new-access")
+        for request in fake.of("graph"):
+            self.assertEqual(request["headers"]["Authorization"], "Bearer testuser-new-access")
         row = self._account()
         self.assertEqual(msgraph_worker.decrypt_token(row["refresh_token"]), "testuser-new-refresh")
         self.assertGreater(row["expires_at"], int(time.time() * 1000))
@@ -280,8 +333,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
             other.close()
             nested["inner_requests"] = inner.requests
 
-        fake = FakeMicrosoft(pages={f"{GRAPH}/me/calendarView/delta": {
-            "value": [graph_event("g1")], "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=x"}},
+        fake = FakeMicrosoft(pages={DELTA: {
+            "value": [graph_event("g1")], "@odata.deltaLink": f"{DELTA}?$deltatoken=x"}},
             on_graph=second_process_starts)
 
         ok, error = self._sync(fake)
@@ -327,17 +380,17 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         ok, error = self._sync(fake)
 
         self.assertTrue(ok, error)
-        self.assertEqual(len(fake.of("graph")), 1)
+        self.assertEqual(len(fake.of("delta")), 1)
 
     # --- (e) time zones ------------------------------------------------------------------------
 
     def test_every_graph_request_pins_utc_and_the_event_keeps_its_instant(self):
-        next_link = f"{GRAPH}/me/calendarView/delta?$skiptoken=page2"
+        next_link = f"{DELTA}?$skiptoken=page2"
         fake = FakeMicrosoft(pages={
             next_link: {"value": [graph_event("allday", start="2026-10-06T00:00:00.0000000",
                                                  end="2026-10-07T00:00:00.0000000", isAllDay=True)],
-                        "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=x"},
-            f"{GRAPH}/me/calendarView/delta?startDateTime=": {
+                        "@odata.deltaLink": f"{DELTA}?$deltatoken=x"},
+            f"{DELTA}?startDateTime=": {
                 "value": [graph_event("g1", subject="Plan, review; Test\nUser", body={"content": "Agenda; Test User"},
                                       location={"displayName": "Room 1, Floor 2"})], "@odata.nextLink": next_link},
         })
@@ -357,29 +410,28 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.assertIn("DTEND;VALUE=DATE:20261007\r\n", all_day["body"])
 
     def test_a_non_utc_time_is_never_read_as_utc(self):
-        fake = FakeMicrosoft(pages={f"{GRAPH}/me/calendarView/delta": {
+        fake = FakeMicrosoft(pages={DELTA: {
             "value": [graph_event("g1", start="2026-10-05T14:00:00.0000000", end="2026-10-05T15:00:00.0000000",
                                   zone="W. Europe Standard Time")],
-            "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=x"}})
+            "@odata.deltaLink": f"{DELTA}?$deltatoken=x"}})
 
         ok, error = self._sync(fake)
 
         self.assertFalse(ok)
         self.assertIn("W. Europe Standard Time", error)
         self.assertEqual(fake.of("PUT"), [], "a 14:00 W. Europe event must not be stored as 14:00Z")
-        self.assertIsNone(self._account()["delta_link"])
+        self.assertIsNone(self._mirror()["delta_link"])
 
     def test_an_event_that_cannot_be_stored_fails_its_account_only(self):
-        broken = f"{GRAPH}/me/calendarView/delta?$deltatoken=acc1"
-        healthy = f"{GRAPH}/me/calendarView/delta?$deltatoken=acc2"
-        self.conn.execute("UPDATE msgraph_accounts SET delta_link = ?", (broken,))
+        broken = f"{DELTA}?$deltatoken=acc1"
+        healthy = f"{DELTA}?$deltatoken=acc2"
+        self._set_round(broken)
         self.conn.execute(
-            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " delta_link, target_calendar_id) VALUES ('acc2', 'testuser', 'testuser2@example.com',"
-            " ?, ?, 4102444800000, ?, 'persoenlich')",
-            (msgraph_worker.encrypt_token("testuser-access-token-2"), msgraph_worker.encrypt_token("testuser-refresh-token-2"),
-             healthy))
+            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at)"
+            " VALUES ('acc2', 'testuser', 'testuser2@example.com', ?, ?, 4102444800000)",
+            (msgraph_worker.encrypt_token("testuser-access-token-2"), msgraph_worker.encrypt_token("testuser-refresh-token-2")))
         self.conn.commit()
+        self._set_round(healthy, acc="acc2")
         fake = FakeMicrosoft(pages={
             broken: {"value": [graph_event("g1", zone="Pacific Standard Time")], "@odata.deltaLink": broken + "-next"},
             healthy: {"value": [graph_event("g2")], "@odata.deltaLink": healthy + "-next"},
@@ -392,33 +444,34 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.assertNotIn("testuser2@example.com", error)
         puts = fake.of("PUT")
         self.assertEqual(len(puts), 1)
-        self.assertTrue(puts[0]["url"].endswith("/msgraph-event-g2.ics"), "the other account is synced")
-        self.assertEqual(self._account()["delta_link"], broken, "the failing account is fetched again next time")
+        self.assertTrue(puts[0]["url"].endswith("/msgraph-acc2/msgraph-event-g2.ics"), "the other account is synced")
+        self.assertEqual(self._mirror()["delta_link"], broken, "the failing account is fetched again next time")
+        self.assertEqual(self._mirror("acc2")["delta_link"], healthy + "-next")
         self.assertIsNone(self._account()["sync_lock_until"], "the lease is released after a failure")
 
     def test_a_failed_later_page_stores_no_page_link(self):
-        next_link = f"{GRAPH}/me/calendarView/delta?$skiptoken=page2"
+        next_link = f"{DELTA}?$skiptoken=page2"
         fake = FakeMicrosoft(pages={
             next_link: 500,
-            f"{GRAPH}/me/calendarView/delta?startDateTime=": {"value": [graph_event("g1")], "@odata.nextLink": next_link},
+            f"{DELTA}?startDateTime=": {"value": [graph_event("g1")], "@odata.nextLink": next_link},
         })
 
         ok, error = self._sync(fake)
 
         self.assertFalse(ok)
-        self.assertIsNone(self._account()["delta_link"], "a nextLink is never kept as a checkpoint")
+        self.assertIsNone(self._mirror()["delta_link"], "a nextLink is never kept as a checkpoint")
 
     # --- isolation and round lifetime ----------------------------------------------------------
 
     def test_an_account_waiting_for_reconnect_does_not_stop_the_users_other_accounts(self):
         self.conn.execute("UPDATE msgraph_accounts SET reconnect_required = 1")
         self.conn.execute(
-            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " target_calendar_id) VALUES ('acc2', 'testuser', 'testuser2@example.com', ?, ?, 4102444800000, 'persoenlich')",
+            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at)"
+            " VALUES ('acc2', 'testuser', 'testuser2@example.com', ?, ?, 4102444800000)",
             (msgraph_worker.encrypt_token("testuser-access-token-2"), msgraph_worker.encrypt_token("testuser-refresh-token-2")))
         self.conn.commit()
-        fake = FakeMicrosoft(pages={f"{GRAPH}/me/calendarView/delta": {
-            "value": [graph_event("g2")], "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=acc2"}})
+        fake = FakeMicrosoft(pages={DELTA: {
+            "value": [graph_event("g2")], "@odata.deltaLink": f"{DELTA}?$deltatoken=acc2"}})
 
         ok, error = self._sync(fake)
 
@@ -426,8 +479,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.assertIn("testuser@example.com", error)
         self.assertIn("please reconnect", error)
         self.assertEqual(len(fake.of("PUT")), 1, "the second account is synced anyway")
-        row = self.conn.execute("SELECT delta_link FROM msgraph_accounts WHERE id = 'acc2'").fetchone()
-        self.assertEqual(row["delta_link"], f"{GRAPH}/me/calendarView/delta?$deltatoken=acc2")
+        self.assertIsNone(self._mirror(), "the account waiting for reconnect is not touched")
+        self.assertEqual(self._mirror("acc2")["delta_link"], f"{DELTA}?$deltatoken=acc2")
 
     def test_a_reconnect_during_a_refused_refresh_is_not_flagged(self):
         self._expire()
@@ -454,36 +507,33 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.assertEqual(self._account()["reconnect_required"], 0, "the freshly connected tokens are not flagged")
 
     def test_a_delta_round_older_than_thirty_days_starts_over_with_a_current_window(self):
-        stale = f"{GRAPH}/me/calendarView/delta?$deltatoken=old-window"
+        stale = f"{DELTA}?$deltatoken=old-window"
         now_ms = int(time.time() * 1000)
-        self.conn.execute("UPDATE msgraph_accounts SET delta_link = ?, delta_started_at = ?",
-                          (stale, now_ms - 31 * 86400 * 1000))
-        self.conn.commit()
-        fake = FakeMicrosoft(pages={f"{GRAPH}/me/calendarView/delta?startDateTime=": {
-            "value": [], "@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=new-window"}})
+        self._set_round(stale, now_ms - 31 * 86400 * 1000)
+        fake = FakeMicrosoft(pages={f"{DELTA}?startDateTime=": {
+            "value": [], "@odata.deltaLink": f"{DELTA}?$deltatoken=new-window"}})
 
         ok, error = self._sync(fake)
 
         self.assertTrue(ok, error)
-        first = urllib.parse.parse_qs(urllib.parse.urlsplit(fake.of("graph")[0]["url"]).query)
+        first = urllib.parse.parse_qs(urllib.parse.urlsplit(fake.of("delta")[0]["url"]).query)
         window_end = time.mktime(time.strptime(first["endDateTime"][0], "%Y-%m-%dT%H:%M:%SZ"))
         self.assertGreater(window_end, time.time() + 700 * 86400, "the new window reaches ahead from today")
-        row = self._account()
-        self.assertEqual(row["delta_link"], f"{GRAPH}/me/calendarView/delta?$deltatoken=new-window")
+        row = self._mirror()
+        self.assertEqual(row["delta_link"], f"{DELTA}?$deltatoken=new-window")
         self.assertGreaterEqual(row["delta_started_at"], now_ms)
 
     def test_a_recent_delta_round_is_continued(self):
-        current = f"{GRAPH}/me/calendarView/delta?$deltatoken=current"
+        current = f"{DELTA}?$deltatoken=current"
         started = int(time.time() * 1000) - 86400 * 1000
-        self.conn.execute("UPDATE msgraph_accounts SET delta_link = ?, delta_started_at = ?", (current, started))
-        self.conn.commit()
+        self._set_round(current, started)
         fake = FakeMicrosoft(pages={current: {"value": [], "@odata.deltaLink": current + "2"}})
 
         ok, error = self._sync(fake)
 
         self.assertTrue(ok, error)
-        self.assertEqual(fake.of("graph")[0]["url"], current)
-        self.assertEqual(self._account()["delta_started_at"], started, "continuing a round keeps its start, so it ages out")
+        self.assertEqual(fake.of("delta")[0]["url"], current)
+        self.assertEqual(self._mirror()["delta_started_at"], started, "continuing a round keeps its start, so it ages out")
 
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))

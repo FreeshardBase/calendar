@@ -284,9 +284,6 @@ db.serialize(() => {
       access_token TEXT,
       refresh_token TEXT,
       expires_at INTEGER,
-      delta_link TEXT,
-      delta_started_at INTEGER,
-      target_calendar_id TEXT,
       reconnect_required INTEGER NOT NULL DEFAULT 0,
       sync_lock_until INTEGER,
       created_at INTEGER NOT NULL,
@@ -299,7 +296,28 @@ db.serialize(() => {
       graph_id TEXT NOT NULL,
       account_id TEXT NOT NULL,
       last_synced_at INTEGER NOT NULL,
-      e_tag TEXT
+      e_tag TEXT,
+      href TEXT,
+      local_etag TEXT
+    )
+  `);
+  // #613: each Microsoft calendar of a linked account is mirrored into its own opaque, VEVENT-only
+  // collection (`msgraph-<hex>`); the delta round state is kept per calendar. Mapped events carry
+  // the local resource (href) and the ETag the sync last wrote or pushed (local_etag), so the next
+  // sync sees what was created, edited or deleted in the shard.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS msgraph_calendar_collections (
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      graph_calendar_id TEXT NOT NULL,
+      local_collection TEXT NOT NULL,
+      graph_name TEXT,
+      graph_color TEXT,
+      delta_link TEXT,
+      delta_started_at INTEGER,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, graph_calendar_id),
+      UNIQUE (user_id, local_collection)
     )
   `);
   // #597: trash items restored into a Microsoft 365 mirror; the worker creates each at Graph.
@@ -836,8 +854,6 @@ function msGraphAccountFromRow(r) {
     accessToken: decryptToken(r.access_token),
     refreshToken: decryptToken(r.refresh_token),
     expiresAt: r.expires_at,
-    deltaLink: r.delta_link,
-    targetCalendarId: r.target_calendar_id,
     reconnectRequired: r.reconnect_required === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at
@@ -1042,18 +1058,23 @@ const Db = {
     });
   },
 
-  // #496: { local collection name → linked account id } for every collection the sync worker
-  // mirrors from one of the user's linked accounts (Google and Basic-auth CalDAV).
+  // #496: { local collection name → { accountId, accountName } } for every collection the sync
+  // worker mirrors from one of the user's linked accounts (Google and Basic-auth CalDAV, whose names
+  // the client looks up in its account list, and Microsoft 365 (#613), named by its e-mail address).
   getMirroredCollectionAccounts(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT local_collection, account_id FROM google_calendar_collections WHERE user_id = ?
+        `SELECT local_collection, account_id, NULL AS account_name FROM google_calendar_collections WHERE user_id = ?
          UNION ALL
-         SELECT local_collection, account_id FROM caldav_calendar_collections WHERE user_id = ?`,
-        [userId, userId],
+         SELECT local_collection, account_id, NULL AS account_name FROM caldav_calendar_collections WHERE user_id = ?
+         UNION ALL
+         SELECT m.local_collection, m.account_id, a.account_email AS account_name
+           FROM msgraph_calendar_collections m JOIN msgraph_accounts a ON a.id = m.account_id
+          WHERE m.user_id = ?`,
+        [userId, userId, userId],
         (err, rows) => {
           if (err) return reject(err);
-          resolve(new Map(rows.map(r => [r.local_collection, r.account_id])));
+          resolve(new Map(rows.map(r => [r.local_collection, { accountId: r.account_id, accountName: r.account_name }])));
         }
       );
     });
@@ -1123,6 +1144,7 @@ const Db = {
       await tx.run('DELETE FROM user_calendar_shares WHERE sharee_user_id = ? OR calendar_id LIKE ?', [userId, calPattern]);
       await tx.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
       await tx.run('DELETE FROM msgraph_restores WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
+      await tx.run('DELETE FROM msgraph_calendar_collections WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM msgraph_accounts WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM web_push_subscriptions WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM resource_bookings WHERE user_id = ?', [userId]);
@@ -1183,7 +1205,14 @@ const Db = {
         [calendarId, altId, calendarId, altId]
       );
       await tx.run('DELETE FROM event_history WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
-      await tx.run('UPDATE msgraph_accounts SET target_calendar_id = NULL WHERE target_calendar_id = ? OR target_calendar_id = ?', [calendarId, altId]);
+      // #613: a deleted Microsoft 365 mirror is unpaired, so its events are not deleted at Microsoft;
+      // the next sync mirrors that calendar afresh.
+      const mirror = /^internal-caldav::\/([^/]+)\/([^/]+)\/?$/.exec(calendarId);
+      if (mirror) {
+        const prefix = `/${mirror[1]}/${mirror[2]}/`;
+        await tx.run('DELETE FROM msgraph_event_mappings WHERE substr(href, 1, ?) = ?', [prefix.length, prefix]);
+        await tx.run('DELETE FROM msgraph_calendar_collections WHERE user_id = ? AND local_collection = ?', [mirror[1], mirror[2]]);
+      }
     });
   },
 
@@ -1935,8 +1964,8 @@ const Db = {
       const encRefresh = encryptToken(accountData.refreshToken || '');
       db.run(
         `INSERT INTO msgraph_accounts 
-         (id, user_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, user_id, account_email, access_token, refresh_token, expires_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           accountData.userId,
@@ -1944,8 +1973,6 @@ const Db = {
           encAccess,
           encRefresh,
           accountData.expiresAt || 0,
-          accountData.deltaLink || '',
-          accountData.targetCalendarId || '',
           now,
           now
         ],
@@ -1960,7 +1987,7 @@ const Db = {
   getMSGraphAccounts(userId) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT id, user_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, reconnect_required, created_at, updated_at
+        `SELECT id, user_id, account_email, access_token, refresh_token, expires_at, reconnect_required, created_at, updated_at
          FROM msgraph_accounts WHERE user_id = ? ORDER BY created_at ASC`,
         [userId],
         (err, rows) => {
@@ -1979,7 +2006,7 @@ const Db = {
   getMSGraphAccountById(accountId) {
     return new Promise((resolve, reject) => {
       db.get(
-        `SELECT id, user_id, account_email, access_token, refresh_token, expires_at, delta_link, target_calendar_id, reconnect_required, created_at, updated_at
+        `SELECT id, user_id, account_email, access_token, refresh_token, expires_at, reconnect_required, created_at, updated_at
          FROM msgraph_accounts WHERE id = ?`,
         [accountId],
         (err, r) => {
@@ -2004,8 +2031,6 @@ const Db = {
       if (updates.accessToken !== undefined) { fields.push('access_token = ?'); values.push(encryptToken(updates.accessToken)); }
       if (updates.refreshToken !== undefined) { fields.push('refresh_token = ?'); values.push(encryptToken(updates.refreshToken)); }
       if (updates.expiresAt !== undefined) { fields.push('expires_at = ?'); values.push(updates.expiresAt); }
-      if (updates.deltaLink !== undefined) { fields.push('delta_link = ?'); values.push(updates.deltaLink); }
-      if (updates.targetCalendarId !== undefined) { fields.push('target_calendar_id = ?'); values.push(updates.targetCalendarId); }
       if (updates.reconnectRequired !== undefined) { fields.push('reconnect_required = ?'); values.push(updates.reconnectRequired ? 1 : 0); }
       
       fields.push('updated_at = ?');
@@ -2028,6 +2053,8 @@ const Db = {
       await tx.run(`DELETE FROM msgraph_accounts WHERE id = ?`, [accountId]);
       await tx.run(`DELETE FROM msgraph_event_mappings WHERE account_id = ?`, [accountId]);
       await tx.run(`DELETE FROM msgraph_restores WHERE account_id = ?`, [accountId]);
+      // #613: the mirrors stay in Radicale as the user's own calendars, no longer synced.
+      await tx.run(`DELETE FROM msgraph_calendar_collections WHERE account_id = ?`, [accountId]);
     });
   },
 

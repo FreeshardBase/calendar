@@ -14,6 +14,7 @@ ICS, and restoring it (the trash route PUTs the payload back, and for Graph queu
 `msgraph_restores`) must write it back to the provider.
 """
 import configparser
+import hashlib
 import http.server
 import io
 import json
@@ -65,6 +66,11 @@ def xml_escape(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def etag_of(data):
+    """The ETag the fake Radicale gives an item: it changes whenever the content does."""
+    return '"' + hashlib.md5(data.encode("utf-8")).hexdigest() + '"'
+
+
 class MemCalDAV:
     """CalDAV server with one calendar home: collections (name -> {resource: ics})."""
 
@@ -82,9 +88,11 @@ class MemCalDAV:
                 length = int(self.headers.get("Content-Length") or 0)
                 return self.rfile.read(length).decode("utf-8") if length else ""
 
-            def _reply(self, status, body=b"", ctype="application/xml; charset=utf-8"):
+            def _reply(self, status, body=b"", ctype="application/xml; charset=utf-8", etag=None):
                 self.send_response(status)
                 self.send_header("Content-Type", ctype)
+                if etag:
+                    self.send_header("ETag", etag)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
@@ -128,6 +136,7 @@ class MemCalDAV:
                 if coll not in dav.collections:
                     return self._reply(404)
                 rows = [f"<d:response><d:href>{dav.home}{coll}/{res}</d:href><d:propstat><d:prop>"
+                        f"<d:getetag>{xml_escape(etag_of(data))}</d:getetag>"
                         f"<c:calendar-data>{xml_escape(data)}</c:calendar-data></d:prop>"
                         "<d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
                         for res, data in dav.collections[coll].items()]
@@ -149,7 +158,7 @@ class MemCalDAV:
                     return self._reply(409)
                 existed = res in dav.collections[coll]
                 dav.collections[coll][res] = body
-                self._reply(204 if existed else 201)
+                self._reply(204 if existed else 201, etag=etag_of(body))
 
             def do_DELETE(self):
                 coll, res = self._split()
@@ -375,22 +384,29 @@ class MSGraphWorkerTest(unittest.TestCase):
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("""CREATE TABLE msgraph_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
-            account_email TEXT NOT NULL, access_token TEXT, refresh_token TEXT, expires_at INTEGER, delta_link TEXT,
-            delta_started_at INTEGER, target_calendar_id TEXT, reconnect_required INTEGER NOT NULL DEFAULT 0,
-            sync_lock_until INTEGER, created_at INTEGER, updated_at INTEGER)""")
+            account_email TEXT NOT NULL, access_token TEXT, refresh_token TEXT, expires_at INTEGER,
+            reconnect_required INTEGER NOT NULL DEFAULT 0, sync_lock_until INTEGER, created_at INTEGER, updated_at INTEGER)""")
         self.conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT NOT NULL,
-            account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT)""")
+            account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT, href TEXT, local_etag TEXT)""")
+        self.conn.execute("""CREATE TABLE msgraph_calendar_collections (account_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            graph_calendar_id TEXT NOT NULL, local_collection TEXT NOT NULL, graph_name TEXT, graph_color TEXT,
+            delta_link TEXT, delta_started_at INTEGER, created_at INTEGER NOT NULL,
+            PRIMARY KEY (account_id, graph_calendar_id))""")
         self.conn.execute(TRASH_SQL)
         self.conn.execute(RESTORES_SQL)
         self.conn.execute(
-            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
-            " delta_link, delta_started_at, target_calendar_id) VALUES ('acc1', ?, 'testuser@example.com', ?, ?,"
-            " 4102444800000, ?, ?, 'persoenlich')",
-            (USER_ID, msgraph_worker.encrypt_token("testuser-access"), msgraph_worker.encrypt_token("testuser-refresh"),
-             f"{GRAPH}/me/calendarView/delta?$deltatoken=round1", int(time.time() * 1000)))
+            "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at)"
+            " VALUES ('acc1', ?, 'testuser@example.com', ?, ?, 4102444800000)",
+            (USER_ID, msgraph_worker.encrypt_token("testuser-access"), msgraph_worker.encrypt_token("testuser-refresh")))
+        # #613: the mirror of the account's Microsoft calendar cal1, mid delta round.
+        self.conn.execute(
+            "INSERT INTO msgraph_calendar_collections (account_id, user_id, graph_calendar_id, local_collection,"
+            " graph_name, graph_color, delta_link, delta_started_at, created_at)"
+            " VALUES ('acc1', ?, 'cal1', 'msgraph-m1', 'Kalender', NULL, ?, ?, 0)",
+            (USER_ID, f"{GRAPH}/me/calendars/cal1/calendarView/delta?$deltatoken=round1", int(time.time() * 1000)))
         self.conn.commit()
         self.local = MemCalDAV(f"/{USER_ID}/")
-        self.local.collections["persoenlich"] = {}
+        self.local.collections["msgraph-m1"] = {}
         self.graph_pages = []
         self.graph_posts = []
         self.real_urlopen = urllib.request.urlopen
@@ -402,13 +418,15 @@ class MSGraphWorkerTest(unittest.TestCase):
 
     def fake_urlopen(self, req, context=None, timeout=None):
         url = req.full_url
-        if url.startswith(GRAPH + "/me/events"):
+        if url.startswith(f"{GRAPH}/me/calendars?"):
+            return _Response(json.dumps({"value": [{"id": "cal1", "name": "Kalender", "hexColor": "", "canEdit": True}]}))
+        if url.startswith(GRAPH + "/me/calendars/cal1/events"):
             self.graph_posts.append((req.get_method(), json.loads(req.data.decode("utf-8")), dict(req.header_items())))
             created = dict(json.loads(req.data.decode("utf-8")), id="g-new")
             return _Response(json.dumps(created))
         if url.startswith(GRAPH):
             page = self.graph_pages.pop(0) if self.graph_pages else {"value": []}
-            return _Response(json.dumps(dict(page, **{"@odata.deltaLink": f"{GRAPH}/me/calendarView/delta?$deltatoken=n"})))
+            return _Response(json.dumps(dict(page, **{"@odata.deltaLink": f"{GRAPH}/me/calendars/cal1/calendarView/delta?$deltatoken=n"})))
         return self.real_urlopen(req, timeout=timeout)
 
     def sync(self):
@@ -423,22 +441,22 @@ class MSGraphWorkerTest(unittest.TestCase):
             "start": {"dateTime": "2026-10-20T09:00:00.0000000", "timeZone": "UTC"},
             "end": {"dateTime": "2026-10-20T10:00:00.0000000", "timeZone": "UTC"}}]})
         self.assertEqual(self.sync(), (True, ""))
-        imported = self.local.collections["persoenlich"]["msgraph-event-g-old.ics"]
+        imported = self.local.collections["msgraph-m1"]["msgraph-event-g-old.ics"]
 
         # Deleted in Outlook.
         self.graph_pages.append({"value": [{"id": "g-old", "@removed": {"reason": "deleted"}}]})
         self.assertEqual(self.sync(), (True, ""))
 
-        self.assertEqual(self.local.collections["persoenlich"], {}, "the mirror dropped the event")
+        self.assertEqual(self.local.collections["msgraph-m1"], {}, "the mirror dropped the event")
         (row,) = trash_rows(self.db_path)
         self.assertEqual((row["kind"], row["title"], row["linked"], row["origin"]),
                          ("event", "Planning with Test User", 1, "provider"))
-        self.assertEqual(row["calendar_id"], f"internal-caldav::/{USER_ID}/persoenlich/")
-        self.assertEqual(row["payload"], {"href": f"/{USER_ID}/persoenlich/msgraph-event-g-old.ics", "ics": imported,
+        self.assertEqual(row["calendar_id"], f"internal-caldav::/{USER_ID}/msgraph-m1/")
+        self.assertEqual(row["payload"], {"href": f"/{USER_ID}/msgraph-m1/msgraph-event-g-old.ics", "ics": imported,
                                           "msgraph": {"accountId": "acc1"}})
 
         # Restored: the trash route PUTs the payload back and queues the Graph restore.
-        self.local.collections["persoenlich"]["msgraph-event-g-old.ics"] = row["payload"]["ics"]
+        self.local.collections["msgraph-m1"]["msgraph-event-g-old.ics"] = row["payload"]["ics"]
         self.conn.execute("INSERT INTO msgraph_restores VALUES ('acc1', ?, 0)", (row["payload"]["href"],))
         self.conn.commit()
         self.assertEqual(self.sync(), (True, ""))
@@ -452,8 +470,8 @@ class MSGraphWorkerTest(unittest.TestCase):
             "end": {"dateTime": "2026-10-20T10:00:00", "timeZone": "UTC"}, "isAllDay": False})
         self.assertEqual(post[2]["Authorization"], "Bearer testuser-access")
         # The local copy now carries Microsoft's new id; the old resource is gone.
-        self.assertEqual(set(self.local.collections["persoenlich"]), {"msgraph-event-g-new.ics"})
-        self.assertIn("SUMMARY:Planning with Test User", self.local.collections["persoenlich"]["msgraph-event-g-new.ics"])
+        self.assertEqual(set(self.local.collections["msgraph-m1"]), {"msgraph-event-g-new.ics"})
+        self.assertIn("SUMMARY:Planning with Test User", self.local.collections["msgraph-m1"]["msgraph-event-g-new.ics"])
         self.assertEqual(self.conn.execute("SELECT graph_id FROM msgraph_event_mappings").fetchall()[0][0], "g-new")
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM msgraph_restores").fetchone()[0], 0)
 
@@ -475,13 +493,13 @@ class MSGraphWorkerTest(unittest.TestCase):
                          ("2026-07-01T08:00:00", "2026-07-01T09:00:00", ""))
 
     def test_a_failed_graph_create_keeps_the_restore_queued_and_fails_the_job(self):
-        self.local.collections["persoenlich"]["msgraph-event-g-old.ics"] = EVENT
+        self.local.collections["msgraph-m1"]["msgraph-event-g-old.ics"] = EVENT
         self.conn.execute("INSERT INTO msgraph_restores VALUES ('acc1', ?, 0)",
-                          (f"/{USER_ID}/persoenlich/msgraph-event-g-old.ics",))
+                          (f"/{USER_ID}/msgraph-m1/msgraph-event-g-old.ics",))
         self.conn.commit()
 
         def refuse(req, context=None, timeout=None):
-            if req.full_url.startswith(GRAPH + "/me/events"):
+            if req.full_url.startswith(GRAPH + "/me/calendars/cal1/events"):
                 raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b"{}"))
             return self.fake_urlopen(req, context, timeout)
 
@@ -492,7 +510,7 @@ class MSGraphWorkerTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("re-creating a restored event failed", error)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM msgraph_restores").fetchone()[0], 1)
-        self.assertIn("msgraph-event-g-old.ics", self.local.collections["persoenlich"])
+        self.assertIn("msgraph-event-g-old.ics", self.local.collections["msgraph-m1"])
 
 
 if __name__ == "__main__":
