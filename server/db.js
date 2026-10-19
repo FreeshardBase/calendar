@@ -428,6 +428,18 @@ db.serialize(() => {
       updated_at INTEGER NOT NULL
     )
   `);
+  // #515: "Als Vorlage speichern" — an event's or task's fields without date and time, per user.
+  // Kept here only, never written to Radicale, so no provider sees them.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS item_templates (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('event', 'task')),
+      name TEXT NOT NULL,
+      fields TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS cross_user_deletions (
       id TEXT PRIMARY KEY,
@@ -1111,6 +1123,7 @@ const Db = {
       await tx.run('DELETE FROM delegate_permissions WHERE principal_user_id = ? OR delegate_user_id = ?', [userId, userId]);
       await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM item_templates WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
       await tx.run('DELETE FROM trash_items WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
@@ -2601,6 +2614,35 @@ const Db = {
         [userId, taskView, Date.now()],
         (err) => (err ? reject(err) : resolve(taskView))
       );
+    });
+  },
+
+  // #515: the user's templates of one kind, oldest first.
+  async listTemplates(userId, kind) {
+    const rows = await dbAll(db,
+      'SELECT id, kind, name, fields FROM item_templates WHERE user_id = ? AND kind = ? ORDER BY created_at, rowid',
+      [userId, kind]);
+    return rows.map(r => ({ id: r.id, kind: r.kind, name: r.name, fields: JSON.parse(r.fields) }));
+  },
+
+  createTemplate(userId, { kind, name, fields }) {
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      db.run(
+        'INSERT INTO item_templates (id, user_id, kind, name, fields, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [id, userId, kind, name, JSON.stringify(fields), Date.now()],
+        (err) => (err ? reject(err) : resolve({ id, kind, name, fields }))
+      );
+    });
+  },
+
+  // True when the user had such a template.
+  deleteTemplate(userId, id) {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM item_templates WHERE id = ? AND user_id = ?', [id, userId], function (err) {
+        if (err) return reject(err);
+        resolve(this.changes > 0);
+      });
     });
   },
 

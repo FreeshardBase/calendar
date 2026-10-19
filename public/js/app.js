@@ -9,10 +9,11 @@ import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { searchTimeZones, zoneOffsetLabel, localTimeZone } from './timezones.js';
-import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
+import { initEventModal, openCreateModal, openEditModal, openDuplicateModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
+import { openContextMenu } from './contextMenu.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
-import { initTaskUI, openTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
+import { initTaskUI, openTaskModal, openDuplicateTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
 import { initListView, loadListPage, renderListView } from './listView.js';
 import { initPdfExport } from './pdfExport.js';
@@ -75,6 +76,7 @@ async function boot() {
   initIcsImport();
   initNotificationService();
   initTaskUI({ onTaskChanged: reloadTasksAfterEdit });
+  initItemContextMenu();
   initInvitations();
   initListView({
     showToast,
@@ -2604,6 +2606,35 @@ async function saveEventTimes(ev, change, { scope, recurrenceId, attendees }) {
 // the same days and minutes, so start and due keep their distance and their value type.
 
 const TASK_ITEM_PREFIX = 'task:';
+
+// #515: right-click (or the menu key) on an event in the calendar views, or on a task in the task
+// area, the calendar grid or the sidebar, offers "Duplizieren".
+function initItemContextMenu() {
+  document.addEventListener('contextmenu', e => {
+    const chip = e.target.closest('#calendar-container [data-event-uid]');
+    const taskEl = e.target.closest('[data-task-id]');
+    let duplicate = null;
+    if (chip) {
+      const uid = chip.dataset.eventUid;
+      if (uid.startsWith(TASK_ITEM_PREFIX)) {
+        const task = (store.get('tasks') || []).find(t => TASK_ITEM_PREFIX + t.uid === uid);
+        if (task && !task.pending) duplicate = () => openDuplicateTaskModal(task);
+      } else {
+        const ev = (store.get('events') || []).find(x => x.uid === uid);
+        if (ev && !ev.pending) duplicate = () => openDuplicateModal(ev, EVENT_MODAL_CALLBACKS);
+      }
+    } else if (taskEl && !taskEl.dataset.recurrenceId) {
+      const task = (store.get('tasks') || []).find(t => t.uid === taskEl.dataset.taskId && !t.recurrenceId);
+      if (task && !task.pending) duplicate = () => openDuplicateTaskModal(task);
+    }
+    if (!duplicate) return;
+    e.preventDefault();
+    // A menu opened by keyboard (clientX/Y 0) sits at the item.
+    const item = chip || taskEl;
+    const anchor = item.getBoundingClientRect();
+    openContextMenu(e.clientX || anchor.left, e.clientY || anchor.bottom, [{ label: 'Duplizieren', action: duplicate }], item);
+  });
+}
 const TASK_BLOCK_MS = 30 * 60000;
 
 const dayString = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

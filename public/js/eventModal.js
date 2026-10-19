@@ -9,6 +9,7 @@ import { showToast, showUndoToast } from './app.js';
 import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFocus.js';
 import { requestNotificationPermission } from './notifications.js';
 import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.js';
+import { createTemplatePicker, templateAlarms } from './templates.js';
 
 export { formatAlarmTriggerLabel };
 
@@ -22,6 +23,7 @@ let _formGeneration = 0; // counts openings, so a failed save knows the form sti
 let _currentEvent = null; // null = create mode, object = edit mode
 let _recurrenceTouched = false;
 let _reminders = null; // #508: reminder list editor, created in initEventModal
+let _templates = null; // #515: "Neu aus Vorlage" picker, created in initEventModal
 
 // ── DOM refs (lazily grabbed) ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -78,7 +80,9 @@ export function openCreateModal(defaultDate, callbacks, range = null) {
   resetForm();
   $('event-modal-title').textContent = 'Neuer Termin';
   $('delete-event-btn').style.display = 'none';
+  $('event-duplicate-btn').classList.add('hidden');
   $('event-save-btn').style.display = '';
+  _templates.show();
 
   const activeCurrentDate = store.get('currentDate');
   const d = defaultDate ? new Date(defaultDate) : (activeCurrentDate ? new Date(activeCurrentDate) : new Date());
@@ -148,6 +152,8 @@ export function openEditModal(event, callbacks) {
 
   $('event-save-btn').style.display = isReadOnly ? 'none' : '';
   $('delete-event-btn').style.display = isReadOnly ? 'none' : 'block';
+  $('event-duplicate-btn').classList.remove('hidden');
+  _templates.hide();
 
   let warningEl = $('event-modal-warning');
   if (!warningEl) {
@@ -312,6 +318,100 @@ export function openEditModal(event, callbacks) {
 export function closeModal() {
   closeDialog(backdrop());
   _currentEvent = null;
+}
+
+/**
+ * #515: "Duplizieren" — the dialog keeps the fields and turns into a new event, which gets its own
+ * UID when it is saved. Nothing is stored (and nobody invited) before "Speichern".
+ */
+export function openDuplicateModal(event, callbacks) {
+  openEditModal(event, callbacks);
+  duplicateCurrent();
+}
+
+function duplicateCurrent() {
+  const source = _currentEvent;
+  _currentEvent = null;
+  _formGeneration++;
+  $('event-modal-title').textContent = 'Termin duplizieren';
+  $('ev-uid').value  = '';
+  $('ev-href').value = '';
+  $('ev-etag').value = '';
+  $('delete-event-btn').style.display = 'none';
+  $('event-duplicate-btn').classList.add('hidden');
+  $('event-save-btn').style.display = '';
+  $('event-modal-warning')?.classList.add('hidden');
+  setFormDisabled(false);
+  // The copy goes into a writable calendar: the source's one if it is, the first otherwise.
+  const writable = (store.get('calendars') || []).some(c => c.id === source.calendarId && !c.readOnly);
+  populateCalendarSelect(writable ? source.calendarId : undefined);
+  // The copy's attendees have not answered it yet.
+  renderAttendeeList(collectAttendees().map(a => ({ ...a, status: 'NEEDS-ACTION' })));
+  $('ev-title').focus();
+}
+
+// #515: the dialog's fields without date, time and recurrence, for "Als Vorlage speichern".
+function templateFields() {
+  const reminders = _reminders.collect($('ev-title').value.trim() || 'Erinnerung');
+  if (reminders.error) return reminders;
+  const attachUrl = $('ev-attachment-url').value.trim();
+  const attachName = $('ev-attachment-name').value.trim();
+  const rawCatVal = $('ev-categories').value.trim();
+  return {
+    fields: {
+      title:          $('ev-title').value.trim(),
+      calendarId:     $('ev-calendar').value || null,
+      allDay:         $('ev-allday').checked,
+      location:       $('ev-location').value.trim() || null,
+      description:    $('ev-description').value.trim() || null,
+      categories:     rawCatVal ? rawCatVal.split(',').map(c => c.trim()).filter(Boolean) : [],
+      attendees:      collectAttendees().map(({ name, email }) => ({ name, email })),
+      alarms:         templateAlarms(reminders.alarms),
+      attachments:    attachUrl ? [{ url: attachUrl, name: attachName || attachUrl.split('/').pop() || 'Link' }] : [],
+      transp:         $('ev-transp').value,
+      classification: $('ev-class').value,
+    }
+  };
+}
+
+async function saveAsTemplate() {
+  if (!$('ev-title').value.trim()) {
+    showError('Bitte gib einen Titel ein.');
+    return;
+  }
+  const { fields, error } = templateFields();
+  if (error) {
+    $('ev-section-alarm').open = true;
+    showError(error);
+    return;
+  }
+  $('event-form-error').classList.add('hidden');
+  await _templates.save(fields);
+}
+
+// #515: "Neu aus Vorlage" fills the new event's fields; date and time stay as the dialog set them.
+function applyTemplate(fields) {
+  $('ev-title').value = fields.title || '';
+  if (fields.calendarId && [...$('ev-calendar').options].some(o => o.value === fields.calendarId)) {
+    $('ev-calendar').value = fields.calendarId;
+  }
+  $('ev-allday').checked = Boolean(fields.allDay);
+  updateAlldayUI(Boolean(fields.allDay));
+  $('ev-location').value    = fields.location || '';
+  $('ev-description').value = fields.description || '';
+  $('ev-categories').value  = (fields.categories || []).join(', ');
+  renderAttendeeList((fields.attendees || []).map(a => ({ ...a, status: 'NEEDS-ACTION' })));
+  _reminders.setAlarms(fields.alarms || []);
+  const attach = (fields.attachments || [])[0];
+  $('ev-attachment-url').value  = attach ? attach.url : '';
+  $('ev-attachment-name').value = attach ? attach.name : '';
+  $('ev-transp').value = fields.transp || 'OPAQUE';
+  $('ev-class').value  = fields.classification || 'PUBLIC';
+  $('ev-section-alarm').open     = (fields.alarms || []).length > 0;
+  $('ev-section-attendees').open = (fields.attendees || []).length > 0;
+  $('ev-section-link').open      = Boolean(attach);
+  $('ev-section-more').open      = (fields.categories || []).length > 0
+    || $('ev-transp').value !== 'OPAQUE' || $('ev-class').value !== 'PUBLIC';
 }
 
 /**
@@ -489,7 +589,8 @@ function populateCalendarSelect(selectedId) {
 function setFormDisabled(disabled) {
   const formEl = form();
   if (!formEl) return;
-  const elements = formEl.querySelectorAll('input, select, textarea, button:not(#event-cancel-btn):not(#event-modal-close)');
+  // A read-only event can still be duplicated into a writable calendar or kept as a template (#515).
+  const elements = formEl.querySelectorAll('input, select, textarea, button:not(#event-cancel-btn):not(#event-modal-close):not(#event-duplicate-btn):not(#event-template-btn)');
   elements.forEach(el => {
     if (disabled) {
       el.setAttribute('disabled', 'disabled');
@@ -901,6 +1002,15 @@ export function initEventModal() {
   $('event-save-btn').addEventListener('click', e => { /* handled by form submit */ });
   form().addEventListener('submit', handleSubmit);
   $('delete-event-btn').addEventListener('click', handleDelete);
+  $('event-duplicate-btn').addEventListener('click', duplicateCurrent);
+  $('event-template-btn').addEventListener('click', saveAsTemplate);
+  _templates = createTemplatePicker({
+    kind: 'event',
+    row: $('ev-template-row'),
+    select: $('ev-template'),
+    deleteBtn: $('ev-template-delete'),
+    onApply: applyTemplate,
+  });
 
   const markRecurrenceTouched = () => { _recurrenceTouched = true; };
 

@@ -539,6 +539,14 @@
         <input type="hidden" id="ev-href" />
         <input type="hidden" id="ev-etag" />
 
+        <div class="form-row template-picker hidden" id="ev-template-row">
+          <div class="form-group">
+            <label class="form-label" for="ev-template">Neu aus Vorlage</label>
+            <select class="form-select" id="ev-template"></select>
+          </div>
+          <button type="button" class="btn btn-ghost" id="ev-template-delete" disabled>Vorlage löschen</button>
+        </div>
+
         <div class="form-group">
           <input class="form-input form-input-title" id="ev-title" type="text"
                  placeholder="Titel des Termins" aria-label="Titel des Termins" required />
@@ -769,9 +777,13 @@
         <div id="event-form-error" class="form-error hidden" role="alert"></div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-danger" id="delete-event-btn" style="display:none">
-            Löschen
-          </button>
+          <div class="modal-actions-left">
+            <button type="button" class="btn btn-danger" id="delete-event-btn" style="display:none">
+              Löschen
+            </button>
+            <button type="button" class="btn btn-ghost hidden" id="event-duplicate-btn">Duplizieren</button>
+            <button type="button" class="btn btn-ghost" id="event-template-btn">Als Vorlage speichern</button>
+          </div>
           <div class="modal-actions-right">
             <button type="button" class="btn btn-ghost" id="event-cancel-btn">Abbrechen</button>
             <button type="submit" class="btn btn-primary" id="event-save-btn">
@@ -1063,6 +1075,13 @@
       <input type="hidden" id="task-href" />
       <input type="hidden" id="task-etag" />
       <div class="modal-body">
+        <div class="form-row template-picker hidden" id="task-template-row">
+          <div class="form-group">
+            <label class="form-label" for="task-template">Neu aus Vorlage</label>
+            <select class="form-select" id="task-template"></select>
+          </div>
+          <button type="button" class="btn btn-ghost" id="task-template-delete" disabled>Vorlage löschen</button>
+        </div>
         <div class="form-group">
           <label class="form-label" for="task-title">Titel *</label>
           <input class="form-input" id="task-title" type="text" placeholder="Aufgabenbezeichnung" required />
@@ -1139,6 +1158,8 @@
         </div>
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn btn-ghost hidden" id="task-duplicate-btn">Duplizieren</button>
+        <button type="button" class="btn btn-ghost" id="task-template-btn">Als Vorlage speichern</button>
         <button type="button" class="btn btn-ghost" id="task-cancel-btn">Abbrechen</button>
         <button type="submit" class="btn btn-primary" id="task-save-btn">Speichern</button>
       </div>

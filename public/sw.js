@@ -16,6 +16,8 @@ const PRECACHE_ASSETS = [
   '/js/workingHours.js',
   '/js/delegates.js',
   '/js/eventModal.js',
+  '/js/templates.js',
+  '/js/contextMenu.js',
   '/js/accountModal.js',
   '/js/shortcuts.js',
   '/js/offlineCache.js',
