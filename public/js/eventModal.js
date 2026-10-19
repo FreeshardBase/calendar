@@ -5,7 +5,7 @@
 import { store, calendarById } from './store.js';
 import { fillCalendarSelect, holdsEvents } from './calendarLabels.js';
 import { EventsAPI } from './api.js';
-import { showToast } from './app.js';
+import { showToast, showUndoToast } from './app.js';
 import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFocus.js';
 import { requestNotificationPermission } from './notifications.js';
 import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.js';
@@ -824,14 +824,16 @@ async function handleDelete() {
   setButtonLoading('event-save-btn', true);
   try {
     const targetUid = _currentEvent.masterUid || (_currentEvent.uid ? _currentEvent.uid.split('::')[0] : '');
-    await EventsAPI.remove(targetUid, {
+    const { trashId } = await EventsAPI.remove(targetUid, {
       calendarId: _currentEvent.calendarId,
       etag:       _currentEvent.etag,
       href:       _currentEvent.href,
       ...(scope === 'occurrence' ? { scope, recurrenceId: deleteRecurrenceId } : {})
     });
     closeModal();
-    showToast('Termin gelöscht.', 'info');
+    // A deleted occurrence is an EXDATE in the series, not a trash entry.
+    if (trashId) showUndoToast('Termin gelöscht.', trashId);
+    else showToast('Termin gelöscht.', 'info');
     _onDeleted?.(targetUid);
   } catch (err) {
     showError(err.message);

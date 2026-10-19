@@ -6,7 +6,7 @@ import { store } from './store.js';
 import { fillCalendarSelect, calendarLabel } from './calendarLabels.js';
 import { TasksAPI } from './api.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
-import { showToast } from './app.js';
+import { showToast, showUndoToast } from './app.js';
 import { createReminderEditor } from './reminderEditor.js';
 
 function notifyToast(message, type = 'info') {
@@ -619,8 +619,8 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
   card.querySelector('.btn-delete')?.addEventListener('click', async () => {
     if (await confirmDialog(`Aufgabe „${task.title}“ wirklich löschen?`)) {
       try {
-        await TasksAPI.remove(task.uid, { calendarId: task.calendarId, href: task.href, etag: task.etag });
-        notifyToast('Aufgabe gelöscht.', 'info');
+        const { trashId } = await TasksAPI.remove(task.uid, { calendarId: task.calendarId, href: task.href, etag: task.etag });
+        showUndoToast('Aufgabe gelöscht.', trashId);
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
         notifyToast('Fehler beim Löschen: ' + err.message, 'error');

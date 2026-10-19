@@ -48,6 +48,7 @@ const TRAVERSAL_CAL_HREFS = [
 
 function startFakeCalDAV() {
   const requests = [];
+  const stored = new Map();
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', c => { body += c; });
@@ -58,10 +59,17 @@ function startFakeCalDAV() {
         return res.end(taskListMultistatus(new URL(req.url, 'http://caldav/').pathname));
       }
       if (req.method === 'PUT') {
+        stored.set(req.url, body);
         res.writeHead(201, { ETag: '"issue232"' });
         return res.end();
       }
+      // #348: a delete reads the item first to keep a copy in the trash.
+      if (req.method === 'GET' && stored.has(req.url)) {
+        res.writeHead(200, { 'Content-Type': 'text/calendar', ETag: '"issue232"' });
+        return res.end(stored.get(req.url));
+      }
       if (req.method === 'DELETE') {
+        stored.delete(req.url);
         res.writeHead(204);
         return res.end();
       }

@@ -118,6 +118,7 @@ const accountsRouter = require('./routes/accounts');
 const { protectedRouter: calendarsRouter, publicRouter } = require('./routes/calendars');
 const eventsRouter = require('./routes/events');
 const tasksRouter = require('./routes/tasks');
+const trashRouter = require('./routes/trash');
 const authRouter = require('./routes/auth');
 const msgraphRouter = require('./routes/msgraph');
 const resourcesRouter = require('./routes/resources');
@@ -703,6 +704,7 @@ app.use('/api/accounts',          requireSessionIdentity, accountsRouter);
 app.use('/api/calendars',         requireAuth, calendarsRouter);
 app.use('/api/events',            requireAuth, eventsRouter);
 app.use('/api/tasks',             requireAuth, tasksRouter);
+app.use('/api/trash',             requireAuth, trashRouter);
 // #97: with COOKIE_SAME_SITE=strict Microsoft's cross-site redirect carries no session cookie; this page forwards it same-site.
 app.get('/api/msgraph/callback',  createRateLimiter(AUTH_RATE_LIMIT), msgraphRouter.forwardCallback);
 app.use('/api/msgraph',           requireAuth, msgraphRouter);
@@ -781,6 +783,10 @@ Db.ready.then(() => {
   listen();
   module.exports.webcalWorker = startWebcalSyncWorker();
   module.exports.dbBackupWorker = startDbBackupWorker();
+  // #348: trash entries older than 30 days are purged hourly (the listing purges them too).
+  setInterval(() => {
+    Db.purgeExpiredTrash().catch(err => console.error('[trash purge]', err.message));
+  }, 60 * 60 * 1000).unref();
 }).catch((err) => {
   console.error(`[startup] ${err.message}`);
   process.exit(1);

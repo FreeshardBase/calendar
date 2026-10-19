@@ -277,6 +277,12 @@
           </div>
           <div class="settings-list" id="settings-calendar-list"></div>
         </div>
+        <!-- Trash Section (#348) -->
+        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <h3 style="margin:0 0 8px 0">Papierkorb</h3>
+          <p class="trash-hint">Gelöschte Kalender, Aufgabenlisten, Termine und Aufgaben bleiben 30 Tage wiederherstellbar.</p>
+          <div class="settings-list" id="settings-trash-list"></div>
+        </div>
         <!-- App-Specific Passwords Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
@@ -971,6 +977,23 @@
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
         <button type="button" class="btn btn-secondary" id="confirm-dialog-cancel">Abbrechen</button>
         <button type="button" class="btn btn-danger" id="confirm-dialog-ok">Bestätigen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Typed Confirmation Dialog (#348) ─────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="typed-confirm-backdrop" inert>
+  <div class="modal modal-sm" id="typed-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="typed-confirm-title">
+    <div class="modal-header">
+      <h3 class="modal-title" id="typed-confirm-title">Bestätigung</h3>
+    </div>
+    <div class="modal-body">
+      <label class="form-label" id="typed-confirm-text" for="typed-confirm-input"></label>
+      <input type="text" class="form-input" id="typed-confirm-input" autocomplete="off">
+      <div class="typed-confirm-actions">
+        <button type="button" class="btn btn-secondary" id="typed-confirm-cancel">Abbrechen</button>
+        <button type="button" class="btn btn-danger" id="typed-confirm-ok" disabled>Löschen</button>
       </div>
     </div>
   </div>

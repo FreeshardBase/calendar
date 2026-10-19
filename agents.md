@@ -158,7 +158,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   "please reconnect" message, shown in the modal. A failing account does not stop the user's other Microsoft
   accounts or Google pairs; its error is the job's result. Requests time out after 30 s. A per-account lease (`sync_lock_until`, 15 min) keeps syncs of
   one account from overlapping across processes.
-- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `msgraph` (`/api/msgraph/*` Microsoft 365 OAuth connection, account list, sync request), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
+- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `trash` (`/api/trash` #348: every event/task/calendar/task-list delete keeps a copy in `trash_items` first; list, restore under the same href/UID, purge; entries go after 30 days), `msgraph` (`/api/msgraph/*` Microsoft 365 OAuth connection, account list, sync request), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)

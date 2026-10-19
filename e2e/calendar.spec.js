@@ -6039,7 +6039,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#sidebar-settings-btn');
       await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
       await page.locator('[data-delete-cal-settings]').first().click();
-      await page.click('#confirm-dialog-ok');
+      // #348: a calendar delete is confirmed by typing its name.
+      const typed = page.locator('#typed-confirm-input');
+      await typed.fill(await typed.getAttribute('placeholder'));
+      await page.click('#typed-confirm-ok');
 
       const toast = page.locator('#toast-container').getByRole('alert');
       await expect(toast).toHaveText(/Kalender ist gesperrt/);
@@ -9054,6 +9057,137 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         }
         await page.request.delete(`/api/calendars/${encodeURIComponent(targetId)}`, { headers: SAME_ORIGIN });
       }
+    });
+  });
+
+  // Issue #348: every delete goes to the shard's trash; the toast offers "Rückgängig" for 8 s,
+  // a calendar is deleted only after typing its name, and the settings' trash restores it.
+  test.describe('Issue #348 — trash and undo', () => {
+    test('#348 a deleted event comes back with "Rückgängig" in the toast', async ({ page }) => {
+      await page.goto('/');
+      const calendars = (await (await page.request.get('/api/calendars')).json()).calendars;
+      const personal = calendars.find(c => c.supportsVEVENT && !c.readOnly);
+      const title = `E2E 348 Undo ${Date.now()}`;
+      const created = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: { calendarId: personal.id, title, start: '2037-07-14T09:00:00.000Z', end: '2037-07-14T10:00:00.000Z' },
+      });
+      expect(created.status()).toBe(201);
+
+      await page.goto('/?date=2037-07-14');
+      const chip = page.locator('.event-chip', { hasText: title }).first();
+      await expect(chip).toBeVisible({ timeout: 15000 });
+      await chip.click();
+      await page.click('#popover-delete-btn');
+      await page.click('#confirm-dialog-ok');
+      await expect(chip).toHaveCount(0);
+
+      const toast = page.locator('#toast-container .toast', { hasText: 'Termin gelöscht.' });
+      const undo = toast.getByRole('button', { name: 'Rückgängig' });
+      await expect(undo).toBeVisible();
+      // Still offered after the 4 s of a plain toast.
+      await page.waitForTimeout(4600);
+      await expect(undo).toBeVisible();
+      await undo.click();
+      await expect(page.locator('#toast-container .toast.success', { hasText: 'Wiederhergestellt.' })).toBeVisible();
+      await expect(chip).toBeVisible({ timeout: 15000 });
+
+      const trash = await (await page.request.get('/api/trash')).json();
+      expect(trash.items.some(i => i.title === title)).toBe(false);
+    });
+
+    test('#348 a calendar is deleted only after typing its name and restored from the trash', async ({ page }) => {
+      await page.goto('/');
+      const name = `E2E 348 Cal ${Date.now()}`;
+      const createdCal = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, color: '#336699', type: 'calendar' },
+      });
+      expect(createdCal.status()).toBe(201);
+      const calId = (await createdCal.json()).id;
+      const ev = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: { calendarId: calId, title: 'E2E 348 Inside', start: '2037-08-11T09:00:00.000Z', end: '2037-08-11T10:00:00.000Z' },
+      });
+      expect(ev.status()).toBe(201);
+
+      await page.goto('/?date=2037-08-11');
+      await expect(page.locator('#calendar-list')).toContainText(name, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      await page.locator('#settings-calendar-list .settings-item', { hasText: name }).locator('[data-delete-cal-settings]').click();
+
+      const dialog = page.locator('#typed-confirm-backdrop');
+      const ok = page.locator('#typed-confirm-ok');
+      await expect(dialog).not.toHaveClass(/hidden/);
+      await expect(page.locator('#typed-confirm-text')).toContainText(name);
+      await expect(page.locator('#typed-confirm-input')).toBeFocused();
+      await expect(ok).toBeDisabled();
+      await page.fill('#typed-confirm-input', 'E2E 348');
+      await expect(ok).toBeDisabled();
+      await page.fill('#typed-confirm-input', name);
+      await expect(ok).toBeEnabled();
+      await ok.click();
+      await expect(dialog).toHaveClass(/hidden/);
+      await expect(page.locator('#calendar-list')).not.toContainText(name, { timeout: 10000 });
+
+      const entry = page.locator('#settings-trash-list .trash-item', { hasText: name });
+      await expect(entry).toBeVisible({ timeout: 10000 });
+      await expect(entry).toContainText('Kalender · 1 Einträge');
+      await entry.getByRole('button', { name: 'Wiederherstellen' }).click();
+      await expect(page.locator('#calendar-list')).toContainText(name, { timeout: 10000 });
+      await expect(entry).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.event-chip', { hasText: 'E2E 348 Inside' }).first()).toBeVisible({ timeout: 15000 });
+    });
+
+    test('#348 cancelling the typed confirmation keeps the calendar', async ({ page }) => {
+      await page.goto('/');
+      const name = `E2E 348 Keep ${Date.now()}`;
+      const createdCal = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, type: 'calendar' },
+      });
+      expect(createdCal.status()).toBe(201);
+      await page.goto('/');
+      await expect(page.locator('#calendar-list')).toContainText(name, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      const deleteBtn = page.locator('#settings-calendar-list .settings-item', { hasText: name }).locator('[data-delete-cal-settings]');
+      await deleteBtn.click();
+      // A wrong name keeps "Löschen" disabled.
+      await page.fill('#typed-confirm-input', 'E2E 348');
+      await expect(page.locator('#typed-confirm-ok')).toBeDisabled();
+      await page.click('#typed-confirm-cancel');
+      await expect(page.locator('#typed-confirm-backdrop')).toHaveClass(/hidden/);
+      // Escape cancels too, and the dialog opens again afterwards.
+      await deleteBtn.click();
+      await expect(page.locator('#typed-confirm-backdrop')).not.toHaveClass(/hidden/);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#typed-confirm-backdrop')).toHaveClass(/hidden/);
+      await expect(page.locator('#settings-calendar-list')).toContainText(name);
+      const trash = await (await page.request.get('/api/trash')).json();
+      expect(trash.items.some(i => i.title === name)).toBe(false);
+    });
+
+    test('#348 a deleted task list is listed as "Aufgabenliste" in the trash and can be purged', async ({ page }) => {
+      await page.goto('/');
+      const name = `E2E 348 Liste ${Date.now()}`;
+      const created = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, type: 'tasklist' },
+      });
+      expect(created.status()).toBe(201);
+      const { id: listId } = await created.json();
+      const del = await page.request.delete(`/api/calendars/${encodeURIComponent(listId)}`, { headers: SAME_ORIGIN });
+      expect(del.ok()).toBe(true);
+
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      const entry = page.locator('#settings-trash-list .trash-item', { hasText: name });
+      await expect(entry).toContainText('Aufgabenliste');
+      await entry.locator('[data-trash-purge]').click();
+      await page.click('#confirm-dialog-ok');
+      await expect(entry).toHaveCount(0);
+      const trash = await (await page.request.get('/api/trash')).json();
+      expect(trash.items.some(i => i.title === name)).toBe(false);
     });
   });
 });

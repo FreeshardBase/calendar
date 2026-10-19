@@ -139,6 +139,9 @@ function resolveEncryptionKey(env = process.env, targetDbPath = dbPath) {
 // and a random salt of its own. Layout, shared with sync-worker/sync_worker.py:
 //   iv column (or token part before ':')        = salt (16 bytes) || nonce (12 bytes), hex
 //   ciphertext column (or token part after ':') = ciphertext || auth tag (16 bytes), hex
+// #348: how long a deleted calendar, task list, event or task stays restorable.
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const SALT_BYTES = 16;
 const NONCE_BYTES = 12;
@@ -428,6 +431,21 @@ db.serialize(() => {
       created_at INTEGER NOT NULL
     )
   `);
+  // #348: the shard's trash. payload is JSON: { href, ics } for an event or task,
+  // { url, name, color, components, items: [{ href, ics }] } for a calendar or task list.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS trash_items (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('event', 'task', 'calendar')),
+      calendar_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      linked INTEGER NOT NULL DEFAULT 0,
+      payload TEXT NOT NULL,
+      deleted_at INTEGER NOT NULL
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_trash_items_user ON trash_items(user_id, deleted_at)');
   db.run(`
     CREATE TABLE IF NOT EXISTS user_calendar_color_overrides (
       user_id TEXT NOT NULL,
@@ -1081,6 +1099,7 @@ const Db = {
       await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
+      await tx.run('DELETE FROM trash_items WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_calendar_color_overrides WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_calendar_order WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM webcal_subscriptions WHERE user_id = ?', [userId]);
@@ -1172,6 +1191,7 @@ const Db = {
       await tx.run('DELETE FROM user_calendar_order');
       await tx.run('DELETE FROM webcal_subscriptions');
       await tx.run('DELETE FROM sync_queue');
+      await tx.run('DELETE FROM trash_items');
     });
   },
 
@@ -2646,6 +2666,66 @@ const Db = {
     });
   },
 
+  // ── Trash (#348) ───────────────────────────────────────────────────────────
+  addTrashItem({ userId, kind, calendarId, title, linked = false, payload, deletedAt = Date.now() }) {
+    const id = require('node:crypto').randomUUID();
+    return dbRun(db,
+      `INSERT INTO trash_items (id, user_id, kind, calendar_id, title, linked, payload, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, userId, kind, calendarId, title, linked ? 1 : 0, JSON.stringify(payload), deletedAt]
+    ).then(() => id);
+  },
+
+  // Newest first, without the payload (a calendar's can be large).
+  async listTrashItems(userId, now = Date.now()) {
+    await this.purgeExpiredTrash(now);
+    const rows = await dbAll(db,
+      `SELECT id, kind, calendar_id, title, linked, deleted_at,
+              CASE WHEN kind = 'calendar' THEN json_array_length(payload, '$.items') END AS item_count,
+              CASE WHEN kind = 'calendar' THEN json_extract(payload, '$.components') END AS components
+       FROM trash_items WHERE user_id = ? ORDER BY deleted_at DESC`,
+      [userId]);
+    return rows.map(r => ({
+      id: r.id,
+      kind: r.kind,
+      calendarId: r.calendar_id,
+      title: r.title,
+      linked: r.linked === 1,
+      deletedAt: new Date(r.deleted_at).toISOString(),
+      purgeAt: new Date(r.deleted_at + TRASH_RETENTION_MS).toISOString(),
+      ...(r.kind === 'calendar' ? { itemCount: r.item_count, components: JSON.parse(r.components) } : {})
+    }));
+  },
+
+  async getTrashItem(id, userId) {
+    const r = await dbGet(db,
+      'SELECT id, kind, calendar_id, title, linked, payload, deleted_at FROM trash_items WHERE id = ? AND user_id = ?',
+      [id, userId]);
+    if (!r) return null;
+    return {
+      id: r.id, kind: r.kind, calendarId: r.calendar_id, title: r.title, linked: r.linked === 1,
+      payload: JSON.parse(r.payload), deletedAt: r.deleted_at
+    };
+  },
+
+  deleteTrashItem(id, userId) {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM trash_items WHERE id = ? AND user_id = ?', [id, userId], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes);
+      });
+    });
+  },
+
+  purgeExpiredTrash(now = Date.now()) {
+    return new Promise((resolve, reject) => {
+      db.run('DELETE FROM trash_items WHERE deleted_at <= ?', [now - TRASH_RETENTION_MS], function(err) {
+        if (err) return reject(err);
+        resolve(this.changes);
+      });
+    });
+  },
+
   setUserCalendarColorOverride(userId, calendarId, color) {
     return new Promise((resolve, reject) => {
       const now = Date.now();
@@ -3316,6 +3396,7 @@ module.exports = Db;
 module.exports.validateEncryptionKey = validateEncryptionKey;
 module.exports.resolveEncryptionKey = resolveEncryptionKey;
 module.exports.ready = ready;
+module.exports.TRASH_RETENTION_MS = TRASH_RETENTION_MS;
 module.exports.withTransaction = Db.withTransaction.bind(Db);
 module.exports.getSchemaVersion = Db.getSchemaVersion;
 module.exports.setSchemaVersion = Db.setSchemaVersion;
