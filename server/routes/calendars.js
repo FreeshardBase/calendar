@@ -19,6 +19,7 @@ const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS
 const { getPublicShareUrl } = require('../utils/baseUrl');
 const { sendError, describeError, userError, MESSAGES } = require('../utils/errorSanitizer');
 const { sanitizePublicIcs, isValidDetail, DEFAULT_DETAIL } = require('../utils/publicIcs');
+const { parseExportOptions, generateCalendarPDF, renderPreview } = require('../utils/pdfExport');
 
 const SHARE_NS = 'http://freeshard.de/ns/';
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -826,34 +827,46 @@ router.get('/:id/export', async (req, res) => {
   }
 });
 
-// POST /api/calendars/export/pdf — export vector PDF for month or week view
+// #511: the export dialog's settings, checked once for the preview and the PDF alike.
+function exportOptions(req, res) {
+  if (!req.session?.userId) {
+    res.status(401).json({ error: 'Authentication required' });
+    return null;
+  }
+  const { options, error } = parseExportOptions(req.body);
+  if (error) {
+    res.status(400).json({ error });
+    return null;
+  }
+  return options;
+}
+
+// POST /api/calendars/export/pdf — the calendar as a vector PDF (month, week, day or list)
 router.post('/export/pdf', async (req, res) => {
   try {
-    if (!req.session?.userId) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    const { generateCalendarPDF } = require('../utils/pdfExport');
-    const { view, year, month, week, events, title, orientation } = req.body || {};
-    if (!view || (view !== 'month' && view !== 'week')) {
-      return res.status(400).json({ error: 'Missing or invalid view parameter (must be "month" or "week")' });
-    }
-
-    const pdfBuffer = generateCalendarPDF({
-      view,
-      year: parseInt(year, 10) || new Date().getFullYear(),
-      month: parseInt(month, 10) || (new Date().getMonth() + 1),
-      week: parseInt(week, 10) || 1,
-      events: Array.isArray(events) ? events : [],
-      title: title || (view === 'month' ? `Monatsansicht - ${month || ''}/${year || ''}` : `Wochenansicht - KW ${week || 1}`),
-      orientation: orientation || 'landscape'
-    });
-
-    const filename = `calendar-${view}-${Date.now()}.pdf`;
+    const options = exportOptions(req, res);
+    if (!options) return;
+    const pdfBuffer = generateCalendarPDF(options);
+    const filename = `calendar-${options.view}-${Date.now()}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(pdfBuffer);
   } catch (err) {
     return sendError(res, err, '[calendars export pdf]');
+  }
+});
+
+// POST /api/calendars/export/preview — page 1 of the same document as SVG, for the export dialog
+router.post('/export/preview', async (req, res) => {
+  try {
+    const options = exportOptions(req, res);
+    if (!options) return;
+    const preview = renderPreview(options);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('X-Export-Pages', String(preview.pageCount));
+    res.send(preview.svg);
+  } catch (err) {
+    return sendError(res, err, '[calendars export preview]');
   }
 });
 

@@ -2454,6 +2454,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#view-day');
       const line = page.locator('.day-view .current-time-line');
       await expect(line).toHaveCount(1);
+      // Calendars and events still loading would re-render the view and replace the probed line.
+      await page.waitForLoadState('networkidle');
 
       // The minute timer must move this very element; the app's 5-minute event reload would
       // re-render a fresh line, so stay below that and pin the element.
@@ -2839,6 +2841,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     const downloadPromise = page.waitForEvent('download');
     await page.click('#export-pdf-btn');
+    await expect(page.locator('#pdf-preview-status')).toHaveText(/^Seite 1 von \d+$/, { timeout: 10000 });
+    await page.click('#pdf-export-download');
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.pdf$/);
     expect(await download.failure()).toBeNull();
@@ -2854,7 +2858,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       created: window.__pdfBlobUrls.length,
       revoked: window.__revokedBlobUrls.includes(window.__pdfBlobUrls.at(-1)),
     }));
-    expect(blobState).toEqual({ created: 1, revoked: false });
+    // The first blob URL is the dialog's preview (#511); the last one is the PDF.
+    expect(blobState.created).toBeGreaterThanOrEqual(2);
+    expect(blobState.revoked).toBe(false);
   });
 
   // #497: a failed export is reported before any download starts, never as a broken file or a
@@ -2879,6 +2885,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       page.on('download', () => { downloads++; });
       const exportAnswered = page.waitForResponse(r => new URL(r.url()).pathname === '/api/calendars/export/pdf');
       await page.click('#export-pdf-btn');
+      await page.click('#pdf-export-download');
       await exportAnswered;
 
       await expect(page.locator('#toast-container .toast.error', { hasText: failure.shown })).toBeVisible({ timeout: 5000 });
@@ -2887,6 +2894,156 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await page.evaluate(() => window.__printCalls)).toBe(0);
     });
   }
+
+  test.describe('Issue #511 — PDF export dialog with preview and settings', () => {
+    let WORK;
+    let HOME;
+    let PLAN;
+    let DENTIST;
+    let AGENDA;
+    const previewPath = '/api/calendars/export/preview';
+    // Texts drawn on a page, in drawing order — from the preview SVG and from a PDF content stream.
+    const svgTexts = (svg) => [...svg.matchAll(/<text [^>]*>([^<]*)<\/text>/g)].map(m => m[1]
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+    const pdfTexts = (stream) => [...stream.matchAll(/Td \(((?:\\.|[^\\)])*)\) Tj/g)].map(m => m[1].replace(/\\(.)/g, '$1'));
+    const colours = (svg) => [...svg.matchAll(/rgb\((\d+),(\d+),(\d+)\)/g)].map(m => m.slice(1).map(Number));
+
+    async function createCalendar(page, name, color) {
+      const res = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name, color, type: 'calendar' }
+      });
+      expect(res.status()).toBe(201);
+      return (await res.json()).id;
+    }
+
+    async function openAt(page) {
+      await page.goto('/?date=2039-05-10');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('.event-chip', { hasText: DENTIST })).toBeVisible({ timeout: 10000 });
+    }
+
+    /** Runs `action` and returns the text of the preview it causes. */
+    async function previewAfter(page, action) {
+      const answered = page.waitForResponse(r => new URL(r.url()).pathname === previewPath && r.request().method() === 'POST');
+      await action();
+      const res = await answered;
+      expect(res.status()).toBe(200);
+      // Chromium hands Playwright no body for a fetch read as a blob; the same settings are asked
+      // again (the renderer is deterministic) to see what the dialog was sent.
+      const again = await page.request.post(previewPath, { headers: SAME_ORIGIN, data: res.request().postDataJSON() });
+      expect(again.status()).toBe(200);
+      const svg = await again.text();
+      await expect(page.locator('#pdf-preview-status')).toHaveText(/^Seite 1 von \d+$/);
+      return svg;
+    }
+
+    const imgSize = (page) => page.locator('#pdf-preview-img').evaluate(img => [img.naturalWidth, img.naturalHeight]);
+
+    test.beforeEach(async ({ page }) => {
+      // Loading the app signs the browser in; the API calls below share its session. No cleanup:
+      // e2e/global-teardown.js drops the run's whole principal.
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      const id = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
+      WORK = `E2E 511 Arbeit ${id}`;
+      HOME = `E2E 511 Privat ${id}`;
+      // Short, per-test titles: they fit a month cell, and no other test's events match them.
+      const tag = Math.random().toString(36).slice(2, 5);
+      PLAN = `Planung ${tag}`;
+      DENTIST = `Zahnarzt ${tag}`;
+      AGENDA = `Agenda ${tag} durchgehen`;
+      const workId = await createCalendar(page, WORK, '#d03030');
+      const homeId = await createCalendar(page, HOME, '#2060c0');
+      for (const data of [
+        { calendarId: workId, title: PLAN, start: '2039-05-10T08:00:00.000Z', end: '2039-05-10T09:00:00.000Z', description: AGENDA },
+        { calendarId: homeId, title: DENTIST, start: '2039-05-11T14:00:00.000Z', end: '2039-05-11T15:00:00.000Z' }
+      ]) {
+        const res = await page.request.post('/api/events', { headers: SAME_ORIGIN, data });
+        expect(res.status()).toBe(201);
+      }
+    });
+
+    test('#511: the dialog previews the first page and every setting changes it', async ({ page }) => {
+      await openAt(page);
+      let svg = await previewAfter(page, () => page.click('#export-pdf-btn'));
+      await expect(page.locator('#pdf-export-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#pdf-view')).toBeFocused();
+      await expect(page.locator('#pdf-view')).toHaveValue('month');
+      await expect(page.locator('#pdf-from')).toHaveValue('2039-05-01');
+      await expect(page.locator('#pdf-to')).toHaveValue('2039-05-31');
+      expect(svgTexts(svg)).toContain('Mai 2039');
+      expect(svgTexts(svg)).toEqual(expect.arrayContaining([PLAN, DENTIST]));
+      await expect(page.locator('#pdf-preview-status')).toHaveText('Seite 1 von 1');
+      expect(await imgSize(page)).toEqual([842, 595]);
+
+      // Calendars: one left out is not printed.
+      const homeBox = page.locator('#pdf-calendars label', { hasText: HOME }).locator('input');
+      await expect(homeBox).toBeChecked();
+      svg = await previewAfter(page, () => homeBox.uncheck());
+      expect(svgTexts(svg)).toContain(PLAN);
+      expect(svgTexts(svg)).not.toContain(DENTIST);
+      svg = await previewAfter(page, () => homeBox.check());
+      expect(svgTexts(svg)).toContain(DENTIST);
+
+      // Paper and orientation.
+      await previewAfter(page, () => page.selectOption('#pdf-paper', 'letter'));
+      expect(await imgSize(page)).toEqual([792, 612]);
+      await previewAfter(page, () => page.selectOption('#pdf-orientation', 'portrait'));
+      expect(await imgSize(page)).toEqual([612, 792]);
+
+      // View list, in the browser's time (Europe/Berlin), with and without descriptions.
+      svg = await previewAfter(page, () => page.selectOption('#pdf-view', 'list'));
+      await expect(page.locator('#pdf-from')).toHaveValue('2039-05-01');
+      await expect(page.locator('#pdf-to')).toHaveValue('2039-05-30');
+      expect(svgTexts(svg)).toEqual(expect.arrayContaining(['Dienstag, 10. Mai 2039', '10:00 - 11:00', PLAN]));
+      expect(svgTexts(svg)).not.toContain(AGENDA);
+      svg = await previewAfter(page, () => page.check('#pdf-descriptions'));
+      expect(svgTexts(svg)).toContain(AGENDA);
+
+      // Colour or black and white.
+      expect(colours(svg).some(([r, g, b]) => r === 208 && g === 48 && b === 48)).toBe(true);
+      svg = await previewAfter(page, () => page.selectOption('#pdf-color', 'bw'));
+      expect(colours(svg).length).toBeGreaterThan(0);
+      expect(colours(svg).every(([r, g, b]) => r === g && g === b)).toBe(true);
+
+      // Range and the day view: one page per day.
+      await page.selectOption('#pdf-view', 'day');
+      await page.fill('#pdf-from', '2039-05-10');
+      svg = await previewAfter(page, () => page.fill('#pdf-to', '2039-05-12'));
+      await expect(page.locator('#pdf-preview-status')).toHaveText('Seite 1 von 3');
+      expect(svgTexts(svg)).toEqual(expect.arrayContaining(['Dienstag, 10. Mai 2039', PLAN]));
+      expect(svgTexts(svg)).not.toContain(DENTIST);
+
+      // Week view.
+      svg = await previewAfter(page, () => page.selectOption('#pdf-view', 'week'));
+      expect(svgTexts(svg)).toContain('KW 19 · 09.05.2039 - 15.05.2039');
+
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#pdf-export-backdrop')).toHaveClass(/hidden/);
+      await expect(page.locator('#export-pdf-btn')).toBeFocused();
+    });
+
+    test('#511: the downloaded PDF is the document the preview shows', async ({ page }) => {
+      await openAt(page);
+      await previewAfter(page, () => page.click('#export-pdf-btn'));
+      await previewAfter(page, () => page.selectOption('#pdf-view', 'list'));
+      await previewAfter(page, () => page.selectOption('#pdf-paper', 'letter'));
+      await previewAfter(page, () => page.selectOption('#pdf-orientation', 'portrait'));
+      const svg = await previewAfter(page, () => page.check('#pdf-descriptions'));
+      expect(svgTexts(svg)).toContain(AGENDA);
+
+      const downloadPromise = page.waitForEvent('download');
+      await page.click('#pdf-export-download');
+      const download = await downloadPromise;
+      expect(await download.failure()).toBeNull();
+      const pdf = require('fs').readFileSync(await download.path()).toString('latin1');
+      expect(pdf.startsWith('%PDF-1.')).toBe(true);
+      expect(pdf).toContain('/MediaBox [0 0 612 792]');
+      const firstPage = /stream\n([\s\S]*?)\nendstream/.exec(pdf)[1];
+      expect(pdfTexts(firstPage)).toEqual(svgTexts(svg));
+      await expect(page.locator('#pdf-export-backdrop')).toHaveClass(/hidden/);
+    });
+  });
 
   test.describe('Issue #509 — second time zone freely selectable', () => {
     const setSecondZone = (page, zone) =>
