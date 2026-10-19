@@ -1196,6 +1196,8 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
 .drag-source { opacity: .35; }
 .drag-ghost { pointer-events: none; z-index: 5; opacity: .85; border-style: dashed; }
 .week-day-header.drop-target, .month-day.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+/* A task shown by its due date (#577): a checkbox mark in front of its title. */
+.calendar-task .event-chip-title::before, .calendar-task .event-block-title::before { content: "☐ "; }
 .drag-cancel-zone {
   position: fixed; top: 0; left: 0; right: 0; z-index: 450;
   padding: var(--sp-4); text-align: center;

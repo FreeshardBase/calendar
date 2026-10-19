@@ -11,6 +11,9 @@
  * edge, which change the first or last day (times stay). Esc or the "Abbrechen" zone at the top cancels.
  * Dragging on empty space draws a new event (#576): a timed range in the 15-minute grid of the
  * column it starts in, or in the month view an all-day range from the first to the last day.
+ * Keyboard (#577): a focused event moves with the arrow keys, Shift+arrow changes the end and
+ * Alt+Shift+arrow the start; Enter applies, Esc cancels, `announce(text)` reads the new times out.
+ * Items of `kind: 'task'` (tasks shown by their due date) only move; they have no edges.
  *
  * The engine only computes the new times; `onDrop(ev, { start, end, allDay })` saves them and
  * `onCreateRange({ start, end, allDay })` opens the new-event dialog for a drawn range.
@@ -49,15 +52,17 @@ export function enableEventDrag(root, opts) {
     const ev = byUid.get(el.dataset.eventUid);
     return ev && !ev.pending && canDrag(ev) === true;
   };
+  // A task has a due time, not a length: it only moves (#577).
+  const resizable = el => draggable(el) && byUid.get(el.dataset.eventUid).kind !== 'task';
   root.querySelectorAll('.week-day-col .event-block[data-event-uid]').forEach(el => {
-    if (draggable(el)) el.insertAdjacentHTML('beforeend', handleHtml('top') + handleHtml('bottom'));
+    if (resizable(el)) el.insertAdjacentHTML('beforeend', handleHtml('top') + handleHtml('bottom'));
   });
   root.querySelectorAll('.week-day-header .event-chip[data-event-uid]').forEach(el => {
-    if (draggable(el)) el.insertAdjacentHTML('beforeend', handleHtml('start') + handleHtml('end'));
+    if (resizable(el)) el.insertAdjacentHTML('beforeend', handleHtml('start') + handleHtml('end'));
   });
   // Month view: a multi-day event's start edge sits on its first day's chip, the end edge on its last.
   root.querySelectorAll('.month-day[data-date] .event-chip[data-event-uid]').forEach(el => {
-    if (!draggable(el)) return;
+    if (!resizable(el)) return;
     const ev = byUid.get(el.dataset.eventUid);
     const { first, last } = daySpan(ev);
     if (first === last) return;
@@ -65,6 +70,14 @@ export function enableEventDrag(root, opts) {
     if (day === first) el.insertAdjacentHTML('beforeend', handleHtml('start'));
     if (day === last) el.insertAdjacentHTML('beforeend', handleHtml('end'));
   });
+
+  root.addEventListener('keydown', e => onChipKey(e, byUid, opts), true);
+  root.addEventListener('focusout', e => { if (keyMove && e.target === keyMove.el) clearKeyMove(); });
+  // A move applied with Enter re-renders the view; the moved event gets the focus back.
+  if (refocus && Date.now() < refocus.until && (!document.activeElement || document.activeElement === document.body)) {
+    const el = [...root.querySelectorAll('[data-event-uid]')].find(x => x.dataset.eventUid === refocus.uid);
+    el?.focus({ preventScroll: true });
+  }
 
   root.addEventListener('pointerdown', e => {
     if (active || (e.pointerType === 'mouse' && e.button !== 0)) return;
@@ -214,6 +227,117 @@ function stop() {
     deferredRender = null;
     render();
   }
+}
+
+// ── Keyboard (#577) ───────────────────────────────────────────────────────────
+// A focused event moves with the arrow keys: in the day and week view ↑/↓ by 15 minutes and ←/→ by
+// a day, in the month view (and the all-day row) ←/→ by a day and ↑/↓ by a week (all-day row: no
+// ↑/↓). Shift+arrow changes the end, Alt+Shift+arrow the start. The new times show as in a drag and
+// are announced; Enter hands them to `onDrop`, Esc or leaving the event drops them.
+
+let keyMove = null;  // { el, ev, opts, change, target, ghost } of the pending keyboard move
+let refocus = null;  // { uid, until }: the event to focus again after the re-render of an Enter
+
+const ARROWS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+
+function onChipKey(e, byUid, opts) {
+  const el = e.target;
+  if (active || !el.matches?.(CHIP_SELECTOR)) return;
+  const ev = byUid.get(el.dataset.eventUid);
+  if (!ev || ev.pending) return;
+  if (keyMove && keyMove.el !== el) clearKeyMove();
+  if (keyMove && (e.key === 'Enter' || e.key === 'Escape')) {
+    e.preventDefault();
+    e.stopPropagation();
+    const { change } = keyMove;
+    clearKeyMove();
+    if (e.key === 'Escape') {
+      opts.announce?.('Verschieben abgebrochen.');
+    } else if (!sameTimes(ev, change)) {
+      refocus = { uid: ev.uid, until: Date.now() + 15000 };
+      opts.onDrop(ev, change);
+    }
+    return;
+  }
+  const arrow = ARROWS[e.key];
+  if (!arrow || e.ctrlKey || e.metaKey) return;
+  const mode = e.shiftKey ? (e.altKey ? 'start' : 'end') : e.altKey ? null : 'move';
+  if (!mode) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const allowed = opts.canDrag(ev);
+  if (allowed !== true) { opts.readOnlyNotice?.(allowed); return; }
+  if (ev.kind === 'task' && mode !== 'move') return;
+  const base = keyMove?.change || { start: ev.start, end: ev.end || ev.start, allDay: Boolean(ev.allDay) };
+  const inGrid = Boolean(el.closest('.week-day-col'));
+  const [dx, dy] = arrow;
+  const step = inGrid
+    ? { days: dx, minutes: dy * SNAP_MIN }
+    : { days: dx + dy * 7 * (el.closest('.month-day') ? 1 : 0), minutes: 0 };
+  if (!step.days && !step.minutes) return;
+  const change = stepChange(base, mode, step);
+  if (!change) return;
+  if (!keyMove) keyMove = { el, ev, opts, ghost: null };
+  keyMove.change = change;
+  showKeyMove(keyMove);
+  opts.announce?.(`„${ev.title}“: ${describe(change)}. Eingabetaste übernimmt, Escape bricht ab.`);
+}
+
+// `base` shifted by whole days and minutes; for an edge only that end moves and stays at least one
+// slot (timed) or one day (all-day) away from the other.
+function stepChange(base, mode, { days, minutes }) {
+  if (base.allDay) {
+    const shift = v => ymd(addDays(parseYmd(v), days));
+    const start = mode === 'end' ? base.start : shift(base.start);
+    const end = mode === 'start' ? base.end : shift(base.end);
+    return end > start ? { start, end, allDay: true } : null;
+  }
+  const shift = v => {
+    const d = new Date(v);
+    d.setDate(d.getDate() + days);
+    return new Date(d.getTime() + minutes * 60000);
+  };
+  const start = mode === 'end' ? new Date(base.start) : shift(base.start);
+  const end = mode === 'start' ? new Date(base.end) : shift(base.end);
+  if (mode !== 'move' && end - start < SNAP_MIN * 60000) return null;
+  return { start: start.toISOString(), end: end.toISOString(), allDay: false };
+}
+
+// Draws the pending keyboard move like a drag: a ghost in the time grid, marked days elsewhere.
+function showKeyMove(state) {
+  const root = state.el.closest('.week-view, .day-view, .month-view') || document;
+  const { first, last } = daySpan(state.change);
+  const col = state.change.allDay ? null
+    : [...root.querySelectorAll('.week-day-col[data-date]')].find(c => ymd(dayOf(c)) === first);
+  state.target = { change: state.change, col };
+  const marked = !state.el.closest('.week-day-col')
+    ? [...root.querySelectorAll('.month-day[data-date], .week-day-header[data-date]')]
+      .filter(c => { const d = ymd(dayOf(c)); return d >= first && d <= last; })
+    : [];
+  document.querySelectorAll('.drop-target').forEach(h => { if (!marked.includes(h)) h.classList.remove('drop-target'); });
+  marked.forEach(h => h.classList.add('drop-target'));
+  drawGhost(state);
+}
+
+function clearKeyMove() {
+  const state = keyMove;
+  keyMove = null;
+  if (!state) return;
+  state.ghost?.remove();
+  document.querySelectorAll('.drop-target').forEach(h => h.classList.remove('drop-target'));
+}
+
+const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
+function describe(change) {
+  const day = d => `${WEEKDAYS[d.getDay()]}., ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
+  if (change.allDay) {
+    const { first, last } = daySpan(change);
+    return first === last ? `ganztägig ${day(parseYmd(first))}` : `ganztägig ${day(parseYmd(first))} – ${day(parseYmd(last))}`;
+  }
+  const s = new Date(change.start);
+  const e = new Date(change.end);
+  return ymd(s) === ymd(e) ? `${day(s)} ${hhmm(s)} – ${hhmm(e)}` : `${day(s)} ${hhmm(s)} – ${day(e)} ${hhmm(e)}`;
 }
 
 // ── Target and new times ──────────────────────────────────────────────────────

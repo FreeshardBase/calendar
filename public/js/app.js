@@ -373,9 +373,10 @@ async function loadTasks() {
     const tasks = await listAfterLocalEdits('tasks', () => TasksAPI.list(reportUnparseableTasks));
     store.set({ tasks, tasksError: null });
     renderTaskSidebar();
-    if (store.get('view') === 'kanban') {
-      renderCalendarView();
-    }
+    // The grid views show tasks by their due date (#577); the event status in the bar stays as it is.
+    const view = store.get('view');
+    if (view === 'kanban') renderCalendarView();
+    else if (TASK_VIEWS.has(view)) renderCalendarView({ announceStatus: false });
   } catch (err) {
     console.error('Fehler beim Laden der Aufgaben:', err.message);
     store.set({ tasksError: err.message || true });
@@ -390,6 +391,8 @@ async function loadTasks() {
     store.set({ loadingTasks: false });
   }
 }
+
+const TASK_VIEWS = new Set(['month', 'week', 'workweek', 'day']);
 
 // A task was changed on the server: a task list still being fetched may predate it (#593).
 function reloadTasksAfterEdit() {
@@ -768,7 +771,7 @@ function syncViewTabs(view) {
   });
 }
 
-function renderCalendarView() {
+function renderCalendarView({ announceStatus = true } = {}) {
   const container  = $('calendar-container');
   const view       = store.get('view');
   const date       = store.get('currentDate');
@@ -812,9 +815,16 @@ function renderCalendarView() {
 
   syncViewTabs(view);
 
-  renderView(container, events, view, date, {
+  // Open tasks with a due date show in the grid views by that date (#577).
+  const shown = view === 'agenda' ? events : events.concat(calendarTaskItems());
+  renderView(container, shown, view, date, {
     onDayClick:   (d) => openCreateModal(d, EVENT_MODAL_CALLBACKS),
     onEventClick: (uid, e) => {
+      if (uid.startsWith(TASK_ITEM_PREFIX)) {
+        const task = (store.get('tasks') || []).find(t => TASK_ITEM_PREFIX + t.uid === uid);
+        if (task && !task.pending) openTaskModal(task);
+        return;
+      }
       const ev = (store.get('events') || []).find(x => x.uid === uid);
       if (ev?.pending) openPendingEvent(ev, e);
       else if (ev) showEventPopover(ev, e);
@@ -822,7 +832,8 @@ function renderCalendarView() {
     canDrag: eventDragPermission,
     onEventDrop,
     onCreateRange: range => openCreateModal(null, EVENT_MODAL_CALLBACKS, range),
-    readOnlyNotice: message => showToast(message, 'warning')
+    readOnlyNotice: message => showToast(message, 'warning'),
+    announce
   });
 
   const query = searchQuery ? searchQuery.trim() : '';
@@ -832,7 +843,7 @@ function renderCalendarView() {
     banner.innerHTML = `<span class="search-empty-icon">🔍</span> Keine Termine für „${escapeHtml(query)}“ gefunden.`;
     container.insertBefore(banner, container.firstChild);
   }
-  announce(eventStatusText(view, events.length, query));
+  if (announceStatus) announce(eventStatusText(view, events.length, query));
 
   // Mini calendar
   renderMiniCalendar(
@@ -2493,6 +2504,7 @@ const EVENT_MODAL_CALLBACKS = {
 function eventDragPermission(ev) {
   const cal = calendarsById()[ev.calendarId] || {};
   if (!ev.readOnly && !ev.isSubscription && !cal.readOnly) return true;
+  if (ev.kind === 'task') return `Nur lesbar: Aufgabe aus ${cal.name || 'einer anderen Liste'}`;
   const organizer = ev.organizer?.name || ev.organizer?.email || cal.name || 'einem anderen Kalender';
   return `Nur lesbar: Termin von ${organizer}`;
 }
@@ -2519,6 +2531,7 @@ const recurrenceIdOf = ev => ev.recurrenceId || (ev.uid?.includes('::') ? ev.uid
 const masterUidOf = ev => ev.masterUid || ev.uid.split('::')[0];
 
 async function onEventDrop(ev, change) {
+  if (ev.kind === 'task') return onTaskDrop(ev.task, change);
   const recurrenceId = recurrenceIdOf(ev);
   let scope = null;
   if (recurrenceId) {
@@ -2541,6 +2554,7 @@ async function onEventDrop(ev, change) {
   }
   const before = { start: ev.start, end: ev.end, allDay: Boolean(ev.allDay) };
   if (!(await saveEventTimes(ev, change, { scope, recurrenceId, attendees: sendAttendees }))) return;
+  announce(`„${ev.title}“ verschoben.`);
   showUndoBar(async () => {
     const now = (store.get('events') || []).find(x => x.uid === ev.uid)
       || (store.get('events') || []).find(x => masterUidOf(x) === masterUidOf(ev)
@@ -2581,6 +2595,90 @@ async function saveEventTimes(ev, change, { scope, recurrenceId, attendees }) {
     showToast(`„${ev.title}“ wurde nicht verschoben. ${reason}`, 'error');
     return false;
   }
+}
+
+// ── Tasks in the calendar (#577) ─────────────────────────────────────────────
+// An open task with a due date shows on that day: a date-only due in the all-day row, a due time
+// as a 30-minute block from that time. It moves like an event (no edges); DTSTART moves along by
+// the same days and minutes, so start and due keep their distance and their value type.
+
+const TASK_ITEM_PREFIX = 'task:';
+const TASK_BLOCK_MS = 30 * 60000;
+
+const dayString = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// A date-only value is stored as midnight UTC of that date; its day is the local date of the same number.
+const taskInstant = (value, isDate) => {
+  const d = new Date(value);
+  return isDate ? new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) : d;
+};
+const taskValue = (d, isDate) => (isDate ? `${dayString(d)}T00:00:00.000Z` : d.toISOString());
+
+function calendarTaskItems() {
+  return getFilteredTasks()
+    .filter(t => t.due && t.status !== 'COMPLETED' && t.status !== 'CANCELLED')
+    .map(t => {
+      const due = taskInstant(t.due, t.dueIsDate);
+      const times = t.dueIsDate
+        ? { allDay: true, start: dayString(due), end: dayString(new Date(due.getFullYear(), due.getMonth(), due.getDate() + 1)) }
+        : { allDay: false, start: due.toISOString(), end: new Date(due.getTime() + TASK_BLOCK_MS).toISOString() };
+      return { uid: TASK_ITEM_PREFIX + t.uid, kind: 'task', task: t, title: t.title, calendarId: t.calendarId,
+        recurrence: t.recurrence || null, pending: Boolean(t.pending), ...times };
+    });
+}
+
+const taskTimes = t => ({ due: t.due, dueIsDate: Boolean(t.dueIsDate), dtstart: t.dtstart ?? null, dtstartIsDate: Boolean(t.dtstartIsDate) });
+
+// The new DUE from the drop; DTSTART shifted by the same calendar days and wall-clock minutes.
+function movedTaskTimes(task, change) {
+  const oldDue = taskInstant(task.due, task.dueIsDate);
+  const newDue = change.allDay ? taskInstant(`${change.start}T00:00:00.000Z`, true) : new Date(change.start);
+  const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.round((midnight(newDue) - midnight(oldDue)) / (24 * 3600 * 1000));
+  const minutes = change.allDay || task.dueIsDate ? 0
+    : (newDue.getHours() * 60 + newDue.getMinutes()) - (oldDue.getHours() * 60 + oldDue.getMinutes());
+  const times = { due: taskValue(newDue, change.allDay), dueIsDate: change.allDay, dtstart: null, dtstartIsDate: false };
+  if (task.dtstart) {
+    const start = taskInstant(task.dtstart, task.dtstartIsDate);
+    start.setDate(start.getDate() + days);
+    start.setMinutes(start.getMinutes() + minutes);
+    times.dtstart = taskValue(start, change.allDay);
+    times.dtstartIsDate = change.allDay;
+  }
+  return times;
+}
+
+async function onTaskDrop(task, change) {
+  const before = taskTimes(task);
+  if (!(await saveTaskTimes(task, movedTaskTimes(task, change)))) return;
+  announce(`„${task.title}“ verschoben.`);
+  showUndoBar(async () => {
+    const now = (store.get('tasks') || []).find(t => t.uid === task.uid);
+    if (!now) {
+      showToast(`„${task.title}“ konnte nicht zurückgesetzt werden: Die Aufgabe ist nicht mehr geladen.`, 'error');
+      return;
+    }
+    await saveTaskTimes(now, before);
+  });
+}
+
+// Optimistic like saveEventTimes: drawn at once, rolled back with an error toast on failure.
+async function saveTaskTimes(task, times) {
+  const replace = next => store.set({ tasks: (store.get('tasks') || []).map(t => (t.uid === task.uid ? next : t)) });
+  replace({ ...task, ...times, pending: true });
+  renderCalendarView();
+  try {
+    await TasksAPI.update(task.uid, { ...task, ...times, href: task.href, etag: task.etag, calendarId: task.calendarId });
+  } catch (err) {
+    replace(task);
+    renderCalendarView();
+    const reason = err.status === 409
+      ? 'Konflikt: Die Aufgabe wurde von einem anderen Client geändert. Seite neu laden.'
+      : err.message;
+    showToast(`„${task.title}“ wurde nicht verschoben. ${reason}`, 'error');
+    return false;
+  }
+  await reloadTasksAfterEdit();
+  return true;
 }
 
 let undoTimer = null;
