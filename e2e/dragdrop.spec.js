@@ -628,3 +628,212 @@ test.describe('Issue #576 — create events by dragging on empty space', () => {
     expect((await stored(page, 'E2E 576 Days'))[0].allDay).toBe(true);
   });
 });
+
+// Issue #577: the keyboard alternative and tasks with a due date. A focused event moves with the
+// arrow keys (day/week: ↑/↓ 15 minutes, ←/→ one day; month: ←/→ one day, ↑/↓ one week),
+// Shift+arrow changes the end, Alt+Shift+arrow the start; Enter applies, Esc cancels, and the
+// aria-live region says what would happen. Open tasks with a due date show in the calendar and
+// move like events (no edges); DTSTART moves along with DUE. Checked through the stored data.
+test.describe('Issue #577 — keyboard moves and tasks with a due date', () => {
+  let calendarId;
+  let taskListId;
+  let puts;
+
+  const cell = (page, day) => page.locator('.month-day:not(.other-month)').nth(day - 1);
+  const announcer = page => page.locator('#aria-announcer');
+
+  async function openMonth(page, title) {
+    await page.goto(`/?date=${DAY}`);
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('.month-view [data-event-uid]', { hasText: title }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#loading-screen')).toBeHidden();
+  }
+
+  async function seedTask(page, data) {
+    const res = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data: { calendarId: taskListId, ...data } });
+    expect(res.status()).toBe(201);
+    return res.json();
+  }
+
+  async function storedTask(page, title) {
+    const body = await (await page.request.get('/api/tasks')).json();
+    const list = Array.isArray(body) ? body : body.tasks;
+    const t = list.find(x => x.title === title);
+    const iso = v => (v ? new Date(v).toISOString() : null);
+    return t && { due: iso(t.due), dueIsDate: Boolean(t.dueIsDate), dtstart: iso(t.dtstart), dtstartIsDate: Boolean(t.dtstartIsDate) };
+  }
+
+  async function expectTask(page, title, expected) {
+    await expect.poll(() => storedTask(page, title), { timeout: 15000 }).toMatchObject(expected);
+  }
+
+  test.beforeEach(async ({ page, e2eUser }) => {
+    await page.addInitScript(() => {
+      if (window.origin !== 'null') window.localStorage.setItem('welcome-popup-closed', 'true');
+    });
+    puts = [];
+    page.on('request', r => {
+      const path = new URL(r.url()).pathname;
+      if (r.method() === 'PUT' && (path.startsWith('/api/events/') || path.startsWith('/api/tasks/'))) puts.push(r.postDataJSON());
+    });
+    await page.goto('/');
+    calendarId = await ownCalendar(page, e2eUser);
+    taskListId = `internal-caldav::/${e2eUser}/tasks/`;
+  });
+
+  test('#577 arrow keys move a focused event in the week view, Enter applies and it is announced', async ({ page }) => {
+    test.skip(isTouch(), 'keyboard input');
+    await seed(page, { calendarId, title: 'E2E 577 Keys', start: `${DAY}T08:00:00.000Z`, end: `${DAY}T09:00:00.000Z` });
+    await openView(page, 'week', 'E2E 577 Keys');
+    const block = page.locator('.event-block', { hasText: 'E2E 577 Keys' });
+    await expect(block).toBeVisible({ timeout: 10000 });
+    await block.focus();
+
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowRight');
+    await expect(announcer(page)).toContainText('Fr., 15.05. 10:30 – 11:30');
+    await expect(announcer(page)).toContainText('Eingabetaste');
+    await expect(page.locator('.week-view .drag-ghost')).toHaveText('10:30 – 11:30');
+    // Nothing is saved before Enter, and the global arrow shortcut did not change the week.
+    expect(puts).toHaveLength(0);
+    await expect(block).toBeVisible();
+
+    await page.keyboard.press('Enter');
+    await expectStored(page, 'E2E 577 Keys', '2037-05-15T08:30:00.000Z', '2037-05-15T09:30:00.000Z');
+    await expect(announcer(page)).toContainText('verschoben');
+    // Enter applied the move instead of opening the event.
+    await expect(page.locator('#event-popover')).toBeHidden();
+    await expect(page.locator('#undo-bar')).toBeVisible();
+    expect(puts).toHaveLength(1);
+    // Focus stays on the moved event, so the next move needs no mouse.
+    await expect(page.locator('.event-block:focus', { hasText: 'E2E 577 Keys' })).toHaveCount(1, { timeout: 15000 });
+  });
+
+  test('#577 Shift+arrow changes the end, Alt+Shift+arrow the start, Esc cancels', async ({ page }) => {
+    test.skip(isTouch(), 'keyboard input');
+    await seed(page, { calendarId, title: 'E2E 577 Edges', start: `${DAY}T08:00:00.000Z`, end: `${DAY}T09:00:00.000Z` });
+    await openView(page, 'day', 'E2E 577 Edges');
+    const block = page.locator('.event-block', { hasText: 'E2E 577 Edges' });
+    await expect(block).toBeVisible({ timeout: 10000 });
+
+    await block.focus();
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.keyboard.press('Enter');
+    await expectStored(page, 'E2E 577 Edges', `${DAY}T08:00:00.000Z`, `${DAY}T09:30:00.000Z`);
+    await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+
+    await block.focus();
+    await page.keyboard.press('Alt+Shift+ArrowUp');
+    await page.keyboard.press('Enter');
+    await expectStored(page, 'E2E 577 Edges', `${DAY}T07:45:00.000Z`, `${DAY}T09:30:00.000Z`);
+    await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+
+    // Esc drops the pending move: nothing is saved and the event stays.
+    const before = puts.length;
+    await block.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.day-view .drag-ghost')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.day-view .drag-ghost')).toHaveCount(0);
+    await expect(announcer(page)).toContainText('abgebrochen');
+    await page.waitForTimeout(300);
+    expect(puts).toHaveLength(before);
+    await expectStored(page, 'E2E 577 Edges', `${DAY}T07:45:00.000Z`, `${DAY}T09:30:00.000Z`);
+  });
+
+  test('#577 month view: ←/→ move by a day, ↑/↓ by a week, the time stays', async ({ page }) => {
+    test.skip(isTouch(), 'keyboard input');
+    await seed(page, { calendarId, title: 'E2E 577 Month', start: `${DAY}T08:00:00.000Z`, end: `${DAY}T09:30:00.000Z` });
+    await openMonth(page, 'E2E 577 Month');
+    await cell(page, 14).locator('.event-chip', { hasText: 'E2E 577 Month' }).focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowRight');
+    await expect(cell(page, 22)).toHaveClass(/drop-target/);
+    await page.keyboard.press('Enter');
+    await expectStored(page, 'E2E 577 Month', '2037-05-22T08:00:00.000Z', '2037-05-22T09:30:00.000Z');
+  });
+
+  test('#577 the keyboard does not move a read-only event', async ({ page }) => {
+    test.skip(isTouch(), 'keyboard input');
+    await mockEvents(page, [{ uid: 'e2e-577-ro', title: 'E2E 577 Fremd', calendarId, readOnly: true,
+      start: `${DAY}T08:00:00.000Z`, end: `${DAY}T09:00:00.000Z`, allDay: false,
+      organizer: { name: 'Test User', email: 'testuser@example.com' } }]);
+    await openView(page, 'day', 'E2E 577 Fremd');
+    const block = page.locator('.event-block', { hasText: 'E2E 577 Fremd' });
+    await block.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.toast', { hasText: 'Nur lesbar: Termin von Test User' })).toBeVisible();
+    await expect(page.locator('.day-view .drag-ghost')).toHaveCount(0);
+    await page.waitForTimeout(300);
+    expect(puts).toHaveLength(0);
+  });
+
+  test('#577 a task is shown at its due time and dragged in the day view; DTSTART moves along; Rückgängig', async ({ page }) => {
+    await seedTask(page, { title: 'E2E 577 Task', due: `${DAY}T10:00:00.000Z`, dtstart: `${DAY}T08:00:00.000Z` });
+    await openView(page, 'day', 'E2E 577 Task');
+    const block = page.locator('.event-block.calendar-task', { hasText: 'E2E 577 Task' });
+    await expect(block).toBeVisible({ timeout: 10000 });
+    await expect(block).toContainText('12:00');
+    // A task has a due time, not a length: no edges.
+    await expect(block.locator('.event-resize-handle')).toHaveCount(0);
+
+    await dragBy(page, block, 0, 60);
+    await expectTask(page, 'E2E 577 Task', { due: `${DAY}T11:00:00.000Z`, dtstart: `${DAY}T09:00:00.000Z` });
+    await expect(page.locator('#undo-bar')).toBeVisible();
+    await expect(block).toContainText('13:00', { timeout: 15000 });
+
+    await page.locator('#undo-bar button', { hasText: 'Rückgängig' }).click();
+    await expectTask(page, 'E2E 577 Task', { due: `${DAY}T10:00:00.000Z`, dtstart: `${DAY}T08:00:00.000Z` });
+
+    if (!isTouch()) {
+      // The keyboard moves a task the same way.
+      await expect(block).toContainText('12:00', { timeout: 15000 });
+      await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+      await block.focus();
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.press('Enter');
+      await expectTask(page, 'E2E 577 Task', { due: `${DAY}T09:45:00.000Z`, dtstart: `${DAY}T07:45:00.000Z` });
+    }
+  });
+
+  test('#577 month view: a task moves by days and keeps its time; a date-only task stays date-only', async ({ page }) => {
+    await seedTask(page, { title: 'E2E 577 Timed Task', due: `${DAY}T10:00:00.000Z` });
+    await seedTask(page, { title: 'E2E 577 Date Task', due: `${DAY}T00:00:00.000Z`, dueIsDate: true,
+      dtstart: '2037-05-12T00:00:00.000Z', dtstartIsDate: true });
+    await openMonth(page, 'E2E 577 Timed Task');
+    const drop = async (title, day) => {
+      const from = center(await cell(page, 14).locator('.event-chip.calendar-task', { hasText: title }).boundingBox());
+      const box = await cell(page, day).boundingBox();
+      await drag(page, from, { x: box.x + box.width / 2, y: box.y + box.height - 8 });
+    };
+
+    await drop('E2E 577 Timed Task', 19);
+    await expectTask(page, 'E2E 577 Timed Task', { due: '2037-05-19T10:00:00.000Z', dtstart: null });
+    await expect(cell(page, 19).locator('.calendar-task', { hasText: 'E2E 577 Timed Task' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+
+    await drop('E2E 577 Date Task', 16);
+    await expectTask(page, 'E2E 577 Date Task', { due: '2037-05-16T00:00:00.000Z', dueIsDate: true,
+      dtstart: '2037-05-14T00:00:00.000Z', dtstartIsDate: true });
+  });
+
+  test('#577 a completed task is not shown, and a failed task save rolls back with an error toast', async ({ page }) => {
+    await seedTask(page, { title: 'E2E 577 Done', due: `${DAY}T09:00:00.000Z`, status: 'COMPLETED' });
+    await seedTask(page, { title: 'E2E 577 Conflict', due: `${DAY}T10:00:00.000Z` });
+    await page.route(url => url.pathname.startsWith('/api/tasks/'), route => route.request().method() === 'PUT'
+      ? route.fulfill({ status: 409, json: { error: 'Conflict' } }) : route.fallback());
+    await openView(page, 'day', 'E2E 577 Conflict');
+    const block = page.locator('.event-block.calendar-task', { hasText: 'E2E 577 Conflict' });
+    await expect(block).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.calendar-task', { hasText: 'E2E 577 Done' })).toHaveCount(0);
+
+    await dragBy(page, block, 0, 120);
+    await expect(page.locator('.toast.error', { hasText: 'Konflikt' })).toBeVisible({ timeout: 10000 });
+    await expect(block).toContainText('12:00');
+    await expect(page.locator('.event-pending')).toHaveCount(0);
+    await expect(page.locator('#undo-bar')).toBeHidden();
+    await expectTask(page, 'E2E 577 Conflict', { due: `${DAY}T10:00:00.000Z` });
+  });
+});

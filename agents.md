@@ -146,6 +146,12 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   Dragging on empty space (#576) draws a new event and opens the new-event dialog (`onCreateRange`) with it: a
   timed range over the 15-minute slots of the grabbed day/week column, or in the month view an all-day event
   from the first to the last day crossed. A plain click in the time grid starts on its 15-minute slot.
+  Keyboard (#577): a focused event moves with the arrows (time grid ↑/↓ 15 min, ←/→ a day; month ←/→ a day,
+  ↑/↓ a week), Shift+arrow changes the end, Alt+Shift+arrow the start; the preview is drawn like a drag and
+  read out through `#aria-announcer`; Enter goes through `onEventDrop`, Esc drops it. Open tasks with a DUE show
+  in the month/week/day views (`calendarTaskItems`, uid `task:<uid>`, `.calendar-task`; date-only due in the
+  all-day row, a due time as a 30-minute block) and move like events without edges; `onTaskDrop` shifts
+  DTSTART by the same days and minutes and keeps DUE and DTSTART of the same value type.
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).

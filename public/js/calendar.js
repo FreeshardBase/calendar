@@ -305,6 +305,11 @@ function renderMonth(container, events, currentDate, cb) {
   });
 }
 
+// Issue #577: a task shown by its due date.
+function taskLabel(ev) {
+  return ev.kind === 'task' ? 'Aufgabe: ' : '';
+}
+
 // Issue #174: an event whose optimistic save is still running.
 function pendingLabel(ev) {
   return ev.pending ? ' (wird gespeichert)' : '';
@@ -314,11 +319,11 @@ export function chipHtml(ev) {
   const cal   = calendarById(ev.calendarId);
   const color = sanitizeColor(cal?.color || '#6366f1');
   const timeStr = ev.allDay ? '' : `<span class="event-chip-time">${fmtTime(ev.start)}</span>`;
-  const labelText = (ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`) + pendingLabel(ev);
+  const labelText = taskLabel(ev) + (ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`) + pendingLabel(ev);
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
-  return `<div class="event-chip${ev.pending ? ' event-pending' : ''}"
+  return `<div class="event-chip${ev.kind === 'task' ? ' calendar-task' : ''}${ev.pending ? ' event-pending' : ''}"
               tabindex="0"
               role="button"
               aria-label="${escHtml(labelText)}"
@@ -561,7 +566,7 @@ function enableDrag(wrap, events, cb) {
   enableEventDrag(wrap, {
     events, hourHeight: HOUR_H,
     canDrag: cb.canDrag, onDrop: cb.onEventDrop, readOnlyNotice: cb.readOnlyNotice,
-    onCreateRange: cb.onCreateRange
+    onCreateRange: cb.onCreateRange, announce: cb.announce
   });
 }
 
@@ -637,7 +642,7 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   const isShort = hPx <= 35 || ((end - start) <= 1800000);
 
   const block = document.createElement('div');
-  block.className = `event-block${isShort ? ' short-event' : ''}${ev.pending ? ' event-pending' : ''}`;
+  block.className = `event-block${isShort ? ' short-event' : ''}${ev.kind === 'task' ? ' calendar-task' : ''}${ev.pending ? ' event-pending' : ''}`;
   block.style.cssText = `
     top:${topPx}px; height:${hPx}px;
     left:${l + 1}%; width:${w - 2}%;
@@ -648,7 +653,7 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   block.setAttribute('role', 'button');
   const timeText = fmtTime(ev.start) + (ev.end && !isShort ? ' – ' + fmtTime(ev.end) : '');
   const labelText = timeText ? `${timeText} ${ev.title || ''}` : (ev.title || '');
-  block.setAttribute('aria-label', labelText.trim() + pendingLabel(ev));
+  block.setAttribute('aria-label', taskLabel(ev) + labelText.trim() + pendingLabel(ev));
 
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
