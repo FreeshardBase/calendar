@@ -725,6 +725,47 @@ def refused_item_reasons(user_id, collections, stderr, provider):
             for ident, reason in refused]
 
 
+# vdirsyncer (click-log) prefixes every line of an error with its level; INFO lines carry none.
+VDIRSYNCER_FAILURE_PREFIXES = ("error: ", "critical: ")
+VDIRSYNCER_SYNCING_RE = re.compile(r"^Syncing (\S+)$")
+VDIRSYNCER_TRACEBACK_HINT = "Use `-vdebug` to see the full traceback."
+# Bound on the other failures reported next to the refused items; the cut is stated.
+OTHER_FAILURES_CAP = 4000
+
+
+def other_sync_failures(stderr):
+    """Every failure in a vdirsyncer run's log other than an item refusal, each named with its pair.
+
+    A line that does not name its pair is attributed to the pair vdirsyncer last said it syncs.
+    """
+    failures = []
+    current = None
+    for line in stderr.splitlines():
+        line = line.strip()
+        syncing = VDIRSYNCER_SYNCING_RE.match(line)
+        if syncing:
+            current = syncing.group(1)
+            continue
+        prefix = next((p for p in VDIRSYNCER_FAILURE_PREFIXES if line.startswith(p)), None)
+        if prefix is None:
+            continue
+        reason = line[len(prefix):].strip()
+        if not reason or reason == VDIRSYNCER_TRACEBACK_HINT or refused_items(reason):
+            continue
+        if current and current not in reason:
+            reason = f"{current}: {reason}"
+        failures.append(f"Sync-Fehler: {reason}")
+    return failures
+
+
+def capped_failures(failures):
+    """The failures as one text, cut at OTHER_FAILURES_CAP characters with the amount cut stated."""
+    text = "\n".join(failures)
+    if len(text) <= OTHER_FAILURES_CAP:
+        return text
+    return f"{text[:OTHER_FAILURES_CAP]}\n… ({len(text) - OTHER_FAILURES_CAP} weitere Zeichen gekürzt)"
+
+
 # vdirsyncer names a collection by the unquoted last href segment and writes its status to
 # <status_path>/<pair>/<name>.items, so a provider's name is only accepted from this charset (#531).
 SAFE_COLLECTION_NAME_RE = re.compile(r"[A-Za-z0-9_.-]+")
@@ -1308,6 +1349,10 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
             if not refused:
                 return False, f"vdirsyncer sync failed: {sync_res.stderr}"
             not_synced.extend(refused)
+            # Failures of other pairs in the same run are reported next to the refusals (#581).
+            others = other_sync_failures(sync_res.stderr)
+            if others:
+                not_synced.append(capped_failures(others))
         # Colour and name (#505) sync even when single items were refused.
         meta_err = run_metasync(config_path, policy, f"Google (user {user_id})")
         if meta_err:
