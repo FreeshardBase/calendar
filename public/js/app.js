@@ -821,6 +821,7 @@ function renderCalendarView() {
     },
     canDrag: eventDragPermission,
     onEventDrop,
+    onCreateRange: range => openCreateModal(null, EVENT_MODAL_CALLBACKS, range),
     readOnlyNotice: message => showToast(message, 'warning')
   });
 

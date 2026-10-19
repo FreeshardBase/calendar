@@ -485,3 +485,146 @@ test.describe('Issue #575 — month view: move events and change multi-day spans
     expect(puts).toHaveLength(0);
   });
 });
+
+// Issue #576: dragging on empty space draws a range and opens the new-event dialog with it. Day and
+// week view: a timed range in the 15-minute grid of the column it starts in. Month view: an all-day
+// event from the first to the last day dragged across. A plain click opens the dialog on its
+// 15-minute slot. Esc, the cancel zone and closing the dialog create nothing.
+test.describe('Issue #576 — create events by dragging on empty space', () => {
+  let calendarId;
+  let posts;
+
+  const cell = (page, day) => page.locator('.month-day:not(.other-month)').nth(day - 1);
+
+  // The point `min` minutes after midnight in the day view's column (60 px per hour).
+  async function at(page, min) {
+    const box = await page.locator('.day-view .week-day-col').boundingBox();
+    return { x: box.x + box.width / 2, y: box.y + min };
+  }
+
+  async function openDay(page) {
+    await seed(page, { calendarId, title: 'E2E 576 Anchor', start: `${DAY}T03:00:00.000Z`, end: `${DAY}T03:30:00.000Z` });
+    await openView(page, 'day', 'E2E 576 Anchor');
+    await expect(page.locator('#loading-screen')).toBeHidden();
+  }
+
+  async function release(page) {
+    if (isTouch()) await (await cdpOf(page)).send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    else await page.mouse.up();
+  }
+
+  async function saveAs(page, title) {
+    await page.fill('#ev-title', title);
+    await page.selectOption('#ev-calendar', calendarId);
+    await page.click('#event-save-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+  }
+
+  test.beforeEach(async ({ page, e2eUser }) => {
+    await page.addInitScript(() => {
+      if (window.origin !== 'null') window.localStorage.setItem('welcome-popup-closed', 'true');
+    });
+    posts = 0;
+    page.on('request', r => {
+      if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/events') posts++;
+    });
+    await page.goto('/');
+    calendarId = await ownCalendar(page, e2eUser);
+  });
+
+  test('#576 dragging in the day view opens the dialog with the 15-minute range and stores it', async ({ page }) => {
+    await openDay(page);
+    const before = posts;
+    // 10:05 to 11:20 covers the slots 10:00 to 11:30 (Berlin, UTC+2).
+    await drag(page, await at(page, 10 * 60 + 5), await at(page, 11 * 60 + 20));
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#event-modal-title')).toHaveText('Neuer Termin');
+    await expect(page.locator('#ev-allday')).not.toBeChecked();
+    await expect(page.locator('#ev-start-date')).toHaveValue(DAY);
+    await expect(page.locator('#ev-start-time')).toHaveValue('10:00');
+    await expect(page.locator('#ev-end-date')).toHaveValue(DAY);
+    await expect(page.locator('#ev-end-time')).toHaveValue('11:30');
+    expect(posts).toBe(before);
+
+    await saveAs(page, 'E2E 576 Range');
+    await expectStored(page, 'E2E 576 Range', `${DAY}T08:00:00.000Z`, `${DAY}T09:30:00.000Z`);
+  });
+
+  test('#576 dragging upwards gives the same kind of range', async ({ page }) => {
+    await openDay(page);
+    await drag(page, await at(page, 12 * 60 + 40), await at(page, 11 * 60 + 50));
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-start-time')).toHaveValue('11:45');
+    await expect(page.locator('#ev-end-time')).toHaveValue('12:45');
+  });
+
+  test('#576 a plain click opens the dialog on its 15-minute slot', async ({ page }) => {
+    await openDay(page);
+    const point = await at(page, 10 * 60 + 40);
+    if (isTouch()) await page.touchscreen.tap(point.x, point.y);
+    else await page.mouse.click(point.x, point.y);
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-start-time')).toHaveValue('10:30');
+    await expect(page.locator('#ev-end-time')).toHaveValue('11:30');
+  });
+
+  test('#576 Esc, the cancel zone and closing the dialog create nothing', async ({ page }) => {
+    await openDay(page);
+    const before = posts;
+    const zone = page.locator('#drag-cancel-zone');
+
+    // Esc during the drag: the range is gone and no dialog opens.
+    await drag(page, await at(page, 9 * 60), await at(page, 10 * 60), { release: false });
+    await expect(zone).toBeVisible();
+    await expect(page.locator('.day-view .drag-ghost')).toHaveText('09:00 – 10:00');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.day-view .drag-ghost')).toHaveCount(0);
+    await release(page);
+    await expect(zone).toBeHidden();
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+    // Released over the cancel zone.
+    await drag(page, await at(page, 9 * 60), await at(page, 10 * 60), { release: false });
+    await expect(zone).toBeVisible();
+    const z = center(await zone.boundingBox());
+    if (isTouch()) {
+      await (await cdpOf(page)).send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [z] });
+    } else {
+      await page.mouse.move(z.x, z.y, { steps: 5 });
+    }
+    await release(page);
+    await expect(zone).toBeHidden();
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+
+    // A drawn range whose dialog is closed.
+    await drag(page, await at(page, 9 * 60), await at(page, 10 * 60));
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#event-cancel-btn');
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    await page.waitForTimeout(300);
+    expect(posts).toBe(before);
+  });
+
+  test('#576 dragging across days in the month view opens the dialog for a multi-day event', async ({ page }) => {
+    await seed(page, { calendarId, title: 'E2E 576 Month Anchor', start: `${DAY}T03:00:00.000Z`, end: `${DAY}T03:30:00.000Z` });
+    await page.goto(`/?date=${DAY}`);
+    await expect(page.locator('.month-view [data-event-uid]', { hasText: 'E2E 576 Month Anchor' }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#loading-screen')).toBeHidden();
+    const bottomOf = async day => {
+      const box = await cell(page, day).boundingBox();
+      return { x: box.x + box.width / 2, y: box.y + box.height - 8 };
+    };
+    // Dragged backwards from the 20th to the 18th.
+    await drag(page, await bottomOf(20), await bottomOf(18), { release: false });
+    await expect(page.locator('.month-day.drop-target')).toHaveCount(3);
+    await release(page);
+
+    await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#ev-allday')).toBeChecked();
+    await expect(page.locator('#ev-start-date')).toHaveValue('2037-05-18');
+    await expect(page.locator('#ev-end-date')).toHaveValue('2037-05-20');
+    await saveAs(page, 'E2E 576 Days');
+    await expectStored(page, 'E2E 576 Days', '2037-05-18', '2037-05-21');
+    expect((await stored(page, 'E2E 576 Days'))[0].allDay).toBe(true);
+  });
+});
