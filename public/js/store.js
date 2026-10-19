@@ -56,7 +56,7 @@ export const store = createStore({
   eventCache:      new Map(),
 
   // Current view state
-  view:            'month',   // 'month' | 'week' | 'workweek' | 'day' | 'agenda' | 'kanban'
+  view:            'month',   // 'month' | 'week' | 'workweek' | 'day' | 'agenda' | 'list' | 'kanban'
   currentDate:     new Date(today), // date the view is centered on
 
   // Tasks state (VTODO)

@@ -45,6 +45,8 @@ export function getToolbarTitle(view, date) {
     case 'workweek': return workweekTitle(date);
     case 'day':    return `${DAYS[date.getDay()]}, ${date.getDate()}. ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
     case 'agenda': return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+    // #510: the list chooses its own range in the view.
+    case 'list':   return 'Liste';
   }
 }
 

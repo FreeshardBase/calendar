@@ -6850,7 +6850,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Row 2: the tabs sit below the title and take the toolbar's whole content width.
     expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.title.bottom);
     expect(layout.tabs.width).toBeGreaterThan(layout.toolbar.width - 40);
-    expect(layout.tab).toHaveLength(6);
+    expect(layout.tab).toHaveLength(7);
     for (const t of layout.tab) {
       expect(t.left).toBeGreaterThanOrEqual(0);
       expect(t.right).toBeLessThanOrEqual(375);
@@ -8760,6 +8760,9 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.route('**/api/calendars/*', route => {
         if (route.request().method() !== 'PATCH') return route.fallback();
         patches.push(route.request().postDataJSON());
+        // Like the server, a later calendar reload returns the stored local colour: events from
+        // calendars outside this mock make the app reload the list after the save.
+        calendars[0].color = route.request().postDataJSON().color;
         return route.fulfill({ json: { message: 'Calendar updated', calendarId: sharedCal, color: '#ec4899' } });
       });
       await page.goto('/');
@@ -8778,6 +8781,133 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(dialog).toHaveCount(0);
       expect(patches).toEqual([{ color: '#ec4899' }]);
       await expect(dot(page, sharedCal)).toHaveCSS('background-color', 'rgb(236, 72, 153)');
+    });
+  });
+  test.describe('Issue #510 — list view: sortable, filterable table with paging and bulk actions', () => {
+    // YYYY-MM-DD `days` days from today (local), inside the list's default range.
+    const dayAhead = (days) => {
+      const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      return d.toISOString().slice(0, 10);
+    };
+    const titles = (page) => page.locator('#list-table tbody .list-title').allTextContents();
+
+    test('pages through the range, sorts and filters on the server, moves and deletes the selection', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#new-event-btn');
+      await expect(page.locator('#ev-calendar option:not([value=""])').first()).toBeAttached({ timeout: 10000 });
+      const sourceOption = page.locator('#ev-calendar option:not([value=""])').first();
+      const calendarId = await sourceOption.getAttribute('value');
+      // Other tests may have added calendars, so the first writable one is not always "Persönlich".
+      const sourceName = await sourceOption.textContent();
+      await page.keyboard.press('Escape');
+
+      const slug = `e2e510x${Date.now()}`;
+      // Unique per run: the collection path follows the name, and a repeated run must not collide.
+      const targetName = `E2E 510 Ziel ${slug}`;
+      const createdCal = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN,
+        data: { accountId: calendarId.split('::')[0], name: targetName, type: 'calendar' }
+      });
+      expect(createdCal.status()).toBe(201);
+      const targetId = (await createdCal.json()).id;
+      const created = [];
+      try {
+        for (const [name, days, location] of [['Gamma', 20, 'Raum 1'], ['Alpha', 21, 'Raum 2'], ['Beta', 22, '']]) {
+          const res = await page.request.post('/api/events', {
+            headers: SAME_ORIGIN,
+            data: { calendarId, title: `${slug} ${name}`, location,
+              start: `${dayAhead(days)}T09:00:00.000Z`, end: `${dayAhead(days)}T10:00:00.000Z` }
+          });
+          expect(res.status()).toBe(201);
+          created.push(await res.json());
+        }
+
+        // Pages of two, so three events need a second page: the server cuts them, not the browser.
+        const listRequests = [];
+        await page.route('**/api/events?**', route => {
+          const url = new URL(route.request().url());
+          if (!url.searchParams.has('limit')) return route.continue();
+          listRequests.push(url);
+          url.searchParams.set('limit', '2');
+          return route.continue({ url: url.toString() });
+        });
+
+        await page.reload();
+        await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+        await page.click('#view-list');
+        await expect(page.locator('#view-list')).toHaveClass(/active/);
+        await expect(page.locator('#list-table')).toBeVisible({ timeout: 10000 });
+        // The agenda is not drawn instead.
+        await expect(page.locator('.agenda-view')).toHaveCount(0);
+
+        await page.fill('#list-filter', slug);
+        await expect.poll(() => listRequests.at(-1).searchParams.get('q'), { timeout: 10000 }).toBe(slug);
+        await expect.poll(() => titles(page), { timeout: 10000 }).toEqual([`${slug} Gamma`, `${slug} Alpha`]);
+        await expect(page.locator('#list-status')).toContainText('2 von 3');
+        await page.click('#list-more');
+        await expect.poll(() => titles(page)).toEqual([`${slug} Gamma`, `${slug} Alpha`, `${slug} Beta`]);
+        expect(listRequests.at(-1).searchParams.get('offset')).toBe('2');
+        await expect(page.locator('#list-more')).toBeHidden();
+
+        // Columns: date, time, title, calendar, location.
+        const gammaRow = page.locator('#list-table tbody tr', { hasText: `${slug} Gamma` });
+        await expect(gammaRow.locator('.list-location')).toHaveText('Raum 1');
+        await expect(gammaRow.locator('.list-calendar')).toHaveText(sourceName);
+        await expect(gammaRow.locator('.list-time')).not.toBeEmpty();
+
+        // Sorting by title asks the server again from the first page.
+        await page.click('#list-table th[data-sort="title"] button');
+        await expect.poll(() => titles(page)).toEqual([`${slug} Alpha`, `${slug} Beta`]);
+        expect(listRequests.at(-1).searchParams.get('sort')).toBe('title');
+        expect(listRequests.at(-1).searchParams.get('offset')).toBe('0');
+        await expect(page.locator('#list-table th[data-sort="title"]')).toHaveAttribute('aria-sort', 'ascending');
+        await page.click('#list-table th[data-sort="title"] button');
+        await expect.poll(() => titles(page)).toEqual([`${slug} Gamma`, `${slug} Beta`]);
+        await expect(page.locator('#list-table th[data-sort="title"]')).toHaveAttribute('aria-sort', 'descending');
+        await page.click('#list-more');
+        await expect.poll(() => titles(page)).toEqual([`${slug} Gamma`, `${slug} Beta`, `${slug} Alpha`]);
+
+        // Bulk move: the bar appears with the selection.
+        await expect(page.locator('#list-bulk')).toBeHidden();
+        await page.locator('#list-table tbody tr', { hasText: `${slug} Gamma` }).locator('input[type="checkbox"]').check();
+        await page.locator('#list-table tbody tr', { hasText: `${slug} Alpha` }).locator('input[type="checkbox"]').check();
+        await expect(page.locator('#list-bulk')).toBeVisible();
+        await expect(page.locator('#list-bulk-count')).toHaveText('2 ausgewählt');
+        await page.selectOption('#list-move-target', targetId);
+        await page.click('#list-move-btn');
+        await expect(page.locator('#list-table tbody tr', { hasText: `${slug} Gamma` }).locator('.list-calendar'))
+          .toHaveText(targetName, { timeout: 15000 });
+        // The reload after the action starts again at the first page.
+        await expect.poll(() => titles(page)).toEqual([`${slug} Gamma`, `${slug} Beta`]);
+        await page.click('#list-more');
+        await expect(page.locator('#list-table tbody tr', { hasText: `${slug} Alpha` }).locator('.list-calendar'))
+          .toHaveText(targetName);
+        await expect(page.locator('#list-table tbody tr', { hasText: `${slug} Beta` }).locator('.list-calendar'))
+          .toHaveText(sourceName);
+        await expect(page.locator('#list-bulk')).toBeHidden();
+        const inTarget = await page.request.get(`/api/events?start=${dayAhead(19)}T00:00:00Z&end=${dayAhead(23)}T00:00:00Z&calendarId=${encodeURIComponent(targetId)}`);
+        expect((await inTarget.json()).events.map(e => e.title).sort()).toEqual([`${slug} Alpha`, `${slug} Gamma`]);
+
+        // Bulk delete of everything shown, after a confirmation.
+        await page.check('#list-select-all');
+        await expect(page.locator('#list-bulk-count')).toHaveText('3 ausgewählt');
+        await page.click('#list-delete-btn');
+        await expect(page.locator('#confirm-dialog-text')).toContainText('3 Termine');
+        await page.click('#confirm-dialog-ok');
+        await expect(page.locator('#list-table tbody tr')).toHaveCount(0, { timeout: 15000 });
+        await expect(page.locator('#list-status')).toContainText('Keine Termine');
+        const left = await page.request.get(`/api/events?start=${dayAhead(19)}T00:00:00Z&end=${dayAhead(23)}T00:00:00Z`);
+        expect((await left.json()).events.filter(e => e.title.startsWith(slug))).toEqual([]);
+        created.length = 0;
+      } finally {
+        for (const ev of created) {
+          await page.request.delete(`/api/events/${encodeURIComponent(ev.uid)}`, {
+            headers: SAME_ORIGIN, data: { calendarId, href: ev.href, etag: ev.etag }
+          });
+        }
+        await page.request.delete(`/api/calendars/${encodeURIComponent(targetId)}`, { headers: SAME_ORIGIN });
+      }
     });
   });
 });

@@ -14,6 +14,7 @@ import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
 import { initTaskUI, openTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
+import { initListView, loadListPage, renderListView } from './listView.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
 import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, handleEscapeKey } from './dialogFocus.js';
@@ -74,6 +75,11 @@ async function boot() {
   initNotificationService();
   initTaskUI({ onTaskChanged: loadTasks });
   initInvitations();
+  initListView({
+    showToast,
+    onEventClick: (ev, e) => showEventPopover(ev, e),
+    onChanged: () => { invalidateEventCache(); loadEvents(); },
+  });
   initAvailabilityManager();
   initMSGraphModal();
   initDialogFocusManager();
@@ -255,6 +261,11 @@ function calendarLoadError(cal) {
 async function loadEvents() {
   const seq = ++loadEventsSeq;
   const view = store.get('view');
+  // #510: the list loads its own range page by page.
+  if (view === 'list') {
+    renderCalendarView();
+    return loadListPage();
+  }
   const date = store.get('currentDate');
   const { start, end } = getDateRange(view, date);
   const cacheKey = `${view}_${start.toISOString()}_${end.toISOString()}`;
@@ -725,6 +736,15 @@ function eventStatusText(view, count, query) {
   return partial ? `${text} – nicht alle Kalender konnten gelesen werden.` : text;
 }
 
+function syncViewTabs(view) {
+  document.querySelectorAll('.view-tab').forEach(btn => {
+    const isActive = btn.dataset.view === view;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+}
+
 function renderCalendarView() {
   const container  = $('calendar-container');
   const view       = store.get('view');
@@ -761,13 +781,13 @@ function renderCalendarView() {
   // Toolbar title
   $('toolbar-title').textContent = getToolbarTitle(view, date);
 
-  // Sync view tabs active state
-  document.querySelectorAll('.view-tab').forEach(btn => {
-    const isActive = btn.dataset.view === view;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-  });
+  if (view === 'list') {
+    syncViewTabs(view);
+    renderListView(container);
+    return;
+  }
+
+  syncViewTabs(view);
 
   renderView(container, events, view, date, {
     onDayClick:   (d) => openCreateModal(d, EVENT_MODAL_CALLBACKS),
@@ -2467,6 +2487,7 @@ function attachListeners() {
       workweek: 'Arbeitswoche',
       day: 'Tagesansicht',
       agenda: 'Agendaansicht',
+      list: 'Listenansicht',
       kanban: 'Aufgaben'
     };
     const label = viewLabels[viewName] || viewName;
