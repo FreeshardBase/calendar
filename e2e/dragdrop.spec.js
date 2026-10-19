@@ -330,3 +330,158 @@ test.describe('Issue #574 — move and resize events by drag and drop', () => {
     await expectStored(page, 'E2E 574 Conflict', `${DAY}T08:00:00.000Z`, `${DAY}T09:00:00.000Z`);
   });
 });
+
+// Issue #575: the month view moves events by whole days and keeps the time of day; the first and
+// last chip of a multi-day event carry the start and end edge. Same engine and cancel paths as #574.
+test.describe('Issue #575 — month view: move events and change multi-day spans', () => {
+  let calendarId;
+  let puts;
+
+  // The cell of a day of May 2037 in the month view.
+  const cell = (page, day) => page.locator('.month-day:not(.other-month)').nth(day - 1);
+  const chipIn = (page, day, title) => cell(page, day).locator('.event-chip', { hasText: title });
+
+  async function openMonth(page, title) {
+    await page.goto(`/?date=${DAY}`);
+    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expect(page.locator('.month-view [data-event-uid]', { hasText: title }).first()).toBeVisible({ timeout: 10000 });
+    // The loading screen fades out over the month view; until it is gone it takes the pointer.
+    await expect(page.locator('#loading-screen')).toBeHidden();
+  }
+
+  // Grab `from` (a locator or a point) and let go near the bottom of the cell of `day`.
+  async function dropOnDay(page, from, day, opts) {
+    const start = typeof from.boundingBox === 'function' ? center(await from.boundingBox()) : from;
+    const box = await cell(page, day).boundingBox();
+    await drag(page, start, { x: box.x + box.width / 2, y: box.y + box.height - 8 }, opts);
+  }
+
+  test.beforeEach(async ({ page, e2eUser }) => {
+    await page.addInitScript(() => {
+      if (window.origin !== 'null') window.localStorage.setItem('welcome-popup-closed', 'true');
+    });
+    puts = [];
+    page.on('request', r => {
+      if (r.method() === 'PUT' && new URL(r.url()).pathname.startsWith('/api/events/')) puts.push(r.postDataJSON());
+    });
+    await page.goto('/');
+    calendarId = await ownCalendar(page, e2eUser);
+  });
+
+  test('#575 an event dropped on another day keeps its time of day', async ({ page }) => {
+    await seed(page, { calendarId, title: 'E2E 575 Move', start: `${DAY}T08:00:00.000Z`, end: `${DAY}T09:30:00.000Z` });
+    await openMonth(page, 'E2E 575 Move');
+    // A one-day event has no edges in the month view.
+    await expect(chipIn(page, 14, 'E2E 575 Move').locator('.event-resize-handle')).toHaveCount(0);
+
+    await dropOnDay(page, chipIn(page, 14, 'E2E 575 Move'), 19);
+    await expectStored(page, 'E2E 575 Move', '2037-05-19T08:00:00.000Z', '2037-05-19T09:30:00.000Z');
+    await expect(page.locator('#undo-bar')).toBeVisible();
+    await expect(chipIn(page, 19, 'E2E 575 Move')).toBeVisible();
+    // The drop opens neither the event nor the create dialog.
+    await expect(page.locator('#event-modal-backdrop')).toHaveClass(/hidden/);
+    expect(puts).toHaveLength(1);
+  });
+
+  test('#575 the edges of a multi-day timed event change its first and last day, times stay', async ({ page }) => {
+    await seed(page, { calendarId, title: 'E2E 575 Span', start: `${DAY}T08:00:00.000Z`, end: '2037-05-16T10:00:00.000Z' });
+    await openMonth(page, 'E2E 575 Span');
+    await expect(chipIn(page, 14, 'E2E 575 Span').locator('.event-resize-handle')).toHaveCount(1);
+    await expect(chipIn(page, 14, 'E2E 575 Span').locator('.event-resize-handle.start')).toHaveCount(1);
+    await expect(chipIn(page, 15, 'E2E 575 Span').locator('.event-resize-handle')).toHaveCount(0);
+    await expect(chipIn(page, 16, 'E2E 575 Span').locator('.event-resize-handle.end')).toHaveCount(1);
+
+    await dropOnDay(page, center(await chipIn(page, 16, 'E2E 575 Span').locator('.event-resize-handle.end').boundingBox()), 20);
+    await expectStored(page, 'E2E 575 Span', `${DAY}T08:00:00.000Z`, '2037-05-20T10:00:00.000Z');
+    await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+
+    await dropOnDay(page, center(await chipIn(page, 14, 'E2E 575 Span').locator('.event-resize-handle.start').boundingBox()), 11);
+    await expectStored(page, 'E2E 575 Span', '2037-05-11T08:00:00.000Z', '2037-05-20T10:00:00.000Z');
+  });
+
+  test('#575 a multi-day all-day event moves as a whole and its end edge stretches it', async ({ page }) => {
+    await seed(page, { calendarId, title: 'E2E 575 Trip', allDay: true, start: DAY, end: '2037-05-17' });
+    await openMonth(page, 'E2E 575 Trip');
+
+    // Grabbed on its middle day and dropped two days later: every day shifts by two.
+    await dropOnDay(page, chipIn(page, 15, 'E2E 575 Trip'), 17);
+    await expectStored(page, 'E2E 575 Trip', '2037-05-16', '2037-05-19');
+    expect((await stored(page, 'E2E 575 Trip'))[0].allDay).toBe(true);
+    await expect(page.locator('.event-pending')).toHaveCount(0, { timeout: 15000 });
+
+    await dropOnDay(page, center(await chipIn(page, 18, 'E2E 575 Trip').locator('.event-resize-handle.end').boundingBox()), 21);
+    await expectStored(page, 'E2E 575 Trip', '2037-05-16', '2037-05-22');
+  });
+
+  test('#575 Esc and the cancel zone abort a month drag; Rückgängig restores the drop', async ({ page }) => {
+    await seed(page, { calendarId, title: 'E2E 575 Cancel', start: `${DAY}T08:00:00.000Z`, end: `${DAY}T09:00:00.000Z` });
+    await openMonth(page, 'E2E 575 Cancel');
+    const zone = page.locator('#drag-cancel-zone');
+
+    if (!isTouch()) {
+      await dropOnDay(page, chipIn(page, 14, 'E2E 575 Cancel'), 20, { release: false });
+      await expect(zone).toBeVisible();
+      await expect(cell(page, 20)).toHaveClass(/drop-target/);
+      await page.keyboard.press('Escape');
+      await page.mouse.up();
+      await expect(zone).toBeHidden();
+      await expect(page.locator('#undo-bar')).toBeHidden();
+    }
+
+    const from = center(await chipIn(page, 14, 'E2E 575 Cancel').boundingBox());
+    await drag(page, from, { x: from.x, y: from.y + 40 }, { release: false });
+    await expect(zone).toBeVisible();
+    const z = center(await zone.boundingBox());
+    if (isTouch()) {
+      const cdp = await cdpOf(page);
+      for (let i = 1; i <= 10; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{
+          x: from.x + (z.x - from.x) * i / 10, y: from.y + 40 + (z.y - from.y - 40) * i / 10 }] });
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } else {
+      await page.mouse.move(z.x, z.y, { steps: 10 });
+      await page.mouse.up();
+    }
+    await expect(zone).toBeHidden();
+    await expect(page.locator('#undo-bar')).toBeHidden();
+    expect(puts).toHaveLength(0);
+    await expectStored(page, 'E2E 575 Cancel', `${DAY}T08:00:00.000Z`, `${DAY}T09:00:00.000Z`);
+
+    await dropOnDay(page, chipIn(page, 14, 'E2E 575 Cancel'), 21);
+    await expectStored(page, 'E2E 575 Cancel', '2037-05-21T08:00:00.000Z', '2037-05-21T09:00:00.000Z');
+    await page.locator('#undo-bar button', { hasText: 'Rückgängig' }).click();
+    await expectStored(page, 'E2E 575 Cancel', `${DAY}T08:00:00.000Z`, `${DAY}T09:00:00.000Z`);
+    await expect(page.locator('#undo-bar')).toBeHidden();
+  });
+
+  test('#575 a recurring event in the month view asks for the scope', async ({ page }) => {
+    await seed(page, { calendarId, title: 'E2E 575 Series', start: '2037-05-13T08:00:00.000Z', end: '2037-05-13T09:00:00.000Z',
+      recurrence: 'FREQ=DAILY;COUNT=2' });
+    await openMonth(page, 'E2E 575 Series');
+
+    await dropOnDay(page, chipIn(page, 14, 'E2E 575 Series'), 20);
+    await expect(page.locator('#scope-dialog-backdrop')).not.toHaveClass(/hidden/);
+    await page.click('#scope-cancel-btn');
+    await expect(chipIn(page, 14, 'E2E 575 Series')).toBeVisible();
+    expect(puts).toHaveLength(0);
+
+    await dropOnDay(page, chipIn(page, 14, 'E2E 575 Series'), 20);
+    await page.click('#scope-occurrence-btn');
+    await expect.poll(async () => (await stored(page, 'E2E 575 Series')).map(e => e.start), { timeout: 15000 })
+      .toEqual(['2037-05-13T08:00:00.000Z', '2037-05-20T08:00:00.000Z']);
+  });
+
+  test('#575 a read-only event in the month view has no edges and does not move', async ({ page }) => {
+    await mockEvents(page, [{ uid: 'e2e-575-ro', title: 'E2E 575 Fremd', calendarId, readOnly: true,
+      start: `${DAY}T08:00:00.000Z`, end: '2037-05-16T09:00:00.000Z', allDay: false,
+      organizer: { name: 'Test User', email: 'testuser@example.com' } }]);
+    await openMonth(page, 'E2E 575 Fremd');
+    await expect(page.locator('.month-view .event-resize-handle')).toHaveCount(0);
+    await dropOnDay(page, chipIn(page, 14, 'E2E 575 Fremd'), 20);
+    await expect(page.locator('.toast', { hasText: 'Nur lesbar: Termin von Test User' })).toBeVisible();
+    await expect(page.locator('#drag-cancel-zone')).toBeHidden();
+    await expect(chipIn(page, 20, 'E2E 575 Fremd')).toHaveCount(0);
+    expect(puts).toHaveLength(0);
+  });
+});
