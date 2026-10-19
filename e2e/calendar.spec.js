@@ -2248,6 +2248,63 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(await page.evaluate(() => document.body.dataset.xss401)).toBeUndefined();
     });
 
+    test('Issue #593 — a calendar reload answered before a colour edit does not bring the old colour back', async ({ page }) => {
+      const calId = 'internal-caldav::/testuser/e2e-593/';
+      const calendars = [{ id: calId, accountId: 'internal-caldav', name: 'E2E 593 Kalender', color: '#3366cc',
+        href: '/testuser/e2e-593/', isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false }];
+      // A GET is answered with the list as it is when the request arrives; `holdNext` delays
+      // delivering that answer until the test releases it.
+      let holdNext = false;
+      let release = null;
+      let gets = 0;
+      await page.route('**/api/calendars', route => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        gets++;
+        const json = { calendars: JSON.parse(JSON.stringify(calendars)), errors: [] };
+        if (holdNext) {
+          holdNext = false;
+          release = () => route.fulfill({ json });
+          return undefined;
+        }
+        return route.fulfill({ json });
+      });
+      await page.route('**/api/calendars/*', route => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        calendars[0].color = route.request().postDataJSON().color;
+        return route.fulfill({ json: { message: 'Calendar updated', calendarId: calId } });
+      });
+      // From the next page on, the range holds an event of a calendar the list does not know yet,
+      // which makes the app reload the calendar list in the background.
+      let foreign = false;
+      await page.route('**/api/events?**', route => route.fulfill({ json: { errors: [], events: foreign
+        ? [{ uid: 'e2e-593-foreign', title: 'E2E 593 Fremd', calendarId: 'internal-caldav::/testuser/e2e-593-other/',
+          start: '2037-06-10T09:00:00+02:00', end: '2037-06-10T10:00:00+02:00', allDay: false }]
+        : [] } }));
+      await openAt(page, '2037-05-14');
+      const dot = page.locator(`#calendar-list [data-cal-id="${calId}"] .calendar-dot`);
+      await expect(dot).toHaveCSS('background-color', 'rgb(51, 102, 204)');
+
+      holdNext = true;
+      foreign = true;
+      await page.click('#next-btn');
+      await expect.poll(() => release !== null, { timeout: 10000 }).toBe(true);
+
+      await page.locator(`#calendar-list [data-cal-id="${calId}"] [data-edit-cal]`).click();
+      const dialog = page.locator('#edit-cal-dialog-backdrop');
+      await dialog.locator('#edit-cal-color').fill('#ab12cd');
+      await dialog.locator('#edit-cal-submit').click();
+      await expect(dialog).toHaveCount(0);
+      await expect(dot).toHaveCSS('background-color', 'rgb(171, 18, 205)');
+
+      // The held answer predates the edit: the app asks again instead of showing the old colour.
+      const getsBefore = gets;
+      await release();
+      await page.waitForTimeout(300);
+      await expect(dot).toHaveCSS('background-color', 'rgb(171, 18, 205)');
+      await expect.poll(() => gets, { timeout: 10000 }).toBeGreaterThan(getsBefore);
+      await expect(dot).toHaveCSS('background-color', 'rgb(171, 18, 205)');
+    });
+
     test('Issue #534 — a calendar colour cannot break out of the edit dialog colour input', async ({ page }) => {
       const evil = '#fff" data-xss534="1"><b id="e2e-534-injected">x</b><input value="';
       const calendars = [

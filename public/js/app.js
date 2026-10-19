@@ -73,7 +73,7 @@ async function boot() {
   initWelcomeModal();
   initIcsImport();
   initNotificationService();
-  initTaskUI({ onTaskChanged: loadTasks });
+  initTaskUI({ onTaskChanged: reloadTasksAfterEdit });
   initInvitations();
   initListView({
     showToast,
@@ -160,10 +160,24 @@ function showApp() {
 
 // ── Data loading ──────────────────────────────────────────────────────────────
 
+// #593: local edits per collection. A list fetched while the user changed it may have been
+// answered before the change landed on the server, so it is fetched again rather than shown.
+const localEdits = { calendars: 0, tasks: 0 };
+function noteLocalEdit(collection) {
+  localEdits[collection]++;
+}
+async function listAfterLocalEdits(collection, fetchList) {
+  for (;;) {
+    const edits = localEdits[collection];
+    const res = await fetchList();
+    if (edits === localEdits[collection]) return res;
+  }
+}
+
 async function loadCalendars() {
   store.set({ loadingCalendars: true });
   try {
-    const res = await listAfterOrderSaves(() => CalendarsAPI.list());
+    const res = await listAfterLocalEdits('calendars', () => listAfterOrderSaves(() => CalendarsAPI.list()));
     store.set({
       calendars: res.calendars || [],
       accountErrors: res.errors || [],
@@ -310,7 +324,10 @@ async function loadEvents() {
     const known = new Set((store.get('calendars') || []).map(c => c.id));
     if (events.some(ev => !known.has(ev.calendarId))) {
       invalidateEventCache();
-      loadCalendars();
+      loadCalendars().catch(err => {
+        console.error('[loadEvents] Calendar reload failed:', err);
+        showToast('Kalender konnten nicht geladen werden: ' + err.message, 'error');
+      });
     }
     // A partial result is not cached: the next load must ask the failed calendars again.
     if (errors.length === 0) cacheEvents(cacheKey, events);
@@ -353,7 +370,7 @@ function reportUnparseableTasks(info) {
 async function loadTasks() {
   store.set({ loadingTasks: true });
   try {
-    const tasks = await TasksAPI.list(reportUnparseableTasks);
+    const tasks = await listAfterLocalEdits('tasks', () => TasksAPI.list(reportUnparseableTasks));
     store.set({ tasks, tasksError: null });
     renderTaskSidebar();
     if (store.get('view') === 'kanban') {
@@ -372,6 +389,12 @@ async function loadTasks() {
   } finally {
     store.set({ loadingTasks: false });
   }
+}
+
+// A task was changed on the server: a task list still being fetched may predate it (#593).
+function reloadTasksAfterEdit() {
+  noteLocalEdit('tasks');
+  return loadTasks();
 }
 
 // ── Webcal Subscriptions State & Logic ────────────────────────────────────────
@@ -699,7 +722,7 @@ function renderTaskSidebar() {
   const countBadge = $('sidebar-task-count');
   const tasks = store.get('tasks') || [];
   const tasksError = store.get('tasksError');
-  renderSidebarTasks(container, countBadge, tasks, { onTaskChanged: loadTasks }, { error: tasksError });
+  renderSidebarTasks(container, countBadge, tasks, { onTaskChanged: reloadTasksAfterEdit }, { error: tasksError });
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -762,7 +785,7 @@ function renderCalendarView() {
     });
     const tasks = getFilteredTasks();
     const tasksError = store.get('tasksError');
-    renderTaskArea(container, tasks, { onTaskChanged: loadTasks }, {
+    renderTaskArea(container, tasks, { onTaskChanged: reloadTasksAfterEdit }, {
       searchQuery, error: tasksError, taskView: store.get('taskView'), onTaskViewChange: changeTaskView
     });
     const count = tasks.length;
@@ -1343,6 +1366,7 @@ function openEditCalendarDialog(cal) {
         c.id === cal.id ? { ...c, name, color } : c
       );
       store.set({ calendars: cals });
+      noteLocalEdit('calendars');
       close();
       showToast(colorOnly ? 'Farbe gespeichert.' : `${collectionNoun(cal)} umbenannt in „${name}“.`, 'success');
       renderCalendarList();
@@ -2148,6 +2172,7 @@ function renderSettingsCalendars() {
       try {
         await CalendarsAPI.remove(id);
         store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
+        noteLocalEdit('calendars');
         showToast(`${noun} „${cal.name}“ gelöscht.`, 'info');
         invalidateEventCache();
         await loadEvents();
