@@ -86,7 +86,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `shard_core` has no OIDC provider yet, so no shard can run `oidc`; `oidc` without `OIDC_ISSUER_URL`,
   `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` aborts boot (#121). The token endpoint auth method comes from
   `OIDC_TOKEN_AUTH_METHOD` (`client_secret_basic` | `client_secret_post`, anything else aborts boot) or else from
-  the issuer's `token_endpoint_auth_methods_supported` (basic preferred, #490); a failed callback logs the
+  the issuer's `token_endpoint_auth_methods_supported` (basic tried first, #490). At start each candidate is
+  probed with an invalid code (`invalid_grant` = client accepted); the first accepted one is used and logged,
+  none accepted aborts boot (#600, `server/utils/oidcClient.js`); a failed callback logs the
   provider's `error`/`error_description`, the browser never sees them. Decision (#121): user-to-user sharing waits
   for that provider and is not cut; until then a shard has only its owner. No users are seeded.
   In production (and staging) `env` mode answers 401 to every request without `X-Freeshard-Secret` =
