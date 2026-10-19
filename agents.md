@@ -143,6 +143,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   "Teilnehmer über die Änderung informieren?" (Ja resets their PARTSTAT to NEEDS-ACTION with RSVP), saves
   optimistically and offers "Verschoben · Rückgängig" for 8 s. Esc and the top "Abbrechen" zone cancel a drag.
   Only events of writable calendars get handles; the server's calendar write check rejects the rest.
+  Dragging on empty space (#576) draws a new event and opens the new-event dialog (`onCreateRange`) with it: a
+  timed range over the 15-minute slots of the grabbed day/week column, or in the month view an all-day event
+  from the first to the last day crossed. A plain click in the time grid starts on its 15-minute slot.
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).

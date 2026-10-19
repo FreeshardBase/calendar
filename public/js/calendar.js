@@ -1,8 +1,8 @@
 /**
  * calendar.js — Calendar rendering engine.
  * Renders month, week, day, and agenda views.
- * Handles time-grid click-to-create; drag and drop in the day/week (#574) and month view (#575)
- * lives in eventDrag.js.
+ * Handles time-grid click-to-create on the 15-minute slot; drag and drop in the day/week (#574) and
+ * month view (#575) and drag to create (#576) live in eventDrag.js.
  */
 
 import { store, visibleCalendars, calendarById } from './store.js';
@@ -554,12 +554,14 @@ function renderDay(container, events, currentDate, cb) {
   setTimeout(() => { body.scrollTop = 8 * HOUR_H - 30; }, 10);
 }
 
-// #574/#575: events move and resize by drag and drop when the app passes the drop handler.
+// #574/#575: events move and resize by drag and drop when the app passes the drop handler;
+// #576: dragging on empty space opens the new-event dialog for the drawn range.
 function enableDrag(wrap, events, cb) {
   if (!cb.onEventDrop) return;
   enableEventDrag(wrap, {
     events, hourHeight: HOUR_H,
-    canDrag: cb.canDrag, onDrop: cb.onEventDrop, readOnlyNotice: cb.readOnlyNotice
+    canDrag: cb.canDrag, onDrop: cb.onEventDrop, readOnlyNotice: cb.readOnlyNotice,
+    onCreateRange: cb.onCreateRange
   });
 }
 
@@ -589,14 +591,15 @@ function createTimeCol(allEvents, date, cb) {
     halfLine.style.top = `${h * HOUR_H + 30}px`;
     col.appendChild(halfLine);
 
-    // Click area for creating events
+    // Click area for creating events: a click starts the new event on its 15-minute slot (#576).
     const slot = document.createElement('div');
     slot.className = `time-slot-click-area${!isWorkingHour ? ' non-working-hour' : ''}`;
     slot.style.top  = `${h * HOUR_H}px`;
     slot.style.height = `${HOUR_H}px`;
-    slot.addEventListener('click', () => {
+    slot.addEventListener('click', e => {
+      const quarter = Math.min(3, Math.max(0, Math.floor(e.offsetY / HOUR_H * 4)));
       const d = new Date(date);
-      d.setHours(h, 0, 0, 0);
+      d.setHours(h, quarter * 15, 0, 0);
       cb.onDayClick(d);
     });
     col.appendChild(slot);

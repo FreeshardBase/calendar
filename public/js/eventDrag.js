@@ -9,8 +9,11 @@
  * timed event in the all-day row makes it all-day. In the month view an event moves by whole days
  * and keeps its time of day; the first and last chip of a multi-day event carry its start and end
  * edge, which change the first or last day (times stay). Esc or the "Abbrechen" zone at the top cancels.
+ * Dragging on empty space draws a new event (#576): a timed range in the 15-minute grid of the
+ * column it starts in, or in the month view an all-day range from the first to the last day.
  *
- * The engine only computes the new times; `onDrop(ev, { start, end, allDay })` saves them.
+ * The engine only computes the new times; `onDrop(ev, { start, end, allDay })` saves them and
+ * `onCreateRange({ start, end, allDay })` opens the new-event dialog for a drawn range.
  */
 
 const SNAP_MIN = 15;
@@ -66,9 +69,14 @@ export function enableEventDrag(root, opts) {
   root.addEventListener('pointerdown', e => {
     if (active || (e.pointerType === 'mouse' && e.button !== 0)) return;
     const el = e.target.closest(CHIP_SELECTOR);
-    const ev = el && byUid.get(el.dataset.eventUid);
-    if (!ev || ev.pending) return;
-    startTracking(e, el, ev, opts);
+    if (el) {
+      const ev = byUid.get(el.dataset.eventUid);
+      if (ev && !ev.pending) startTracking(e, el, ev, opts);
+      return;
+    }
+    // Empty space of a time-grid column or a month day: draw a new event (#576).
+    const area = e.target.closest('.week-day-col[data-date], .month-day[data-date]');
+    if (area && opts.onCreateRange && !e.target.closest('[data-event-uid], .month-more')) startTracking(e, area, null, opts);
   });
 }
 
@@ -76,12 +84,12 @@ function startTracking(e, el, ev, opts) {
   const handle = e.target.closest('.event-resize-handle');
   const grabCol = el.closest('.week-day-col');
   const grabHeader = el.closest('.week-day-header, .month-day');
-  const start = new Date(ev.start);
+  const pointerMin = grabCol ? minuteAt(grabCol, e.clientY, opts.hourHeight) : 0;
   const state = {
     el, ev, opts,
     pointerId: e.pointerId,
     touch: e.pointerType === 'touch',
-    mode: handle ? handle.dataset.edge : 'move',
+    mode: !ev ? 'create' : handle ? handle.dataset.edge : 'move',
     x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY,
     alt: e.altKey,
     armed: false,
@@ -89,7 +97,9 @@ function startTracking(e, el, ev, opts) {
     ghost: null,
     target: null,
     // Minutes between the grabbed point and the event's start (timed events in the grid).
-    grabOffsetMin: grabCol ? minuteAt(grabCol, e.clientY, opts.hourHeight) - minutesOfDay(start) : 0,
+    grabOffsetMin: ev && grabCol ? pointerMin - minutesOfDay(new Date(ev.start)) : 0,
+    // Where a new event's range starts (#576), in minutes of the grabbed column's day.
+    anchorMin: pointerMin,
     // The day the chip was grabbed on (all-day row, month cell): a move shifts by the days from there.
     grabDay: grabHeader ? dayOf(grabHeader) : null,
   };
@@ -105,14 +115,16 @@ function startTracking(e, el, ev, opts) {
 
 function arm(state) {
   state.timer = null;
-  const allowed = state.opts.canDrag(state.ev);
-  if (allowed !== true) {
-    stop();
-    state.opts.readOnlyNotice?.(allowed);
-    return;
+  if (state.ev) {
+    const allowed = state.opts.canDrag(state.ev);
+    if (allowed !== true) {
+      stop();
+      state.opts.readOnlyNotice?.(allowed);
+      return;
+    }
+    state.el.classList.add('drag-source');
   }
   state.armed = true;
-  state.el.classList.add('drag-source');
   document.body.classList.add('event-dragging');
   document.getElementById('drag-cancel-zone')?.classList.remove('hidden');
   if (state.touch && navigator.vibrate) navigator.vibrate(10);
@@ -147,7 +159,9 @@ function onUp(e) {
   stop();
   // The release ends a drag, not a click: no popover opens.
   swallowNextClick();
-  if (change && !sameTimes(state.ev, change)) state.opts.onDrop(state.ev, change);
+  if (!change) return;
+  if (!state.ev) state.opts.onCreateRange(change);
+  else if (!sameTimes(state.ev, change)) state.opts.onDrop(state.ev, change);
 }
 
 function onCancelPointer(e) {
@@ -208,10 +222,11 @@ function update(state) {
   state.target = targetAt(state);
   const zone = document.getElementById('drag-cancel-zone');
   zone?.classList.toggle('over', Boolean(state.target?.cancel));
+  const marked = state.target?.days || (state.target?.header ? [state.target.header] : []);
   document.querySelectorAll('.drop-target').forEach(h => {
-    if (h !== state.target?.header) h.classList.remove('drop-target');
+    if (!marked.includes(h)) h.classList.remove('drop-target');
   });
-  state.target?.header?.classList.add('drop-target');
+  marked.forEach(h => h.classList.add('drop-target'));
   drawGhost(state);
 }
 
@@ -221,6 +236,7 @@ function targetAt(state) {
     return { cancel: true };
   }
   const hit = document.elementFromPoint(state.x, state.y);
+  if (!state.ev) return createTarget(state, hit);
   const col = hit?.closest('.week-day-col[data-date]');
   const header = hit?.closest('.week-day-header[data-date]');
   const cell = hit?.closest('.month-day[data-date]');
@@ -230,6 +246,32 @@ function targetAt(state) {
   }
   const change = col ? gridChange(state, col) : header ? allDayRowChange(state, header) : null;
   return change ? { change, col, header } : null;
+}
+
+// A new event's range (#576). In the time grid it stays in the grabbed column and covers every
+// 15-minute slot between the press and the pointer (Alt: minute-exact), at least one slot. In the
+// month view it covers the days between the grabbed cell and the cell under the pointer.
+function createTarget(state, hit) {
+  if (state.el.matches('.month-day')) {
+    const cell = hit?.closest('.month-day[data-date]');
+    if (!cell) return null;
+    const a = state.grabDay;
+    const b = dayOf(cell);
+    const [first, last] = a <= b ? [a, b] : [b, a];
+    const days = [...state.el.closest('.month-grid').querySelectorAll('.month-day[data-date]')]
+      .filter(c => { const d = dayOf(c); return d >= first && d <= last; });
+    return { change: { start: ymd(first), end: ymd(addDays(last, 1)), allDay: true }, days };
+  }
+  const col = state.el;
+  const day = dayOf(col);
+  const clampMin = m => Math.min(Math.max(m, 0), 24 * 60);
+  const pointerMin = clampMin(minuteAt(col, state.y, state.opts.hourHeight));
+  const lo = Math.min(state.anchorMin, pointerMin);
+  const hi = Math.max(state.anchorMin, pointerMin);
+  const startMin = Math.min(state.alt ? Math.round(lo) : Math.floor(lo / SNAP_MIN) * SNAP_MIN, 24 * 60 - SNAP_MIN);
+  const endMin = Math.max(state.alt ? Math.round(hi) : Math.ceil(hi / SNAP_MIN) * SNAP_MIN, startMin + SNAP_MIN);
+  const at = min => new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min).toISOString();
+  return { change: { start: at(startMin), end: at(endMin), allDay: false }, col };
 }
 
 // Pointer over a column of the time grid.
@@ -325,7 +367,7 @@ function drawGhost(state) {
   if (!state.ghost) {
     state.ghost = document.createElement('div');
     state.ghost.className = 'event-block drag-ghost';
-    state.ghost.style.setProperty('--event-color', state.el.style.getPropertyValue('--event-color'));
+    state.ghost.style.setProperty('--event-color', state.ev ? state.el.style.getPropertyValue('--event-color') : 'var(--accent)');
   }
   const s = new Date(target.change.start);
   const e = new Date(target.change.end);

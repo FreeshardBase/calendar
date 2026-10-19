@@ -70,7 +70,8 @@ function populateTimezoneSelects(selectedStartTz, selectedEndTz) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function openCreateModal(defaultDate, callbacks) {
+// `range` ({ start, end, allDay }, as drawn by dragging on empty space, #576) presets start and end.
+export function openCreateModal(defaultDate, callbacks, range = null) {
   _currentEvent = null;
   setCallbacks(callbacks);
 
@@ -84,7 +85,24 @@ export function openCreateModal(defaultDate, callbacks) {
   $('ev-start-date').value = toLocalInputDate(d);
   $('ev-end-date').value   = toLocalInputDate(d);
 
-  if (defaultDate && d.getHours() !== 0) {
+  if (range) {
+    $('ev-allday').checked = range.allDay;
+    updateAlldayUI(range.allDay);
+    if (range.allDay) {
+      // The form shows the last day; the range's end is the exclusive day after it.
+      const last = new Date(`${range.end}T00:00:00.000Z`);
+      last.setUTCDate(last.getUTCDate() - 1);
+      $('ev-start-date').value = range.start;
+      $('ev-end-date').value   = toInputDate(last, null, true);
+    } else {
+      const start = new Date(range.start);
+      const end = new Date(range.end);
+      $('ev-start-date').value = toLocalInputDate(start);
+      $('ev-start-time').value = toInputTime(start);
+      $('ev-end-date').value   = toLocalInputDate(end);
+      $('ev-end-time').value   = toInputTime(end);
+    }
+  } else if (defaultDate && (d.getHours() !== 0 || d.getMinutes() !== 0)) {
     $('ev-start-time').value = toInputTime(d);
     const end = new Date(d); end.setHours(end.getHours() + 1);
     $('ev-end-time').value   = toInputTime(end);
