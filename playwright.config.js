@@ -70,6 +70,9 @@ module.exports = defineConfig({
       SESSION_SECRET: 'e2e-playwright-test-session-secret-key-32bytes!',
       ENCRYPTION_KEY: 'e2e-playwright-encryption-key-32bytes!',
       HTTP_HEADER_AUTH_SECRET: E2E_PROXY_SECRET,
+      // Issue #592: the proxy's identity header names the user, so each test (e2e/fixtures.js) signs in
+      // as its own user with its own principal and never sees another test's events or calendars.
+      HTTP_HEADER_AUTH: 'true',
       INTERNAL_CALDAV_URL: 'https://localhost:5232',
       UNDICI_NO_AUTO_SELECT_FAMILY: '1',
       SSL_KEY_PATH: '',

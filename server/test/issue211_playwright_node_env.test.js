@@ -105,14 +105,18 @@ test('Issue #211 — the Playwright webServer runs the shipping auth configurati
   assert.ok(suiteEnv.DATABASE_PATH, 'the suite must not write its fixtures into the default webcalendar.db');
   assert.notStrictEqual(path.resolve(repoRoot, suiteEnv.DATABASE_PATH), path.join(repoRoot, 'webcalendar.db'));
   // No process-wide TLS opt-out (CLAUDE.md §3.4) and no auth-mode override the shipping compose lacks.
-  for (const key of ['NODE_TLS_REJECT_UNAUTHORIZED', 'AUTH_METHOD', 'HTTP_HEADER_AUTH', 'E2E_TEST']) {
+  // #592: HTTP_HEADER_AUTH is no mode switch: AUTH_METHOD stays env, and the identity header only counts
+  // behind the proxy secret, so each test can name its own user.
+  for (const key of ['NODE_TLS_REJECT_UNAUTHORIZED', 'AUTH_METHOD', 'E2E_TEST']) {
     assert.ok(!(key in suiteEnv), `webServer.env must not set ${key}`);
   }
+  assert.strictEqual(suiteEnv.HTTP_HEADER_AUTH, 'true');
 
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const caldavUrl = await startCalDAVStub(t, suiteEnv.SYSTEM_SYNC_SECRET);
-  const srv = bootServer(t, { PORT: String(port), INTERNAL_CALDAV_URL: caldavUrl });
+  // The shipping compose has no HTTP_HEADER_AUTH: probe the env-mode guards exactly as they ship.
+  const srv = bootServer(t, { PORT: String(port), INTERNAL_CALDAV_URL: caldavUrl, HTTP_HEADER_AUTH: '' });
   await waitForHealth(baseUrl, srv);
 
   // A spoofed test identity header must not log the caller in as someone else — neither via the

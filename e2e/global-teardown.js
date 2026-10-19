@@ -13,6 +13,18 @@ async function removeRunFixtures({ caldavUrl, username, secret, databasePath }) 
   if (!caldavUrl || !username || !secret || !databasePath) {
     throw new Error('removeRunFixtures needs caldavUrl, username, secret and databasePath');
   }
+  await removePrincipal({ caldavUrl, username, secret });
+  fs.rmSync(path.dirname(databasePath), { recursive: true, force: true });
+}
+
+/**
+ * Drops one e2e CalDAV principal (every collection and event under /<username>/) — the run's
+ * own here, and each test's own from e2e/fixtures.js (#592).
+ */
+async function removePrincipal({ caldavUrl, username, secret }) {
+  if (!caldavUrl || !username || !secret) {
+    throw new Error('removePrincipal needs caldavUrl, username and secret');
+  }
   if (!/^e2e-[a-z0-9-]+$/.test(username)) {
     throw new Error(`refusing to delete CalDAV principal "${username}": not an e2e fixture user`);
   }
@@ -35,7 +47,6 @@ async function removeRunFixtures({ caldavUrl, username, secret, databasePath }) 
   } finally {
     await dispatcher.close();
   }
-  fs.rmSync(path.dirname(databasePath), { recursive: true, force: true });
 }
 
 async function globalTeardown() {
@@ -50,3 +61,4 @@ async function globalTeardown() {
 
 module.exports = globalTeardown;
 module.exports.removeRunFixtures = removeRunFixtures;
+module.exports.removePrincipal = removePrincipal;

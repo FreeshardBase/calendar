@@ -40,7 +40,12 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   its own fixture (#217): `playwright.config.js` picks a run id (`E2E_RUN_ID`), signs the browser in as
   `e2e-<run id>` (`CALDAV_USERNAME`) with the database `$TMPDIR/webcalendar-e2e/<run id>/webcalendar.db`,
   and `e2e/global-teardown.js` deletes the run's Radicale principal `/e2e-<run id>/` and that directory
-  afterwards, failed runs included. The teardown fails the run if Radicale refuses the delete. A server you
+  afterwards, failed runs included. The teardown fails the run if Radicale refuses the delete. Inside a
+  run every test is its own fixture too (#592): specs import `test` from `e2e/fixtures.js`, which gives
+  each test the user `e2e-<run id>-w<worker>-t<n>` (fixture `e2eUser`), sent as the proxy's
+  `X-Forwarded-User` (the server runs `HTTP_HEADER_AUTH=true`) on every context, and drops that user's
+  principal after the test. A spec that mocks a list endpoint uses `e2e/mocks.js` (`mockCalendars`,
+  `mockEvents`), whose collection applies the test's PATCH/PUT/DELETE like the server. A server you
   started yourself on :3098 is reused as-is and does not sign in as the run's user, so leave the port free
   and let Playwright start it. Needs a reachable internal CalDAV server whose `SYSTEM_SYNC_SECRET` matches
   `playwright.config.js`: `just test-e2e` starts one (`just e2e-radicale`, as in CI) if nothing answers

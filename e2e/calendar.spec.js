@@ -1,14 +1,18 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures.js');
+const { mockCalendars, mockEvents } = require('./mocks.js');
 const sqlite3 = require('sqlite3');
 const { webServer } = require('../playwright.config.js');
 
 // The webServer's own database (#211), never the developer's webcalendar.db.
 const E2E_DATABASE_PATH = webServer.env.DATABASE_PATH;
-// Env auth signs the browser in as this run's fixture user (#217), whose collections live under /<E2E_USER>/.
-const E2E_USER = webServer.env.CALDAV_USERNAME;
+// The proxy header signs each test in as its own fixture user (#592, e2e/fixtures.js), whose
+// collections live under /<E2E_USER>/. Set before every test by the suite's beforeEach.
+let E2E_USER;
 // Direct API calls are not browser requests; they declare themselves same-origin to pass the
 // server's CSRF guard (#340), as the browser does for the app's own fetches.
 const SAME_ORIGIN = { 'Sec-Fetch-Site': 'same-origin' };
+// The platform proxy's headers for a caller it has not identified (no X-Forwarded-User, #592).
+const PROXY_WITHOUT_USER = { 'X-Freeshard-Secret': webServer.env.HTTP_HEADER_AUTH_SECRET, 'X-Ptl-Client-Type': 'terminal' };
 
 // YYYY-MM-DD of the first Monday at least `weeks` weeks from now (UTC).
 function mondayWeeksAhead(weeks) {
@@ -57,6 +61,13 @@ async function tokenColor(page, token) {
   }, token);
 }
 
+// #592: a test's user is new, so its default collections exist only once the app has created them
+// on its first calendar-list load; a test that writes into one straight away waits for it.
+async function expectOwnCalendar(page, calendarId) {
+  await expect.poll(async () => (await (await page.request.get('/api/calendars')).json()).calendars.map(c => c.id),
+    { timeout: 10000 }).toContain(calendarId);
+}
+
 function runSql(sql, params = []) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(E2E_DATABASE_PATH);
@@ -67,7 +78,8 @@ function runSql(sql, params = []) {
 
 test.describe('FreeShard WebCalendar E2E Suite', () => {
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, e2eUser }) => {
+    E2E_USER = e2eUser;
     page.on('console', msg => console.log('PAGE LOG:', msg.text()));
     page.on('pageerror', err => console.log('PAGE ERROR:', err));
     // The one-time welcome modal (shown when only the internal calendar account
@@ -90,7 +102,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
-  test('Issue #71 / E2E-1 — protected API endpoints strictly reject unauthenticated requests with 401 and Authentication required', async ({ request }) => {
+  test('Issue #71 / E2E-1 — protected API endpoints strictly reject unauthenticated requests with 401 and Authentication required', async ({ browser }) => {
     const endpoints = [
       { method: 'get', path: '/api/calendars' },
       { method: 'get', path: '/api/events' },
@@ -102,12 +114,17 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       { method: 'post', path: '/api/quick-add/parse', data: { text: 'Meeting tomorrow at 3pm' } }
     ];
 
-    // `request` carries no session cookie; the server runs the shipping auth configuration (#211).
-    for (const ep of endpoints) {
-      const response = await request[ep.method](ep.path, { data: ep.data, headers: SAME_ORIGIN });
-      expect(response.status()).toBe(401);
-      const body = await response.json();
-      expect(body.error).toBe('Authentication required');
+    // A proxied caller with no session cookie and no identity header (#211, #592).
+    const anonymous = await browser.newContext({ extraHTTPHeaders: PROXY_WITHOUT_USER });
+    try {
+      for (const ep of endpoints) {
+        const response = await anonymous.request[ep.method](ep.path, { data: ep.data, headers: SAME_ORIGIN });
+        expect(response.status()).toBe(401);
+        const body = await response.json();
+        expect(body.error).toBe('Authentication required');
+      }
+    } finally {
+      await anonymous.close();
     }
   });
 
@@ -147,10 +164,60 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await expect(reauth).toBeHidden();
     // The session is lost (expired / cleared); the next data fetch must surface the 401 (#224: as a sign-in prompt).
     // A boot request still in flight may already get the 401 and hide the shell, so navigate through the DOM.
+    // #592: the identity header goes too, or the proxy's next request would sign the user in again.
+    await context.setExtraHTTPHeaders(PROXY_WITHOUT_USER);
     await context.clearCookies();
     await page.evaluate(() => document.getElementById('next-btn').click());
     await expect(reauth).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#app')).toBeHidden();
+  });
+
+  // #592: every test is its own fixture (e2e/fixtures.js). The first test leaves an event and a
+  // calendar behind; the second, a later test of the same run, must see neither, and must be signed
+  // in as a user of its own. Serial, so the second runs after the first even when it is shuffled.
+  test.describe.serial('Issue #592 — no test sees what another test left behind', () => {
+    const leftover = { calendar: 'E2E 592 Rest-Kalender', event: 'E2E 592 Rest-Termin' };
+    const users = [];
+
+    async function signedIn(page) {
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+      return (await (await page.request.get('/api/auth/session')).json()).userId;
+    }
+
+    test('a test leaves a calendar and an event behind', async ({ page }) => {
+      users.push(await signedIn(page));
+      const calendars = (await (await page.request.get('/api/calendars')).json()).calendars;
+      const personal = calendars.find(c => c.supportsVEVENT && !c.readOnly);
+      const created = await page.request.post('/api/calendars', {
+        headers: SAME_ORIGIN, data: { accountId: 'internal-caldav', name: leftover.calendar, color: '#336699', type: 'calendar' },
+      });
+      expect(created.ok()).toBe(true);
+      const event = await page.request.post('/api/events', {
+        headers: SAME_ORIGIN,
+        data: { calendarId: personal.id, title: leftover.event, start: '2037-06-10T09:00:00.000Z', end: '2037-06-10T10:00:00.000Z' },
+      });
+      expect(event.status()).toBe(201);
+      await page.goto('/?date=2037-06-10');
+      await expect(page.locator('#calendar-list')).toContainText(leftover.calendar, { timeout: 10000 });
+      await expect(page.locator('.event-chip', { hasText: leftover.event })).toBeVisible({ timeout: 10000 });
+    });
+
+    test('the next test starts with a fresh user, calendar list and events', async ({ page, e2eUser }) => {
+      const user = await signedIn(page);
+      expect(user).toBe(e2eUser);
+      expect(users).toHaveLength(1);
+      expect(user).not.toBe(users[0]);
+      await page.goto('/?date=2037-06-10');
+      await expect(page.locator('#calendar-list .calendar-item').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#calendar-list')).not.toContainText(leftover.calendar);
+      const calendars = (await (await page.request.get('/api/calendars')).json()).calendars;
+      expect(calendars.map(c => c.name)).not.toContain(leftover.calendar);
+      const events = (await (await page.request.get('/api/events?start=2037-06-01T00:00:00.000Z&end=2037-07-01T00:00:00.000Z')).json()).events;
+      expect(events.map(e => e.title)).not.toContain(leftover.event);
+      await expect(page.locator('.event-chip', { hasText: leftover.event })).toHaveCount(0);
+    });
   });
 
   test('should load the page, bypass onboarding, and display calendar', async ({ page }) => {
@@ -515,7 +582,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   // #403: what the event dialog sends when a recurring event is saved. The events are routed and
   // every save is captured instead of stored, so each test reads the exact payload of one save.
   test.describe('Issue #403 — the event dialog saves recurrence and series edits as the user left them', () => {
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    let calendarId;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    });
     const series = (masterUid, title, recurrence, instances) => instances.map(([start, end, recurrenceId]) => ({
       uid: `${masterUid}::${recurrenceId}`, masterUid, recurrenceId, title, calendarId, start, end, allDay: false,
       recurrence, startTimeZone: 'Europe/Berlin', endTimeZone: 'Europe/Berlin',
@@ -524,7 +595,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     async function serve(page, events) {
       const saves = [];
-      await page.route('**/api/events?**', route => route.fulfill({ json: { events, errors: [] } }));
+      await mockEvents(page, events);
       const capture = route => {
         const method = route.request().method();
         if (method !== 'PUT' && method !== 'POST') return route.fallback();
@@ -776,9 +847,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         { id: `internal-caldav::/${E2E_USER}/e2e-403'x/`, accountId: 'internal-caldav', name: 'Zweiter Kalender', color: '#123456',
           href: `/${E2E_USER}/e2e-403'x/`, isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: true },
       ];
-      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-        ? route.fulfill({ json: { calendars, errors: [] } })
-        : route.fallback()));
+      await mockCalendars(page, calendars);
       const evilAttendee = `<img src=x onerror="document.body.dataset.xss403='att'"> O'Neil`;
       const [event] = series('e2e-403-xss', 'E2E 403 Escaping', 'FREQ=DAILY;COUNT=1', [
         ['2037-06-10T09:00:00+02:00', '2037-06-10T10:00:00+02:00', '2037-06-10T09:00:00'],
@@ -1718,6 +1787,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     await page.goto('/');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+    await expectOwnCalendar(page, calendarId);
     const titles = [];
     for (const [i, rule] of rules.entries()) {
       const title = `E2E Issue261 Task ${i} ${stamp}`;
@@ -1819,8 +1889,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     test.describe('against a served task list', () => {
       test.use({ serviceWorkers: 'block' });
-      const writableCal = `internal-caldav::/${E2E_USER}/personal/`;
-      const sharedCal = `internal-caldav::/${E2E_USER}/e2e-499-shared/`;
+      let writableCal;
+      let sharedCal;
+      // #592: the ids name the test's own user, known only once its fixture is set up.
+      test.beforeEach(() => {
+        writableCal = `internal-caldav::/${E2E_USER}/personal/`;
+        sharedCal = `internal-caldav::/${E2E_USER}/e2e-499-shared/`;
+      });
       let tasks;
       let failPut;
       let releasePut;
@@ -1842,9 +1917,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
           { id: sharedCal, accountId: 'internal-caldav', name: 'Geteilt', color: '#123456', href: `/${E2E_USER}/e2e-499-shared/`,
             isShared: true, readOnly: true, supportsVEVENT: false, supportsVTODO: true },
         ];
-        await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-          ? route.fulfill({ json: { calendars, errors: [] } })
-          : route.fallback()));
+        await mockCalendars(page, calendars);
         await page.route(/\/api\/tasks(\?.*)?$/, route => (route.request().method() === 'GET'
           ? route.fulfill({ json: tasks })
           : route.fallback()));
@@ -2149,11 +2222,15 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   // Issue #401: these replace the source-grep tests that once guarded public/js/calendar.js.
   test.describe('Issue #401 — calendar views render, order and lay out events', () => {
     test.use({ serviceWorkers: 'block' });
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    let calendarId;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    });
     const ev = (uid, title, start, end, allDay = false) => ({ uid, title, calendarId, start, end, allDay });
 
     function routeEvents(page, events) {
-      return page.route('**/api/events?**', route => route.fulfill({ json: { events, errors: [] } }));
+      return mockEvents(page, events);
     }
 
     async function openAt(page, date) {
@@ -2202,9 +2279,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         id: `internal-caldav::/testuser/e2e-401-c${i}/`, accountId: 'internal-caldav', name: `E2E 401 Kalender ${i}`,
         color, href: `/testuser/e2e-401-c${i}/`, isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false,
       }));
-      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-        ? route.fulfill({ json: { calendars, errors: [] } })
-        : route.fallback()));
+      await mockCalendars(page, calendars);
       const evilUid = 'e2e-401-uid" onmouseover="document.body.dataset.xss401=\'uid\'" data-x="';
       const day = i => `2037-05-${String(10 + i).padStart(2, '0')}`;
       const events = calendars.map((cal, i) => ({
@@ -2312,9 +2387,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         { id: 'internal-caldav::/testuser/e2e-534-good/', name: 'E2E 534 Gut', color: '#a1b2c3' },
       ].map(c => ({ ...c, accountId: 'internal-caldav', href: c.id.split('::')[1],
         isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false }));
-      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-        ? route.fulfill({ json: { calendars, errors: [] } })
-        : route.fallback()));
+      await mockCalendars(page, calendars);
       await routeEvents(page, []);
       await openAt(page, '2037-05-14');
 
@@ -2509,15 +2582,20 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Fixed events so the counts in the accessible names are known; page.route
     // needs the service worker off.
     test.use({ serviceWorkers: 'block' });
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
-    const fixedEvents = [
-      { uid: 'e2e-issue183-a', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
-      { uid: 'e2e-issue183-b', title: 'Review', calendarId, start: '2037-05-14T14:00:00+02:00', end: '2037-05-14T15:00:00+02:00', allDay: false },
-      { uid: 'e2e-issue183-c', title: 'Feiertag', calendarId, start: '2037-05-14', end: '2037-05-15', allDay: true },
-    ];
+    let calendarId;
+    let fixedEvents;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+      fixedEvents = [
+        { uid: 'e2e-issue183-a', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
+        { uid: 'e2e-issue183-b', title: 'Review', calendarId, start: '2037-05-14T14:00:00+02:00', end: '2037-05-14T15:00:00+02:00', allDay: false },
+        { uid: 'e2e-issue183-c', title: 'Feiertag', calendarId, start: '2037-05-14', end: '2037-05-15', allDay: true },
+      ];
+    });
 
     test.beforeEach(async ({ page }) => {
-      await page.route('**/api/events?**', route => route.fulfill({ json: { events: fixedEvents, errors: [] } }));
+      await mockEvents(page, fixedEvents);
       await page.goto('/?date=2037-05-14');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await expect(page.locator('.month-grid .event-chip', { hasText: 'Standup' })).toBeVisible({ timeout: 10000 });
@@ -3517,9 +3595,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         id, accountId: 'internal-caldav', name, color: '#3366cc', href: id.split('::')[1],
         isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO: false
       });
-      await page.route('**/api/calendars', route => route.fulfill({
-        json: { calendars: [calendar(okId, 'E2E 65 Working'), calendar(badId, 'E2E 65 Broken')], errors: [] }
-      }));
+      await mockCalendars(page, [calendar(okId, 'E2E 65 Working'), calendar(badId, 'E2E 65 Broken')]);
       let failing = true;
       await page.route('**/api/events?*', route => route.fulfill({ json: {
         events: [{ uid: 'e2e-issue65-a', title: 'E2E 65 Visible', calendarId: okId, accountId: 'internal-caldav',
@@ -3780,7 +3856,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       attendees: [{ name: 'Test User', email: 'testuser@example.com', status: PARTSTAT_INJECTION }]
     };
     const saves = [];
-    await page.route('**/api/events?**', route => route.fulfill({ json: { events: [event], errors: [] } }));
+    await mockEvents(page, [event]);
     await page.route('**/api/events/*', route => {
       if (route.request().method() !== 'PUT') return route.fallback();
       saves.push(route.request().postDataJSON());
@@ -4134,10 +4210,17 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test.describe('Issue #496 — linked accounts are named by their custom name', () => {
-    const personalId = `internal-caldav::/${E2E_USER}/personal/`;
-    const primaryId = `internal-caldav::/${E2E_USER}/google-0123456789abcdef/`;
-    const teamId = `internal-caldav::/${E2E_USER}/caldav-fedcba9876543210/`;
-    const workId = `internal-caldav::/${E2E_USER}/caldav-00112233445566778899/`;
+    let personalId;
+    let primaryId;
+    let teamId;
+    let workId;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      personalId = `internal-caldav::/${E2E_USER}/personal/`;
+      primaryId = `internal-caldav::/${E2E_USER}/google-0123456789abcdef/`;
+      teamId = `internal-caldav::/${E2E_USER}/caldav-fedcba9876543210/`;
+      workId = `internal-caldav::/${E2E_USER}/caldav-00112233445566778899/`;
+    });
     const calendar = (id, name, linkedAccountId, supportsVTODO) => ({
       id, accountId: 'internal-caldav', linkedAccountId, name, color: '#3366cc', href: id.split('::')[1],
       isShared: false, readOnly: false, supportsVEVENT: true, supportsVTODO
@@ -4158,14 +4241,12 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         renames.push(route.request().postDataJSON());
         return route.fulfill({ json: { message: 'Updated.' } });
       });
-      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-        ? route.fulfill({ json: { calendars: [
-          calendar(primaryId, 'testuser@example.com', 'acc-496', false),
-          calendar(personalId, 'Persönlich', null, true),
-          calendar(teamId, 'Team', 'acc-496', true),
-          calendar(workId, 'Arbeit', 'acc-496-plain', true),
-        ], errors: [] } })
-        : route.fallback()));
+      await mockCalendars(page, [
+        calendar(primaryId, 'testuser@example.com', 'acc-496', false),
+        calendar(personalId, 'Persönlich', null, true),
+        calendar(teamId, 'Team', 'acc-496', true),
+        calendar(workId, 'Arbeit', 'acc-496-plain', true),
+      ]);
       return renames;
     }
 
@@ -5668,6 +5749,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       // #500: tasks go into the default Aufgabenliste.
       const calendarId = `internal-caldav::/${E2E_USER}/tasks/`;
+      await expectOwnCalendar(page, calendarId);
       const title = `E2E Issue114 Task ${Date.now()}`;
       const created = await page.request.post('/api/tasks', { headers: SAME_ORIGIN, data: { calendarId, title } });
       expect(created.status()).toBe(201);
@@ -6234,15 +6316,20 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Fixed events in the week Mon 11 – Sun 17 May 2037; page.route needs the
     // service worker off.
     test.use({ serviceWorkers: 'block' });
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
-    const fixedEvents = [
-      { uid: 'e2e-issue227-holiday', title: 'Feiertag', calendarId, start: '2037-05-14', end: '2037-05-15', allDay: true },
-      { uid: 'e2e-issue227-leave', title: 'Urlaub', calendarId, start: '2037-05-11', end: '2037-05-16', allDay: true },
-      { uid: 'e2e-issue227-timed', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
-    ];
+    let calendarId;
+    let fixedEvents;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+      fixedEvents = [
+        { uid: 'e2e-issue227-holiday', title: 'Feiertag', calendarId, start: '2037-05-14', end: '2037-05-15', allDay: true },
+        { uid: 'e2e-issue227-leave', title: 'Urlaub', calendarId, start: '2037-05-11', end: '2037-05-16', allDay: true },
+        { uid: 'e2e-issue227-timed', title: 'Standup', calendarId, start: '2037-05-14T09:00:00+02:00', end: '2037-05-14T09:30:00+02:00', allDay: false },
+      ];
+    });
 
     test.beforeEach(async ({ page }) => {
-      await page.route('**/api/events?**', route => route.fulfill({ json: { events: fixedEvents, errors: [] } }));
+      await mockEvents(page, fixedEvents);
       await page.goto('/?date=2037-05-14');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await expect(page.locator('.month-grid .event-chip', { hasText: 'Standup' })).toBeVisible({ timeout: 10000 });
@@ -6306,16 +6393,21 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   test.describe('Issue #126 — letter shortcuts need Alt, arrows stay off interactive elements', () => {
     // Fixed events so the popover with an attachment link is known; page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
-    const fixedEvents = [{
-      uid: 'e2e-issue126-a', title: 'Shortcut Probe', calendarId,
-      start: '2037-06-10', end: '2037-06-11', allDay: true,
-      attachments: [{ name: 'Agenda.pdf', url: 'https://example.com/agenda.pdf' }],
-    }];
+    let calendarId;
+    let fixedEvents;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+      fixedEvents = [{
+        uid: 'e2e-issue126-a', title: 'Shortcut Probe', calendarId,
+        start: '2037-06-10', end: '2037-06-11', allDay: true,
+        attachments: [{ name: 'Agenda.pdf', url: 'https://example.com/agenda.pdf' }],
+      }];
+    });
     const createModal = '#event-modal-backdrop';
 
     test.beforeEach(async ({ page }) => {
-      await page.route('**/api/events?**', route => route.fulfill({ json: { events: fixedEvents, errors: [] } }));
+      await mockEvents(page, fixedEvents);
       await page.goto('/?date=2037-06-10');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       await expect(page.locator('.month-grid .event-chip', { hasText: 'Shortcut Probe' })).toBeVisible({ timeout: 10000 });
@@ -6620,7 +6712,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   // controls, WCAG 2.5.8's 24 px floor for the dense ones).
   test.describe('Issues #114 / #188 — no emoji glyphs, and targets large enough to hit', () => {
     test.use({ serviceWorkers: 'block' });
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    let calendarId;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    });
     const EMOJI = /\p{Extended_Pictographic}/u;
     const boxes = locator => locator.evaluateAll(els => els.map(el => {
       const r = el.getBoundingClientRect();
@@ -6972,7 +7068,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   // notifications, account dialog, availability, delegates, dialog focus) were meant to protect,
   // driven in the browser. Server answers are routed where a test needs a failure or a fixed record.
   test.describe('Issue #404 — tasks, invitations, reminders, typography, escaping and dialog focus in the browser', () => {
-    const calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    let calendarId;
+    // #592: the ids name the test's own user, known only once its fixture is set up.
+    test.beforeEach(() => {
+      calendarId = `internal-caldav::/${E2E_USER}/personal/`;
+    });
     const task = fields => ({
       calendarId, href: `/${E2E_USER}/personal/${fields.uid}.ics`, etag: '"e2e-404"', status: 'NEEDS-ACTION', ...fields,
     });
@@ -7022,7 +7122,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
 
     async function serveEvents(page, events) {
-      await page.route('**/api/events?**', route => route.fulfill({ json: { events, errors: [] } }));
+      await mockEvents(page, events);
     }
 
     test('Issue #165 — failed task and invitation loads show an error, never an empty list', async ({ page }) => {
@@ -7191,7 +7291,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, weeklyHours: [[], [{ start: '09:00', end: '17:00' }], [], [], [], [], []], bufferMinutes: 0, maxBookingsPerDay: null, minNoticeMinutes: 0,
       };
       await openApp(page);
-      await page.route('**/api/calendars', route => route.fulfill({ json: { calendars: [calendar], errors: [] } }));
+      await mockCalendars(page, [calendar]);
       await page.route('**/api/availability-slots', route => route.fulfill({ json: [bookingPage] }));
       const deleted = [];
       await page.route('**/api/availability-slots/*', route => {
@@ -7529,6 +7629,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         const headers = {
           ...req.headers,
           'x-freeshard-secret': webServer.env.HTTP_HEADER_AUTH_SECRET,
+          'x-forwarded-user': E2E_USER,
           'x-ptl-client-type': 'terminal',
           ...(variant ? { 'accept-encoding': 'identity' } : {}),
         };
@@ -7895,7 +7996,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       let pages = [];
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-      await page.route('**/api/calendars', route => route.fulfill({ json: { calendars: [calendar], errors: [] } }));
+      await mockCalendars(page, [calendar]);
       await page.route('**/api/availability-slots', route => {
         if (route.request().method() === 'POST') {
           pages = [{ id: 'e2e-502-page', slug: 'e2e-502', title: 'Sprechstunde', calendarId: calendar.id, busyCalendarIds: [], durationMinutes: 30, weeklyHours: [[], [{ start: '09:00', end: '17:00' }], [], [], [], [], []], bufferMinutes: 0, maxBookingsPerDay: null, minNoticeMinutes: 0 }];
@@ -8196,14 +8297,12 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
           { id: 'acc-504', url: 'https://caldav.example.com/testuser/', username: 'testuser@example.com', displayName: 'Privat' },
         ] })
         : route.fallback()));
-      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-        ? route.fulfill({ json: { calendars: [
-          calendar(own1, 'Persönlich', null),
-          calendar(own2, 'Zweiter', null),
-          calendar(linked1, 'Team', 'acc-504'),
-          calendar(linked2, 'Verein', 'acc-504'),
-        ], errors: [] } })
-        : route.fallback()));
+      await mockCalendars(page, [
+        calendar(own1, 'Persönlich', null),
+        calendar(own2, 'Zweiter', null),
+        calendar(linked1, 'Team', 'acc-504'),
+        calendar(linked2, 'Verein', 'acc-504'),
+      ]);
       const puts = [];
       await page.route('**/api/calendars/order', route => {
         puts.push(route.request().postDataJSON().calendarIds);
@@ -8810,18 +8909,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
           href: '/testuser-owner/e2e-505-shared/', owner: 'testuser-owner',
           isShared: true, readOnly: true, supportsVEVENT: true, supportsVTODO: false },
       ];
-      const patches = [];
-      await page.route('**/api/calendars', route => (route.request().method() === 'GET'
-        ? route.fulfill({ json: { calendars, errors: [] } })
-        : route.fallback()));
-      await page.route('**/api/calendars/*', route => {
-        if (route.request().method() !== 'PATCH') return route.fallback();
-        patches.push(route.request().postDataJSON());
-        // Like the server, a later calendar reload returns the stored local colour: events from
-        // calendars outside this mock make the app reload the list after the save.
-        calendars[0].color = route.request().postDataJSON().color;
-        return route.fulfill({ json: { message: 'Calendar updated', calendarId: sharedCal, color: '#ec4899' } });
-      });
+      // #592: like the server, a later calendar reload returns the stored local colour.
+      const mocked = await mockCalendars(page, calendars);
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
@@ -8836,7 +8925,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await dialog.locator('#edit-cal-color').fill('#ec4899');
       await dialog.locator('#edit-cal-submit').click();
       await expect(dialog).toHaveCount(0);
-      expect(patches).toEqual([{ color: '#ec4899' }]);
+      expect(mocked.writes).toEqual([{ method: 'PATCH', id: sharedCal, body: { color: '#ec4899' } }]);
       await expect(dot(page, sharedCal)).toHaveCSS('background-color', 'rgb(236, 72, 153)');
     });
   });
