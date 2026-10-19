@@ -1,7 +1,8 @@
 /**
  * calendar.js — Calendar rendering engine.
  * Renders month, week, day, and agenda views.
- * Handles time-grid click-to-create; drag and drop in the day/week view lives in eventDrag.js (#574).
+ * Handles time-grid click-to-create; drag and drop in the day/week (#574) and month view (#575)
+ * lives in eventDrag.js.
  */
 
 import { store, visibleCalendars, calendarById } from './store.js';
@@ -286,6 +287,7 @@ function renderMonth(container, events, currentDate, cb) {
 
   div.appendChild(grid);
   container.appendChild(div);
+  enableDrag(div, events, cb);
 
   // Re-attach chip click / keydown on view element
   div.addEventListener('click', e => {
@@ -552,7 +554,7 @@ function renderDay(container, events, currentDate, cb) {
   setTimeout(() => { body.scrollTop = 8 * HOUR_H - 30; }, 10);
 }
 
-// #574: events move and resize by drag and drop when the app passes the drop handler.
+// #574/#575: events move and resize by drag and drop when the app passes the drop handler.
 function enableDrag(wrap, events, cb) {
   if (!cb.onEventDrop) return;
   enableEventDrag(wrap, {

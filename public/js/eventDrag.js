@@ -1,12 +1,14 @@
 /**
- * eventDrag.js — drag and drop of events in the day and week view (#574).
+ * eventDrag.js — drag and drop of events in the day, week (#574) and month view (#575).
  *
  * One Pointer Events implementation for mouse, pen and touch. The mouse starts a drag once it has
  * moved a few pixels; a touch only after a long press on the event, so a swipe keeps scrolling.
  * Timed events move in a 15-minute grid (Alt: minute-exact); their top and bottom edges change
  * start and end. All-day events move by days in the all-day row and their edges change the length
  * in days. Dropping an all-day event in the time grid makes it a one-hour timed event; dropping a
- * timed event in the all-day row makes it all-day. Esc or the "Abbrechen" zone at the top cancels.
+ * timed event in the all-day row makes it all-day. In the month view an event moves by whole days
+ * and keeps its time of day; the first and last chip of a multi-day event carry its start and end
+ * edge, which change the first or last day (times stay). Esc or the "Abbrechen" zone at the top cancels.
  *
  * The engine only computes the new times; `onDrop(ev, { start, end, allDay })` saves them.
  */
@@ -29,10 +31,12 @@ export function deferRenderWhileDragging(render) {
 
 const handleHtml = edge => `<div class="event-resize-handle ${edge}" data-edge="${edge}" aria-hidden="true"></div>`;
 
+const CHIP_SELECTOR = '.week-day-col .event-block[data-event-uid], .week-day-header .event-chip[data-event-uid], .month-day .event-chip[data-event-uid]';
+
 /**
- * Wire drag and drop into a rendered day/week view.
+ * Wire drag and drop into a rendered day/week or month view.
  * `root` holds `.week-day-header[data-date]` cells (all-day row) and `.week-day-col[data-date]`
- * columns of `hourHeight` px per hour. `canDrag(ev)` answers true or the message why not, which
+ * columns of `hourHeight` px per hour, or the `.month-day[data-date]` cells of the month view. `canDrag(ev)` answers true or the message why not, which
  * `readOnlyNotice(message)` shows when such an event is long-pressed or dragged.
  */
 export function enableEventDrag(root, opts) {
@@ -48,10 +52,20 @@ export function enableEventDrag(root, opts) {
   root.querySelectorAll('.week-day-header .event-chip[data-event-uid]').forEach(el => {
     if (draggable(el)) el.insertAdjacentHTML('beforeend', handleHtml('start') + handleHtml('end'));
   });
+  // Month view: a multi-day event's start edge sits on its first day's chip, the end edge on its last.
+  root.querySelectorAll('.month-day[data-date] .event-chip[data-event-uid]').forEach(el => {
+    if (!draggable(el)) return;
+    const ev = byUid.get(el.dataset.eventUid);
+    const { first, last } = daySpan(ev);
+    if (first === last) return;
+    const day = ymd(dayOf(el.closest('.month-day')));
+    if (day === first) el.insertAdjacentHTML('beforeend', handleHtml('start'));
+    if (day === last) el.insertAdjacentHTML('beforeend', handleHtml('end'));
+  });
 
   root.addEventListener('pointerdown', e => {
     if (active || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    const el = e.target.closest('.week-day-col .event-block[data-event-uid], .week-day-header .event-chip[data-event-uid]');
+    const el = e.target.closest(CHIP_SELECTOR);
     const ev = el && byUid.get(el.dataset.eventUid);
     if (!ev || ev.pending) return;
     startTracking(e, el, ev, opts);
@@ -61,7 +75,7 @@ export function enableEventDrag(root, opts) {
 function startTracking(e, el, ev, opts) {
   const handle = e.target.closest('.event-resize-handle');
   const grabCol = el.closest('.week-day-col');
-  const grabHeader = el.closest('.week-day-header');
+  const grabHeader = el.closest('.week-day-header, .month-day');
   const start = new Date(ev.start);
   const state = {
     el, ev, opts,
@@ -76,7 +90,7 @@ function startTracking(e, el, ev, opts) {
     target: null,
     // Minutes between the grabbed point and the event's start (timed events in the grid).
     grabOffsetMin: grabCol ? minuteAt(grabCol, e.clientY, opts.hourHeight) - minutesOfDay(start) : 0,
-    // The day the chip was grabbed on (all-day row): a move shifts by the days from there.
+    // The day the chip was grabbed on (all-day row, month cell): a move shifts by the days from there.
     grabDay: grabHeader ? dayOf(grabHeader) : null,
   };
   active = state;
@@ -176,7 +190,7 @@ function stop() {
   document.removeEventListener('contextmenu', onContextMenu, true);
   state.el.classList.remove('drag-source');
   state.ghost?.remove();
-  document.querySelectorAll('.week-day-header.drop-target').forEach(h => h.classList.remove('drop-target'));
+  document.querySelectorAll('.drop-target').forEach(h => h.classList.remove('drop-target'));
   document.body.classList.remove('event-dragging');
   const zone = document.getElementById('drag-cancel-zone');
   zone?.classList.add('hidden');
@@ -194,7 +208,7 @@ function update(state) {
   state.target = targetAt(state);
   const zone = document.getElementById('drag-cancel-zone');
   zone?.classList.toggle('over', Boolean(state.target?.cancel));
-  document.querySelectorAll('.week-day-header.drop-target').forEach(h => {
+  document.querySelectorAll('.drop-target').forEach(h => {
     if (h !== state.target?.header) h.classList.remove('drop-target');
   });
   state.target?.header?.classList.add('drop-target');
@@ -209,6 +223,11 @@ function targetAt(state) {
   const hit = document.elementFromPoint(state.x, state.y);
   const col = hit?.closest('.week-day-col[data-date]');
   const header = hit?.closest('.week-day-header[data-date]');
+  const cell = hit?.closest('.month-day[data-date]');
+  if (cell) {
+    const change = monthChange(state, cell);
+    return change ? { change, header: cell } : null;
+  }
   const change = col ? gridChange(state, col) : header ? allDayRowChange(state, header) : null;
   return change ? { change, col, header } : null;
 }
@@ -262,6 +281,38 @@ function allDayRowChange(state, header) {
   }
   const shift = Math.round((day - state.grabDay) / DAY_MS);
   return { start: ymd(addDays(start, shift)), end: ymd(addDays(end, shift)), allDay: true };
+}
+
+// Pointer over a day of the month view: whole days, the time of day stays.
+function monthChange(state, cell) {
+  const { ev, mode } = state;
+  if (ev.allDay) return allDayRowChange(state, cell);
+  const day = dayOf(cell);
+  const start = new Date(ev.start);
+  const end = new Date(ev.end || ev.start);
+  const onDay = time => new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+    time.getHours(), time.getMinutes(), time.getSeconds());
+  if (mode === 'start') {
+    const newStart = onDay(start);
+    return newStart < end ? { start: newStart.toISOString(), end: end.toISOString(), allDay: false } : null;
+  }
+  if (mode === 'end') {
+    const newEnd = onDay(end);
+    return newEnd > start ? { start: start.toISOString(), end: newEnd.toISOString(), allDay: false } : null;
+  }
+  const shift = Math.round((day - state.grabDay) / DAY_MS);
+  const shifted = d => { const x = new Date(d); x.setDate(x.getDate() + shift); return x.toISOString(); };
+  return { start: shifted(start), end: shifted(end), allDay: false };
+}
+
+// The first and last day (YYYY-MM-DD) an event covers in the month view.
+function daySpan(ev) {
+  if (ev.allDay) {
+    const start = parseYmd(ev.start);
+    const end = ev.end ? parseYmd(ev.end) : addDays(start, 1);
+    return { first: ymd(start), last: ymd(end > start ? addDays(end, -1) : start) };
+  }
+  return { first: ymd(new Date(ev.start)), last: ymd(new Date(ev.end || ev.start)) };
 }
 
 function drawGhost(state) {

@@ -137,7 +137,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   so, and the dialog reopens with the entries.
 - Drag and drop (#574): `public/js/eventDrag.js` moves and resizes events in the day/week view with Pointer
   Events (mouse after 5 px, touch after a 400 ms long press; 15-minute grid, Alt minute-exact; all-day ↔ timed by
-  dropping into the other area). `app.js` (`onEventDrop`) asks the recurrence scope, then for events with attendees
+  dropping into the other area). In the month view (#575) an event moves by whole days and keeps its time of day;
+  a multi-day event's first chip carries the start edge and its last chip the end edge (first/last day, times
+  stay). `app.js` (`onEventDrop`) asks the recurrence scope, then for events with attendees
   "Teilnehmer über die Änderung informieren?" (Ja resets their PARTSTAT to NEEDS-ACTION with RSVP), saves
   optimistically and offers "Verschoben · Rückgängig" for 8 s. Esc and the top "Abbrechen" zone cancel a drag.
   Only events of writable calendars get handles; the server's calendar write check rejects the rest.
