@@ -10,6 +10,7 @@ import { openDialog, closeDialog, confirmDialog, isDialogOpen } from './dialogFo
 import { requestNotificationPermission } from './notifications.js';
 import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.js';
 import { createTemplatePicker, templateAlarms } from './templates.js';
+import { allTimeZones, localTimeZone } from './timezones.js';
 
 export { formatAlarmTriggerLabel };
 
@@ -31,43 +32,36 @@ const $ = id => document.getElementById(id);
 function backdrop()  { return $('event-modal-backdrop'); }
 function form()      { return $('event-form'); }
 
-const COMMON_TIMEZONES = [
-  'Europe/Berlin',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Zurich',
-  'Europe/Vienna',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'Asia/Tokyo',
-  'Asia/Shanghai',
-  'Asia/Kolkata',
-  'Australia/Sydney',
-  'UTC'
-];
+// #516: start and end each get a zone (a flight from Berlin to New York). The default is the
+// user's zone and the selects stay folded away; an event whose zones differ from it opens them.
+let _tzExpanded = false;
 
 function populateTimezoneSelects(selectedStartTz, selectedEndTz) {
-  const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
+  const localTz = localTimeZone();
   const startTz = selectedStartTz || localTz;
   const endTz   = selectedEndTz   || localTz;
 
-  const tzs = [...COMMON_TIMEZONES];
-  if (!tzs.includes(localTz)) tzs.push(localTz);
-  if (selectedStartTz && !tzs.includes(selectedStartTz)) tzs.push(selectedStartTz);
-  if (selectedEndTz && !tzs.includes(selectedEndTz)) tzs.push(selectedEndTz);
+  // A TZID another client defined in its own VTIMEZONE is listed too, so it is kept on save.
+  const tzs = [...new Set([...allTimeZones(), startTz, endTz])].sort();
+  for (const sel of [$('ev-start-tz'), $('ev-end-tz')]) {
+    sel.replaceChildren(...tzs.map(tz => new Option(tz, tz)));
+  }
+  $('ev-start-tz').value = startTz;
+  $('ev-end-tz').value   = endTz;
 
-  tzs.sort();
+  setTimezonesExpanded(startTz !== localTz || endTz !== localTz);
+}
 
-  const startSel = $('ev-start-tz');
-  const endSel   = $('ev-end-tz');
+function setTimezonesExpanded(expanded) {
+  _tzExpanded = expanded;
+  updateAlldayUI($('ev-allday').checked);
+}
 
-  startSel.innerHTML = tzs.map(tz => `<option value="${tz}">${tz}</option>`).join('');
-  endSel.innerHTML   = tzs.map(tz => `<option value="${tz}">${tz}</option>`).join('');
-
-  startSel.value = startTz;
-  endSel.value   = endTz;
+function updateTimezoneToggleLabel() {
+  const startTz = $('ev-start-tz').value;
+  const endTz   = $('ev-end-tz').value;
+  $('ev-tz-toggle').textContent = _tzExpanded ? 'Zeitzonen ausblenden'
+    : startTz === endTz ? `Zeitzone: ${startTz}` : `Zeitzonen: ${startTz} → ${endTz}`;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -554,8 +548,11 @@ function resetForm() {
 function updateAlldayUI(allDay) {
   $('ev-start-time-group').style.display = allDay ? 'none' : '';
   $('ev-end-time-group').style.display   = allDay ? 'none' : '';
-  $('ev-start-tz-group').style.display   = allDay ? 'none' : '';
-  $('ev-end-tz-group').style.display     = allDay ? 'none' : '';
+  $('ev-start-tz-group').classList.toggle('hidden', allDay || !_tzExpanded);
+  $('ev-end-tz-group').classList.toggle('hidden', allDay || !_tzExpanded);
+  $('ev-tz-toggle-row').classList.toggle('hidden', allDay);
+  $('ev-tz-toggle').setAttribute('aria-expanded', String(_tzExpanded));
+  updateTimezoneToggleLabel();
 }
 
 function populateCalendarSelect(selectedId) {
@@ -1015,6 +1012,9 @@ export function initEventModal() {
   const markRecurrenceTouched = () => { _recurrenceTouched = true; };
 
   $('ev-allday').addEventListener('change', e => updateAlldayUI(e.target.checked));
+  $('ev-tz-toggle').addEventListener('click', () => setTimezonesExpanded(!_tzExpanded));
+  $('ev-start-tz').addEventListener('change', updateTimezoneToggleLabel);
+  $('ev-end-tz').addEventListener('change', updateTimezoneToggleLabel);
   _reminders = createReminderEditor($('ev-reminder-list'), $('ev-add-reminder'), {
     anchor: 'START',
     anchorName: 'Beginn',

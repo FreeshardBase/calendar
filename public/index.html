@@ -574,7 +574,7 @@
             <label class="form-label" for="ev-start-time">Uhrzeit</label>
             <input class="form-input" id="ev-start-time" type="time" required />
           </div>
-          <div class="form-group" id="ev-start-tz-group">
+          <div class="form-group hidden" id="ev-start-tz-group">
             <label class="form-label" for="ev-start-tz">Zeitzone</label>
             <select class="form-select" id="ev-start-tz"></select>
           </div>
@@ -589,10 +589,16 @@
             <label class="form-label" for="ev-end-time">Uhrzeit</label>
             <input class="form-input" id="ev-end-time" type="time" required />
           </div>
-          <div class="form-group" id="ev-end-tz-group">
+          <div class="form-group hidden" id="ev-end-tz-group">
             <label class="form-label" for="ev-end-tz">Zeitzone</label>
             <select class="form-select" id="ev-end-tz"></select>
           </div>
+        </div>
+
+        <!-- #516: start and end each have a zone; the selects stay folded away until needed. -->
+        <div class="form-group" id="ev-tz-toggle-row">
+          <button type="button" class="btn btn-ghost btn-sm" id="ev-tz-toggle"
+                  aria-expanded="false" aria-controls="ev-start-tz-group ev-end-tz-group">Zeitzone</button>
         </div>
 
         <div class="form-group">

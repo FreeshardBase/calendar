@@ -452,6 +452,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-time', '00:30');
     await page.fill('#ev-end-date', '2036-08-11');
     await page.fill('#ev-end-time', '01:30');
+    await page.click('#ev-tz-toggle');
     await page.selectOption('#ev-start-tz', 'Europe/Berlin');
     await openEventSection(page, 'recurrence');
     await page.selectOption('#ev-recurrence', 'WEEKLY');
@@ -543,6 +544,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.fill('#ev-start-time', '09:00');
     await page.fill('#ev-end-date', '2037-03-02');
     await page.fill('#ev-end-time', '10:00');
+    await page.click('#ev-tz-toggle');
     await page.selectOption('#ev-start-tz', 'Europe/Berlin');
     await openEventSection(page, 'recurrence');
     await page.selectOption('#ev-recurrence', 'WEEKLY');
