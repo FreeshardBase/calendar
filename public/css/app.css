@@ -2335,6 +2335,17 @@ textarea.form-input, .form-textarea {
   font-size: var(--fs-small);
   color: var(--ink);
 }
+.toast-action {
+  cursor: pointer;
+  color: var(--ink);
+  font-size: var(--fs-small);
+  background: transparent;
+  border: var(--border-w) solid var(--line);
+  padding: 2px 8px;
+}
+#typed-confirm-input { width: 100%; margin: 8px 0 16px; }
+.typed-confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.trash-hint { font-size: var(--fs-small); color: var(--ink-muted); margin: 0 0 8px; }
 .toast-close {
   cursor: pointer;
   color: var(--ink-muted);

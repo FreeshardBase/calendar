@@ -23,6 +23,7 @@ const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
 const { canonicalCollectionPath, checkCalendarAccess, extractCalendarIdFromHref, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { logEventChange } = require('../utils/eventHistory');
+const { trashItem } = require('../utils/trash');
 const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
@@ -632,7 +633,17 @@ router.delete('/:uid', async (req, res) => {
       return res.status(400).json({ error: 'Invalid href' });
     }
 
-    await deleteStoredEvent(req, client, eventUrl, etag, { uid: req.params.uid, derivedCalId, access: targetAccess });
+    // #348: the copy goes to the trash first; a failed delete takes it out again.
+    const stored = await client.get(eventUrl);
+    const trashId = await trashItem(req.session.userId, {
+      kind: 'event', calendarId: derivedCalId, href: new URL(eventUrl).pathname, ics: stored.ics
+    });
+    try {
+      await deleteStoredEvent(req, client, eventUrl, etag, { uid: req.params.uid, derivedCalId, access: targetAccess, storedIcs: stored.ics });
+    } catch (delErr) {
+      await Db.deleteTrashItem(trashId, req.session.userId);
+      throw delErr;
+    }
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
@@ -644,7 +655,7 @@ router.delete('/:uid', async (req, res) => {
       oldEvent: { title: href }
     }).catch(err => console.error('[events DELETE history]', err.message));
 
-    res.json({ message: 'Event deleted.' });
+    res.json({ message: 'Event deleted.', trashId });
   } catch (err) {
     return sendError(res, err, '[events DELETE]');
   }
@@ -792,7 +803,7 @@ router.get('/:uid/history', async (req, res) => {
  * With `strictEtag` a changed resource (412) is not deleted; the plain DELETE route retries
  * without the precondition instead.
  */
-async function deleteStoredEvent(req, client, eventUrl, etag, { uid, derivedCalId, access, strictEtag = false }) {
+async function deleteStoredEvent(req, client, eventUrl, etag, { uid, derivedCalId, access, strictEtag = false, storedIcs = null }) {
   const ifMatch = etag ? formatIfMatch(etag) : null;
   const crossUserDeletions = [];
   if (!access.isOwner) {
@@ -800,9 +811,9 @@ async function deleteStoredEvent(req, client, eventUrl, etag, { uid, derivedCalI
     const ownerSegment = derivedCalId.split('::')[1].split('/').filter(Boolean)[0];
     // #144: the owner segment is the owner's user id.
     if (await Db.hasExternalAccounts(ownerSegment)) {
-      const stored = await client.get(eventUrl);
+      const ics = storedIcs ?? (await client.get(eventUrl)).ics;
       crossUserDeletions.push(await Db.recordCrossUserDeletion(
-        uid, derivedCalId, ownerSegment, req.session.userId, eventPath, stored.ics));
+        uid, derivedCalId, ownerSegment, req.session.userId, eventPath, ics));
     }
   }
 

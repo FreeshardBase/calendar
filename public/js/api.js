@@ -194,6 +194,13 @@ export const TasksAPI = {
   remove: (uid, data) => request('DELETE', `/api/tasks/${encodeURIComponent(uid)}`, data),
 };
 
+// ── Trash (#348) ──────────────────────────────────────────────────────────────
+export const TrashAPI = {
+  list:    ()   => request('GET',    '/api/trash'),
+  restore: (id) => request('POST',   `/api/trash/${encodeURIComponent(id)}/restore`),
+  purge:   (id) => request('DELETE', `/api/trash/${encodeURIComponent(id)}`),
+};
+
 // ── Per-user preferences (#498) ───────────────────────────────────────────────
 export const PreferencesAPI = {
   get:         ()         => request('GET', '/api/preferences'),

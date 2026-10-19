@@ -168,7 +168,8 @@ test('a sharee delete records nothing for an owner whose only external account i
 
   const requests = await deleteAs(SHAREE, [calendarId], { calendarId, href: `/${owner.uuid}/cal/issue319-evt.ics` });
 
-  assert.deepEqual(requests.map((r) => r.split(' ')[0]), ['DELETE']);
+  // The one GET is the trash copy (#348); no cross-user record is written from it.
+  assert.deepEqual(requests.map((r) => r.split(' ')[0]), ['GET', 'DELETE']);
   assert.deepEqual(await Db.getCrossUserDeletions(owner.uuid), []);
 });
 
@@ -178,7 +179,8 @@ test('a sharee delete for an owner without external accounts records nothing', a
 
   const requests = await deleteAs(SHAREE, [calendarId], { calendarId, href: `/${owner.uuid}/cal/issue319-evt.ics` });
 
-  assert.deepEqual(requests.map((r) => r.split(' ')[0]), ['DELETE']);
+  // The one GET is the trash copy (#348); no cross-user record is written from it.
+  assert.deepEqual(requests.map((r) => r.split(' ')[0]), ['GET', 'DELETE']);
   assert.deepEqual(await Db.getCrossUserDeletions(owner.uuid), [],
     'nothing mirrors the calendar, so a later account link must not resurrect this delete');
 });

@@ -228,12 +228,17 @@ test('Issue #160 — calendar export with the backend down is a German 502', asy
   );
 });
 
+// #348: a delete first reads the stored item for the trash, so it has to exist upstream.
+const stored = (comp) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:${comp}\r\nUID:issue160\r\n`
+  + `DTSTAMP:20260801T000000Z\r\nSUMMARY:Test User item\r\nDTSTART:20260810T090000Z\r\nEND:${comp}\r\nEND:VCALENDAR\r\n`;
+
 test('Issue #160 — task PUT/DELETE denied upstream (403) arrive as 403 with German text', async () => {
+  let deleting = false;
   await withStack(
     (req) => {
       // The task list's component set, asked before every task write (#495).
       if (req.method === 'PROPFIND') return { status: 207, body: CAL_LIST };
-      if (req.method === 'GET') return { status: 404, body: '' };
+      if (req.method === 'GET') return deleting ? { status: 200, body: stored('VTODO') } : { status: 404, body: '' };
       if (req.method === 'PUT' || req.method === 'DELETE') return { status: 403, body: DAV_ERROR_DOC };
       return { status: 405, body: '' };
     },
@@ -244,6 +249,7 @@ test('Issue #160 — task PUT/DELETE denied upstream (403) arrive as 403 with Ge
       assert.equal(put.status, 403, 'an upstream permission denial must not become a 500');
       assert.equal((await put.json()).error, MSG_FORBIDDEN);
 
+      deleting = true;
       const del = await json('DELETE', `${base}/api/tasks/issue160`, {
         calendarId: CAL_ID, href: `${CAL_PATH}issue160.ics`
       });
@@ -259,6 +265,7 @@ test('Issue #160 — event save rejected upstream (400) and event delete denied 
     (req) => {
       if (req.method === 'PUT') return { status: 400, body: '<html>bad</html>' };
       if (req.method === 'DELETE') return { status: 403, body: DAV_ERROR_DOC };
+      if (req.method === 'GET' && req.url.endsWith('/issue160.ics')) return { status: 200, body: stored('VEVENT') };
       return { status: 404, body: '' };
     },
     async (base) => {

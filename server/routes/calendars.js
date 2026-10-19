@@ -13,6 +13,7 @@ const { detectTwoWayConflict, resolveTwoWayConflict } = require('../utils/twoWay
 const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { sortByUserOrder } = require('../utils/calendarOrder');
+const { trashCollection } = require('../utils/trash');
 const { startImportJob, getImportJob } = require('../utils/importJobs');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
@@ -783,8 +784,11 @@ router.delete('/:id', async (req, res) => {
     const { client, calendarUrl } = await resolveCalendar(req, calendarId);
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
+    // #348: the collection and all its items go to the trash first; a failed delete takes them out again.
+    const trashId = await trashCollection(req.session.userId, { calendarId, client, calendarUrl });
     const delRes = await client._request('DELETE', calendarUrl);
     if (!delRes.ok && delRes.status !== 204 && delRes.status !== 404) {
+      await Db.deleteTrashItem(trashId, req.session.userId);
       throw new Error(`DELETE ${delRes.status}: ${delRes.statusText}`);
     }
 
@@ -792,7 +796,7 @@ router.delete('/:id', async (req, res) => {
 
     queueSyncForCalendar(calendarId, req.session.userId);
 
-    res.json({ message: 'Calendar deleted', calendarId });
+    res.json({ message: 'Calendar deleted', calendarId, trashId });
   } catch (err) {
     return sendError(res, err, '[calendars DELETE]');
   }

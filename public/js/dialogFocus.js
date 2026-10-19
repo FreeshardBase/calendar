@@ -230,6 +230,43 @@ export function confirmDialog(message, title = 'Bestätigung') {
 }
 
 /**
+ * A confirmation that only passes once the user typed `expected` (#348: deleting a calendar).
+ */
+export function typedConfirmDialog(message, expected, title = 'Bestätigung') {
+  const backdrop = document.getElementById('typed-confirm-backdrop');
+  if (!backdrop) {
+    throw new Error('typedConfirmDialog: #typed-confirm-backdrop is missing from the page');
+  }
+
+  return new Promise((resolve) => {
+    const input = document.getElementById('typed-confirm-input');
+    const okBtn = document.getElementById('typed-confirm-ok');
+    const cancelBtn = document.getElementById('typed-confirm-cancel');
+    document.getElementById('typed-confirm-title').textContent = title;
+    document.getElementById('typed-confirm-text').textContent = message;
+    input.value = '';
+    input.placeholder = expected;
+    okBtn.disabled = true;
+
+    const onInput = () => { okBtn.disabled = input.value.trim() !== expected.trim(); };
+    const cleanup = (result) => {
+      input.removeEventListener('input', onInput);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeDialog(backdrop);
+      resolve(result);
+    };
+    const onOk = () => { if (!okBtn.disabled) cleanup(true); };
+    const onCancel = () => cleanup(false);
+
+    input.addEventListener('input', onInput);
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    openDialog(backdrop, input);
+  });
+}
+
+/**
  * Initializes global keyboard listeners for focus trapping (Tab) and Escape key modal closing.
  */
 export function initDialogFocusManager() {

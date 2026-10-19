@@ -4,7 +4,7 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesAPI, setUnauthorizedHandler } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesAPI, TrashAPI, setUnauthorizedHandler } from './api.js';
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
@@ -17,7 +17,7 @@ import { initInvitations } from './invitations.js';
 import { initListView, loadListPage, renderListView } from './listView.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
-import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, handleEscapeKey } from './dialogFocus.js';
+import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, typedConfirmDialog, handleEscapeKey } from './dialogFocus.js';
 
 const { initTheme, setTheme, getStoredTheme } = (typeof window !== 'undefined' && window.ThemeManager) ? window.ThemeManager : {};
 const { isSafeLinkUrl } = window.SafeUrl;
@@ -1819,6 +1819,7 @@ function renderSettings() {
   renderSettingsAppPasswords();
   renderSettingsTimezone();
   renderSettingsNotifications();
+  renderSettingsTrash();
 }
 
 function renderSettingsNotifications() {
@@ -2171,12 +2172,15 @@ function renderSettingsCalendars() {
       if (!cal) return;
       const noun = collectionNoun(cal);
       const content = noun === 'Aufgabenliste' ? 'Aufgaben' : 'Termine';
-      if (!(await confirmDialog(`${noun} „${cal.name}“ und alle darin enthaltenen ${content} unwiderruflich löschen?`))) return;
+      if (!(await typedConfirmDialog(
+        `${noun} „${cal.name}“ und alle darin enthaltenen ${content} löschen? Sie liegen danach 30 Tage im Papierkorb. Gib zur Bestätigung den Namen ein:`,
+        cal.name, `${noun} löschen`))) return;
       try {
-        await CalendarsAPI.remove(id);
+        const { trashId } = await CalendarsAPI.remove(id);
         store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
         noteLocalEdit('calendars');
-        showToast(`${noun} „${cal.name}“ gelöscht.`, 'info');
+        showUndoToast(`${noun} „${cal.name}“ in den Papierkorb verschoben.`, trashId);
+        renderSettingsTrash();
         invalidateEventCache();
         await loadEvents();
         renderSidebar();
@@ -2435,12 +2439,14 @@ function showEventPopover(ev, mouseEvent) {
       }
       try {
         const targetUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : '');
-        await EventsAPI.remove(targetUid, {
+        const { trashId } = await EventsAPI.remove(targetUid, {
           calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
           ...(scope === 'occurrence' ? { scope, recurrenceId: recId } : {})
         });
         onEventDeleted(targetUid);
-        showToast('Termin gelöscht.', 'info');
+        // A deleted occurrence is an EXDATE in the series, not a trash entry.
+        if (trashId) showUndoToast('Termin gelöscht.', trashId);
+        else showToast('Termin gelöscht.', 'info');
       } catch(err) { showToast(err.message, 'error'); }
     };
   }
@@ -3051,7 +3057,7 @@ function attachListeners() {
 
 // ── Toast Notifications ───────────────────────────────────────────────────────
 
-export function showToast(message, type = 'info') {
+export function showToast(message, type = 'info', { action, duration = 4000 } = {}) {
   const container = $('toast-container');
   if (!container) return;
   const toast     = document.createElement('div');
@@ -3072,19 +3078,106 @@ export function showToast(message, type = 'info') {
   toast.innerHTML = `
     <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${icons[type] || icons.info}</svg>
     <span class="toast-msg">${escHtml(message)}</span>
+    ${action ? `<button type="button" class="toast-action">${escHtml(action.label)}</button>` : ''}
     <button type="button" class="toast-close" aria-label="Meldung schließen">×</button>`;
 
   container.appendChild(toast);
   toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
+  toast.querySelector('.toast-action')?.addEventListener('click', () => {
+    toast.remove();
+    action.onClick();
+  });
 
-  // Error toasts persist until closed; success/info toasts auto-dismiss after 4 seconds
+  // Error toasts persist until closed; success/info toasts auto-dismiss (after 4 seconds by default)
   if (type !== 'error') {
     setTimeout(() => {
       toast.style.opacity = '0';
       toast.style.transition = 'opacity 0.3s';
       setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    }, duration);
   }
+}
+
+// #348: every delete moves the item to the trash; for 8 s its toast offers "Rückgängig".
+export function showUndoToast(message, trashId) {
+  showToast(message, 'info', {
+    duration: 8000,
+    action: { label: 'Rückgängig', onClick: () => restoreFromTrash(trashId) }
+  });
+}
+
+async function restoreFromTrash(trashId) {
+  let restored;
+  try {
+    restored = await TrashAPI.restore(trashId);
+  } catch (err) {
+    showToast('Wiederherstellen fehlgeschlagen: ' + err.message, 'error');
+    return false;
+  }
+  showToast('Wiederhergestellt.', 'success');
+  if (restored.kind === 'calendar') await loadCalendars();
+  invalidateEventCache();
+  await loadEvents();
+  await loadTasks();
+  renderSidebar();
+  renderCalendarView();
+  renderSettingsCalendars();
+  return true;
+}
+
+const TRASH_NOUNS = { event: 'Termin', task: 'Aufgabe', calendar: 'Kalender' };
+// A collection that holds only tasks is a task list.
+const trashNoun = (item) => (item.kind === 'calendar' && !item.components.includes('VEVENT')) ? 'Aufgabenliste' : TRASH_NOUNS[item.kind];
+
+async function renderSettingsTrash() {
+  const list = $('settings-trash-list');
+  if (!list) return;
+  let items;
+  try {
+    ({ items } = await TrashAPI.list());
+  } catch (err) {
+    list.innerHTML = `<div class="trash-hint">Papierkorb konnte nicht geladen werden: ${escHtml(err.message)}</div>`;
+    return;
+  }
+  if (!items.length) {
+    list.innerHTML = '<div class="trash-hint">Der Papierkorb ist leer.</div>';
+    return;
+  }
+  const day = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+  list.innerHTML = items.map(item => `
+      <div class="settings-item trash-item" data-trash-id="${escHtml(item.id)}">
+        <div class="settings-item-info">
+          <div class="settings-item-name">${escHtml(item.title)}</div>
+          <div class="trash-hint">${trashNoun(item)}${item.kind === 'calendar' ? ` · ${item.itemCount} Einträge` : ''} · gelöscht ${escHtml(day.format(new Date(item.deletedAt)))} · endgültig weg ${escHtml(day.format(new Date(item.purgeAt)))}</div>
+        </div>
+        <div class="settings-item-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-trash-restore="${escHtml(item.id)}">Wiederherstellen</button>
+          <button type="button" class="btn btn-danger btn-sm" data-trash-purge="${escHtml(item.id)}">Endgültig löschen</button>
+        </div>
+      </div>`).join('');
+
+  list.querySelectorAll('[data-trash-restore]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = items.find(i => i.id === btn.dataset.trashRestore);
+      if (item.linked && !(await confirmDialog(
+        `„${item.title}“ wird beim verknüpften Anbieter neu angelegt. Die UID kann sich dabei ändern, und Gäste bekommen eventuell eine neue Einladung. Wiederherstellen?`,
+        'Wiederherstellen'))) return;
+      if (await restoreFromTrash(item.id)) await renderSettingsTrash();
+    });
+  });
+  list.querySelectorAll('[data-trash-purge]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = items.find(i => i.id === btn.dataset.trashPurge);
+      if (!(await confirmDialog(`„${item.title}“ endgültig löschen? Das lässt sich nicht rückgängig machen.`))) return;
+      try {
+        await TrashAPI.purge(item.id);
+      } catch (err) {
+        showToast(err.message, 'error');
+        return;
+      }
+      await renderSettingsTrash();
+    });
+  });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

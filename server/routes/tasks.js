@@ -10,6 +10,7 @@ const { formatIfMatch } = require('../caldav/client');
 const { parseCalendarList, parseTaskList, taskToICS, reconcileTaskStatus, isNoOpTaskSave, resolveUrl, parseICSToTask, advanceRecurringTask } = require('../caldav/parser');
 const { v4: uuidv4 } = require('uuid');
 const Db = require('../db');
+const { trashItem } = require('../utils/trash');
 const { checkCalendarAccess, extractCalendarIdFromHref } = require('../utils/calendarAuth');
 
 // ── GET /api/tasks ────────────────────────────────────────────────────────────
@@ -467,9 +468,19 @@ router.delete('/:uid', async (req, res) => {
     const taskUrl = buildAbsoluteUrl(account.url, href);
     const ifMatch = etag ? formatIfMatch(etag) : null;
 
-    await client.delete(taskUrl, ifMatch);
+    // #348: the copy goes to the trash first; a failed delete takes it out again.
+    const stored = await client.get(taskUrl);
+    const trashId = await trashItem(req.session.userId, {
+      kind: 'task', calendarId: derivedCalId, href: new URL(taskUrl).pathname, ics: stored.ics
+    });
+    try {
+      await client.delete(taskUrl, ifMatch);
+    } catch (delErr) {
+      await Db.deleteTrashItem(trashId, req.session.userId);
+      throw delErr;
+    }
 
-    res.json({ message: 'Task deleted.' });
+    res.json({ message: 'Task deleted.', trashId });
   } catch (err) {
     return sendError(res, err, '[tasks DELETE]');
   }

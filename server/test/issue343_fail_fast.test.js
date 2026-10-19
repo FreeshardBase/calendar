@@ -363,7 +363,7 @@ test.describe('Issue #343 — fail-fast startup and error propagation', () => {
     const calendarId = 'internal-caldav::/testowner-del/cal/';
     // The event is read (and recorded), then the DELETE itself fails.
     const dav = (req) => (req.method === 'GET'
-      ? { status: 200, body: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' }
+      ? { status: 200, body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:issue343-del\r\nSUMMARY:Test User event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n' }
       : { status: 500, body: 'Internal Server Error' });
     await withDav(dav, async (davUrl, methods) => {
       const session = () => ({ userId: 'testuser', accounts: [basicAccount('internal-caldav', davUrl)] });
