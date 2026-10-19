@@ -208,6 +208,13 @@ export const PreferencesAPI = {
   setSecondaryTimezone: (secondaryTimezone) => request('PUT', '/api/preferences', { secondaryTimezone }),
 };
 
+// ── Event and task templates (#515), per user, never synced ──────────────────
+export const TemplatesAPI = {
+  list:   (kind)                 => request('GET',    `/api/templates?kind=${encodeURIComponent(kind)}`),
+  create: (kind, name, fields)   => request('POST',   '/api/templates', { kind, name, fields }),
+  remove: (id)                   => request('DELETE', `/api/templates/${encodeURIComponent(id)}`),
+};
+
 // ── Resources & Room Booking ──────────────────────────────────────────────────
 export const ResourcesAPI = {
   list:   (type, minCapacity) => request('GET', `/api/resources?type=${encodeURIComponent(type || '')}&minCapacity=${minCapacity || ''}`),

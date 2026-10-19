@@ -232,6 +232,13 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `guarded_vdirsyncer.py`, whose socket guard lets a Basic pair reach only those pinned addresses and the
   local Radicale, so a redirect or DNS change away from the account host fails the run. The Google pair
   may reach public addresses only.
+- Event and task templates (#515): `GET /api/templates?kind=event|task`, `POST /api/templates`
+  (`{ kind, name, fields }`), `DELETE /api/templates/:id` (`routes/templates.js`, table `item_templates`). A
+  template holds the dialog's fields without date, time and recurrence; the route refuses any other field and
+  reminders at a fixed time (400). Templates live per user in SQLite only, never in Radicale, so they are not
+  synced; `Db.deleteUser` removes them. The dialogs' "Duplizieren" (also in the right-click menu of events and
+  tasks, `public/js/contextMenu.js`) only refills the dialog as a new item: nothing is stored, and no attendee
+  sees the copy, before "Speichern"; the copy's attendees start at `NEEDS-ACTION`.
 - Per-user preferences (#498): `GET`/`PUT /api/preferences` (`routes/preferences.js`, table `user_preferences`)
   hold the task area's view, `taskView` `list` or `kanban` (default `kanban`, anything else 400). It needs only a
   session identity, and `Db.deleteUser` removes the row. The list's sort, grouping and "Erledigte anzeigen" last

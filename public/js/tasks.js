@@ -8,6 +8,7 @@ import { TasksAPI } from './api.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { showToast, showUndoToast } from './app.js';
 import { createReminderEditor } from './reminderEditor.js';
+import { createTemplatePicker, templateAlarms } from './templates.js';
 
 function notifyToast(message, type = 'info') {
   if (typeof showToast === 'function') {
@@ -89,6 +90,7 @@ export function getTaskCompletionToast(task, payload) {
 let taskCallbacks = {};
 let _currentTask = null;
 let _reminders = null; // #508: reminder list editor, created in setupTaskModal
+let _templates = null; // #515: "Neu aus Vorlage" picker, created in setupTaskModal
 
 export function initTaskUI(callbacks = {}) {
   taskCallbacks = callbacks;
@@ -118,6 +120,16 @@ function setupTaskModal() {
   _reminders = createReminderEditor(document.getElementById('task-reminder-list'), document.getElementById('task-add-reminder'), {
     anchor: 'END',
     anchorName: 'Fälligkeit'
+  });
+
+  document.getElementById('task-duplicate-btn').addEventListener('click', duplicateCurrentTask);
+  document.getElementById('task-template-btn').addEventListener('click', saveTaskAsTemplate);
+  _templates = createTemplatePicker({
+    kind: 'task',
+    row: document.getElementById('task-template-row'),
+    select: document.getElementById('task-template'),
+    deleteBtn: document.getElementById('task-template-delete'),
+    onApply: applyTaskTemplate,
   });
 
   if (form) {
@@ -237,6 +249,8 @@ export function openTaskModal(task = null) {
     if (selectPrio) selectPrio.value = task.priority !== null && task.priority !== undefined ? String(task.priority) : '';
     setRecurrenceControls(task.recurrence);
     _reminders.setAlarms(task.alarms);
+    document.getElementById('task-duplicate-btn').classList.remove('hidden');
+    _templates.hide();
   } else {
     if (titleEl) titleEl.textContent = 'Neue Aufgabe';
     if (idInput) idInput.value = '';
@@ -252,9 +266,71 @@ export function openTaskModal(task = null) {
     if (selectPrio) selectPrio.value = '';
     setRecurrenceControls(null);
     _reminders.setAlarms([]);
+    document.getElementById('task-duplicate-btn').classList.add('hidden');
+    _templates.show();
   }
 
   openDialog(backdrop, inputTitle);
+}
+
+/**
+ * #515: "Duplizieren" — the dialog keeps the fields and turns into a new task, which gets its own
+ * UID when it is saved; nothing is stored before "Speichern".
+ */
+export function openDuplicateTaskModal(task) {
+  openTaskModal(task);
+  duplicateCurrentTask();
+}
+
+function duplicateCurrentTask() {
+  if (!_currentTask) return;
+  // Kept for the date-only flags and categories handleTaskSave takes from the source; the
+  // completion history belongs to the original.
+  const copy = { ..._currentTask, uid: '', href: '', etag: '' };
+  delete copy.completed;
+  delete copy.completedHistory;
+  _currentTask = copy;
+  document.getElementById('task-modal-title').textContent = 'Aufgabe duplizieren';
+  document.getElementById('task-id').value = '';
+  document.getElementById('task-href').value = '';
+  document.getElementById('task-etag').value = '';
+  document.getElementById('task-duplicate-btn').classList.add('hidden');
+  document.getElementById('task-title').focus();
+}
+
+// #515: the dialog's fields without start, due date and recurrence, for "Als Vorlage speichern".
+async function saveTaskAsTemplate() {
+  const title = document.getElementById('task-title').value.trim();
+  if (!title) {
+    notifyToast('Bitte einen Titel eingeben.', 'error');
+    return;
+  }
+  const reminders = _reminders.collect(title);
+  if (reminders.error) {
+    notifyToast(reminders.error, 'error');
+    return;
+  }
+  const priorityVal = document.getElementById('task-priority').value;
+  await _templates.save({
+    title,
+    calendarId: document.getElementById('task-calendar-id').value || null,
+    description: document.getElementById('task-description').value.trim() || null,
+    priority: priorityVal !== '' ? parseInt(priorityVal, 10) : null,
+    duration: document.getElementById('task-duration').value.trim() || null,
+    alarms: templateAlarms(reminders.alarms),
+  });
+}
+
+function applyTaskTemplate(fields) {
+  document.getElementById('task-title').value = fields.title || '';
+  const selectCal = document.getElementById('task-calendar-id');
+  if (fields.calendarId && [...selectCal.options].some(o => o.value === fields.calendarId && !o.disabled)) {
+    selectCal.value = fields.calendarId;
+  }
+  document.getElementById('task-description').value = fields.description || '';
+  document.getElementById('task-priority').value = fields.priority !== null && fields.priority !== undefined ? String(fields.priority) : '';
+  document.getElementById('task-duration').value = fields.duration || '';
+  _reminders.setAlarms(fields.alarms || []);
 }
 
 export function closeTaskModal() {
