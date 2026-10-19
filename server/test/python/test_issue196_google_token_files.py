@@ -93,7 +93,8 @@ class TestIssue196GoogleTokenFiles(unittest.TestCase):
     def _sync_user(self):
         with patch.object(sync_worker, "discover_google_collections", side_effect=self._discovery), \
              patch.object(sync_worker, "local_collection_for_google_calendar", return_value="google-testcollection"), \
-             patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")):
+             patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}):
             return sync_worker.sync_user(USER_ID)
 
     def assert_private_token_file_seen(self):

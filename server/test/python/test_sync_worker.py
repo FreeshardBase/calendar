@@ -169,7 +169,8 @@ class TestSyncWorker(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch.object(sync_worker, "discover_caldav_collections", return_value={"work": "Arbeit"}), \
              patch.object(sync_worker, "local_collection_for_caldav_calendar", return_value="caldav-" + "0" * 32):
             sync_worker.sync_basic_caldav_accounts("user-verify-test", conn)

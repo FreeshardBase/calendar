@@ -222,6 +222,7 @@ class StoredUrlRevalidationTest(WorkerOutboundGuardBase):
         with patch.object(sync_worker, "LOCAL_CALDAV_URL", self.local.base + "/"), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
              patch.object(socket, "getaddrinfo", fake_dns(dns)), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
              patch("subprocess.run", run):
             self.assertTrue(sync_worker.process_next_job(self.db_path))
         conn = sqlite3.connect(self.db_path)
@@ -461,7 +462,8 @@ class BasicPassUsesGuardTest(WorkerOutboundGuardBase):
         with patch.object(sync_worker, "LOCAL_CALDAV_URL", local.base + "/"), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
              patch.object(sync_worker, "discover_caldav_collections", return_value={"work": "Arbeit"}) as disc, \
-             patch.object(socket, "getaddrinfo", fake_dns({"caldav.testuser.example": [PUBLIC_IP]})):
+             patch.object(socket, "getaddrinfo", fake_dns({"caldav.testuser.example": [PUBLIC_IP]})), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}):
             ok, err = sync_worker.sync_user(USER_ID)
 
         self.assertFalse(ok)

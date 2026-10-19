@@ -235,6 +235,7 @@ class TestIssue531BasicCaldavCollectionScope(unittest.TestCase):
         self.configs = []
         with patch.object(sync_worker, "LOCAL_CALDAV_URL", self.local.base + "/"), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
              patch("subprocess.run", side_effect=self.simulate_vdirsyncer):
             return sync_worker.sync_user(USER_ID)
 

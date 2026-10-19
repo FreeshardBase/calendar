@@ -148,19 +148,19 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   client) and `BASE_URL`; without them `GET /api/msgraph/accounts` reports `available: false`, the modal says so and
   `/api/msgraph/authorize` answers 503. `server/utils/msgraph.js` + `routes/msgraph.js`: authorization code flow
   with PKCE (S256) at tenant `common`, state mandatory and single-use per session, scopes
-  `offline_access User.Read Calendars.Read`. Microsoft returns cross-site, where a `SameSite=Strict` session
+  `offline_access User.Read Calendars.ReadWrite` (write only for trash restores, #597). Microsoft returns cross-site, where a `SameSite=Strict` session
   cookie (`COOKIE_SAME_SITE=strict`; the default is `lax`, #491) would be withheld, so the registered `/api/msgraph/callback` (no auth) only serves a page that forwards
   code/state/error same-site to `/api/msgraph/callback/complete`, which checks the state, stores the tokens
   (re-connecting the same mailbox updates its row and clears `reconnect_required`) and enqueues a sync job. There is no token entry by request
   body. `POST /api/msgraph/accounts/:id/sync` only enqueues a job (202). The only Graph sync path is
-  `sync-worker/msgraph_worker.py`: import only (Graph → Radicale), `/me/calendarView/delta` (window −365/+730 days,
-  fixed per delta round; a round older than 30 days, `delta_started_at`, restarts with a current window), pages `@odata.nextLink`, persists only `@odata.deltaLink`, applies `@removed`, sends
+  `sync-worker/msgraph_worker.py`: import (Graph → Radicale; the one write is #597's re-creation of an event restored from the trash, queued in `msgraph_restores` and POSTed to `/me/events` before the delta round), `/me/calendarView/delta` (window −365/+730 days,
+  fixed per delta round; a round older than 30 days, `delta_started_at`, restarts with a current window), pages `@odata.nextLink`, persists only `@odata.deltaLink`, applies `@removed` (the local copy goes to the trash first, #597), sends
   `Prefer: outlook.timezone="UTC"` and rejects any other `timeZone`. Refresh sends `client_id`, `scope` and
   `client_secret` if set; `invalid_grant` sets `msgraph_accounts.reconnect_required` and the job fails with a
   "please reconnect" message, shown in the modal. A failing account does not stop the user's other Microsoft
   accounts or Google pairs; its error is the job's result. Requests time out after 30 s. A per-account lease (`sync_lock_until`, 15 min) keeps syncs of
   one account from overlapping across processes.
-- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `trash` (`/api/trash` #348: every event/task/calendar/task-list delete keeps a copy in `trash_items` first; list, restore under the same href/UID, purge; entries go after 30 days), `msgraph` (`/api/msgraph/*` Microsoft 365 OAuth connection, account list, sync request), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
+- `server/routes/` — `accounts` (CRUD + app-passwords), `calendars` (list/create/patch/delete, user shares, public share links), `events` (range query across accounts, CRUD with ETag conflict handling), `tasks` (`/api/tasks` VTODO CRUD & RFC 5545 task recurrence advancing), `trash` (`/api/trash` #348: every event/task/calendar/task-list delete keeps a copy in `trash_items` first; list, restore under the same href/UID, purge; entries go after 30 days; #597: an item the sync finds deleted at a provider (vdirsyncer pairs: mirror snapshot before `sync`, Graph: `@removed`) is put there with `origin = 'provider'`, and its restore re-creates it at the provider), `msgraph` (`/api/msgraph/*` Microsoft 365 OAuth connection, account list, sync request), `auth` (Generic OIDC login, Back-Channel Logout, Google OAuth2 account linking).
 - Calendar IDs everywhere: `<accountId>::<href>`, e.g. `internal-caldav::/<user-uuid>/personal/`.
 - `radicale/` — Radicale container with two entry-point plugins reading the shared SQLite DB:
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)

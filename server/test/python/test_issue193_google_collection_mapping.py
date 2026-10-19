@@ -116,6 +116,7 @@ class TestIssue193GoogleCollectionMapping(unittest.TestCase):
         with patch.object(sync_worker, "discover_google_collections", side_effect=fake_discover), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
              patch.object(sync_worker.urllib.request, "urlopen", side_effect=fake_urlopen), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
              patch("subprocess.run", side_effect=fake_run):
             ok, err = sync_worker.sync_user(USER_ID)
         if not expect_ok:

@@ -59,6 +59,9 @@ class FakeGraphAndRadicale:
         if url.startswith(DELTA):
             return _Response(json.dumps(self.page))
         if url.startswith(sync_worker.LOCAL_CALDAV_URL.rstrip("/")):
+            if method == "GET":
+                # #597: the copy read for the trash; this Radicale keeps no content.
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
             status = self.put_status if method == "PUT" else self.delete_status
             if status >= 400:
                 raise urllib.error.HTTPError(url, status, "error", {}, io.BytesIO(b""))
@@ -87,6 +90,8 @@ class MSGraphSyncJobWritesEventsTest(unittest.TestCase):
                 sync_lock_until INTEGER, created_at INTEGER, updated_at INTEGER);
             CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT NOT NULL,
                 account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT);
+            CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
+                created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href));
             CREATE TABLE sync_queue (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING',
                 error_message TEXT, attempts INTEGER DEFAULT 0, max_attempts INTEGER DEFAULT 5,
                 next_retry_at INTEGER, retry_state TEXT, created_at INTEGER, updated_at INTEGER);

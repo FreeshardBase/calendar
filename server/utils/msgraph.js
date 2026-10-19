@@ -13,8 +13,9 @@ const { parseBaseUrl } = require('./baseUrl');
 
 const AUTHORITY = 'https://login.microsoftonline.com/common/oauth2/v2.0';
 const GRAPH_ME_URL = 'https://graph.microsoft.com/v1.0/me';
-// Must match SCOPES in sync-worker/msgraph_worker.py. The integration only imports, so read access suffices.
-const SCOPES = 'offline_access User.Read Calendars.Read';
+// Must match SCOPES in sync-worker/msgraph_worker.py. The integration imports; it writes only to
+// re-create an event restored from the shard trash after Microsoft deleted it (#597).
+const SCOPES = 'offline_access User.Read Calendars.ReadWrite';
 
 /**
  * The client registration from the environment, or null when Microsoft 365 is not set up on this

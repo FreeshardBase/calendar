@@ -45,6 +45,14 @@ class TestMSGraphWorker(unittest.TestCase):
                 e_tag TEXT
             )
         """)
+        cursor.execute("""
+            CREATE TABLE msgraph_restores (
+                account_id TEXT NOT NULL,
+                href TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (account_id, href)
+            )
+        """)
         conn.commit()
         conn.close()
 

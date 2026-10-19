@@ -82,7 +82,8 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
-            with patch("subprocess.run", side_effect=side_effect) as run_mock:
+            with patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
+                 patch("subprocess.run", side_effect=side_effect) as run_mock:
                 result = sync_worker.sync_basic_caldav_accounts(USER_ID, conn)
         finally:
             conn.close()
@@ -157,7 +158,8 @@ class TestIssue334VdirsyncerConfig(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        with patch("subprocess.run", side_effect=hanging_run):
+        with patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
+             patch("subprocess.run", side_effect=hanging_run):
             self.assertTrue(sync_worker.process_next_job(self.db_path))
 
         conn = sqlite3.connect(self.db_path)

@@ -3,6 +3,8 @@
 
 This is the only Microsoft Graph sync path (#97). The web app (server/routes/msgraph.js) runs the
 OAuth authorization and enqueues sync jobs; everything that talks to Graph for syncing lives here.
+An event Microsoft deleted goes to the shard trash first; restoring it from there queues it in
+`msgraph_restores`, and the next sync creates it at Graph again (#597). That is the import's only write.
 """
 import sys
 import os
@@ -22,7 +24,9 @@ import datetime
 import urllib.request
 import urllib.parse
 import urllib.error
+from zoneinfo import ZoneInfo
 from tls_context import ssl_context_for
+import provider_trash
 
 DB_PATH = os.environ.get("DATABASE_PATH", "/data/webcalendar.db")
 LOCAL_CALDAV_URL = os.environ.get("LOCAL_CALDAV_URL", "http://caldav-server:5232")
@@ -30,11 +34,13 @@ SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 
 # Microsoft identity platform, tenant "common": work, school and personal accounts (#97).
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-# Must match the scopes the web app requests in server/utils/msgraph.js.
-SCOPES = "offline_access User.Read Calendars.Read"
+# Must match the scopes the web app requests in server/utils/msgraph.js. Write access is for trash restores (#597).
+SCOPES = "offline_access User.Read Calendars.ReadWrite"
 # Change tracking needs a delta endpoint: the plain /me/events collection carries no deltaLink and
 # never reports deletions (#97). calendarView/delta fixes its time window when a delta round starts.
 DELTA_URL = "https://graph.microsoft.com/v1.0/me/calendarView/delta"
+# Where an event restored from the shard trash is created again (#597).
+EVENTS_URL = "https://graph.microsoft.com/v1.0/me/events"
 DELTA_WINDOW_PAST_DAYS = 365
 DELTA_WINDOW_FUTURE_DAYS = 730
 # The window is part of the deltaLink, so a round older than this starts over with a current window.
@@ -251,6 +257,11 @@ def _sync_account(user_id, conn, acc_id):
         delta_link = None
     if not delta_link:
         round_started_at = now_ms
+    # Restores first: the delta round then reports each re-created event, already in place.
+    restore_err = _push_restores(user_id, conn, acc_id, target_cal, headers, now_ms)
+    if restore_err:
+        return False, restore_err
+
     url = delta_link or initial_delta_url(now_ms / 1000)
     new_delta_link = None
     while new_delta_link is None:
@@ -293,6 +304,121 @@ def _sync_account(user_id, conn, acc_id):
     return True, ""
 
 
+def _local_auth(user_id):
+    return "Basic " + base64.b64encode(f"{user_id}:{SYSTEM_SYNC_SECRET}".encode("utf-8")).decode("ascii")
+
+
+def _local_get(user_id, url):
+    """The ICS of a resource in the local Radicale, or None when it is not there."""
+    req = urllib.request.Request(url, headers={"Authorization": _local_auth(user_id), "Accept-Encoding": "identity"},
+                                 method="GET")
+    try:
+        with urllib.request.urlopen(req, context=ssl_context_for(url, LOCAL_CALDAV_URL), timeout=HTTP_TIMEOUT_SECONDS) as res:
+            ics = res.read().decode("utf-8")
+    except urllib.error.HTTPError as get_err:
+        if get_err.code in (404, 410):
+            return None
+        raise
+    if not ics.strip():
+        raise ValueError(f"the local Radicale answered GET {url} with an empty body")
+    return ics
+
+
+def _ical_unescape(value):
+    """Unescape an iCalendar TEXT value (RFC 5545 3.3.11)."""
+    return re.sub(r"\\([\\;,nN])", lambda m: "\n" if m.group(1) in "nN" else m.group(1), value)
+
+
+def _ical_time(params, value):
+    """DTSTART/DTEND -> (Graph dateTimeTimeZone in UTC, all_day). A floating time has no zone to send."""
+    if "VALUE=DATE" in params.upper() and "T" not in value:
+        day = datetime.datetime.strptime(value, "%Y%m%d")
+        return {"dateTime": day.strftime("%Y-%m-%dT00:00:00"), "timeZone": "UTC"}, True
+    if value.endswith("Z"):
+        stamp = datetime.datetime.strptime(value, "%Y%m%dT%H%M%SZ")
+    else:
+        zone = re.search(r';TZID="?([^;:"]+)', params)
+        if zone is None:
+            raise ValueError(f"time {value!r} carries neither UTC nor a TZID")
+        stamp = (datetime.datetime.strptime(value, "%Y%m%dT%H%M%S").replace(tzinfo=ZoneInfo(zone.group(1)))
+                 .astimezone(datetime.timezone.utc).replace(tzinfo=None))
+    return {"dateTime": stamp.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "UTC"}, False
+
+
+def ics_to_graph_event(ics):
+    """The Graph event body for the first VEVENT of an ICS: subject, body, location, start and end."""
+    text = re.sub(r"\r?\n[ \t]", "", ics)
+    vevent = re.search(r"^BEGIN:VEVENT\s*$(.*?)^END:VEVENT\s*$", text, re.M | re.S)
+    if vevent is None:
+        raise ValueError("the restored item holds no VEVENT")
+    # Properties of nested components (VALARM) are not the event's.
+    own = re.sub(r"^BEGIN:(\w+)\s*$.*?^END:\1\s*$", "", vevent.group(1), flags=re.M | re.S)
+    props = {}
+    for line in own.splitlines():
+        prop = re.match(r'^([A-Za-z-]+)((?:;(?:[^:;"]|"[^"]*")*)*):(.*?)\r?$', line)
+        if prop:
+            props.setdefault(prop.group(1).upper(), (prop.group(2), prop.group(3)))
+    if "DTSTART" not in props or "DTEND" not in props:
+        raise ValueError("the restored event has no DTSTART or DTEND")
+    start, all_day = _ical_time(*props["DTSTART"])
+    end, _ = _ical_time(*props["DTEND"])
+    event = {
+        "subject": _ical_unescape(props.get("SUMMARY", ("", ""))[1]),
+        "body": {"contentType": "text", "content": _ical_unescape(props.get("DESCRIPTION", ("", ""))[1])},
+        "start": start,
+        "end": end,
+        "isAllDay": all_day,
+    }
+    location = props.get("LOCATION", ("", ""))[1]
+    if location:
+        event["location"] = {"displayName": _ical_unescape(location)}
+    return event
+
+
+def _push_restores(user_id, conn, acc_id, target_cal, headers, now_ms):
+    """Creates at Graph each event restored from the shard trash into this account's mirror (#597).
+
+    Microsoft gives it a new id (and the event a new UID), so the local copy moves to that id's
+    resource. Returns an error message, or "" when every queued restore is done; a failed one stays
+    queued for the next sync.
+    """
+    cursor = conn.cursor()
+    queued = cursor.execute("SELECT href FROM msgraph_restores WHERE account_id = ? ORDER BY created_at",
+                            (acc_id,)).fetchall()
+    for row in queued:
+        href = row["href"]
+        if not href.startswith(f"/{user_id}/"):
+            raise ValueError(f"restored item {href!r} is not in the calendars of user {user_id}")
+        local_url = f"{LOCAL_CALDAV_URL.rstrip('/')}{href}"
+        ics = _local_get(user_id, local_url)
+        # None: deleted again in the shard before this sync, so there is nothing to create.
+        if ics is not None:
+            req = urllib.request.Request(
+                EVENTS_URL, data=json.dumps(ics_to_graph_event(ics)).encode("utf-8"),
+                headers={**headers, "Content-Type": "application/json"}, method="POST")
+            try:
+                with urllib.request.urlopen(req, context=ssl_context_for(EVENTS_URL, LOCAL_CALDAV_URL),
+                                            timeout=HTTP_TIMEOUT_SECONDS) as res:
+                    created = json.loads(res.read().decode("utf-8"))
+            except (urllib.error.URLError, ValueError) as post_err:
+                return f"Microsoft 365: re-creating a restored event failed for account {acc_id}: {post_err}"
+            _apply_graph_item(user_id, cursor, acc_id, target_cal, created, now_ms)
+            if urllib.parse.unquote(href) != f"/{user_id}/{target_cal}/msgraph-event-{created['id']}.ics":
+                del_req = urllib.request.Request(local_url, headers={"Authorization": _local_auth(user_id)},
+                                                 method="DELETE")
+                try:
+                    with urllib.request.urlopen(del_req, context=ssl_context_for(local_url, LOCAL_CALDAV_URL),
+                                                timeout=HTTP_TIMEOUT_SECONDS):
+                        pass
+                except urllib.error.HTTPError as del_err:
+                    # Already gone locally; any other failure propagates and fails the sync job.
+                    if del_err.code not in (404, 410):
+                        raise
+        cursor.execute("DELETE FROM msgraph_restores WHERE account_id = ? AND href = ?", (acc_id, href))
+        conn.commit()
+    return ""
+
+
 def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
     """Writes or deletes the local copy of one Graph event; True if a local event was changed."""
     graph_id = item.get("id")
@@ -308,6 +434,12 @@ def _apply_graph_item(user_id, cursor, acc_id, target_cal, item, now_ms):
         if row:
             resource = path_segment(row["local_uid"] + ".ics", SAFE_EVENT_SEGMENT_RE, "local event uid")
             del_url = f"{LOCAL_CALDAV_URL.rstrip('/')}/{user_id}/{calendar_segment}/{resource}"
+            # #597: the last known version goes to the shard trash before the mirror drops it.
+            last_known = _local_get(user_id, del_url)
+            if last_known is not None:
+                provider_trash.add_provider_deletion(
+                    cursor.connection, user_id, target_cal, urllib.parse.urlsplit(del_url).path, last_known,
+                    msgraph_account_id=acc_id, now_ms=now_ms)
             del_req = urllib.request.Request(del_url, headers={"Authorization": f"Basic {auth_str}"}, method="DELETE")
             try:
                 with urllib.request.urlopen(del_req, context=ssl_context_for(del_url, LOCAL_CALDAV_URL), timeout=HTTP_TIMEOUT_SECONDS):

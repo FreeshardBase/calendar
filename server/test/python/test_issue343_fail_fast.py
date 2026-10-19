@@ -73,6 +73,8 @@ class GraphSyncTest(unittest.TestCase):
             sync_lock_until INTEGER, updated_at INTEGER, delta_started_at INTEGER)""")
         self.conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT UNIQUE NOT NULL,
             account_id TEXT NOT NULL, last_synced_at INTEGER, e_tag TEXT)""")
+        self.conn.execute("""CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
+            created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href))""")
         self.conn.execute(
             "INSERT INTO msgraph_accounts VALUES ('acc1', 'testuser', 'testuser@example.com', "
             "?, NULL, 4102444800000, ?, 'persoenlich', 0, NULL, 0, NULL)",
@@ -149,7 +151,8 @@ class GraphSyncTest(unittest.TestCase):
         self.conn.execute("INSERT INTO msgraph_event_mappings VALUES ('msgraph-event-g1', 'g1', 'acc1', 0, '')")
         gone = urllib.error.HTTPError("https://caldav.example.com/", 404, "Not Found", {}, None)
         with patch.object(msgraph_worker.urllib.request, "urlopen",
-                          side_effect=[self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}]), gone]):
+                          # #597: the local copy is read (for the trash) before it is deleted.
+                          side_effect=[self._graph_page([{"id": "g1", "@removed": {"reason": "deleted"}}]), gone, gone]):
             ok, error = msgraph_worker.sync_msgraph_accounts("testuser", self.conn)
 
         self.assertTrue(ok, error)
