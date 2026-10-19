@@ -635,6 +635,14 @@ a { color: inherit; text-decoration: none; }
 .tz-badge.pri {
   font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.tz-badge { display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.tz-results { list-style: none; margin: 4px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.tz-results button {
+  display: flex; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 4px 6px; border: 0; background: none; color: var(--ink); font-size: 12px; text-align: left; cursor: pointer;
+}
+.tz-results button:hover, .tz-results button:focus-visible { background: var(--surface-hover); }
+.tz-results .tz-result-offset { font-family: var(--font-mono); color: var(--ink-muted); }
 .week-columns, .day-columns {
   position: relative;
   grid-column: 2 / span 7;
@@ -1250,8 +1258,7 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   }
   .toolbar #invitations-btn,
   .toolbar #export-pdf-btn,
-  .toolbar #availability-btn,
-  .toolbar .toolbar-tz-select-wrapper {
+  .toolbar #availability-btn {
     display: none !important;
   }
 }
@@ -2130,8 +2137,7 @@ textarea.form-input, .form-textarea {
   .modal-backdrop,
   .popover,
   #kanban-side-drawer,
-  .shortcuts-modal-backdrop,
-  .toolbar-tz-select-wrapper {
+  .shortcuts-modal-backdrop {
     display: none !important;
   }
   .app {

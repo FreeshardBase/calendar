@@ -5,6 +5,7 @@
  */
 
 import { store, visibleCalendars, calendarById } from './store.js';
+import { zoneAbbreviation, zoneOffsetLabel, timeInZone, localTimeZone } from './timezones.js';
 
 const DAYS   = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const MONTHS = ['Januar','Februar','März','April','Mai','Juni',
@@ -323,51 +324,34 @@ export function chipHtml(ev) {
           </div>`;
 }
 
-// ── Timezone Helpers ──────────────────────────────────────────────────────────
+// ── Second time zone (#509) ───────────────────────────────────────────────────
 
-function getTimezoneOffsetMinsClient(tzName, date) {
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzName,
-      timeZoneName: 'longOffset',
-      year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric'
-    });
-    const parts = fmt.formatToParts(date);
-    const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
-    if (tzPart === 'GMT' || tzPart === 'UTC') return 0;
-    const m = tzPart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
-    if (!m) return 0;
-    const sign = m[1] === '-' ? -1 : 1;
-    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10));
-  } catch (e) {
-    return 0;
-  }
+function zoneBadge(cls, timeZone, instant) {
+  const abbr = zoneAbbreviation(timeZone, instant);
+  return `<span class="tz-badge ${cls}" title="${escHtml(timeZone)}">${abbr ? `<span class="tz-abbr">${escHtml(abbr)}</span> ` : ''}<span class="tz-offset">${zoneOffsetLabel(timeZone, instant)}</span></span>`;
 }
 
-function getTimezoneAbbrClient(tzName, date) {
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'short' });
-    const parts = fmt.formatToParts(date);
-    return parts.find(p => p.type === 'timeZoneName')?.value || tzName;
-  } catch (e) {
-    return tzName;
-  }
+// Above the hour axis: the grid's own zone and the second one, each with abbreviation and
+// offset as they are at noon of that day.
+function dualGutterHtml(cls, day, secTz) {
+  const noon = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12);
+  return `<div class="${cls} dual-tz-gutter" aria-hidden="true">
+         ${zoneBadge('pri', localTimeZone(), noon)}
+         ${zoneBadge('sec', secTz, noon)}
+       </div>`;
 }
 
-function getDualHourLabelClient(baseHour, date, primaryTz, secondaryTz) {
-  const priOffset = getTimezoneOffsetMinsClient(primaryTz, date);
-  const secOffset = getTimezoneOffsetMinsClient(secondaryTz, date);
-  const diffMins = secOffset - priOffset;
-  let totalSecMins = baseHour * 60 + diffMins;
-  totalSecMins = ((totalSecMins % 1440) + 1440) % 1440;
-  const secHour = Math.floor(totalSecMins / 60);
-  const secMin = totalSecMins % 60;
-  const fmt = (h, m = 0) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  return {
-    priStr: fmt(baseHour, 0),
-    secStr: fmt(secHour, secMin)
-  };
+// One label of the hour axis. The second zone's time is taken at the very instant the grid line
+// stands for on that day, so a DST change in either zone shows exactly where it happens.
+function hourLabelHtml(cls, h, day, secTz) {
+  if (!secTz || h === 0 || h === TOTAL_HOURS) {
+    return `<div class="${cls}" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
+  }
+  const instant = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h);
+  return `<div class="${cls} dual-tz" data-hour="${h}" style="top:${h*HOUR_H}px">
+        <span class="pri-time">${String(h).padStart(2, '0')}:00</span>
+        <span class="sec-time">${timeInZone(secTz, instant)}</span>
+      </div>`;
 }
 
 // ── Week View ─────────────────────────────────────────────────────────────────
@@ -381,22 +365,15 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
     const d = new Date(ws); d.setDate(ws.getDate() + i); return d;
   });
 
-  const primaryTz = store.get('primaryTimezone') || 'Europe/Berlin';
-  const rawSecTz  = store.get('secondaryTimezone');
-  const showSecondary = (rawSecTz !== null && rawSecTz !== undefined && rawSecTz !== '') || store.get('showSecondaryTimezone') === true;
-  const secondaryTz  = rawSecTz || 'America/New_York';
-
+  // The week view's axis is one column for all days; it shows the zones as on the current day.
+  const secondaryTz = store.get('secondaryTimezone');
+  const showSecondary = Boolean(secondaryTz);
   const gutterW = showSecondary ? '110px' : '60px';
-  const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);
-  const secAbbr = getTimezoneAbbrClient(secondaryTz, currentDate);
 
   // The hour axis is a visual aid only: every event block names its own times.
   // Hiding it keeps the grid to one column per day under its column header.
   const gutterHtml = showSecondary
-    ? `<div class="week-time-gutter dual-tz-gutter" aria-hidden="true" title="${primaryTz} / ${secondaryTz}">
-         <span class="tz-badge pri">${priAbbr}</span>
-         <span class="tz-badge sec">${secAbbr}</span>
-       </div>`
+    ? dualGutterHtml('week-time-gutter', currentDate, secondaryTz)
     : `<div class="week-time-gutter" aria-hidden="true"></div>`;
 
   const wrap = document.createElement('div');
@@ -437,15 +414,7 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   timeCol.className = `week-time-col${showSecondary ? ' dual-tz' : ''}`;
   timeCol.setAttribute('aria-hidden', 'true');
   for (let h = 0; h <= TOTAL_HOURS; h++) {
-    if (showSecondary && h > 0 && h < TOTAL_HOURS) {
-      const { priStr, secStr } = getDualHourLabelClient(h, currentDate, primaryTz, secondaryTz);
-      timeCol.innerHTML += `<div class="week-hour-label dual-tz" style="top:${h*HOUR_H}px">
-        <span class="pri-time">${priStr}</span>
-        <span class="sec-time">${secStr}</span>
-      </div>`;
-    } else {
-      timeCol.innerHTML += `<div class="week-hour-label" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
-    }
+    timeCol.innerHTML += hourLabelHtml('week-hour-label', h, currentDate, secondaryTz);
   }
   body.appendChild(timeCol);
 
@@ -501,20 +470,12 @@ function renderDay(container, events, currentDate, cb) {
   const today = new Date(); today.setHours(0,0,0,0);
   const isToday = sameDay(currentDate, today);
 
-  const primaryTz = store.get('primaryTimezone') || 'Europe/Berlin';
-  const rawSecTz  = store.get('secondaryTimezone');
-  const showSecondary = (rawSecTz !== null && rawSecTz !== undefined && rawSecTz !== '') || store.get('showSecondaryTimezone') === true;
-  const secondaryTz  = rawSecTz || 'America/New_York';
-
+  const secondaryTz = store.get('secondaryTimezone');
+  const showSecondary = Boolean(secondaryTz);
   const gutterW = showSecondary ? '110px' : '60px';
-  const priAbbr = getTimezoneAbbrClient(primaryTz, currentDate);
-  const secAbbr = getTimezoneAbbrClient(secondaryTz, currentDate);
 
   const gutterHtml = showSecondary
-    ? `<div class="day-time-gutter dual-tz-gutter" aria-hidden="true" title="${primaryTz} / ${secondaryTz}">
-         <span class="tz-badge pri">${priAbbr}</span>
-         <span class="tz-badge sec">${secAbbr}</span>
-       </div>`
+    ? dualGutterHtml('day-time-gutter', currentDate, secondaryTz)
     : `<div class="day-time-gutter" aria-hidden="true"></div>`;
 
   const allDayEvs = eventsForDay(events, currentDate).filter(e => Boolean(e.allDay));
@@ -545,15 +506,7 @@ function renderDay(container, events, currentDate, cb) {
   timeCol.className = `day-time-col${showSecondary ? ' dual-tz' : ''}`;
   timeCol.setAttribute('aria-hidden', 'true');
   for (let h = 0; h <= TOTAL_HOURS; h++) {
-    if (showSecondary && h > 0 && h < TOTAL_HOURS) {
-      const { priStr, secStr } = getDualHourLabelClient(h, currentDate, primaryTz, secondaryTz);
-      timeCol.innerHTML += `<div class="day-hour-label dual-tz" style="top:${h*HOUR_H}px">
-        <span class="pri-time">${priStr}</span>
-        <span class="sec-time">${secStr}</span>
-      </div>`;
-    } else {
-      timeCol.innerHTML += `<div class="day-hour-label" style="top:${h*HOUR_H}px">${h === 0 ? '' : fmtHour(h)}</div>`;
-    }
+    timeCol.innerHTML += hourLabelHtml('day-hour-label', h, currentDate, secondaryTz);
   }
   body.appendChild(timeCol);
 

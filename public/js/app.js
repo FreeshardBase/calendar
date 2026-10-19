@@ -8,6 +8,7 @@ import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesA
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
+import { searchTimeZones, zoneOffsetLabel } from './timezones.js';
 import { initEventModal, openCreateModal, openEditModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
@@ -97,10 +98,12 @@ async function boot() {
     } else {
       hideLoading();
       showApp();
+      // Preferences first: the first render of the grid already needs the second time zone.
+      const prefs = await PreferencesAPI.get();
+      store.set({ taskView: prefs.taskView, secondaryTimezone: prefs.secondaryTimezone });
       await loadCalendars();
       await loadWebcalSubscriptions();
       await loadEvents();
-      store.set({ taskView: (await PreferencesAPI.get()).taskView });
       await loadTasks();
       await checkOAuthTokenStatus();
       await checkSyncStatus();
@@ -1800,18 +1803,32 @@ function renderSettingsNotifications() {
   }
 }
 
+// #509: the second time zone is switched on by choosing a zone and off by the checkbox.
 function renderSettingsTimezone() {
-  const showToggle      = $('show-secondary-tz-toggle');
-  const priSelect       = $('primary-tz-select');
-  const secSelect       = $('secondary-tz-select');
-  const headerSecSelect = $('header-secondary-tz-select');
+  const zone = store.get('secondaryTimezone');
+  $('show-secondary-tz-toggle').checked = Boolean(zone);
+  $('secondary-tz-picker').classList.toggle('hidden', !zone);
+  $('secondary-tz-current').textContent = zone
+    ? `Gewählt: ${zone} (${zoneOffsetLabel(zone, new Date())})`
+    : 'Noch keine Zeitzone gewählt.';
+  $('secondary-tz-search').value = '';
+  $('secondary-tz-results').innerHTML = '';
+}
 
-  const currentSecTz = store.get('secondaryTimezone') || '';
+function renderSecondaryTimezoneResults(query) {
+  const now = new Date();
+  $('secondary-tz-results').innerHTML = searchTimeZones(query).map(zone => `
+    <li><button type="button" data-tz="${escHtml(zone)}">
+      <span>${escHtml(zone)}</span><span class="tz-result-offset">${zoneOffsetLabel(zone, now)}</span>
+    </button></li>`).join('');
+}
 
-  if (showToggle) showToggle.checked = store.get('showSecondaryTimezone') === true || Boolean(currentSecTz);
-  if (priSelect)  priSelect.value  = store.get('primaryTimezone') || 'Europe/Berlin';
-  if (secSelect)  secSelect.value  = currentSecTz;
-  if (headerSecSelect) headerSecSelect.value = currentSecTz;
+async function changeSecondaryTimezone(zone) {
+  const saved = (await PreferencesAPI.setSecondaryTimezone(zone)).secondaryTimezone;
+  store.set({ secondaryTimezone: saved });
+  renderSettingsTimezone();
+  renderCalendarView();
+  announce(saved ? `Zweite Zeitzone: ${saved}` : 'Zweite Zeitzone ausgeblendet');
 }
 
 async function renderSettingsAppPasswords() {
@@ -2612,68 +2629,28 @@ function attachListeners() {
     });
   }
 
-  // Timezone Settings Controls
-  function updateSecondaryTimezone(tzVal) {
-    const val = tzVal || null;
-    if (val) {
-      localStorage.setItem('secondaryTimezone', val);
-      localStorage.setItem('showSecondaryTimezone', 'true');
+  // #509: second time zone — the checkbox opens the search, a hit switches the column on.
+  $('show-secondary-tz-toggle').addEventListener('change', e => {
+    if (e.target.checked) {
+      $('secondary-tz-picker').classList.remove('hidden');
+      $('secondary-tz-search').focus();
+    } else if (store.get('secondaryTimezone')) {
+      changeSecondaryTimezone(null).catch(err => {
+        showToast('Die Zeitzone konnte nicht gespeichert werden: ' + err.message, 'error');
+        renderSettingsTimezone();
+      });
     } else {
-      localStorage.removeItem('secondaryTimezone');
-      localStorage.setItem('showSecondaryTimezone', 'false');
+      renderSettingsTimezone();
     }
-    store.set({
-      secondaryTimezone: val,
-      showSecondaryTimezone: Boolean(val)
+  });
+  $('secondary-tz-search').addEventListener('input', e => renderSecondaryTimezoneResults(e.target.value));
+  $('secondary-tz-results').addEventListener('click', e => {
+    const hit = e.target.closest('button[data-tz]');
+    if (!hit) return;
+    changeSecondaryTimezone(hit.dataset.tz).catch(err => {
+      showToast('Die Zeitzone konnte nicht gespeichert werden: ' + err.message, 'error');
     });
-
-    const showTzToggle    = $('show-secondary-tz-toggle');
-    const secTzSelect     = $('secondary-tz-select');
-    const headerSecSelect = $('header-secondary-tz-select');
-    if (showTzToggle) showTzToggle.checked = Boolean(val);
-    if (secTzSelect) secTzSelect.value = val || '';
-    if (headerSecSelect) headerSecSelect.value = val || '';
-
-    renderCalendarView();
-  }
-
-  const showTzToggle = $('show-secondary-tz-toggle');
-  if (showTzToggle) {
-    showTzToggle.addEventListener('change', e => {
-      const enabled = e.target.checked;
-      localStorage.setItem('showSecondaryTimezone', enabled ? 'true' : 'false');
-      if (!enabled) {
-        updateSecondaryTimezone(null);
-      } else {
-        const cur = store.get('secondaryTimezone') || 'America/New_York';
-        updateSecondaryTimezone(cur);
-      }
-    });
-  }
-
-  const priTzSelect = $('primary-tz-select');
-  if (priTzSelect) {
-    priTzSelect.addEventListener('change', e => {
-      const tz = e.target.value;
-      localStorage.setItem('primaryTimezone', tz);
-      store.set({ primaryTimezone: tz });
-      renderCalendarView();
-    });
-  }
-
-  const secTzSelect = $('secondary-tz-select');
-  if (secTzSelect) {
-    secTzSelect.addEventListener('change', e => {
-      updateSecondaryTimezone(e.target.value);
-    });
-  }
-
-  const headerSecTzSelect = $('header-secondary-tz-select');
-  if (headerSecTzSelect) {
-    headerSecTzSelect.addEventListener('change', e => {
-      updateSecondaryTimezone(e.target.value);
-    });
-  }
+  });
 
   if (window.WorkingHoursModule) {
     window.WorkingHoursModule.init();

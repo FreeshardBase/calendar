@@ -2753,65 +2753,122 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   }
 
-  test('should enable secondary timezone dual grid and update hour labels in week view', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+  test.describe('Issue #509 — second time zone freely selectable', () => {
+    const setSecondZone = (page, zone) =>
+      page.request.put('/api/preferences', { headers: SAME_ORIGIN, data: { secondaryTimezone: zone } });
 
-    // Open settings drawer
-    await page.click('#sidebar-settings-btn');
-    await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+    // The setting is stored per user on the server, so no other test may inherit a second column.
+    test.afterEach(async ({ page }) => {
+      expect((await setSecondZone(page, null)).status()).toBe(200);
+    });
 
-    // Select secondary timezone to New York
-    await page.selectOption('#secondary-tz-select', 'America/New_York');
+    test('any IANA zone is found by the settings search, shown with abbreviation and offset, kept on reload and switched off', async ({ page }) => {
+      await page.clock.install({ time: new Date('2037-07-15T12:00:00+02:00') });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect((await setSecondZone(page, null)).status()).toBe(200);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#view-day');
+      await expect(page.locator('.day-view')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('.dual-tz-gutter')).toHaveCount(0);
 
-    // Close settings drawer
-    await page.click('#close-settings-btn');
-    await expect(page.locator('#settings-drawer')).toHaveClass(/hidden/);
+      await page.click('#sidebar-settings-btn');
+      await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
+      const toggle = page.locator('#show-secondary-tz-toggle');
+      const search = page.locator('#secondary-tz-search');
+      await expect(toggle).not.toBeChecked();
+      await expect(search).toBeHidden();
+      await toggle.check();
+      await expect(search).toBeFocused();
 
-    // Switch to Week view
-    await page.click('#view-week');
-    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
+      // A zone from no shortlist: St. John's, Newfoundland, half an hour off the full hour.
+      await search.fill('st johns');
+      const hit = page.locator('#secondary-tz-results [data-tz="America/St_Johns"]');
+      await expect(hit).toBeVisible();
+      await expect(hit).toContainText('UTC-2:30');
+      await expect(page.locator('#secondary-tz-results [data-tz="Asia/Tokyo"]')).toHaveCount(0);
+      await search.fill('tokyo');
+      await expect(page.locator('#secondary-tz-results [data-tz="Asia/Tokyo"]')).toBeVisible();
+      await expect(page.locator('#secondary-tz-results [data-tz="America/St_Johns"]')).toHaveCount(0);
+      await search.fill('st johns');
+      await hit.click();
+      await expect(page.locator('#secondary-tz-current')).toContainText('America/St_Johns');
 
-    // Verify dual timezone gutter header and dual hour labels exist
-    const gutter = page.locator('.week-time-gutter.dual-tz-gutter');
-    await expect(gutter).toBeVisible({ timeout: 10000 });
+      await page.click('#close-settings-btn');
+      const pri = page.locator('.day-time-gutter.dual-tz-gutter .tz-badge.pri');
+      const sec = page.locator('.day-time-gutter.dual-tz-gutter .tz-badge.sec');
+      await expect(sec).toContainText('UTC-2:30');
+      await expect(pri).toContainText('MESZ');
+      await expect(pri).toContainText('UTC+2');
+      // 12:00 in Berlin (UTC+2) is 07:30 in St. John's (UTC-2:30).
+      await expect(page.locator('.day-hour-label.dual-tz[data-hour="12"] .pri-time')).toHaveText('12:00');
+      await expect(page.locator('.day-hour-label.dual-tz[data-hour="12"] .sec-time')).toHaveText('07:30');
+      await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).secondaryTimezone)
+        .toBe('America/St_Johns');
 
-    const dualLabels = page.locator('.week-hour-label.dual-tz');
-    await expect(dualLabels.first()).toBeVisible({ timeout: 10000 });
-  });
+      // The setting lives on the server, so it survives a reload with empty local storage.
+      await page.evaluate(() => localStorage.clear());
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#view-week');
+      await expect(page.locator('.week-time-gutter.dual-tz-gutter .tz-badge.sec')).toContainText('UTC-2:30');
+      await expect(page.locator('.week-hour-label.dual-tz[data-hour="12"] .sec-time')).toHaveText('07:30');
 
-  test('should update secondary timezone directly via header toolbar dropdown', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      await expect(toggle).toBeChecked();
+      await toggle.uncheck();
+      await expect(search).toBeHidden();
+      await page.click('#close-settings-btn');
+      await expect(page.locator('.dual-tz-gutter')).toHaveCount(0);
+      await expect(page.locator('.week-hour-label.dual-tz')).toHaveCount(0);
+      await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).secondaryTimezone)
+        .toBe(null);
+    });
 
-    // Switch to Week view
-    await page.click('#view-week');
-    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
+    test('hour labels follow both zones across their DST changes', async ({ page }) => {
+      // 2027: the USA switch to summer time on 14 March, Germany on 28 March at 02:00 local time.
+      await page.clock.install({ time: new Date('2027-03-27T12:00:00+01:00') });
+      await page.goto('/');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      expect((await setSecondZone(page, 'America/New_York')).status()).toBe(200);
+      await page.reload();
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#view-day');
+      const label = h => page.locator(`.day-hour-label.dual-tz[data-hour="${h}"] .sec-time`);
+      const pri = page.locator('.day-time-gutter.dual-tz-gutter .tz-badge.pri');
+      const sec = page.locator('.day-time-gutter.dual-tz-gutter .tz-badge.sec');
 
-    // Select UTC in header secondary timezone dropdown
-    const headerTzSelect = page.locator('#header-secondary-tz-select');
-    await expect(headerTzSelect).toBeVisible();
-    await headerTzSelect.selectOption('UTC');
+      // Saturday: Berlin still on CET (UTC+1), New York already on EDT (UTC-4) — five hours apart.
+      await expect(sec).toContainText('EDT');
+      await expect(sec).toContainText('UTC-4');
+      await expect(pri).toContainText('UTC+1');
+      await expect(label(9)).toHaveText('04:00');
 
-    // Dual timezone gutter should be visible with UTC badge
-    const gutter = page.locator('.week-time-gutter.dual-tz-gutter');
-    await expect(gutter).toBeVisible({ timeout: 10000 });
-    await expect(gutter).toContainText('UTC');
+      // Sunday, the German switch day: before 02:00 five hours apart, from 03:00 on six.
+      await page.click('#next-btn');
+      await expect(page.locator('.day-view .week-day-num')).toHaveText('28');
+      await expect(label(1)).toHaveText('20:00');
+      await expect(label(4)).toHaveText('22:00');
+      await expect(label(9)).toHaveText('03:00');
 
-    // Switch to Day view
-    await page.click('#view-day');
-    await expect(page.locator('.day-view')).toBeVisible({ timeout: 10000 });
-    const dayGutter = page.locator('.day-time-gutter.dual-tz-gutter');
-    await expect(dayGutter).toBeVisible({ timeout: 10000 });
-    await expect(dayGutter).toContainText('UTC');
+      // Monday: both on summer time, six hours apart; the week view agrees.
+      await page.click('#next-btn');
+      await expect(page.locator('.day-view .week-day-num')).toHaveText('29');
+      await expect(pri).toContainText('UTC+2');
+      await expect(label(9)).toHaveText('03:00');
+      await page.click('#view-week');
+      await expect(page.locator('.week-hour-label.dual-tz[data-hour="9"] .sec-time')).toHaveText('03:00');
 
-    // Open settings drawer to verify synced dropdown state
-    await page.click('#sidebar-settings-btn');
-    await expect(page.locator('#settings-drawer')).not.toHaveClass(/hidden/);
-    const drawerTzVal = await page.locator('#secondary-tz-select').inputValue();
-    expect(drawerTzVal).toBe('UTC');
+      // In February, both on winter time: New York on EST (UTC-5), six hours apart.
+      await page.click('#view-day');
+      for (let i = 0; i < 45; i++) await page.click('#prev-btn');
+      await expect(page.locator('.day-view .week-day-num')).toHaveText('12');
+      await expect(sec).toContainText('EST');
+      await expect(sec).toContainText('UTC-5');
+      await expect(label(9)).toHaveText('03:00');
+      await expect(label(1)).toHaveText('19:00');
+    });
   });
 
   test('should open availability booking modal, create a booking page, and let an anonymous visitor book a free slot through its public link', async ({ page, browser }) => {

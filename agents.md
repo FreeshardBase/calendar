@@ -211,6 +211,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   hold the task area's view, `taskView` `list` or `kanban` (default `kanban`, anything else 400). It needs only a
   session identity, and `Db.deleteUser` removes the row. The list's sort, grouping and "Erledigte anzeigen" last
   only for the page's lifetime.
+  Since #509 they also hold `secondaryTimezone`: the second hour column of the week/day grid, any IANA zone
+  (checked by `Intl`, stored under its proper name) or `null` for off (the default). `PUT` takes either field
+  alone. The settings drawer searches every zone `Intl.supportedValuesOf('timeZone')` knows
+  (`public/js/timezones.js`). The badges show abbreviation and UTC offset at noon of the shown day. Each hour label
+  is the second zone's time at that exact instant, so DST changes in either zone land on the right hour.
 - CalDAV fan-out (#498): `GET /api/tasks`, `/api/events` and `/api/events/invitations` send one REPORT per
   collection, at most `CALDAV_REPORT_CONCURRENCY` (4, `utils/caldavFanout.js`) at a time per account; sent all
   at once, Radicale drops connections from about 60-100 on and those collections went missing.

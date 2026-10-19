@@ -411,7 +411,8 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS user_preferences (
       user_id TEXT PRIMARY KEY,
-      task_view TEXT NOT NULL CHECK (task_view IN ('list', 'kanban')),
+      task_view TEXT NOT NULL DEFAULT 'kanban' CHECK (task_view IN ('list', 'kanban')),
+      secondary_timezone TEXT,
       updated_at INTEGER NOT NULL
     )
   `);
@@ -2565,6 +2566,27 @@ const Db = {
          ON CONFLICT(user_id) DO UPDATE SET task_view = excluded.task_view, updated_at = excluded.updated_at`,
         [userId, taskView, Date.now()],
         (err) => (err ? reject(err) : resolve(taskView))
+      );
+    });
+  },
+
+  // #509: the second time zone column of the week/day grid; null while switched off.
+  getSecondaryTimezonePreference(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT secondary_timezone FROM user_preferences WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.secondary_timezone : null);
+      });
+    });
+  },
+
+  setSecondaryTimezonePreference(userId, timeZone) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO user_preferences (user_id, secondary_timezone, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET secondary_timezone = excluded.secondary_timezone, updated_at = excluded.updated_at`,
+        [userId, timeZone, Date.now()],
+        (err) => (err ? reject(err) : resolve(timeZone))
       );
     });
   },
