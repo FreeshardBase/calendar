@@ -81,7 +81,9 @@ class FakeMicrosoft:
                         raise urllib.error.HTTPError(url, page, "error", {}, io.BytesIO(b"{}"))
                     return _Response(json.dumps(page))
             raise AssertionError(f"unexpected Graph request {url}")
-        # Local Radicale: PUT / DELETE succeed.
+        # Local Radicale: PUT / DELETE succeed; it keeps no content to read for the trash (#597).
+        if req.get_method() == "GET":
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
         return _Response("")
 
     def of(self, kind):
@@ -103,6 +105,8 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
             sync_lock_until INTEGER, created_at INTEGER, updated_at INTEGER)""")
         self.conn.execute("""CREATE TABLE msgraph_event_mappings (local_uid TEXT PRIMARY KEY, graph_id TEXT NOT NULL,
             account_id TEXT NOT NULL, last_synced_at INTEGER NOT NULL, e_tag TEXT)""")
+        self.conn.execute("""CREATE TABLE msgraph_restores (account_id TEXT NOT NULL, href TEXT NOT NULL,
+            created_at INTEGER NOT NULL, PRIMARY KEY (account_id, href))""")
         self.conn.execute(
             "INSERT INTO msgraph_accounts (id, user_id, account_email, access_token, refresh_token, expires_at,"
             " delta_link, target_calendar_id) VALUES ('acc1', 'testuser', 'testuser@example.com',"
@@ -204,7 +208,7 @@ class MSGraphDeltaSyncTest(unittest.TestCase):
         self.assertEqual(body["client_secret"], ["testuser-client-secret"])
         self.assertEqual(body["grant_type"], ["refresh_token"])
         self.assertEqual(body["refresh_token"], ["testuser-refresh-token"])
-        self.assertEqual(set(body["scope"][0].split()), {"offline_access", "User.Read", "Calendars.Read"})
+        self.assertEqual(set(body["scope"][0].split()), {"offline_access", "User.Read", "Calendars.ReadWrite"})
         self.assertEqual(fake.of("graph")[0]["headers"]["Authorization"], "Bearer testuser-new-access")
         row = self._account()
         self.assertEqual(msgraph_worker.decrypt_token(row["refresh_token"]), "testuser-new-refresh")
@@ -516,6 +520,7 @@ class GoogleSyncDespiteMicrosoftErrorTest(unittest.TestCase):
                           return_value=[{"id": "primary", "name": "Privat"}]), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(False, reconnect)), \
              patch.object(sync_worker.urllib.request, "urlopen", side_effect=fake_urlopen), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
              patch("subprocess.run", side_effect=fake_run):
             ok, error = sync_worker.sync_user(issue193.USER_ID)
 

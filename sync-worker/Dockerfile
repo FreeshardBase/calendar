@@ -23,6 +23,7 @@ WORKDIR /app
 COPY sync_worker.py /app/sync_worker.py
 COPY msgraph_worker.py /app/msgraph_worker.py
 COPY tls_context.py /app/tls_context.py
+COPY provider_trash.py /app/provider_trash.py
 COPY outbound_guard.py /app/outbound_guard.py
 COPY guarded_vdirsyncer.py /app/guarded_vdirsyncer.py
 COPY drop-privileges.sh /app/drop-privileges.sh

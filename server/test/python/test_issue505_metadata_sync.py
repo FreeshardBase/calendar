@@ -234,6 +234,7 @@ class TestIssue505MetadataSync(unittest.TestCase):
         self.proppatches = []
         with patch.object(sync_worker, "LOCAL_CALDAV_URL", self.local.base + "/"), \
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
              patch("subprocess.run", side_effect=self.simulate_vdirsyncer):
             ok, err = sync_worker.sync_user(USER_ID)
         self.assertTrue(ok, err)

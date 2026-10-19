@@ -115,6 +115,7 @@ class TestIssue282LocalCaldavVerify(unittest.TestCase):
              patch.object(sync_worker, "sync_msgraph_accounts", return_value=(True, "")), \
              patch.object(sync_worker, "discover_caldav_collections", return_value={"work": "Arbeit"}), \
              patch.object(sync_worker.urllib.request, "urlopen", side_effect=fake_urlopen), \
+             patch.object(sync_worker, "snapshot_mirrors", return_value={}), \
              patch("subprocess.run", side_effect=fake_run):
             ok, err = sync_worker.sync_user(USER_ID)
         self.assertTrue(ok, err)

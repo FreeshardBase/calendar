@@ -280,6 +280,7 @@ SYSTEM_SYNC_SECRET = os.environ.get("SYSTEM_SYNC_SECRET")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from msgraph_worker import sync_msgraph_accounts
+import provider_trash
 
 # #72: same format as server/db.js. Every value is AES-256-GCM under a key derived with scrypt from
 # the install secret and a random salt of its own:
@@ -677,6 +678,54 @@ def local_items(user_id, collection, component=None):
     return items
 
 
+def mirror_items(user_id, collection):
+    """{href path: ICS} of every item in a local mirror collection (#597)."""
+    body = """<?xml version="1.0" encoding="utf-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop><c:calendar-data/></d:prop>
+  <c:filter><c:comp-filter name="VCALENDAR"/></c:filter>
+</c:calendar-query>"""
+    root = ET.fromstring(local_collection_request(user_id, collection, "REPORT", body, depth="1"))
+    items = {}
+    for response in root.iter("{DAV:}response"):
+        href = response.find("{DAV:}href")
+        data = response.find(".//{urn:ietf:params:xml:ns:caldav}calendar-data")
+        if href is None or data is None or not (data.text or "").strip():
+            continue
+        # XML parsing turns the CRLF line ends of iCalendar into LF; the kept copy has them back.
+        items[urllib.parse.urlsplit(href.text.strip()).path] = re.sub(r"\r?\n", "\r\n", data.text)
+    return items
+
+
+def snapshot_mirrors(user_id, collections):
+    """What each mirror holds before a vdirsyncer sync, to find what the sync deletes (#597)."""
+    return {collection: mirror_items(user_id, collection) for collection in collections}
+
+
+def trash_provider_deletions(user_id, before, since_ms):
+    """Put each item a vdirsyncer sync removed from a mirror into the shard trash, as it was (#597).
+
+    vdirsyncer removes a mirror's item only when the provider deleted it. An item the app deleted
+    during the sync is already in the trash (#348) and is not added twice.
+    """
+    conn = sqlite3.connect(get_db_path(), timeout=30.0)
+    try:
+        for collection, items in before.items():
+            after = mirror_items(user_id, collection)
+            for href, ics in items.items():
+                if href in after:
+                    continue
+                trashed_in_app = conn.execute(
+                    "SELECT 1 FROM trash_items WHERE user_id = ? AND deleted_at >= ?"
+                    " AND json_extract(payload, '$.href') = ?",
+                    (user_id, since_ms, href)).fetchone()
+                if not trashed_in_app:
+                    provider_trash.add_provider_deletion(conn, user_id, collection, href, ics)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 COMPONENT_NOUNS = {"VEVENT": "Termine", "VTODO": "Aufgaben", "VJOURNAL": "Journaleinträge"}
 COMPONENT_HOMES = {"VEVENT": "einen Kalender", "VTODO": "eine Aufgabenliste", "VJOURNAL": "einen Kalender"}
 
@@ -1019,6 +1068,8 @@ def sync_basic_caldav_accounts(user_id, conn):
     pairs_written = 0
     # Linked host -> addresses validated for this job; vdirsyncer may connect nowhere else (#532).
     pins = {}
+    # Local mirror collections of the pairs (#597).
+    mirrors = []
 
     for idx, acc in enumerate(basic_accounts):
         pair_name    = f"basic_{idx}"
@@ -1052,6 +1103,7 @@ def sync_basic_caldav_accounts(user_id, conn):
             except (RuntimeError, OSError) as map_err:
                 return False, f"Local collection for CalDAV calendar {remote_collection!r} of account {acc['id']} failed: {map_err}"
             items.append([local_collection, remote_collection, local_collection])
+            mirrors.append(local_collection)
         if not items:
             mapped = conn.execute(
                 "SELECT 1 FROM caldav_calendar_collections WHERE account_id = ?", (acc["id"],)
@@ -1100,7 +1152,11 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
         if disc_res.returncode != 0:
             return False, f"vdirsyncer basic discover failed: {disc_res.stderr}"
 
+        since_ms = int(time.time() * 1000)
+        before = snapshot_mirrors(user_id, mirrors)
         sync_err = run_sync_and_metasync(config_path, policy, f"basic (user {user_id})")
+        # Also after a failed run: what it deleted before failing is gone from the mirror all the same.
+        trash_provider_deletions(user_id, before, since_ms)
         if sync_err:
             return False, sync_err
 
@@ -1341,7 +1397,11 @@ password = {ini_value(SYSTEM_SYNC_SECRET)}
             return False, f"vdirsyncer discover failed: {disc_res.stderr}"
 
         print(f"[Sync-Worker] Running sync for user {user_id}...")
+        since_ms = int(time.time() * 1000)
+        before = snapshot_mirrors(user_id, mirrors)
         sync_res = run_vdirsyncer(config_path, "sync", policy)
+        # Items the provider deleted go to the shard trash, also after a partly failed run (#597).
+        trash_provider_deletions(user_id, before, since_ms)
         not_synced = list(stranded)
         if sync_res.returncode != 0:
             # vdirsyncer syncs the pair's other items past one a server refuses; name each refused one.

@@ -9190,4 +9190,41 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       expect(trash.items.some(i => i.title === name)).toBe(false);
     });
   });
+
+  // Issue #597: an event the sync found deleted at the provider is in the trash, marked as such,
+  // and its restore dialog says it is created there again.
+  test.describe('Issue #597 — provider deletes in the trash', () => {
+    test('#597 an event deleted at the provider is restored after the dialog names the new invitation', async ({ page }) => {
+      await page.goto('/');
+      const calendars = (await (await page.request.get('/api/calendars')).json()).calendars;
+      const personal = calendars.find(c => c.supportsVEVENT && !c.readOnly && c.id.startsWith('internal-caldav::'));
+      const title = `E2E 597 Provider ${Date.now()}`;
+      const uid = `e2e-597-${Date.now()}`;
+      const href = `${personal.id.slice('internal-caldav::'.length)}${uid}.ics`;
+      const ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:VEVENT\r\n'
+        + `UID:${uid}\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:${title}\r\n`
+        + 'DTSTART:20370915T090000Z\r\nDTEND:20370915T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+      // The row the sync worker writes (sync-worker/provider_trash.py).
+      await runSql(
+        `INSERT INTO trash_items (id, user_id, kind, calendar_id, title, linked, origin, payload, deleted_at)
+         VALUES (?, ?, 'event', ?, ?, 1, 'provider', ?, ?)`,
+        [`trash-${uid}`, E2E_USER, personal.id, title, JSON.stringify({ href, ics }), Date.now()]);
+
+      await page.goto('/?date=2037-09-15');
+      await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+      await page.click('#sidebar-settings-btn');
+      const entry = page.locator('#settings-trash-list .trash-item', { hasText: title });
+      await expect(entry).toContainText('Termin · beim Anbieter gelöscht');
+      await entry.getByRole('button', { name: 'Wiederherstellen' }).click();
+
+      await expect(page.locator('#confirm-dialog-backdrop')).not.toHaveClass(/hidden/);
+      await expect(page.locator('#confirm-dialog-text')).toHaveText(
+        `„${title}“ wurde beim Anbieter gelöscht und wird dort neu angelegt. Die UID kann sich dabei ändern, und Gäste bekommen eventuell eine neue Einladung. Wiederherstellen?`);
+      await page.click('#confirm-dialog-ok');
+
+      await expect(entry).toHaveCount(0, { timeout: 10000 });
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.event-chip', { hasText: title }).first()).toBeVisible({ timeout: 15000 });
+    });
+  });
 });

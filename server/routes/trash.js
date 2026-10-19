@@ -64,6 +64,8 @@ async function restore(req, item) {
 
   if (!(await collectionExists(client, calendarUrl))) throw userError(CALENDAR_GONE, 409);
   await putNew(client, new URL(payload.href, account.url).href, payload.ics, ITEM_EXISTS);
+  // #597: the Microsoft 365 import only reads; its worker creates a restored item at Graph.
+  if (payload.msgraph) await Db.addMSGraphRestore(req.session.userId, payload.msgraph.accountId, payload.href);
 }
 
 // GET /api/trash — what this person deleted in the last 30 days, newest first.
@@ -75,7 +77,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/trash/:id/restore — put the item back into Radicale (same href and UID).
+// POST /api/trash/:id/restore — put the item back into Radicale (same href and UID). An item a
+// provider deleted (#597) is re-created there by the next sync.
 router.post('/:id/restore', async (req, res) => {
   try {
     const item = await Db.getTrashItem(req.params.id, req.session.userId);

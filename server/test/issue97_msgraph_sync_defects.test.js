@@ -101,7 +101,7 @@ test('Issue #97 — Microsoft 365 OAuth connection and single sync path', async 
     assert.equal(q.get('code_challenge_method'), 'S256');
     assert.match(q.get('code_challenge'), /^[A-Za-z0-9_-]{43}$/);
     assert.ok(q.get('state') && q.get('state').length >= 16, 'a random state is sent');
-    assert.deepEqual(new Set(q.get('scope').split(' ')), new Set(['offline_access', 'User.Read', 'Calendars.Read']));
+    assert.deepEqual(new Set(q.get('scope').split(' ')), new Set(['offline_access', 'User.Read', 'Calendars.ReadWrite']));
     assert.equal(microsoft.length, 0, 'starting the flow calls nobody');
   });
 
@@ -122,7 +122,7 @@ test('Issue #97 — Microsoft 365 OAuth connection and single sync path', async 
     assert.equal(exchange.body.client_id, CLIENT_ID);
     assert.equal(exchange.body.client_secret, 'testuser-client-secret');
     assert.equal(exchange.body.redirect_uri, 'https://calendar.example.com/api/msgraph/callback');
-    assert.deepEqual(new Set(exchange.body.scope.split(' ')), new Set(['offline_access', 'User.Read', 'Calendars.Read']));
+    assert.deepEqual(new Set(exchange.body.scope.split(' ')), new Set(['offline_access', 'User.Read', 'Calendars.ReadWrite']));
     const challenge = crypto.createHash('sha256').update(exchange.body.code_verifier).digest('base64url');
     assert.equal(challenge, location.searchParams.get('code_challenge'), 'the verifier matches the challenge sent');
 

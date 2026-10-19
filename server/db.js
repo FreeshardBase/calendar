@@ -302,6 +302,15 @@ db.serialize(() => {
       e_tag TEXT
     )
   `);
+  // #597: trash items restored into a Microsoft 365 mirror; the worker creates each at Graph.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS msgraph_restores (
+      account_id TEXT NOT NULL,
+      href TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (account_id, href)
+    )
+  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS resources (
       id TEXT PRIMARY KEY,
@@ -433,6 +442,8 @@ db.serialize(() => {
   `);
   // #348: the shard's trash. payload is JSON: { href, ics } for an event or task,
   // { url, name, color, components, items: [{ href, ics }] } for a calendar or task list.
+  // #597: origin 'provider' is an item the sync worker found deleted at a linked provider; one
+  // from the Microsoft 365 import also carries payload.msgraph = { accountId }.
   db.run(`
     CREATE TABLE IF NOT EXISTS trash_items (
       id TEXT PRIMARY KEY,
@@ -441,6 +452,7 @@ db.serialize(() => {
       calendar_id TEXT NOT NULL,
       title TEXT NOT NULL,
       linked INTEGER NOT NULL DEFAULT 0,
+      origin TEXT NOT NULL DEFAULT 'shard' CHECK (origin IN ('shard', 'provider')),
       payload TEXT NOT NULL,
       deleted_at INTEGER NOT NULL
     )
@@ -1089,6 +1101,7 @@ const Db = {
       await tx.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`]);
       await tx.run('DELETE FROM user_calendar_shares WHERE sharee_user_id = ? OR calendar_id LIKE ?', [userId, calPattern]);
       await tx.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
+      await tx.run('DELETE FROM msgraph_restores WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
       await tx.run('DELETE FROM msgraph_accounts WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM web_push_subscriptions WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM resource_bookings WHERE user_id = ?', [userId]);
@@ -1989,6 +2002,7 @@ const Db = {
     return this.withTransaction(async (tx) => {
       await tx.run(`DELETE FROM msgraph_accounts WHERE id = ?`, [accountId]);
       await tx.run(`DELETE FROM msgraph_event_mappings WHERE account_id = ?`, [accountId]);
+      await tx.run(`DELETE FROM msgraph_restores WHERE account_id = ?`, [accountId]);
     });
   },
 
@@ -2680,7 +2694,7 @@ const Db = {
   async listTrashItems(userId, now = Date.now()) {
     await this.purgeExpiredTrash(now);
     const rows = await dbAll(db,
-      `SELECT id, kind, calendar_id, title, linked, deleted_at,
+      `SELECT id, kind, calendar_id, title, linked, origin, deleted_at,
               CASE WHEN kind = 'calendar' THEN json_array_length(payload, '$.items') END AS item_count,
               CASE WHEN kind = 'calendar' THEN json_extract(payload, '$.components') END AS components
        FROM trash_items WHERE user_id = ? ORDER BY deleted_at DESC`,
@@ -2691,6 +2705,7 @@ const Db = {
       calendarId: r.calendar_id,
       title: r.title,
       linked: r.linked === 1,
+      deletedAtProvider: r.origin === 'provider',
       deletedAt: new Date(r.deleted_at).toISOString(),
       purgeAt: new Date(r.deleted_at + TRASH_RETENTION_MS).toISOString(),
       ...(r.kind === 'calendar' ? { itemCount: r.item_count, components: JSON.parse(r.components) } : {})
@@ -2715,6 +2730,15 @@ const Db = {
         resolve(this.changes);
       });
     });
+  },
+
+  // #597: the Microsoft 365 import creates the restored item at Graph on its next sync. An
+  // account disconnected meanwhile leaves the item a plain local one.
+  addMSGraphRestore(userId, accountId, href) {
+    return dbRun(db,
+      `INSERT OR IGNORE INTO msgraph_restores (account_id, href, created_at)
+       SELECT id, ?, ? FROM msgraph_accounts WHERE id = ? AND user_id = ?`,
+      [href, Date.now(), accountId, userId]);
   },
 
   purgeExpiredTrash(now = Date.now()) {

@@ -100,7 +100,7 @@ Where the code does not yet match the theory above. Each item is the subject of 
 - Webcal subscriptions are cached in `webcal_subscriptions.cached_events` in SQLite, not mirrored into Radicale.
 - Whether disconnecting an external account keeps the local calendar has not been verified in code.
 - Basic-auth accounts can still be used live rather than mirrored. Every live request and redirect hop is limited to public addresses (#524).
-- Microsoft 365 is mirrored one way only (Graph → Radicale, by polling `sync-worker/msgraph_worker.py`); local changes are not written back and Graph webhooks are not used (#97).
+- Microsoft 365 is mirrored one way only (Graph → Radicale, by polling `sync-worker/msgraph_worker.py`); local changes are not written back (the one exception: an event restored from the trash after Microsoft deleted it is created there again, #597) and Graph webhooks are not used (#97).
 - The UI is German-only with `de-DE` hard-coded (#355); copy uses the generic masculine (#168).
 - The design deviates from the guide in several places: fonts are not loaded, there is a Bootstrap-yellow banner, a shadow, 106 inline styles in `index.html`, and indigo as the default calendar colour.
 - Conflict handling, kept losing versions, delegation and the offline PWA do not exist yet.

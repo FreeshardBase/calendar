@@ -3148,7 +3148,7 @@ async function renderSettingsTrash() {
       <div class="settings-item trash-item" data-trash-id="${escHtml(item.id)}">
         <div class="settings-item-info">
           <div class="settings-item-name">${escHtml(item.title)}</div>
-          <div class="trash-hint">${trashNoun(item)}${item.kind === 'calendar' ? ` · ${item.itemCount} Einträge` : ''} · gelöscht ${escHtml(day.format(new Date(item.deletedAt)))} · endgültig weg ${escHtml(day.format(new Date(item.purgeAt)))}</div>
+          <div class="trash-hint">${trashNoun(item)}${item.kind === 'calendar' ? ` · ${item.itemCount} Einträge` : ''} · ${item.deletedAtProvider ? 'beim Anbieter gelöscht' : 'gelöscht'} ${escHtml(day.format(new Date(item.deletedAt)))} · endgültig weg ${escHtml(day.format(new Date(item.purgeAt)))}</div>
         </div>
         <div class="settings-item-actions">
           <button type="button" class="btn btn-secondary btn-sm" data-trash-restore="${escHtml(item.id)}">Wiederherstellen</button>
@@ -3159,8 +3159,10 @@ async function renderSettingsTrash() {
   list.querySelectorAll('[data-trash-restore]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const item = items.find(i => i.id === btn.dataset.trashRestore);
+      // #597: an item the provider deleted is created there again by the next sync.
+      const where = item.deletedAtProvider ? 'wurde beim Anbieter gelöscht und wird dort' : 'wird beim verknüpften Anbieter';
       if (item.linked && !(await confirmDialog(
-        `„${item.title}“ wird beim verknüpften Anbieter neu angelegt. Die UID kann sich dabei ändern, und Gäste bekommen eventuell eine neue Einladung. Wiederherstellen?`,
+        `„${item.title}“ ${where} neu angelegt. Die UID kann sich dabei ändern, und Gäste bekommen eventuell eine neue Einladung. Wiederherstellen?`,
         'Wiederherstellen'))) return;
       if (await restoreFromTrash(item.id)) await renderSettingsTrash();
     });
