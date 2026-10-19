@@ -33,6 +33,15 @@ The internal Radicale server (`caldav-server`) runs strictly as an unexposed bac
 shard's own OIDC provider — but `shard_core` does not provide one yet, so no shard has an issuer
 for `OIDC_ISSUER_URL`.
 
+**OIDC client check at start (#600).** With `AUTH_METHOD=oidc` the server checks its client
+authentication before it accepts requests: it sends the issuer's token endpoint a code grant with a
+deliberately invalid code, and an `invalid_grant` answer means the client was accepted. An issuer
+such as Authelia offers both `client_secret_basic` and `client_secret_post` but accepts only the one
+the client is registered for, so without `OIDC_TOKEN_AUTH_METHOD` the offered methods are tried in
+that order and the first accepted one is used and logged (`[oidc] client authentication: …`). If the
+issuer rejects every method, or the method set in `OIDC_TOKEN_AUTH_METHOD`, the server does not
+start; the error names the client id and each method tried with the issuer's answer.
+
 **Decision (#121): multi-user features wait for the embedded OIDC provider in `shard_core`; they
 are not cut.** Sharing calendars between shard users (`user_calendar_shares`,
 `radicale_custom_rights`) is kept, because a shard has an owner and members (`CONCEPTS.md`), but

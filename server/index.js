@@ -20,7 +20,7 @@ const { validateBaseUrl } = require('./utils/baseUrl');
 const { isSafeStorageId } = require('./utils/storageId');
 const { dispatcherFor } = require('./utils/tlsDispatcher');
 const { buildServiceWorker } = require('./utils/serviceWorker');
-const { OIDC_CONFIG_MISSING, TOKEN_AUTH_METHODS } = require('./utils/oidcClient');
+const { OIDC_CONFIG_MISSING, TOKEN_AUTH_METHODS, getOidcClient } = require('./utils/oidcClient');
 
 function validateSystemSyncSecret(env = process.env) {
   const isProd = env.NODE_ENV === 'production';
@@ -778,8 +778,11 @@ function listen() {
 // and the encryption key is proven to belong to the database (Db.ready); if either fails, it exits.
 // An imported server may be bound earlier, but the Db.ready middleware above holds every request.
 // The webcal worker reads migrated columns, so it never starts before Db.ready.
-Db.ready.then(() => {
+// #600: with AUTH_METHOD=oidc the client authentication is checked against the token endpoint
+// before the port is bound; a client the issuer rejects stops the start.
+Db.ready.then(async () => {
   if (!runAsMain) return;
+  if (process.env.AUTH_METHOD === 'oidc') await getOidcClient();
   listen();
   module.exports.webcalWorker = startWebcalSyncWorker();
   module.exports.dbBackupWorker = startDbBackupWorker();

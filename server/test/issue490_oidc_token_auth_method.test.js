@@ -154,7 +154,9 @@ test('Issue #490 — OIDC token endpoint auth method and provider error logging'
 
   // Runs one full login against the stub IdP configured as given; returns the callback response
   // and everything the server wrote to console.error during the callback.
-  async function login({ registered, advertised, override }) {
+  // `reregistered` switches the client's method at the IdP after the app has configured its client
+  // (#600 checks the method then), so the code exchange is the first request to see it.
+  async function login({ registered, advertised, override, reregistered }) {
     idp.state.registered = registered;
     idp.state.advertised = advertised;
     if (override) process.env.OIDC_TOKEN_AUTH_METHOD = override;
@@ -163,6 +165,7 @@ test('Issue #490 — OIDC token endpoint auth method and provider error logging'
 
     const start = await fetch(`${origin}/api/auth/login`, { redirect: 'manual' });
     assert.equal(start.status, 302, `login must redirect, got ${start.status}: ${await start.text()}`);
+    if (reregistered) idp.state.registered = reregistered;
     const location = new URL(start.headers.get('location'));
     const code = idp.issueCode({
       challenge: location.searchParams.get('code_challenge'),
@@ -207,7 +210,10 @@ test('Issue #490 — OIDC token endpoint auth method and provider error logging'
   });
 
   await t.test('a failed exchange logs the provider error and error_description; the browser gets no provider text', async () => {
-    const r = await login({ registered: 'client_secret_basic', advertised: ['client_secret_basic', 'client_secret_post'], override: 'client_secret_post' });
+    const r = await login({
+      registered: 'client_secret_post', advertised: ['client_secret_basic', 'client_secret_post'],
+      override: 'client_secret_post', reregistered: 'client_secret_basic'
+    });
     assert.equal(r.status, 400);
     assert.match(r.log, /invalid_client/);
     assert.ok(r.log.includes(INVALID_CLIENT_DESCRIPTION), `log must carry error_description, got: ${r.log}`);
@@ -216,6 +222,8 @@ test('Issue #490 — OIDC token endpoint auth method and provider error logging'
   });
 
   await t.test('provider error text from the callback URL cannot forge or flood log lines', async () => {
+    idp.state.registered = 'client_secret_basic';
+    delete process.env.OIDC_TOKEN_AUTH_METHOD;
     resetOidcClient();
     const start = await fetch(`${origin}/api/auth/login`, { redirect: 'manual' });
     assert.equal(start.status, 302);
