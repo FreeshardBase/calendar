@@ -8,6 +8,8 @@ const path = require('path');
 const vm = require('vm');
 // app.js expects window.SafeUrl (loaded by index.html as a classic script).
 const SafeUrl = require('../../public/js/safeUrl');
+// #626: app.js takes its strings from the message catalogues through i18n.js.
+const { t } = require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.join(__dirname, '../../public/js', rel), 'utf8'));
 
 function createMockDom() {
   const elements = new Map();
@@ -114,6 +116,7 @@ function loadAppPopoverLogic(mockDom, mockStore) {
     document: mockDom.document,
     window: mockDom.window,
     store: mockStore,
+    t,
     checkAndTriggerAlarms: () => {},
     initEventModal: () => {},
     initWelcomeModal: () => {},

@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const appJsPath = path.resolve(__dirname, '../../public/js/app.js');
+// #626: app.js takes its strings from the message catalogues through i18n.js.
+const { t } = require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.join(__dirname, '../../public/js', rel), 'utf8'));
 
 describe('Issue #226 — Failed Event Load Toolbar & Internal Date Synchronization', () => {
   test('static audit: loadEvents catch block invokes renderCalendarView() for in-sequence requests', () => {
@@ -86,7 +88,7 @@ describe('Issue #226 — Failed Event Load Toolbar & Internal Date Synchronizati
     const testFn = new Function(
       'store', 'EventsAPI', 'getDateRange', 'getCachedEvents', 'cacheEvents',
       'renderCalendarView', 'showToast', 'setStatus', 'announce', '$', 'webcalEvents', 'hiddenWebcal', 'loadWebcalEvents',
-      'calendarsUnchanged', 'invalidateEventCache', 'loadCalendars',
+      'calendarsUnchanged', 'invalidateEventCache', 'loadCalendars', 't',
       `
       ${loadEventsMatch[0]}
       return loadEvents();
@@ -96,7 +98,8 @@ describe('Issue #226 — Failed Event Load Toolbar & Internal Date Synchronizati
     await testFn(
       mockStore, mockEventsAPI, mockGetDateRange, mockGetCachedEvents, mockCacheEvents,
       mockRenderCalendarView, mockShowToast, mockSetStatus, mockAnnounce, mockDollar, [], new Set(), async () => [],
-      async () => false, () => {}, () => {} // delta check reports a change: full fetch (#170)
+      async () => false, () => {}, () => {}, // delta check reports a change: full fetch (#170)
+      t
     );
 
     assert.ok(renderCalendarViewCalled, 'renderCalendarView must be called in loadEvents catch block');

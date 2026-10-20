@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const appJsPath = path.resolve(__dirname, '../../public/js/app.js');
+// #626: app.js takes its strings from the message catalogues through i18n.js.
+const i18n = require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.join(__dirname, '../../public/js', rel), 'utf8'));
 
 test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (t) => {
   const appJsContent = fs.readFileSync(appJsPath, 'utf8');
@@ -96,6 +98,7 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       'loadCalendars',
       'renderCalendarList',
       'showEvents',
+      't',
       `
       ${loadEventsFnMatch[0]}
       return loadEvents;
@@ -128,7 +131,8 @@ test('Issue #220 — Every Calendar Navigation Is an Unsequenced Write', async (
       () => {},
       async () => {}, // loadCalendars is async; its rejection is handled (#593)
       () => {},
-      (events) => mockStore.set({ events }) // #174: the loaded events, plus any optimistic save previews
+      (events) => mockStore.set({ events }), // #174: the loaded events, plus any optimistic save previews
+      i18n.t
     );
 
     // 1. Navigation 1 (March 2026): req1 triggered
