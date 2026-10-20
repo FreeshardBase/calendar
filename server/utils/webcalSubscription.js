@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 const ICAL = require('ical.js');
 const Db = require('../db');
@@ -153,7 +154,7 @@ async function syncDueWebcalSubscriptions(referenceTime = Math.floor(Date.now() 
       syncedCount++;
     } catch (err) {
       errors.push({ id: sub.id, error: err.message });
-      console.error(`[WebcalSyncWorker] Failed to sync subscription ${sub.id}:`, err.message);
+      log.error(`[WebcalSyncWorker] Failed to sync subscription ${sub.id}:`, err.message);
     }
   }
 
@@ -172,7 +173,7 @@ function startWebcalSyncWorker(intervalMs = 60000) {
     try {
       await syncDueWebcalSubscriptions();
     } catch (err) {
-      console.error('[WebcalSyncWorker] Periodic sync error:', err.message);
+      log.error('[WebcalSyncWorker] Periodic sync error:', err.message);
     } finally {
       isRunning = false;
     }

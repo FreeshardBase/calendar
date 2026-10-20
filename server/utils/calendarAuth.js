@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 const path = require('path');
 const Db = require('../db');
@@ -189,7 +190,7 @@ async function queueSyncForCalendar(calendarId, requestingUserId) {
     return;
   }
   const enqueue = (userId) => Db.addSyncJob(userId)
-    .catch(err => console.error('[sync-queue] Failed to add job:', err.message));
+    .catch(err => log.error('[sync-queue] Failed to add job:', err.message));
 
   const sep = (calendarId || '').indexOf('::');
   if (sep === -1 || calendarId.slice(0, sep) !== 'internal-caldav') {
@@ -200,7 +201,7 @@ async function queueSyncForCalendar(calendarId, requestingUserId) {
 
   const access = await checkCalendarAccess({ session: { userId: requestingUserId } }, calendarId, 'read');
   if (!access.allowed) {
-    console.warn(`[sync-queue] Unauthorized sync queue request on ${calendarId} by user ${requestingUserId}`);
+    log.warn(`[sync-queue] Unauthorized sync queue request on ${calendarId} by user ${requestingUserId}`);
     return;
   }
   await enqueue(requestingUserId);

@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 const crypto = require('crypto');
 
@@ -52,7 +53,7 @@ function startImportJob({ userId, calendarId, calendarUrl, client, items, skippe
         job.imported++;
       } catch (putErr) {
         if (putErr.message === 'ETAG_CONFLICT') job.skipped++;
-        else { job.failed++; console.error(`[calendars import] ${item.uid}:`, putErr.message); }
+        else { job.failed++; log.error(`[calendars import] ${item.uid}:`, putErr.message); }
       }
       job.processed++;
     }
@@ -61,7 +62,7 @@ function startImportJob({ userId, calendarId, calendarUrl, client, items, skippe
     await onFinished();
   })().catch((err) => {
     // Reaches the user through the job's status, which the progress banner reports as an error toast.
-    console.error('[calendars import] job aborted:', err);
+    log.error('[calendars import] job aborted:', err);
     job.status = 'error';
     job.error = 'Der Import wurde abgebrochen.';
     job.finishedAt = Date.now();

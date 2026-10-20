@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
@@ -154,7 +155,7 @@ router.post('/bookings', async (req, res) => {
     res.status(201).json({ success: true, booking });
   } catch (err) {
     if (err.message.includes('RESOURCE_BUSY') || err.message.includes('belegt')) {
-      console.error('[resources book]', err.message);
+      log.error('[resources book]', err.message);
       return res.status(409).json({ error: 'Der Raum/die Ressource ist im gewählten Zeitraum bereits belegt.' });
     }
     return sendError(res, err, '[resources book]');

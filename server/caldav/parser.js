@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 /**
  * CalDAV / iCalendar parser.
@@ -261,7 +262,7 @@ function parseEventList(xml, calendarId, accountId, calendarUrl, rangeStart, ran
       });
       events.push(...instances);
     } catch (e) {
-      console.warn(`[parser] Failed to parse/expand event ${href}:`, e.message);
+      log.warn(`[parser] Failed to parse/expand event ${href}:`, e.message);
       if (parseErrors) parseErrors.push({ href, error: e.message });
     }
   }
@@ -279,7 +280,7 @@ function parseEventDataList(xml) {
   try {
     doc = xmlParser.parseFromString(xml, 'text/xml');
   } catch (e) {
-    console.error('[parser] XML parse error:', e.message);
+    log.error('[parser] XML parse error:', e.message);
     return [];
   }
 
@@ -490,7 +491,7 @@ function parseICSToTask(icsString, meta = {}) {
   try {
     return parseICSToTaskOrThrow(icsString, meta);
   } catch (e) {
-    console.warn('[parser] Failed to parse ICS string to task:', e.message);
+    log.warn('[parser] Failed to parse ICS string to task:', e.message);
     return null;
   }
 }
@@ -508,7 +509,7 @@ function parseICSToTaskOrThrow(icsString, meta = {}) {
       try {
         ICAL.TimezoneService.register(vtz);
       } catch (err) {
-        console.warn(`[parser] Ignoring unusable VTIMEZONE ${tzid}: ${err.message}`);
+        log.warn(`[parser] Ignoring unusable VTIMEZONE ${tzid}: ${err.message}`);
       }
     }
   }
@@ -746,7 +747,7 @@ function parseTaskList(xml, calendarId, accountId, calendarUrl, parseErrors = nu
       const task = parseICSToTaskOrThrow(calendarData, meta);
       if (task) tasks.push(task, ...parseCompletedOccurrences(calendarData, task, meta));
     } catch (e) {
-      console.warn(`[parser] Failed to parse task ${href}:`, e.message);
+      log.warn(`[parser] Failed to parse task ${href}:`, e.message);
       if (parseErrors) parseErrors.push({ href, error: e.message });
     }
   }
@@ -949,7 +950,7 @@ function taskToICS(rawTask, existingIcs = null) {
         updated = { comp, vtodo, uid };
       }
     } catch (e) {
-      console.warn('[taskToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
+      log.warn('[taskToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
     }
     if (updated) {
       // Outside the fallback above: a failure here must surface, not rebuild
@@ -1062,7 +1063,7 @@ function taskToICS(rawTask, existingIcs = null) {
       } catch (err) {
         // The task routes reject an invalid RRULE with 400 before this point; anything else that
         // reaches here is dropped rather than serialised, so it can never inject a property.
-        console.warn(`[parser] Omitting invalid task RRULE for ${task.uid || 'new task'}: ${err.message}`);
+        log.warn(`[parser] Omitting invalid task RRULE for ${task.uid || 'new task'}: ${err.message}`);
       }
     }
   }
@@ -1469,7 +1470,7 @@ function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl) {
   try {
     doc = xmlParser.parseFromString(xml, 'text/xml');
   } catch (e) {
-    console.error('[parser] XML parse error:', e.message);
+    log.error('[parser] XML parse error:', e.message);
     return { syncToken: null, updated: [], deleted: [], unparseable: [] };
   }
 
@@ -1529,7 +1530,7 @@ function parseSyncCollectionResponse(xml, calendarId, accountId, calendarUrl) {
           etag: etag ? etag.trim() : null
         }));
       } catch (e) {
-        console.warn(`[parser] Failed to parse delta event ${href}:`, e.message);
+        log.warn(`[parser] Failed to parse delta event ${href}:`, e.message);
         unparseable.push(href);
       }
     }

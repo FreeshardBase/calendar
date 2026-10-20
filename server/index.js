@@ -1,5 +1,6 @@
 'use strict';
 require('dotenv').config();
+const log = require('./utils/logger');
 const { sendError, describeError, errorBody, ensureErrorCode, userError } = require('./utils/errorSanitizer');
 // Issue #57 fix: NODE_TLS_REJECT_UNAUTHORIZED is no longer set process-wide.
 // Per-request TLS bypass for the internal self-signed Radicale server is handled
@@ -9,7 +10,7 @@ setGlobalDispatcher(new Agent({ keepAliveTimeout: 10, keepAliveMaxTimeout: 10 })
 
 // Prevent single async error from killing the process (Express 4 limitation)
 process.on('unhandledRejection', (err) => {
-  console.error('[unhandledRejection]', err?.message || err);
+  log.error('[unhandledRejection]', err?.message || err);
 });
 
 const express = require('express');
@@ -41,7 +42,7 @@ function validateSystemSyncSecret(env = process.env) {
   if ((isProd || isStaging) && isWeak && env.ALLOW_INSECURE_SYSTEM_SYNC_SECRET !== 'true') {
     const msg = 'SYSTEM_SYNC_SECRET must be explicitly configured with a secure value in production environment.';
     if (env.EXIT_ON_INVALID_SECRETS === 'true' || require.main === module) {
-      console.error(msg);
+      log.error(msg);
       process.exit(1);
     }
     throw new Error(msg);
@@ -98,7 +99,7 @@ if (require.main === module || process.env.EXIT_ON_INVALID_SECRETS === 'true') {
   try {
     validateSecurityConfig(process.env);
   } catch (err) {
-    console.error(err.message);
+    log.error(err.message);
     process.exit(1);
   }
 }
@@ -143,6 +144,8 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', getTrustProxySetting());
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+// #344: every request gets an id (X-Request-Id) that each log entry written while serving it carries.
+app.use(log.requestContext);
 // No request is served before the encryption key has been verified against the database.
 app.use((req, res, next) => {
   Db.ready.then(() => next(), next);
@@ -330,7 +333,7 @@ app.use(async (req, res, next) => {
       setSessionAccounts(req, accounts);
       delete req.accountLoadError;
     } catch (e) {
-      console.error('[db] Error loading accounts:', e.message);
+      log.error('[db] Error loading accounts:', e.message);
       req.accountLoadError = e.message;
     }
   } else {
@@ -651,7 +654,7 @@ app.post('/internal/webhooks/user-deleted', requireInternal, async (req, res) =>
 
   try {
     await Db.deleteUser(user_id);
-    console.log(`[webhook] Cleaned up all user data for deleted user: ${user_id}`);
+    log.info(`[webhook] Cleaned up all user data for deleted user: ${user_id}`);
     res.json({ message: `Successfully deleted user ${user_id}` });
   } catch (err) {
     return sendError(res, err, `[webhook] Error deleting accounts for user ${user_id}:`);
@@ -662,7 +665,7 @@ app.post('/internal/db/quiesce', requireInternal, async (req, res) => {
   try {
     const mode = req.body?.mode || 'TRUNCATE';
     const result = await Db.quiesceDatabase(mode);
-    console.log(`[internal] Database WAL quiesce executed (mode=${mode}):`, result);
+    log.info(`[internal] Database WAL quiesce executed (mode=${mode}):`, result);
     res.json({ success: true, message: 'Database WAL quiesced', details: result });
   } catch (err) {
     return sendError(res, err, '[internal] Error quiescing database WAL:');
@@ -700,7 +703,7 @@ const healthHandler = async (req, res) => {
       return;
     }
     const err = results[i].reason;
-    console.error(`[health] ${name} check failed:`, err?.message, err?.cause?.message || '');
+    log.error(`[health] ${name} check failed:`, err?.message, err?.cause?.message || '');
     body[name] = 'unavailable';
     body.status = 'error';
   });
@@ -753,7 +756,7 @@ app.get('*', (req, res) => {
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('[ERROR]', req.method, req.originalUrl, err.message, err.stack);
+  log.error('[ERROR]', req.method, req.originalUrl, err.message, err.stack);
   if (res.headersSent) {
     return next(err);
   }
@@ -788,11 +791,49 @@ if (keyPath && certPath && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
 
 function listen() {
   server.listen(PORT, () => {
-    console.log(`🗓  FreeShard WebCalendar running on ${scheme}://localhost:${PORT}`);
+    log.info(`FreeShard WebCalendar running on ${scheme}://localhost:${server.address().port}`);
     if (process.env.CALDAVURL) {
-      console.log(`   Auto-configured CalDAV: ${process.env.CALDAVURL}`);
+      log.info(`Auto-configured CalDAV: ${process.env.CALDAVURL}`);
     }
   });
+}
+
+// Issue #344: on SIGTERM/SIGINT (e.g. the shard's idle shutdown) the server stops accepting
+// connections, lets in-flight requests finish for up to SHUTDOWN_TIMEOUT_MS (below the container
+// runtime's 10 s stop grace period), stops the workers and closes the database before it exits.
+// Exit code 0 means every request finished; 1 means requests were cut off or closing failed.
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 8000);
+if (!Number.isInteger(SHUTDOWN_TIMEOUT_MS) || SHUTDOWN_TIMEOUT_MS <= 0) {
+  log.error(`[startup] SHUTDOWN_TIMEOUT_MS must be a positive integer (milliseconds), got "${process.env.SHUTDOWN_TIMEOUT_MS}"`);
+  process.exit(1);
+}
+
+function installShutdownHandler(timers) {
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info(`[shutdown] ${signal} received, draining in-flight requests (up to ${SHUTDOWN_TIMEOUT_MS} ms)`);
+    timers.forEach(stop => stop());
+    let forced = false;
+    const deadline = setTimeout(() => {
+      forced = true;
+      log.error(`[shutdown] in-flight requests still open after ${SHUTDOWN_TIMEOUT_MS} ms; closing their connections`);
+      server.closeAllConnections();
+    }, SHUTDOWN_TIMEOUT_MS);
+    server.close(() => {
+      clearTimeout(deadline);
+      Db.close().then(() => {
+        log.info('[shutdown] database closed');
+        process.exit(forced ? 1 : 0);
+      }, (err) => {
+        log.error('[shutdown] closing the database failed:', err);
+        process.exit(1);
+      });
+    });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 // Issue #333 / #343: the server process binds its port only after the schema migrations have run
@@ -808,11 +849,16 @@ Db.ready.then(async () => {
   module.exports.webcalWorker = startWebcalSyncWorker();
   module.exports.dbBackupWorker = startDbBackupWorker();
   // #348: trash entries older than 30 days are purged hourly (the listing purges them too).
-  setInterval(() => {
-    Db.purgeExpiredTrash().catch(err => console.error('[trash purge]', err.message));
+  const trashPurge = setInterval(() => {
+    Db.purgeExpiredTrash().catch(err => log.error('[trash purge]', err.message));
   }, 60 * 60 * 1000).unref();
+  installShutdownHandler([
+    module.exports.webcalWorker.stop,
+    module.exports.dbBackupWorker.stop,
+    () => clearInterval(trashPurge),
+  ]);
 }).catch((err) => {
-  console.error(`[startup] ${err.message}`);
+  log.error(`[startup] ${err.message}`);
   process.exit(1);
 });
 

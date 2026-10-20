@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./utils/logger');
 
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
@@ -973,7 +974,7 @@ const Db = {
             } catch (decryptionError) {
               if (!(decryptionError instanceof DecryptionError)) throw decryptionError;
               // Issue #136: one undecryptable row is a broken account, not a broken app.
-              console.error(`[db] Skipping undecryptable linked_accounts row id=${row.id}:`, decryptionError.message);
+              log.error(`[db] Skipping undecryptable linked_accounts row id=${row.id}:`, decryptionError.message);
               unreadable.push({
                 id: row.id,
                 url: row.url,
@@ -3787,6 +3788,19 @@ const Db = {
         resolve({ busy: row.busy, log: row.log, checkpointed: row.checkpointed });
       });
     });
+  },
+
+  // Issue #344: graceful shutdown. Waits for queued transactions, then closes the transaction
+  // connection and the main connection; the last connection to close checkpoints the WAL.
+  async close() {
+    await ready;
+    await txQueue;
+    const closeConn = (conn) => new Promise((resolve, reject) => conn.close((err) => (err ? reject(err) : resolve())));
+    if (txConnection) {
+      await closeConn(await txConnection);
+      txConnection = null;
+    }
+    await closeConn(db);
   },
 
   // Issue #120: a consistent copy of the live database for the shard backup, which copies the

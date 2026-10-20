@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 /**
  * Issue #160: the single error-code → German-message table of the server.
@@ -232,7 +233,7 @@ function sendError(res, err, tag) {
   const prefix = tag || `[${res.req?.method} ${res.req?.originalUrl}]`;
   // Unmapped errors are usually programming errors: keep the stack for them.
   const detail = described.status === 500 && err?.stack ? err.stack : (err?.message ?? String(err));
-  console.error(prefix, detail);
+  log.error(prefix, detail);
   return res.status(described.status).json(errorBody(described));
 }
 

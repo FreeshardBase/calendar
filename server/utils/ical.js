@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 /**
  * server/utils/ical.js — iCalendar (RFC 5545) & VALARM parsing utilities.
@@ -388,7 +389,7 @@ function parseVEventToEvent(vevent, meta = {}) {
       } else if (ICAL.TimezoneService.has(tzid)) {
         startTimeZone = tzid;
       } else {
-        console.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTSTART`);
+        log.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTSTART`);
       }
     }
   }
@@ -404,7 +405,7 @@ function parseVEventToEvent(vevent, meta = {}) {
       } else if (ICAL.TimezoneService.has(tzid)) {
         endTimeZone = tzid;
       } else {
-        console.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTEND`);
+        log.warn(`[timezone] Unrecognized or invalid TZID "${tzid}" in DTEND`);
       }
     } else if (startTimeZone && endProp.getFirstValue().zone === ICAL.Timezone.utcTimezone) {
       // eventToICS writes an ambiguous changeover-day end as UTC; the instant is
@@ -1105,7 +1106,7 @@ function eventToICS(event, existingIcs = null) {
           for (const tz of [event.startTimeZone, event.endTimeZone]) {
             if (!tz || tzids.includes(tz)) continue;
             if (isValidTimezone(tz)) tzids.push(tz);
-            else console.warn(`[timezone] Invalid timezone "${tz}" omitted from ICS`);
+            else log.warn(`[timezone] Invalid timezone "${tz}" omitted from ICS`);
           }
         }
         for (const tzid of tzids) {
@@ -1121,7 +1122,7 @@ function eventToICS(event, existingIcs = null) {
         return cleanMalformedTzidZ(comp.toString());
       }
     } catch (e) {
-      console.warn('[eventToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
+      log.warn('[eventToICS] Error updating existing ICS, falling back to new ICS generation:', e.message);
     }
   }
 
@@ -1134,12 +1135,12 @@ function eventToICS(event, existingIcs = null) {
     if (event.startTimeZone && isValidTimezone(event.startTimeZone) && !tzids.includes(event.startTimeZone)) {
       tzids.push(event.startTimeZone);
     } else if (event.startTimeZone && !isValidTimezone(event.startTimeZone)) {
-      console.warn(`[timezone] Invalid startTimeZone "${event.startTimeZone}" omitted from ICS`);
+      log.warn(`[timezone] Invalid startTimeZone "${event.startTimeZone}" omitted from ICS`);
     }
     if (event.endTimeZone && isValidTimezone(event.endTimeZone) && !tzids.includes(event.endTimeZone)) {
       tzids.push(event.endTimeZone);
     } else if (event.endTimeZone && !isValidTimezone(event.endTimeZone)) {
-      console.warn(`[timezone] Invalid endTimeZone "${event.endTimeZone}" omitted from ICS`);
+      log.warn(`[timezone] Invalid endTimeZone "${event.endTimeZone}" omitted from ICS`);
     }
   }
 
@@ -1599,7 +1600,7 @@ function fmtDateTime(iso) {
 
 function fmtDateTimeTzid(iso, tzid) {
   if (!isValidTimezone(tzid)) {
-    console.warn(`[timezone] Invalid tzid "${tzid}" passed to fmtDateTimeTzid, falling back to UTC formatting`);
+    log.warn(`[timezone] Invalid tzid "${tzid}" passed to fmtDateTimeTzid, falling back to UTC formatting`);
     return fmtDateTime(iso);
   }
   try {
@@ -1622,7 +1623,7 @@ function fmtDateTimeTzid(iso, tzid) {
     if (hour === '24') hour = '00';
     return `${partMap.year}${partMap.month}${partMap.day}T${hour}${partMap.minute}${partMap.second}`;
   } catch (err) {
-    console.warn(`[timezone] Failed formatting date for tzid "${tzid}":`, err.message);
+    log.warn(`[timezone] Failed formatting date for tzid "${tzid}":`, err.message);
     return fmtDateTime(iso);
   }
 }
@@ -1766,7 +1767,7 @@ function _registerEmbeddedTimezones(comp) {
         ICAL.TimezoneService.register(vtz);
       }
     } catch (e) {
-      console.warn('[timezone] Failed to register embedded VTIMEZONE:', e.message);
+      log.warn('[timezone] Failed to register embedded VTIMEZONE:', e.message);
     }
   }
 
@@ -1812,7 +1813,7 @@ function _tzOffsetMinutes(tzid, date) {
     const sign = m[1] === '-' ? -1 : 1;
     return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10));
   } catch (err) {
-    console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}":`, err.message);
+    log.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}":`, err.message);
     return 0;
   }
 }
@@ -1913,7 +1914,7 @@ const _vtimezoneBlockCache = new Map();
  */
 function buildVTimezoneBlock(tzid) {
   if (!isValidTimezone(tzid)) {
-    console.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}"`);
+    log.warn(`[timezone] Invalid or unsupported IANA timezone identifier "${tzid}"`);
     return null;
   }
   if (_vtimezoneBlockCache.has(tzid)) return _vtimezoneBlockCache.get(tzid);
@@ -1988,7 +1989,7 @@ function _registerVTimezoneBlock(tzid, block) {
   } catch (e) {
     // Non-fatal: ICS output is still valid; ical.js will fall back to
     // floating if timezone resolution fails during parse.
-    console.warn(`[ical] Ignoring unusable VTIMEZONE ${tzid}: ${e.message}`);
+    log.warn(`[ical] Ignoring unusable VTIMEZONE ${tzid}: ${e.message}`);
   }
 }
 

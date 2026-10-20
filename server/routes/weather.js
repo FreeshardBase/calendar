@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 // Issue #513: weather forecast in the week and day views, opt-in. Setting a location in the settings
 // is the consent to send it (rounded to about 1 km) to Bright Sky; without one nothing is sent.
@@ -51,7 +52,7 @@ router.get('/forecast', async (req, res, next) => {
   try {
     res.json({ source: SOURCE, days: await getForecast(location, tz) });
   } catch (err) {
-    console.warn('[weather] forecast unavailable:', err.message);
+    log.warn('[weather] forecast unavailable:', err.message);
     res.status(502).json({ error: `Weather from Bright Sky unavailable: ${err.message}` });
   }
 });

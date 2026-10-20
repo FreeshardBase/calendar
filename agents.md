@@ -108,6 +108,12 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   only while a fresh read-only connection can read the database file and a `PROPFIND` (Depth 0, login `healthcheck`,
   password `SYSTEM_SYNC_SECRET`) on `INTERNAL_CALDAV_URL/` answers 207; otherwise 503 with
   `{"database"|"caldav": "unavailable"}`. With `DISABLE_INTERNAL_CALDAV` only the database is checked.
+- Lifecycle & logs (#344): on SIGTERM/SIGINT the server stops accepting connections, waits up to
+  `SHUTDOWN_TIMEOUT_MS` (default 8000) for in-flight requests, stops the workers, closes the database
+  (`Db.close`) and exits 0, or 1 if requests had to be cut off. Server code logs through `server/utils/logger.js`
+  (never `console.*`): one JSON line `{time, level, msg, reqId}` per entry, `LOG_LEVEL` debug|info|warn|error
+  (default info), credential keys / URL passwords / Basic+Bearer values redacted. Each request gets an
+  `X-Request-Id` that every entry logged while serving it carries.
 - Request security (#340): `BASE_URL` is mandatory in production (no start without it) and the only source of
   public share URLs, OIDC/Google/Microsoft redirect URIs (`<BASE_URL>/api/auth/callback`, `/api/auth/google/callback`,
   `/api/msgraph/callback`) and

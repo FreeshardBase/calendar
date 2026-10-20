@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 const express = require('express');
 const router = express.Router();
@@ -166,7 +167,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
       try {
         activeTokenId = await client.getCustomProperty(payload.url, 'http://freeshard.de/ns/', 'public-share-token');
       } catch (propErr) {
-        console.warn('[share token check warning]', propErr);
+        log.warn('[share token check warning]', propErr);
         await Db.deleteIcsCache(token);
         return res.status(404).json({ error: 'Diese öffentliche Kalenderfreigabe ist nicht mehr gültig.' });
       }
@@ -205,7 +206,7 @@ publicRouter.get('/share/:token.ics', async (req, res) => {
     // The caller is an anonymous subscriber (#162): log the cause, but answer with
     // one fixed text and status so nothing about the owner's accounts, the upstream
     // server or its responses reaches them.
-    console.error('[Public Share Export Error]', err?.stack || err);
+    log.error('[Public Share Export Error]', err?.stack || err);
     return res.status(500).json({ error: PUBLIC_SHARE_ERROR });
   }
 });
@@ -225,7 +226,7 @@ async function fetchCalendarICS(client, calendarUrl) {
       return await davRes.text();
     }
   } catch (e) {
-    console.warn('[fetchCalendarICS] GET export failed, attempting REPORT fallback:', e.message);
+    log.warn('[fetchCalendarICS] GET export failed, attempting REPORT fallback:', e.message);
   }
 
   // Fallback: query events via REPORT and re-assemble a combined calendar
@@ -249,7 +250,7 @@ CALSCALE:GREGORIAN\r\n`;
     ics += 'END:VCALENDAR\r\n';
     return ics;
   } catch (err) {
-    console.error('[fetchCalendarICS fallback error]', err.message);
+    log.error('[fetchCalendarICS fallback error]', err.message);
     throw userError('UPSTREAM_DOWN', 502);
   }
 }
@@ -368,7 +369,7 @@ function createDefaultCollections(client, account) {
       // An empty listing that arrives after another request finished the creation is stale.
       const current = await client.getCalendars();
       if (parseCalendarList(current, account.id, account.url, account.username).length > 0) return current;
-      console.log(`[calendars] Creating default collections 'personal' and 'tasks' for user: ${account.username}`);
+      log.info(`[calendars] Creating default collections 'personal' and 'tasks' for user: ${account.username}`);
       await client.mkcalendar(home + '/personal/', 'Persönlich', '#7c3aed', COLLECTION_COMPONENTS.calendar);
       await client.mkcalendar(home + '/tasks/', 'Aufgaben', '#0891b2', COLLECTION_COMPONENTS.tasklist);
       return client.getCalendars();
@@ -414,7 +415,7 @@ router.get('/', async (req, res) => {
       if (r.status === 'rejected') {
         const { status, message } = describeError(r.reason);
         errors.push({ accountId: accounts[i].id, status, error: message });
-        console.error(`[calendars] Account ${accounts[i].id}:`, r.reason.message);
+        log.error(`[calendars] Account ${accounts[i].id}:`, r.reason.message);
         if (process.env.DISABLE_INTERNAL_CALDAV === '1' && req.session?.userId) {
           const canonicalUser = req.session.userId;
           allCalendars.push({
@@ -494,13 +495,13 @@ router.get('/', async (req, res) => {
               
               allCalendars.push(fetchedCal);
             } catch (shareErr) {
-              console.error(`[calendars GET] Failed to load shared calendar ${share.calendar_id}:`, shareErr.message);
+              log.error(`[calendars GET] Failed to load shared calendar ${share.calendar_id}:`, shareErr.message);
             }
           })
         );
       }
     } catch (dbErr) {
-      console.error('[calendars GET] Failed to fetch shares from DB:', dbErr.message);
+      log.error('[calendars GET] Failed to fetch shares from DB:', dbErr.message);
     }
   }
 
@@ -565,7 +566,7 @@ router.get('/', async (req, res) => {
         }
       }
     } catch (overrideErr) {
-      console.error('[calendars GET] Failed to fetch color overrides:', overrideErr.message);
+      log.error('[calendars GET] Failed to fetch color overrides:', overrideErr.message);
     }
   }
 
@@ -583,7 +584,7 @@ router.get('/', async (req, res) => {
     });
   }
 
-  console.log('[calendars route] Returning calendars:', allCalendars.map(c => `${c.accountId}::${c.name} (${c.source})`));
+  log.info('[calendars route] Returning calendars:', allCalendars.map(c => `${c.accountId}::${c.name} (${c.source})`));
 
   res.json({ calendars: allCalendars, errors });
 });
@@ -623,7 +624,7 @@ router.put('/order', async (req, res) => {
       const patchRes = await client._request('PROPPATCH', calendarUrl, { body });
       if (!patchRes.ok && patchRes.status !== 207) {
         // The server does not support the property; the stored order still applies here.
-        console.warn(`[calendars PUT order] PROPPATCH ${calendarId} returned ${patchRes.status}`);
+        log.warn(`[calendars PUT order] PROPPATCH ${calendarId} returned ${patchRes.status}`);
       }
     }
 
@@ -904,7 +905,7 @@ async function fetchExistingCalendarEvents(client, calendarId, accountId, calend
     const { parseEventList } = require('../caldav/parser');
     return parseEventList(eventsXml, calendarId, accountId, calendarUrl, startDate, endDate);
   } catch (err) {
-    console.error('[fetchExistingCalendarEvents]', err.message);
+    log.error('[fetchExistingCalendarEvents]', err.message);
     return [];
   }
 }
@@ -974,7 +975,7 @@ router.post('/:id/import', async (req, res) => {
     try {
       comp = new ICAL.Component(ICAL.parse(ics));
     } catch (parseErr) {
-      console.warn('[calendars import] ICS parse failed:', parseErr.message);
+      log.warn('[calendars import] ICS parse failed:', parseErr.message);
       return res.status(400).json({ error: 'Ungültige ICS-Datei. Die Datei konnte nicht gelesen werden.' });
     }
 
@@ -1088,26 +1089,26 @@ router.get('/search-users', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { q, accountId } = req.query;
-    console.log('[search-users] Query:', q, 'AccountId:', accountId);
+    log.info('[search-users] Query:', q, 'AccountId:', accountId);
     if (!q) return res.status(400).json({ error: 'Search query q is required' });
 
     const accounts = req.session.accounts || [];
     const account = accountId ? accounts.find(a => a.id === accountId) : accounts[0];
     if (!account) {
-      console.warn('[search-users] Account not found');
+      log.warn('[search-users] Account not found');
       return res.status(404).json({ error: 'Account not found' });
     }
 
     if (account.id === 'internal-caldav') {
       const users = await Db.searchUsers(q);
-      console.log('[search-users] Local database results:', users);
+      log.info('[search-users] Local database results:', users);
       return res.json(users);
     }
 
     const client = await getClientForAccount(account);
 
     const users = await client.searchUsers(q);
-    console.log('[search-users] CalDAV results found:', users);
+    log.info('[search-users] CalDAV results found:', users);
     res.json(users);
   } catch (err) {
     return sendError(res, err, '[search-users ERROR]');

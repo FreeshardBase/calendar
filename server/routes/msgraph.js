@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 const crypto = require('crypto');
 const { sendError } = require('../utils/errorSanitizer');
 
@@ -111,7 +112,7 @@ router.get('/callback/complete', async (req, res) => {
     return res.status(400).type('text/plain').send('Ungültiger OAuth-State. Bitte die Verbindung mit Microsoft 365 erneut starten.');
   }
   if (req.query.error) {
-    console.warn('[MSGraph OAuth] authorization was not granted');
+    log.warn('[MSGraph OAuth] authorization was not granted');
     return res.redirect(`${config.baseUrl}/?msgraph=error`);
   }
   if (typeof req.query.code !== 'string' || !req.query.code) {
@@ -133,7 +134,7 @@ router.get('/callback/complete', async (req, res) => {
     await Db.addSyncJob(userId);
     res.redirect(`${config.baseUrl}/?msgraph=connected`);
   } catch (err) {
-    console.error('[MSGraph OAuth callback error]', err.message);
+    log.error('[MSGraph OAuth callback error]', err.message);
     res.redirect(`${config.baseUrl}/?msgraph=error`);
   }
 });

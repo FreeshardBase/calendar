@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 const express = require('express');
 const path = require('path');
@@ -155,7 +156,7 @@ router.get('/invitations', async (req, res) => {
               }
             }
           } catch (e) {
-            console.error(`[invitations GET] Error for ${cal.id}:`, e.message);
+            log.error(`[invitations GET] Error for ${cal.id}:`, e.message);
           }
         });
       })
@@ -273,7 +274,7 @@ async function collectEvents(req, startDate, endDate, calendarId) {
               });
             }
           } catch (dbErr) {
-            console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
+            log.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
           }
         }
 
@@ -291,13 +292,13 @@ async function collectEvents(req, startDate, endDate, calendarId) {
             for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
             successfulCalendars++;
           } catch (eventErr) {
-            console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
+            log.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
             const { status, message } = describeError(eventErr);
             errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
           }
         });
       } catch (accountErr) {
-        console.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
+        log.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
         const { status, message } = describeError(accountErr);
         errors.push({ accountId: account.id, status, error: message });
       }
@@ -471,7 +472,7 @@ router.post('/', async (req, res) => {
       action: 'CREATE',
       newEvent: event,
       snapshotIcs: ics
-    }).catch(err => console.error('[events POST history]', err.message));
+    }).catch(err => log.error('[events POST history]', err.message));
 
     res.status(201).json({
       ...event,
@@ -645,7 +646,7 @@ router.put('/:uid', async (req, res) => {
       oldEvent,
       newEvent: responseEvent,
       snapshotIcs: ics
-    }).catch(err => console.error('[events PUT history]', err.message));
+    }).catch(err => log.error('[events PUT history]', err.message));
 
     res.json({
       ...responseEvent,
@@ -716,7 +717,7 @@ router.delete('/:uid', async (req, res) => {
           oldEvent: parseICSToEvent(current.ics),
           newEvent: parseICSToEvent(head),
           snapshotIcs: head
-        }).catch(err => console.error('[events DELETE history]', err.message));
+        }).catch(err => log.error('[events DELETE history]', err.message));
         return res.json({ message: 'This and following occurrences deleted.' });
       }
     }
@@ -745,7 +746,7 @@ router.delete('/:uid', async (req, res) => {
       userId: req.session.userId,
       action: 'DELETE',
       oldEvent: { title: href }
-    }).catch(err => console.error('[events DELETE history]', err.message));
+    }).catch(err => log.error('[events DELETE history]', err.message));
 
     res.json({ message: 'Event deleted.', trashId });
   } catch (err) {
@@ -842,7 +843,7 @@ router.post('/:uid/rsvp', async (req, res) => {
       userId: req.session.userId,
       action: 'RSVP',
       newEvent: { status: normStatus, recurrenceId }
-    }).catch(err => console.error('[events RSVP history]', err.message));
+    }).catch(err => log.error('[events RSVP history]', err.message));
 
     res.json({
       success: true,
@@ -950,7 +951,7 @@ async function saveFollowing(req, res, { client, calendarId, eventUrl, current, 
     try {
       await client.delete(tailUrl, created.etag);
     } catch (rollbackErr) {
-      console.error('[events following] Removing the new series failed:', rollbackErr.message);
+      log.error('[events following] Removing the new series failed:', rollbackErr.message);
       throw new Error(`Saving failed and the new series could not be removed again: ${putErr.message}`);
     }
     if (putErr.message === 'ETAG_CONFLICT') {
@@ -965,11 +966,11 @@ async function saveFollowing(req, res, { client, calendarId, eventUrl, current, 
   await logEventChange({
     eventUid: masterUid, calendarId, userId: req.session.userId, action: 'UPDATE',
     oldEvent: stored, newEvent: parseICSToEvent(head), snapshotIcs: head
-  }).catch(err => console.error('[events following history]', err.message));
+  }).catch(err => log.error('[events following history]', err.message));
   await logEventChange({
     eventUid: newUid, calendarId, userId: req.session.userId, action: 'CREATE',
     newEvent: saved, snapshotIcs: tailIcs
-  }).catch(err => console.error('[events following history]', err.message));
+  }).catch(err => log.error('[events following history]', err.message));
 
   return res.json({
     ...event,
@@ -1066,7 +1067,7 @@ async function moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, 
     try {
       await target.client.delete(targetUrl, created.etag);
     } catch (rollbackErr) {
-      console.error('[events move] Removing the copy in the target calendar failed:', rollbackErr.message);
+      log.error('[events move] Removing the copy in the target calendar failed:', rollbackErr.message);
       throw new Error(`Move failed and the copy in the target calendar could not be removed again: ${delErr.message}`);
     }
     if (delErr.message === 'ETAG_CONFLICT') {
@@ -1096,7 +1097,7 @@ async function moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, 
     oldEvent: parseICSToEvent(current.ics),
     newEvent: responseEvent,
     snapshotIcs: ics
-  }).catch(err => console.error('[events move history]', err.message));
+  }).catch(err => log.error('[events move history]', err.message));
 
   return res.json({
     ...responseEvent,

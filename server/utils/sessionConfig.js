@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 /**
  * Issue #263 — Session Cookie & Proxy Production Container Alignment
@@ -72,7 +73,7 @@ function resolveSessionSecret(env = process.env, targetDbPath) {
         );
       }
       if (!isProd && !isStaging && !isTest) {
-        console.error(
+        log.error(
           '[SECURITY WARNING] SESSION_SECRET is not set or uses the hardcoded default. ' +
           'Session cookies are forgeable. Set SESSION_SECRET to a long random string in your .env file.'
         );
@@ -138,7 +139,7 @@ function resolveSessionSecret(env = process.env, targetDbPath) {
 
   // 5. In development/other non-test environments:
   if (!isProd && !isStaging && !isTest) {
-    console.error(
+    log.error(
       '[SECURITY WARNING] SESSION_SECRET is not set or uses the hardcoded default. ' +
       'Session cookies are forgeable. Set SESSION_SECRET to a long random string in your .env file.'
     );

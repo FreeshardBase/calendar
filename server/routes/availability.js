@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 const { sendError, userError } = require('../utils/errorSanitizer');
 
 const express = require('express');
@@ -290,7 +291,7 @@ router.post('/public/availability/:slug/book', bookingIpLimiter, validateBooking
       } catch (dbErr) {
         // No booking without its event and no event without its booking.
         await event.remove().catch(removeErr => {
-          console.error(`[availability book] Orphaned booking event ${event.uid} could not be removed:`, removeErr.message);
+          log.error(`[availability book] Orphaned booking event ${event.uid} could not be removed:`, removeErr.message);
         });
         throw dbErr;
       }
