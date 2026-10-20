@@ -37,7 +37,7 @@ function defaultRange(view, date) {
 }
 
 function exportView(view) {
-  if (view === 'week' || view === 'workweek') return 'week';
+  if (view === 'week' || view === 'workweek' || view === '3day') return 'week';
   if (view === 'day' || view === 'list') return view;
   return 'month';
 }

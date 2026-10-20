@@ -11,6 +11,7 @@ import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar
 import { searchTimeZones, zoneOffsetLabel, localTimeZone } from './timezones.js';
 import { initEventModal, openCreateModal, openEditModal, openDuplicateModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { openContextMenu } from './contextMenu.js';
+import { isDragArmed } from './eventDrag.js';
 import { initAccountModal, openAccountModal } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
 import { initTaskUI, openTaskModal, openDuplicateTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
@@ -57,11 +58,16 @@ function parseUrlDate() {
 
 const ACCOUNTS_LOAD_ERROR = 'Fehler beim Laden der Kontodaten';
 
+// #351: the width below which the app takes its phone layout (app.css, section 20).
+const PHONE_LAYOUT = '(max-width: 768px)';
+
 async function boot() {
   const initialDate = parseUrlDate();
   if (initialDate) {
     store.set({ currentDate: initialDate });
   }
+  // A phone opens in three days: a month or week grid has no room for an event's title there.
+  if (window.matchMedia(PHONE_LAYOUT).matches) store.set({ view: '3day' });
 
   window.addEventListener('popstate', () => {
     const navDate = parseUrlDate();
@@ -433,7 +439,7 @@ async function loadTasks() {
   }
 }
 
-const TASK_VIEWS = new Set(['month', 'week', 'workweek', 'day']);
+const TASK_VIEWS = new Set(['month', 'week', 'workweek', '3day', 'day']);
 
 // A task was changed on the server: a task list still being fetched may predate it (#593).
 function reloadTasksAfterEdit() {
@@ -933,6 +939,7 @@ const EMPTY_RANGE_TEXT = {
   month:    'Keine Termine in diesem Monat.',
   week:     'Keine Termine in dieser Woche.',
   workweek: 'Keine Termine in dieser Arbeitswoche.',
+  '3day':   'Keine Termine an diesen drei Tagen.',
   day:      'Keine Termine an diesem Tag.',
   agenda:   'Keine Termine im gewählten Zeitraum.'
 };
@@ -951,6 +958,45 @@ function eventStatusText(view, count, query) {
   }
   const text = `${count} Termin${count !== 1 ? 'e' : ''}`;
   return partial ? `${text} – nicht alle Kalender konnten gelesen werden.` : text;
+}
+
+// #351: a quick horizontal finger stroke over the calendar goes one period back (rightwards) or
+// on (leftwards). A mostly vertical stroke scrolls the hours, and a long press drags an event.
+const SWIPE_MIN_PX = 60;
+const SWIPE_VIEWS = new Set(['month', 'week', 'workweek', '3day', 'day', 'agenda']);
+
+function enablePeriodSwipe(container, goPeriod) {
+  container.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    // A stroke's touch events all go to the element it started on. The view re-renders when its
+    // events arrive, which can detach that element mid-stroke; then they no longer bubble to the
+    // container or the document, so the stroke is followed on the element itself.
+    const target = e.target;
+    const x = e.touches[0].clientX;
+    const y = e.touches[0].clientY;
+    let dragged = false;
+    const onMove = ev => {
+      if (ev.touches.length !== 1) stop();
+      else if (isDragArmed()) dragged = true;
+    };
+    const onEnd = ev => {
+      stop();
+      if (dragged || !SWIPE_VIEWS.has(store.get('view'))) return;
+      const t = ev.changedTouches[0];
+      const dx = t.clientX - x;
+      const dy = t.clientY - y;
+      if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < 2 * Math.abs(dy)) return;
+      goPeriod(dx < 0 ? 1 : -1);
+    };
+    const stop = () => {
+      target.removeEventListener('touchmove', onMove);
+      target.removeEventListener('touchend', onEnd);
+      target.removeEventListener('touchcancel', stop);
+    };
+    target.addEventListener('touchmove', onMove, { passive: true });
+    target.addEventListener('touchend', onEnd);
+    target.addEventListener('touchcancel', stop);
+  }, { passive: true });
 }
 
 function syncViewTabs(view) {
@@ -3158,6 +3204,7 @@ function attachListeners() {
       month: 'Monatsansicht',
       week: 'Wochenansicht',
       workweek: 'Arbeitswoche',
+      '3day': 'Dreitagesansicht',
       day: 'Tagesansicht',
       agenda: 'Agendaansicht',
       list: 'Listenansicht',
@@ -3188,18 +3235,15 @@ function attachListeners() {
   });
 
   // Navigation
-  $('prev-btn').addEventListener('click', () => {
-    const newDate = navigate(store.get('view'), store.get('currentDate'), -1);
+  function goPeriod(direction) {
+    const newDate = navigate(store.get('view'), store.get('currentDate'), direction);
     store.set({ currentDate: newDate });
     loadEvents();
     announce(`Datum: ${getToolbarTitle(store.get('view'), newDate)}`);
-  });
-  $('next-btn').addEventListener('click', () => {
-    const newDate = navigate(store.get('view'), store.get('currentDate'), 1);
-    store.set({ currentDate: newDate });
-    loadEvents();
-    announce(`Datum: ${getToolbarTitle(store.get('view'), newDate)}`);
-  });
+  }
+  $('prev-btn').addEventListener('click', () => goPeriod(-1));
+  $('next-btn').addEventListener('click', () => goPeriod(1));
+  enablePeriodSwipe($('calendar-container'), goPeriod);
   $('today-btn').addEventListener('click', () => {
     const t = new Date(); t.setHours(0,0,0,0);
     store.set({ currentDate: t });
@@ -3212,6 +3256,9 @@ function attachListeners() {
 
   // New event button
   $('new-event-btn').addEventListener('click', () => {
+    openCreateModal(store.get('currentDate') || new Date(), EVENT_MODAL_CALLBACKS);
+  });
+  $('fab-new-event').addEventListener('click', () => {
     openCreateModal(store.get('currentDate') || new Date(), EVENT_MODAL_CALLBACKS);
   });
 

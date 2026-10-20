@@ -488,6 +488,9 @@ a { color: inherit; text-decoration: none; }
 .menu-btn:hover { color: var(--ink); }
 .menu-btn svg { width: 18px; height: 18px; display: block; }
 
+/* #351: the floating "new event" button exists only in the phone layout (section 20) */
+.fab { display: none; }
+
 /* ── 10. Main Content ─────────────────────────────────────────────────────── */
 .main {
   flex: 1; display: flex; flex-direction: column;
@@ -1328,8 +1331,14 @@ body.event-dragging { user-select: none; -webkit-user-select: none; }
 }
 
 /* ── 20. Mobile / Responsive ─────────────────────────────────────────────── */
+/* #351: the phone layout. The view tabs become a bottom navigation (month, three days, day,
+   agenda, tasks; the seven-column weeks and the list need a wider screen), a floating button
+   creates an event, dialogs fill the screen, the event popover is a sheet along the bottom edge,
+   and every control is at least 44 px. app.js opens a phone in the three-day view and turns a
+   horizontal swipe over the calendar into the previous or next period. */
 @media (max-width: 768px) {
-  .menu-btn { display: flex; }
+  :root { --bottom-nav-h: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .menu-btn { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   .sidebar-toggle { display: block; }
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0;
@@ -1360,10 +1369,11 @@ body.event-dragging { user-select: none; -webkit-user-select: none; }
     align-self: center;
     min-width: 0;
     font-size: 14px;
+    line-height: 1.25;
     margin: 0;
-    white-space: nowrap;
+    /* #351: a range like "25. – 27. September 2026" wraps rather than being cut */
+    white-space: normal;
     overflow: hidden;
-    text-overflow: ellipsis;
     padding-left: var(--sp-2);
   }
   .toolbar-nav {
@@ -1372,28 +1382,70 @@ body.event-dragging { user-select: none; -webkit-user-select: none; }
     justify-self: end;
     align-self: center;
   }
+  .toolbar-btn, .toolbar-today-btn { min-width: 44px; height: 44px; }
+  .main { padding-bottom: var(--bottom-nav-h); }
   .toolbar .view-tabs {
-    grid-column: 1 / span 3;
-    grid-row: 2;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     display: flex;
-    width: 100%;
+    height: var(--bottom-nav-h);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     margin-left: 0 !important;
+    border: 0; border-top: var(--border-w) solid var(--border-cool); border-radius: 0;
+    background: var(--surface);
   }
+  .toolbar #view-week, .toolbar #view-workweek, .toolbar #view-list { display: none; }
   .toolbar .view-tab {
     flex: 1;
+    height: 100%; min-height: 44px;
     text-align: center;
     padding: 0 2px;
-    font-size: 11px;
+    font-size: 12px; line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .toolbar .view-tab + .view-tab { border-left: 0; }
   .toolbar .search-wrapper {
     grid-column: 1 / span 3;
-    grid-row: 3;
+    grid-row: 2;
     max-width: none;
     margin: 0;
     width: 100%;
+  }
+  /* 16 px keeps iOS from zooming into the field */
+  .toolbar .search-input { height: 44px; font-size: 16px; }
+  .fab {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; z-index: 45;
+    right: var(--sp-4); bottom: calc(var(--bottom-nav-h) + var(--sp-4));
+    width: 56px; height: 56px;
+    border: var(--border-w) solid var(--accent); border-radius: 50%;
+    color: var(--accent); background: var(--surface);
+    cursor: pointer;
+  }
+  .fab svg { width: 24px; height: 24px; display: block; }
+
+  /* Dialogs fill the screen; confirmations stay small. */
+  .modal-backdrop { padding: 0; }
+  .modal:not(.modal-sm) {
+    max-width: none; width: 100%; height: 100%; max-height: none;
+    border: 0; border-radius: 0;
+  }
+  .modal-close { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+  .modal-footer .btn, .modal-actions .btn, .popover-actions .btn { min-height: 44px; height: auto; }
+  /* The dialog's actions stay in reach at the bottom while its form scrolls. */
+  .modal-body form { overflow: visible; }
+  .modal .modal-actions {
+    position: sticky; bottom: 0; z-index: 1;
+    padding: var(--sp-3) 0 calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+  }
+  /* The event popover is a sheet along the bottom edge, whatever position app.js computed. */
+  .event-popover {
+    top: auto !important; left: 0 !important; right: 0; bottom: 0;
+    width: auto; max-height: 70vh; overflow-y: auto;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+    padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
   }
   .toolbar #invitations-btn,
   .toolbar #export-pdf-btn,

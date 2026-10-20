@@ -35,7 +35,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   prints every test the rule matches, ignoring the allowlist.
 - `npm run test:all` — execute both `npm test` and `npm run test:e2e` (`npx playwright test`).
 - `npx playwright test` — e2e (`e2e/calendar.spec.js`, and `e2e/dragdrop.spec.js` for drag and drop, #574, which
-  also runs in the `mobile-touch` project: Pixel 7, `hasTouch`, touch drags sent through CDP), starts its own server via `playwright.config.js`
+  also runs in the `mobile-touch` project: Pixel 7, `hasTouch`, touch drags sent through CDP; the phone layout of #351,
+  `e2e/issue351_mobile_layout.spec.js`, runs there at 412×915 and in `mobile-iphone`, an iPhone 8 at 375×667 emulated in
+  Chromium; at ≤768 px the app opens in the three-day view), starts its own server via `playwright.config.js`
   (`reuseExistingServer` outside CI). That server runs the shipping configuration (`NODE_ENV=production`,
   no test-mode switch, no fake users are seeded); specs seed fixtures themselves (#211). Every run is
   its own fixture (#217): `playwright.config.js` picks a run id (`E2E_RUN_ID`), signs the browser in as

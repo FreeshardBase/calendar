@@ -50,11 +50,17 @@ module.exports = defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    // #574: drag and drop on a phone (touch, long press). Only the drag spec runs here.
+    // #574: drag and drop on a phone (touch, long press); #351: the phone layout at 412×915.
     {
       name: 'mobile-touch',
-      testMatch: /dragdrop\.spec\.js/,
+      testMatch: /(dragdrop|issue351_mobile_layout)\.spec\.js/,
       use: { ...devices['Pixel 7'] },
+    },
+    // #351: the phone layout at 375×667, an iPhone's screen and touch emulated in Chromium.
+    {
+      name: 'mobile-iphone',
+      testMatch: /issue351_mobile_layout\.spec\.js/,
+      use: { ...devices['iPhone 8'], defaultBrowserType: 'chromium' },
     },
   ],
   // Issue #211: the server under test runs the shipping configuration (docker-compose.yml:
