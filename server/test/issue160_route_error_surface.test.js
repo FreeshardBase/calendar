@@ -400,10 +400,10 @@ test('Issue #160 — unmapped English never passes through the sanitizer', () =>
 test('Issue #160 — status mapping edge cases', () => {
   // AbortSignal.timeout() on a CalDAV request is a connection problem, not a server fault.
   const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
-  assert.deepEqual(describeError(timeout), { status: 504, message: MSG_CONNECTION });
+  assert.deepEqual(describeError(timeout), { status: 504, code: 'CONNECTION', message: MSG_CONNECTION });
   // Object.prototype names are not table entries.
   for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
-    assert.deepEqual(describeError(new Error(name)), { status: 500, message: MSG_GENERIC }, name);
+    assert.deepEqual(describeError(new Error(name)), { status: 500, code: 'GENERIC', message: MSG_GENERIC }, name);
   }
   // A failed If-Match is the reload-and-retry conflict the client reacts to (409);
   // a WebDAV state conflict is not.
@@ -414,12 +414,12 @@ test('Issue #160 — status mapping edge cases', () => {
   assert.equal(describeError(new Error('PROPFIND 401: Unauthorized')).status, 502);
   assert.equal(describeError(new Error('UNAUTHORIZED')).status, 502);
   // Upstream 5xx is a bad gateway, an upstream 404 stays a 404.
-  assert.deepEqual(describeError(new Error('REPORT 503: Service Unavailable')), { status: 502, message: MSG_UPSTREAM_DOWN });
-  assert.deepEqual(describeError(new Error('HTTP_500')), { status: 502, message: MSG_UPSTREAM_DOWN });
+  assert.deepEqual(describeError(new Error('REPORT 503: Service Unavailable')), { status: 502, code: 'UPSTREAM_DOWN', message: MSG_UPSTREAM_DOWN });
+  assert.deepEqual(describeError(new Error('HTTP_500')), { status: 502, code: 'UPSTREAM_DOWN', message: MSG_UPSTREAM_DOWN });
   assert.equal(describeError(new Error('GET 404: Not Found')).status, 404);
   assert.equal(describeError(new Error('Failed to push event to MS Graph (403): denied')).status, 403);
   // Network errors are recognised by their code, not only by message text.
   const refused = new TypeError('network error');
   refused.cause = Object.assign(new Error('connect'), { code: 'ECONNREFUSED' });
-  assert.deepEqual(describeError(refused), { status: 502, message: MSG_CONNECTION });
+  assert.deepEqual(describeError(refused), { status: 502, code: 'CONNECTION', message: MSG_CONNECTION });
 });

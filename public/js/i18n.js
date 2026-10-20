@@ -23,13 +23,14 @@ import tasks from './messages/tasks.js';
 import views from './messages/views.js';
 import modules from './messages/modules.js';
 import booking from './messages/booking.js';
+import serverErrors from './messages/serverErrors.js';
 
 export const LANGUAGES = ['de', 'de-formal', 'en'];
 // The BCP 47 tag each UI language formats dates and plurals in (the page's lang).
 const LOCALE_TAGS = { de: 'de', 'de-formal': 'de', en: 'en' };
 export const DEFAULT_LANGUAGE = 'de';
 
-export const AREAS = { shell, app, eventModal, calendarLabels, tasks, views, modules, booking };
+export const AREAS = { shell, app, eventModal, calendarLabels, tasks, views, modules, booking, serverErrors };
 
 function merge(lang) {
   const all = {};

@@ -3307,13 +3307,32 @@ function attachListeners() {
     openCreateModal(store.get('currentDate') || new Date(), EVENT_MODAL_CALLBACKS);
   });
 
-  // Settings Drawer Toggle
+  // Settings dialog
+  const settingsNav = [...document.querySelectorAll('#settings-nav .settings-nav-btn')];
   $('sidebar-settings-btn').addEventListener('click', () => {
+    settingsNav.forEach(b => b.removeAttribute('aria-current'));
     openDialog($('settings-drawer'));
     renderSettings();
   });
   $('close-settings-btn').addEventListener('click', () => {
     closeDialog($('settings-drawer'));
+  });
+  // #628: a topic in the list scrolls its section to the top and moves the focus to its heading;
+  // the arrow keys, Home and End move between the topics.
+  settingsNav.forEach((btn, i) => {
+    btn.addEventListener('click', () => {
+      settingsNav.forEach(b => b.removeAttribute('aria-current'));
+      btn.setAttribute('aria-current', 'true');
+      const heading = $(`${btn.getAttribute('aria-controls')}-title`);
+      heading.scrollIntoView({ block: 'start' });
+      heading.focus({ preventScroll: true });
+    });
+    btn.addEventListener('keydown', e => {
+      const target = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: settingsNav.length - 1 }[e.key];
+      if (target === undefined) return;
+      e.preventDefault();
+      settingsNav[(target + settingsNav.length) % settingsNav.length].focus();
+    });
   });
 
   // Add account from settings

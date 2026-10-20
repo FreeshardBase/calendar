@@ -1,5 +1,5 @@
 'use strict';
-const { sendError } = require('../utils/errorSanitizer');
+const { sendError, userError } = require('../utils/errorSanitizer');
 
 const express = require('express');
 const router = express.Router();
@@ -167,7 +167,7 @@ router.post('/availability-slots', async (req, res) => {
     try {
       settings = parseBookingSettings(req.body);
     } catch (err) {
-      if (err instanceof BookingSettingsError) return res.status(400).json({ error: err.message });
+      if (err instanceof BookingSettingsError) return sendError(res, userError(err.bookingCode, 400, err.params));
       throw err;
     }
     const busyCalendarIds = req.body.busyCalendarIds === undefined ? [] : req.body.busyCalendarIds;

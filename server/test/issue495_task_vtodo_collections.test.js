@@ -136,7 +136,7 @@ test('creating a task in a collection without VTODO is refused and nothing is st
   await withSetup(async ({ base, shard }) => {
     const res = await send(base, 'POST', null, { calendarId: GOOGLE, title: 'test1' });
     assert.equal(res.status, 422, await res.clone().text());
-    assert.match((await res.json()).error, /does not accept tasks/);
+    assert.equal((await res.json()).code, 'TASK_LIST_REQUIRED');
     assert.equal(shard.store.size, 0);
   });
 });

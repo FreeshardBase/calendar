@@ -17,7 +17,7 @@ const { trashCollection } = require('../utils/trash');
 const { startImportJob, getImportJob } = require('../utils/importJobs');
 const { ICS_CACHE_TTL_SECONDS, ICS_RATE_LIMIT_MAX, ICS_RATE_LIMIT_WINDOW_SECONDS } = require('../utils/icsPublicShareCache');
 const { getPublicShareUrl } = require('../utils/baseUrl');
-const { sendError, describeError, userError, MESSAGES } = require('../utils/errorSanitizer');
+const { sendError, describeError, userError } = require('../utils/errorSanitizer');
 const { sanitizePublicIcs, isValidDetail, DEFAULT_DETAIL } = require('../utils/publicIcs');
 const { parseExportOptions, generateCalendarPDF, renderPreview } = require('../utils/pdfExport');
 
@@ -250,7 +250,7 @@ CALSCALE:GREGORIAN\r\n`;
     return ics;
   } catch (err) {
     console.error('[fetchCalendarICS fallback error]', err.message);
-    throw userError(MESSAGES.UPSTREAM_DOWN, 502);
+    throw userError('UPSTREAM_DOWN', 502);
   }
 }
 
@@ -1341,7 +1341,7 @@ router.put('/:id/public-link', async (req, res) => {
     if (!client) return res.status(404).json({ error: 'Account not found' });
 
     const saved = await client.setCustomProperty(calendarUrl, SHARE_NS, 'public-share-detail', detail);
-    if (!saved) throw userError('Detailstufe konnte nicht gespeichert werden.', 502);
+    if (!saved) throw userError('PUBLIC_DETAIL_NOT_SAVED', 502);
     res.json({ detail });
   } catch (err) {
     return sendError(res, err, '[public-link PUT]');

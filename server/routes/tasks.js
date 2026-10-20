@@ -1,5 +1,5 @@
 'use strict';
-const { sendError, describeError } = require('../utils/errorSanitizer');
+const { sendError, describeError, userError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
 
@@ -517,7 +517,7 @@ async function acceptsTasks(client, calendarUrl) {
 }
 
 function refuseNonTaskCollection(res) {
-  return res.status(422).json({ error: 'This calendar does not accept tasks (no VTODO in its supported components); choose a task list' });
+  return sendError(res, userError('TASK_LIST_REQUIRED', 422));
 }
 
 /**

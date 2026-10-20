@@ -1,6 +1,6 @@
 'use strict';
 require('dotenv').config();
-const { sendError, describeError } = require('./utils/errorSanitizer');
+const { sendError, describeError, errorBody, ensureErrorCode, userError } = require('./utils/errorSanitizer');
 // Issue #57 fix: NODE_TLS_REJECT_UNAUTHORIZED is no longer set process-wide.
 // Per-request TLS bypass for the internal self-signed Radicale server is handled
 // exclusively in server/utils/tlsDispatcher.js via a scoped undici Agent.
@@ -172,6 +172,14 @@ const PUBLIC_BOOKING_FILES = new Map([
     .map(name => [`/public/booking/messages/${name}`, `js/messages/${name}`]),
 ]);
 const isPublicPath = (req) => req.path.startsWith('/api/public/') || PUBLIC_BOOKING_FILES.has(req.path);
+
+// #628 (#160): every API error answer carries a code the UI translates. Routes that answer
+// { error } themselves get the code of their HTTP status; sendError()/userError() name their own.
+app.use('/api', (req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = body => json(ensureErrorCode(res.statusCode, body));
+  next();
+});
 
 // #246: in production, AUTH_METHOD=env serves only requests that come through the FreeShard
 // platform proxy. Exempt: the container healthcheck and /internal/ (own INTERNAL_WEBHOOK_SECRET).
@@ -751,11 +759,11 @@ app.use((err, req, res, next) => {
   }
   // Client errors raised by middleware (body-parser: malformed JSON, oversized body).
   if (err.expose && Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
-    const message = err.status === 413 ? 'Die Anfrage ist zu groß.' : 'Die Anfrage ist ungültig.';
-    return res.status(err.status).json({ error: message });
+    const described = describeError(userError(err.status === 413 ? 'REQUEST_TOO_LARGE' : 'BAD_REQUEST', err.status));
+    return res.status(err.status).json(errorBody(described));
   }
-  const { status, message } = describeError(err);
-  res.status(status).json({ error: message });
+  const described = describeError(err);
+  res.status(described.status).json(errorBody(described));
 });
 
 const http = require('http');

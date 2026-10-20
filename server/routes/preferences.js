@@ -11,6 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const Db = require('../db');
+const { userError } = require('../utils/errorSanitizer');
 
 const TASK_VIEWS = ['list', 'kanban'];
 const MAX_BASE_URL = 512;
@@ -52,15 +53,8 @@ const CALENDAR_PREFERENCES = {
   timeZone: v => (v === null ? null : ianaZone(v) ?? undefined),
   language: v => (v === null || ['de', 'de-formal', 'en'].includes(v) ? v : undefined),
 };
-const CALENDAR_PREFERENCE_ERRORS = {
-  weekStart: "weekStart must be 'mon', 'sun', 'sat' or null",
-  timeFormat: "timeFormat must be '12h', '24h' or null",
-  defaultDuration: `defaultDuration must be a whole number of minutes from 5 to ${MAX_DURATION}`,
-  defaultCalendarId: 'defaultCalendarId must be a calendar id or null',
-  defaultReminder: `defaultReminder must be a whole number of minutes from 0 to ${MAX_REMINDER} or null`,
-  timeZone: 'timeZone must be an IANA time zone name or null',
-  language: "language must be 'de', 'de-formal', 'en' or null",
-};
+// #628: a refused value is answered as an error code the UI translates (errorSanitizer.js).
+const invalid = name => userError('INVALID_PREFERENCE', 400, { name });
 
 async function readPreferences(userId) {
   return {
@@ -96,31 +90,27 @@ router.put('/', async (req, res, next) => {
   for (const key of Object.keys(CALENDAR_PREFERENCES)) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
     const value = CALENDAR_PREFERENCES[key](body[key]);
-    if (value === undefined) return res.status(400).json({ error: CALENDAR_PREFERENCE_ERRORS[key] });
+    if (value === undefined) return next(key === 'timeZone' ? userError('INVALID_TIME_ZONE', 400) : invalid(key));
     calendarPrefs[key] = value;
   }
   const hasCalendarPrefs = Object.keys(calendarPrefs).length > 0;
   if (!hasTaskView && !hasZone && !hasListToggle && !hasWeekNumbers && !hasConference && !hasCalendarPrefs) {
-    return res.status(400).json({ error: `Expected taskView, secondaryTimezone, taskListInCalendar, showWeekNumbers, conferenceBaseUrl or ${Object.keys(CALENDAR_PREFERENCES).join(', ')}` });
+    return next(userError('NO_PREFERENCE', 400));
   }
   const conference = hasConference && body.conferenceBaseUrl !== null ? conferenceBaseUrl(body.conferenceBaseUrl) : null;
   if (hasConference && body.conferenceBaseUrl !== null && conference === null) {
-    return res.status(400).json({ error: 'conferenceBaseUrl must be an http(s) URL without credentials, query or fragment, or null' });
+    return next(userError('INVALID_CONFERENCE_URL', 400));
   }
-  if (hasWeekNumbers && typeof body.showWeekNumbers !== 'boolean') {
-    return res.status(400).json({ error: 'showWeekNumbers must be true or false' });
-  }
-  if (hasTaskView && !TASK_VIEWS.includes(body.taskView)) {
-    return res.status(400).json({ error: `taskView must be one of: ${TASK_VIEWS.join(', ')}` });
-  }
+  if (hasWeekNumbers && typeof body.showWeekNumbers !== 'boolean') return next(invalid('showWeekNumbers'));
+  if (hasTaskView && !TASK_VIEWS.includes(body.taskView)) return next(invalid('taskView'));
   const zone = hasZone && body.secondaryTimezone !== null ? ianaZone(body.secondaryTimezone) : null;
   if (hasZone && body.secondaryTimezone !== null && zone === null) {
-    return res.status(400).json({ error: 'secondaryTimezone must be an IANA time zone name or null' });
+    return next(userError('INVALID_TIME_ZONE', 400));
   }
   const toggle = body.taskListInCalendar;
   if (hasListToggle && !(toggle && typeof toggle.calendarId === 'string' && toggle.calendarId.length > 0
     && toggle.calendarId.length <= 1024 && typeof toggle.shown === 'boolean')) {
-    return res.status(400).json({ error: 'taskListInCalendar must be { calendarId: string, shown: boolean }' });
+    return next(invalid('taskListInCalendar'));
   }
   try {
     const userId = req.session.userId;

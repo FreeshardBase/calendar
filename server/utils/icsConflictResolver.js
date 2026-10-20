@@ -21,7 +21,8 @@ function detectICSConflicts(icsText, existingEvents = []) {
     comp = new ICAL.Component(ICAL.parse(icsText));
   } catch (err) {
     const invalid = new Error('Ungültige ICS-Datei: ' + err.message);
-    invalid.userMessage = 'Ungültige ICS-Datei. Die Datei konnte nicht gelesen werden.';
+    invalid.userCode = 'INVALID_ICS';
+    invalid.userMessage ='Ungültige ICS-Datei. Die Datei konnte nicht gelesen werden.';
     invalid.status = 400;
     throw invalid;
   }

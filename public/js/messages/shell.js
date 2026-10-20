@@ -68,6 +68,10 @@ export default {
     'shell.sidebar.settings': 'Einstellungen',
 
     'shell.settings.title': 'Einstellungen',
+    'shell.settings.navLabel': 'Bereiche der Einstellungen',
+    'shell.settings.topicGeneral': 'Allgemein',
+    'shell.settings.topicAccounts': 'Konten & Kalender',
+    'shell.settings.topicServices': 'Dienste',
     'shell.settings.close': 'Einstellungen schließen',
     'shell.settings.accounts': 'Accounts verwalten',
     'shell.settings.addAccount': 'Account hinzufügen',
@@ -399,6 +403,10 @@ export default {
     'shell.sidebar.settings': 'Einstellungen',
 
     'shell.settings.title': 'Einstellungen',
+    'shell.settings.navLabel': 'Bereiche der Einstellungen',
+    'shell.settings.topicGeneral': 'Allgemein',
+    'shell.settings.topicAccounts': 'Konten & Kalender',
+    'shell.settings.topicServices': 'Dienste',
     'shell.settings.close': 'Einstellungen schließen',
     'shell.settings.accounts': 'Accounts verwalten',
     'shell.settings.addAccount': 'Account hinzufügen',
@@ -730,6 +738,10 @@ export default {
     'shell.sidebar.settings': 'Settings',
 
     'shell.settings.title': 'Settings',
+    'shell.settings.navLabel': 'Settings sections',
+    'shell.settings.topicGeneral': 'General',
+    'shell.settings.topicAccounts': 'Accounts & calendars',
+    'shell.settings.topicServices': 'Services',
     'shell.settings.close': 'Close settings',
     'shell.settings.accounts': 'Manage accounts',
     'shell.settings.addAccount': 'Add account',

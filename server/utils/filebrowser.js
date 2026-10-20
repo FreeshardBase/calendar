@@ -15,15 +15,15 @@ function getFileBrowserUrl() {
  */
 function normalizeFileBrowserPath(rawPath) {
   if (typeof rawPath !== 'string' || rawPath === '' || !rawPath.isWellFormed()) {
-    throw userError('Ungültiger Dateipfad.', 400);
+    throw userError('INVALID_FILE_PATH', 400);
   }
   // eslint-disable-next-line no-control-regex
   if (/[?#\\\u0000-\u001f\u007f]/.test(rawPath)) {
-    throw userError('Ungültiger Dateipfad.', 400);
+    throw userError('INVALID_FILE_PATH', 400);
   }
   const segments = rawPath.split('/').filter((segment) => segment !== '');
   if (segments.some((segment) => segment === '.' || segment === '..')) {
-    throw userError('Ungültiger Dateipfad.', 400);
+    throw userError('INVALID_FILE_PATH', 400);
   }
   return {
     path: '/' + segments.join('/'),

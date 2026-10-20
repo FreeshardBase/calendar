@@ -36,7 +36,7 @@ window.WorkingHoursModule = {
     const oooFields = document.getElementById('wh-ooo-fields');
     if (oooToggle && oooFields) {
       oooToggle.addEventListener('change', () => {
-        oooFields.style.display = oooToggle.checked ? 'block' : 'none';
+        oooFields.classList.toggle('hidden', !oooToggle.checked);
       });
     }
   },
@@ -66,7 +66,7 @@ window.WorkingHoursModule = {
       if (autoDeclineToggle) autoDeclineToggle.checked = !!policy.autoDecline;
       if (oooToggle) {
         oooToggle.checked = !!policy.oooEnabled;
-        if (oooFields) oooFields.style.display = policy.oooEnabled ? 'block' : 'none';
+        if (oooFields) oooFields.classList.toggle('hidden', !policy.oooEnabled);
       }
       if (oooStartInput) oooStartInput.value = policy.oooStart || '';
       if (oooEndInput) oooEndInput.value = policy.oooEnd || '';
