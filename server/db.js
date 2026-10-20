@@ -497,6 +497,15 @@ db.serialize(() => {
       updated_at INTEGER NOT NULL
     )
   `);
+  // #514: the country/region whose public holidays a user sees as a built-in subscription
+  // (ISO 3166-2 code, e.g. DE-BY). Absent while the user has not chosen one.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_holiday_region (
+      user_id TEXT PRIMARY KEY,
+      region TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   // #518: the task lists whose due tasks a user does not want in the calendar views; every other
   // list shows them. Absent until the user turns a list off.
   db.run(`
@@ -1314,6 +1323,7 @@ const Db = {
       await tx.run('DELETE FROM working_hours_policy WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_tasks_hidden_in_calendar WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM user_holiday_region WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM item_templates WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
       await tx.run('DELETE FROM trash_items WHERE user_id = ?', [userId]);
@@ -1420,6 +1430,7 @@ const Db = {
       await tx.run('DELETE FROM user_calendar_color_overrides');
       await tx.run('DELETE FROM user_calendar_order');
       await tx.run('DELETE FROM user_tasks_hidden_in_calendar');
+      await tx.run('DELETE FROM user_holiday_region');
       await tx.run('DELETE FROM webcal_subscriptions');
       await tx.run('DELETE FROM sync_queue');
       await tx.run('DELETE FROM trash_items');
@@ -2888,6 +2899,32 @@ const Db = {
         [userId, timeZone, Date.now()],
         (err) => (err ? reject(err) : resolve(timeZone))
       );
+    });
+  },
+
+  // #514: the holiday region a user chose, or null.
+  getHolidayRegion(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT region FROM user_holiday_region WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.region : null);
+      });
+    });
+  },
+
+  // null switches the holidays off.
+  setHolidayRegion(userId, region) {
+    return new Promise((resolve, reject) => {
+      const done = (err) => (err ? reject(err) : resolve(region));
+      if (region === null) {
+        db.run('DELETE FROM user_holiday_region WHERE user_id = ?', [userId], done);
+      } else {
+        db.run(
+          `INSERT INTO user_holiday_region (user_id, region, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET region = excluded.region, updated_at = excluded.updated_at`,
+          [userId, region, Date.now()], done
+        );
+      }
     });
   },
 

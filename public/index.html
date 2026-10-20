@@ -218,6 +218,7 @@
             </svg>
           </button>
         </div>
+        <div id="holiday-list" class="calendar-list"></div>
         <div id="webcal-list" class="calendar-list"></div>
       </div>
 
@@ -324,6 +325,21 @@
                    style="width:100%; font-size:12px; padding:4px 6px;" />
             <ul class="tz-results" id="secondary-tz-results" aria-label="Passende Zeitzonen"></ul>
           </div>
+        </div>
+        <!-- Public holidays (#514): a built-in, read-only subscription computed on the shard -->
+        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <h3 style="margin:0 0 8px 0">Feiertage</h3>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label" for="holiday-country" style="font-size:11px;">Land</label>
+            <select class="form-select" id="holiday-country" style="width:100%; font-size:12px; padding:4px 6px;">
+              <option value="">Keine Feiertage anzeigen</option>
+            </select>
+          </div>
+          <div class="form-group hidden" id="holiday-region-group" style="margin-bottom:4px;">
+            <label class="form-label" for="holiday-region" style="font-size:11px;">Region</label>
+            <select class="form-select" id="holiday-region" style="width:100%; font-size:12px; padding:4px 6px;"></select>
+          </div>
+          <p style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;">Werden auf dem Shard berechnet, ohne Anfrage an Dritte.</p>
         </div>
         <!-- Working Hours & Out of Office Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">

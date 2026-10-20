@@ -574,9 +574,12 @@ function createTimeCol(allEvents, date, cb) {
   const col = document.createElement('div');
   const wh = store.get('workingHours') || { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' };
   const workDaysList = (wh.workDays || '1,2,3,4,5').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-  const isWorkDay = workDaysList.includes(date.getDay());
+  // #514: a shown public holiday is a non-working day (#19).
+  const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const isHoliday = allEvents.some(ev => ev.isHoliday && ev.holidayDate === dayKey);
+  const isWorkDay = workDaysList.includes(date.getDay()) && !isHoliday;
 
-  col.className = `week-day-col${!isWorkDay ? ' non-working-day' : ''}`;
+  col.className = `week-day-col${!isWorkDay ? ' non-working-day' : ''}${isHoliday ? ' holiday-day' : ''}`;
   const midnight = new Date(date); midnight.setHours(0, 0, 0, 0);
   col.dataset.date = midnight.toISOString();
   col.style.height = `${TOTAL_HOURS * HOUR_H}px`;

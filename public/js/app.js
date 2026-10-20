@@ -4,7 +4,7 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesAPI, TrashAPI, setUnauthorizedHandler } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, HolidaysAPI, PreferencesAPI, TrashAPI, setUnauthorizedHandler } from './api.js';
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel, formerLinkLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
@@ -121,6 +121,7 @@ async function boot() {
       });
       await loadCalendars();
       await offerReattach();
+      holidayRegion = (await HolidaysAPI.getSettings()).region;
       await loadWebcalSubscriptions();
       await loadEvents();
       await loadTasks();
@@ -436,12 +437,18 @@ let webcalSubscriptions = [];
 let webcalEvents = [];
 let lastWebcalEventsFailure = '';
 const hiddenWebcal = new Set();
+// #514: the built-in holiday subscription; its events travel with the webcal events.
+const HOLIDAY_SUB_ID = 'holidays';
+const HOLIDAY_COLOR = '#16a34a';
+let holidayRegion = null;
+let holidayName = '';
 
 async function loadWebcalSubscriptions() {
   try {
     const res = await listAfterOrderSaves(() => WebcalAPI.list());
     webcalSubscriptions = res.subscriptions || [];
     renderWebcalSidebar();
+    renderHolidaySidebar();
 
     const { start, end } = getDateRange(store.get('view'), store.get('currentDate'));
     webcalEvents = await loadWebcalEvents(start, end);
@@ -474,6 +481,10 @@ async function loadWebcalEvents(start, end) {
         console.error('[webcal] Failed to load events for subscription:', sub.id, e);
         failed.push(`${sub.name}: ${e.message}`);
       }
+    }),
+    loadHolidayEvents(start, end).then(evs => allEvents.push(...evs), e => {
+      console.error('[holidays] Failed to load holidays:', e);
+      failed.push(`Feiertage: ${e.message}`);
     })
   );
   // Every navigation reloads the range; the same failure is reported once, not once per page turn.
@@ -485,6 +496,100 @@ async function loadWebcalEvents(start, end) {
   }
   lastWebcalEventsFailure = failure;
   return allEvents;
+}
+
+async function loadHolidayEvents(start, end) {
+  const region = holidayRegion;
+  if (!region) return [];
+  const res = await HolidaysAPI.getEvents(start.toISOString(), end.toISOString());
+  // A region switched meanwhile: these belong to the old one.
+  if (region !== holidayRegion) return [];
+  if (res.name !== holidayName) {
+    holidayName = res.name;
+    renderHolidaySidebar();
+  }
+  return res.events.map(e => ({
+    ...e,
+    isSubscription: true,
+    isHoliday: true,
+    // The all-day date the week/day views shade as non-working (#19).
+    holidayDate: e.start,
+    subscriptionId: HOLIDAY_SUB_ID,
+    subscriptionName: res.name,
+    calendarId: `webcal::${HOLIDAY_SUB_ID}`,
+    color: HOLIDAY_COLOR,
+    readOnly: true
+  }));
+}
+
+function renderHolidaySidebar() {
+  const list = $('holiday-list');
+  if (!list) return;
+  if (!holidayRegion) {
+    list.innerHTML = '';
+    return;
+  }
+  const checked = !hiddenWebcal.has(HOLIDAY_SUB_ID);
+  const name = holidayName || 'Feiertage';
+  list.innerHTML = `
+    <div class="calendar-item${checked ? ' checked' : ''}" data-holiday-item tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(name)}">
+      <div class="calendar-dot" style="background:${HOLIDAY_COLOR}"></div>
+      <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
+        <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(name)}">${escHtml(name)}</span>
+        <span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Gesetzliche Feiertage</span>
+      </div>
+      <div class="calendar-check" style="${checked ? 'background:' + HOLIDAY_COLOR : ''}">
+        <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10" aria-hidden="true">
+          <path d="M2 6l3 3 5-5"/>
+        </svg>
+      </div>
+    </div>`;
+  const item = list.querySelector('[data-holiday-item]');
+  const toggle = () => {
+    if (hiddenWebcal.has(HOLIDAY_SUB_ID)) hiddenWebcal.delete(HOLIDAY_SUB_ID);
+    else hiddenWebcal.add(HOLIDAY_SUB_ID);
+    renderHolidaySidebar();
+    list.querySelector('[data-holiday-item]').focus();
+    mergeAndRenderEvents();
+  };
+  item.addEventListener('click', toggle);
+  item.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle();
+    }
+  });
+}
+
+let holidayCountries = null;
+
+async function renderSettingsHolidays() {
+  if (!holidayCountries) holidayCountries = (await HolidaysAPI.regions()).countries;
+  const countrySelect = $('holiday-country');
+  const regionSelect = $('holiday-region');
+  const countryCode = holidayRegion ? holidayRegion.split('-')[0] : '';
+  countrySelect.innerHTML = '<option value="">Keine Feiertage anzeigen</option>' + holidayCountries
+    .map(c => `<option value="${escHtml(c.code)}">${escHtml(c.name)}</option>`).join('');
+  countrySelect.value = countryCode;
+  const country = holidayCountries.find(c => c.code === countryCode);
+  $('holiday-region-group').classList.toggle('hidden', !country);
+  regionSelect.innerHTML = country
+    ? '<option value="" disabled>Region wählen</option>' + country.regions
+      .map(r => `<option value="${escHtml(r.code)}">${escHtml(r.name)}</option>`).join('')
+    : '';
+  regionSelect.value = holidayRegion || '';
+}
+
+async function changeHolidayRegion(region) {
+  holidayRegion = (await HolidaysAPI.setRegion(region)).region;
+  holidayName = '';
+  hiddenWebcal.delete(HOLIDAY_SUB_ID);
+  renderHolidaySidebar();
+  const { start, end } = getDateRange(store.get('view'), store.get('currentDate'));
+  const holidays = await loadHolidayEvents(start, end);
+  webcalEvents = [...webcalEvents.filter(ev => !ev.isHoliday), ...holidays];
+  mergeAndRenderEvents();
+  announce(holidayRegion ? `Feiertage: ${holidayName}` : 'Feiertage ausgeblendet');
 }
 
 function mergeAndRenderEvents() {
@@ -1907,6 +2012,7 @@ function renderSettings() {
   renderSettingsCalendars();
   renderSettingsAppPasswords();
   renderSettingsTimezone();
+  renderSettingsHolidays().catch(err => showToast('Feiertage konnten nicht geladen werden: ' + err.message, 'error'));
   renderSettingsNotifications();
   renderSettingsTrash();
 }
@@ -2978,6 +3084,23 @@ function attachListeners() {
       renderSettingsNotifications();
     });
   }
+
+  // #514: a country opens the region picker; a region switches the holidays on, "none" off.
+  const saveHolidayRegion = region => changeHolidayRegion(region)
+    .catch(err => showToast('Die Feiertage konnten nicht gespeichert werden: ' + err.message, 'error'))
+    .then(() => renderSettingsHolidays());
+  $('holiday-country').addEventListener('change', e => {
+    if (!e.target.value) {
+      saveHolidayRegion(null);
+      return;
+    }
+    const country = holidayCountries.find(c => c.code === e.target.value);
+    $('holiday-region-group').classList.remove('hidden');
+    $('holiday-region').innerHTML = '<option value="" disabled selected>Region wählen</option>' + country.regions
+      .map(r => `<option value="${escHtml(r.code)}">${escHtml(r.name)}</option>`).join('');
+    $('holiday-region').focus();
+  });
+  $('holiday-region').addEventListener('change', e => saveHolidayRegion(e.target.value));
 
   // #509: second time zone — the checkbox opens the search, a hit switches the column on.
   $('show-secondary-tz-toggle').addEventListener('change', e => {
