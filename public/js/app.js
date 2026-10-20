@@ -2763,7 +2763,7 @@ function showEventPopover(ev, mouseEvent) {
         const targetUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : '');
         const { trashId } = await EventsAPI.remove(targetUid, {
           calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
-          ...(scope === 'occurrence' ? { scope, recurrenceId: recId } : {})
+          ...(scope !== 'series' ? { scope, recurrenceId: recId } : {})
         });
         onEventDeleted(targetUid);
         // A deleted occurrence is an EXDATE in the series, not a trash entry.

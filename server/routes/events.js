@@ -28,7 +28,7 @@ const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
-const { assertValidAlarms, assertValidTranspClass, assertValidGeo, assertValidConference } = require('../utils/ical');
+const { assertValidAlarms, assertValidTranspClass, assertValidGeo, assertValidConference, splitSeries } = require('../utils/ical');
 
 // Issue #338: attachment URLs are rendered as links — reject non-link schemes up front.
 function hasUnsafeAttachment(attachments) {
@@ -491,6 +491,14 @@ router.put('/:uid', async (req, res) => {
     // it here against the clicked occurrence would rewrite off-pattern rules (#238).
     const eventUrl  = buildAbsoluteUrl(account.url, href);
 
+    if (scope === 'following' && targetRecurrenceId) {
+      const current = await client.get(eventUrl);
+      const newUid = uuidv4();
+      const { head, tail } = splitSeries(current.ics, targetRecurrenceId, newUid);
+      // From the first occurrence on, "this and following" is the whole series.
+      if (head) return await saveFollowing(req, res, { client, calendarId, eventUrl, current, head, tail, newUid, eventData });
+    }
+
     let ics;
     let ifMatch;
     let existingIcs = null;
@@ -630,6 +638,26 @@ router.delete('/:uid', async (req, res) => {
       await client.put(eventUrl, ics, current.etag);
       queueSyncForCalendar(calendarId, req.session.userId);
       return res.json({ message: 'Occurrence deleted.' });
+    }
+
+    if (scope === 'following' && targetRecurrenceId) {
+      // End the series before the occurrence (#346); from the first one on, the whole series goes.
+      const current = await client.get(eventUrl);
+      const { head } = splitSeries(current.ics, targetRecurrenceId, uuidv4());
+      if (head) {
+        await client.put(eventUrl, head, current.etag);
+        queueSyncForCalendar(calendarId, req.session.userId);
+        await logEventChange({
+          eventUid: req.params.uid.split('::')[0],
+          calendarId,
+          userId: req.session.userId,
+          action: 'UPDATE',
+          oldEvent: parseICSToEvent(current.ics),
+          newEvent: parseICSToEvent(head),
+          snapshotIcs: head
+        }).catch(err => console.error('[events DELETE history]', err.message));
+        return res.json({ message: 'This and following occurrences deleted.' });
+      }
     }
 
     if (!targetAccess.isOwner && extractCalendarIdFromHref(accountId, new URL(eventUrl).pathname) !== derivedCalId) {
@@ -836,6 +864,63 @@ async function deleteStoredEvent(req, client, eventUrl, etag, { uid, derivedCalI
   }
 }
 
+const ruleKey = rule => String(rule || '').replace(/^RRULE:/i, '').trim().toUpperCase();
+
+/**
+ * Save an edit "this and following" (#346): the edit becomes the new series `tail` (split off by
+ * splitSeries) in the same calendar, and only then is the stored series shortened to `head`. If
+ * that write fails (changed meanwhile, refused), the new series is removed again.
+ */
+async function saveFollowing(req, res, { client, calendarId, eventUrl, current, head, tail, newUid, eventData }) {
+  const stored = parseICSToEvent(current.ics);
+  const tailEvent = parseICSToEvent(tail);
+  // The rule the dialog showed is the stored one; a COUNT in it means the remaining occurrences.
+  const recurrence = ruleKey(eventData.recurrence) === ruleKey(stored.recurrence)
+    ? tailEvent.recurrence : eventData.recurrence;
+  const event = { ...eventData, uid: newUid, recurrence };
+  delete event.recurrenceId;
+  const tailIcs = updateWholeSeries(tail, event);
+  const tailUrl = eventUrl.replace(/[^/]*$/, '') + encodeURIComponent(newUid) + '.ics';
+
+  const created = await client.put(tailUrl, tailIcs, null);
+  try {
+    await client.put(eventUrl, head, current.etag);
+  } catch (putErr) {
+    try {
+      await client.delete(tailUrl, created.etag);
+    } catch (rollbackErr) {
+      console.error('[events following] Removing the new series failed:', rollbackErr.message);
+      throw new Error(`Saving failed and the new series could not be removed again: ${putErr.message}`);
+    }
+    if (putErr.message === 'ETAG_CONFLICT') {
+      return res.status(409).json({ error: 'The event was changed meanwhile; it was not saved' });
+    }
+    throw putErr;
+  }
+  queueSyncForCalendar(calendarId, req.session.userId);
+
+  const saved = parseICSToEvent(tailIcs);
+  const masterUid = req.params.uid.split('::')[0];
+  await logEventChange({
+    eventUid: masterUid, calendarId, userId: req.session.userId, action: 'UPDATE',
+    oldEvent: stored, newEvent: parseICSToEvent(head), snapshotIcs: head
+  }).catch(err => console.error('[events following history]', err.message));
+  await logEventChange({
+    eventUid: newUid, calendarId, userId: req.session.userId, action: 'CREATE',
+    newEvent: saved, snapshotIcs: tailIcs
+  }).catch(err => console.error('[events following history]', err.message));
+
+  return res.json({
+    ...event,
+    start: saved.start,
+    end: saved.end,
+    recurrence: saved.recurrence,
+    href: tailUrl,
+    etag: created.etag || null,
+    calendarId
+  });
+}
+
 /**
  * A calendar id in comparable form (#571): account plus canonical collection path, so
  * "/u/Pers%C3%B6nlich/" and "/u/Persönlich/" are one calendar. Null if it cannot be decoded.
@@ -865,8 +950,8 @@ function hrefLiesIn(href, calendarId) {
  * changed meanwhile, refused), the new copy is removed again and the move fails as a whole.
  */
 async function moveEvent(req, res, { calendarId, sourceCalendarId, href, scope, eventData, targetRecurrenceId }) {
-  if (scope === 'occurrence') {
-    return res.status(400).json({ error: 'A single occurrence cannot be moved to another calendar; move the whole series' });
+  if (scope === 'occurrence' || scope === 'following') {
+    return res.status(400).json({ error: 'Only a whole series can be moved to another calendar' });
   }
 
   const sourceAccess = await checkCalendarAccess(req, sourceCalendarId, 'write');

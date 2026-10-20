@@ -415,8 +415,9 @@ function applyTemplate(fields) {
 }
 
 /**
- * Ask whether an action on a recurring event applies to a single occurrence
- * or the whole series. Resolves 'occurrence' | 'series' | null (cancelled).
+ * Ask whether an action on a recurring event applies to a single occurrence,
+ * this and all following ones (#346), or the whole series.
+ * Resolves 'occurrence' | 'following' | 'series' | null (cancelled).
  */
 export function chooseRecurrenceScope(question) {
   return new Promise(resolve => {
@@ -429,15 +430,18 @@ export function chooseRecurrenceScope(question) {
     const done = value => {
       closeDialog(bd);
       $('scope-occurrence-btn').removeEventListener('click', onOccurrence);
+      $('scope-following-btn').removeEventListener('click', onFollowing);
       $('scope-series-btn').removeEventListener('click', onSeries);
       $('scope-cancel-btn').removeEventListener('click', onCancel);
       resolve(value);
     };
     const onOccurrence = () => done('occurrence');
+    const onFollowing  = () => done('following');
     const onSeries     = () => done('series');
     const onCancel     = () => done(null);
 
     $('scope-occurrence-btn').addEventListener('click', onOccurrence);
+    $('scope-following-btn').addEventListener('click', onFollowing);
     $('scope-series-btn').addEventListener('click', onSeries);
     $('scope-cancel-btn').addEventListener('click', onCancel);
 
@@ -861,8 +865,8 @@ function getUtcDate(dateStr, timeStr, timeZone) {
       payload.scope        = 'occurrence';
       payload.recurrenceId = recurrenceId;
       payload.recurrence   = null; // a detached exception carries no RRULE
-    } else if (scope === 'series') {
-      payload.scope        = 'series';
+    } else {
+      payload.scope        = scope;
       payload.recurrenceId = recurrenceId;
     }
     setButtonLoading('event-save-btn', true);
@@ -956,7 +960,7 @@ async function handleDelete() {
       calendarId: _currentEvent.calendarId,
       etag:       _currentEvent.etag,
       href:       _currentEvent.href,
-      ...(scope === 'occurrence' ? { scope, recurrenceId: deleteRecurrenceId } : {})
+      ...(scope !== 'series' ? { scope, recurrenceId: deleteRecurrenceId } : {})
     });
     closeModal();
     // A deleted occurrence is an EXDATE in the series, not a trash entry.
