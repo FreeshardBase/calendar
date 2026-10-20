@@ -6,6 +6,7 @@
 import { TemplatesAPI } from './api.js';
 import { showToast } from './app.js';
 import { confirmDialog } from './dialogFocus.js';
+import { t } from './i18n.js';
 
 // A reminder at a fixed time is a date, which a template does not keep; relative ones stay.
 export function templateAlarms(alarms) {
@@ -29,32 +30,38 @@ export function createTemplatePicker({ kind, row, select, deleteBtn, onApply }) 
 
   function render() {
     select.innerHTML = '';
-    select.append(new Option('Keine Vorlage', ''));
-    for (const t of templates) select.append(new Option(t.name, t.id));
+    select.append(new Option(t('modules.templates.none'), ''));
+    for (const tpl of templates) select.append(new Option(tpl.name, tpl.id));
     deleteBtn.disabled = true;
     row.classList.toggle('hidden', templates.length === 0);
   }
 
-  const selected = () => templates.find(t => t.id === select.value);
+  // The "Keine Vorlage" option follows a language switch; the selection stays.
+  window.addEventListener('ui-language-changed', () => {
+    const none = select.querySelector('option[value=""]');
+    if (none) none.textContent = t('modules.templates.none');
+  });
+
+  const selected = () => templates.find(tpl => tpl.id === select.value);
 
   select.addEventListener('change', () => {
-    const t = selected();
-    deleteBtn.disabled = !t;
-    if (t) onApply(t.fields);
+    const tpl = selected();
+    deleteBtn.disabled = !tpl;
+    if (tpl) onApply(tpl.fields);
   });
 
   deleteBtn.addEventListener('click', async () => {
-    const t = selected();
-    if (!t || !(await confirmDialog(`Vorlage „${t.name}“ löschen?`))) return;
+    const tpl = selected();
+    if (!tpl || !(await confirmDialog(t('modules.templates.confirm.delete', { name: tpl.name })))) return;
     try {
-      await TemplatesAPI.remove(t.id);
+      await TemplatesAPI.remove(tpl.id);
     } catch (err) {
-      showToast(`Die Vorlage wurde nicht gelöscht. ${err.message}`, 'error');
+      showToast(t('modules.templates.toast.deleteFailed', { message: err.message }), 'error');
       return;
     }
-    templates = templates.filter(x => x.id !== t.id);
+    templates = templates.filter(x => x.id !== tpl.id);
     render();
-    showToast(`Vorlage „${t.name}“ gelöscht.`, 'info');
+    showToast(t('modules.templates.toast.deleted', { name: tpl.name }), 'info');
   });
 
   return {
@@ -65,7 +72,7 @@ export function createTemplatePicker({ kind, row, select, deleteBtn, onApply }) 
       try {
         loaded = (await TemplatesAPI.list(kind)).templates;
       } catch (err) {
-        showToast(`Vorlagen konnten nicht geladen werden. ${err.message}`, 'error');
+        showToast(t('modules.templates.toast.loadFailed', { message: err.message }), 'error');
         return;
       }
       if (g !== generation) return; // the dialog was reopened or switched to editing meanwhile
@@ -81,10 +88,10 @@ export function createTemplatePicker({ kind, row, select, deleteBtn, onApply }) 
       try {
         templates.push(await TemplatesAPI.create(kind, name, fields));
       } catch (err) {
-        showToast(`Die Vorlage wurde nicht gespeichert. ${err.message}`, 'error');
+        showToast(t('modules.templates.toast.saveFailed', { message: err.message }), 'error');
         return;
       }
-      showToast(`Vorlage „${name}“ gespeichert.`, 'success');
+      showToast(t('modules.templates.toast.saved', { name }), 'success');
     },
   };
 }

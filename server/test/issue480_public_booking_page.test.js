@@ -124,14 +124,25 @@ test('#480 an anonymous visitor gets the booking page and every file it loads', 
     assert.equal(css.status, 200, `GET ${style.pathname}`);
     assert.match(css.headers.get('content-type'), /text\/css/);
 
-    // The modules the booking script imports must be public as well.
-    const imports = [...jsBody.matchAll(/^import .* from '([^']+)';/gm)].map(m => new URL(m[1], script));
-    assert.ok(imports.length > 0, 'the booking script imports the API module');
-    for (const mod of imports) {
+    // The modules the booking script imports, and the ones they import (#627: i18n.js and its
+    // message catalogues), must be public as well.
+    const importsOf = (body, from) => [...body.matchAll(/^import .* from '([^']+)';/gm)].map(m => new URL(m[1], from));
+    const imports = importsOf(jsBody, script);
+    assert.ok(imports.some(u => u.pathname === '/public/booking/api.js'), 'the booking script imports the API module');
+    assert.ok(imports.some(u => u.pathname === '/public/booking/i18n.js'), 'the booking script imports i18n.js');
+    const seen = new Set();
+    while (imports.length > 0) {
+      const mod = imports.shift();
+      if (seen.has(mod.pathname)) continue;
+      seen.add(mod.pathname);
       const res = await fetch(mod, { headers });
       assert.equal(res.status, 200, `GET ${mod.pathname} (imported by the booking script)`);
-      assert.match(await res.text(), /getPublicPage/);
+      assert.match(res.headers.get('content-type'), /javascript/);
+      const body = await res.text();
+      if (mod.pathname === '/public/booking/api.js') assert.match(body, /getPublicPage/);
+      imports.push(...importsOf(body, mod));
     }
+    assert.ok(seen.has('/public/booking/messages/booking.js'), 'the booking page loads its catalogue');
   }
 });
 

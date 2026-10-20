@@ -60,6 +60,8 @@ function createNotificationsSandbox(options = {}) {
     showToast: (msg, type) => toasts.push({ msg, type }),
     // locale.js (#625), whose import is stripped below
     formatTime: d => new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(d)),
+    // i18n.js (#627), whose import is stripped below: the real catalogues in Deutsch (Du)
+    t: require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.resolve(__dirname, '../../public/js', rel), 'utf8')).t,
     navigator: {
       serviceWorker: {
         register: () => Promise.resolve()

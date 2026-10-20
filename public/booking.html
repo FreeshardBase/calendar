@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Termin buchen — FreeShard Calendar</title>
+  <title data-i18n="booking.documentTitle">Termin buchen — FreeShard Calendar</title>
   <link rel="stylesheet" href="/public/booking/app.css" />
   <style>
     body {
@@ -88,55 +88,55 @@
 <div class="booking-card">
   <div id="booking-loading" style="text-align:center; padding: 40px;">
     <div class="loading-spinner" style="margin:0 auto 16px auto;"></div>
-    <p>Buchungsseite wird geladen…</p>
+    <p data-i18n="booking.loading">Buchungsseite wird geladen…</p>
   </div>
 
   <div id="booking-error" class="hidden" style="text-align:center; color: var(--danger); padding: 20px;">
-    <h3>Seite nicht gefunden</h3>
-    <p id="error-message">Die angeforderte Buchungsseite existiert nicht oder wurde entfernt.</p>
+    <h3 data-i18n="booking.notFound.title">Seite nicht gefunden</h3>
+    <p id="error-message" data-i18n="booking.notFound.text">Die angeforderte Buchungsseite existiert nicht oder wurde entfernt.</p>
   </div>
 
   <div id="booking-content" class="hidden">
     <div class="booking-header">
-      <h1 class="booking-title" id="page-title">Termin buchen</h1>
-      <div class="booking-meta" id="page-meta">Dauer: 30 Minuten</div>
+      <h1 class="booking-title" id="page-title" data-i18n="booking.heading">Termin buchen</h1>
+      <div class="booking-meta" id="page-meta"></div>
     </div>
 
     <div>
-      <label class="form-label" for="booking-date">Datum auswählen</label>
+      <label class="form-label" for="booking-date" data-i18n="booking.date">Datum auswählen</label>
       <input type="date" id="booking-date" class="form-input" style="max-width: 220px; margin-bottom: 16px;" />
     </div>
 
     <div>
-      <label class="form-label">Verfügbare Zeitslots</label>
+      <label class="form-label" data-i18n="booking.slots.label">Verfügbare Zeitslots</label>
       <div class="slot-grid" id="slots-container">
-        <p class="empty-state">Lade verfügbare Zeitslots…</p>
+        <p class="empty-state" data-i18n="booking.slots.initial">Lade verfügbare Zeitslots…</p>
       </div>
     </div>
 
     <div id="booking-form-wrapper" class="booking-form-section hidden">
-      <h3 style="margin-top:0; margin-bottom: 16px; font-size: 16px;">Deine Kontaktdaten</h3>
+      <h3 style="margin-top:0; margin-bottom: 16px; font-size: 16px;" data-i18n="booking.form.heading">Deine Kontaktdaten</h3>
       <form id="public-booking-form">
         <input type="hidden" id="selected-start-time" />
         <div class="form-group">
-          <label class="form-label" for="guest-name">Dein Name</label>
-          <input class="form-input" id="guest-name" type="text" placeholder="Max Mustermann" required />
+          <label class="form-label" for="guest-name" data-i18n="booking.form.name">Dein Name</label>
+          <input class="form-input" id="guest-name" type="text" placeholder="Max Mustermann" data-i18n-placeholder="booking.form.namePlaceholder" required />
         </div>
         <div class="form-group">
-          <label class="form-label" for="guest-email">E-Mail-Adresse</label>
-          <input class="form-input" id="guest-email" type="email" placeholder="max@example.com" required />
+          <label class="form-label" for="guest-email" data-i18n="booking.form.email">E-Mail-Adresse</label>
+          <input class="form-input" id="guest-email" type="email" placeholder="max@example.com" data-i18n-placeholder="booking.form.emailPlaceholder" required />
         </div>
         <div class="form-group">
-          <label class="form-label" for="guest-notes">Notizen / Anliegen <span class="optional">(optional)</span></label>
-          <textarea class="form-input" id="guest-notes" rows="3" placeholder="Kurze Beschreibung des Anliegens…"></textarea>
+          <label class="form-label" for="guest-notes"><span data-i18n="booking.form.notes">Notizen / Anliegen</span> <span class="optional" data-i18n="booking.form.optional">(optional)</span></label>
+          <textarea class="form-input" id="guest-notes" rows="3" placeholder="Kurze Beschreibung des Anliegens…" data-i18n-placeholder="booking.form.notesPlaceholder"></textarea>
         </div>
-        <button type="submit" class="btn btn-primary btn-full" id="confirm-booking-btn">Termin verbindlich buchen</button>
+        <button type="submit" class="btn btn-primary btn-full" id="confirm-booking-btn" data-i18n="booking.form.submit">Termin verbindlich buchen</button>
       </form>
     </div>
 
     <div id="booking-success" class="success-box hidden" style="margin-top: 20px;">
-      <h3 style="margin-top:0; font-size: 18px;">Termin erfolgreich gebucht!</h3>
-      <p style="margin-bottom:0;">Vielen Dank. Die Bestätigung für deinen Termin wurde gespeichert.</p>
+      <h3 style="margin-top:0; font-size: 18px;" data-i18n="booking.success.title">Termin erfolgreich gebucht!</h3>
+      <p style="margin-bottom:0;" data-i18n="booking.success.text">Vielen Dank. Die Bestätigung für deinen Termin wurde gespeichert.</p>
     </div>
   </div>
 </div>

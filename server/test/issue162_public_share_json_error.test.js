@@ -26,8 +26,10 @@ describe('Issue #162 — Public Share Route JSON & Clean Error Handling', () => 
   const baseUrl = `http://localhost:${process.env.PORT}`;
 
   async function addOAuthShare() {
+    // The account's owner must exist (FOREIGN KEY), whatever other test files left in the DB.
+    await Db.upsertUser('testuser-162', 'testuser-162', 'testuser@example.com');
     // Unique username so the file can be re-run against an existing test DB.
-    const acc = await Db.addAccount('testuser', {
+    const acc = await Db.addAccount('testuser-162', {
       label: 'Broken OAuth Account',
       url: 'https://apidata.googleusercontent.com/caldav/v2/test/user',
       username: `oauthuser-${crypto.randomUUID()}`,

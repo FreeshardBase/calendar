@@ -6,7 +6,7 @@
 // Issue #517: so are the ISO week numbers in the month/week grid and the mini month.
 // Issue #521: so is the Jitsi base URL behind "Videokonferenz hinzufügen" (null = off).
 // Issue #625: so are week start, 12/24 h, default duration/calendar/reminder and the time zone.
-// Issue #626: so is the UI language.
+// Issue #626: so is the UI language; #627 adds Deutsch (Sie) as 'de-formal'.
 
 const express = require('express');
 const router = express.Router();
@@ -50,7 +50,7 @@ const CALENDAR_PREFERENCES = {
   defaultCalendarId: v => (v === null || (typeof v === 'string' && v.length > 0 && v.length <= 1024) ? v : undefined),
   defaultReminder: v => (v === null || isMinutes(v, 0, MAX_REMINDER) ? v : undefined),
   timeZone: v => (v === null ? null : ianaZone(v) ?? undefined),
-  language: v => (v === null || ['de', 'en'].includes(v) ? v : undefined),
+  language: v => (v === null || ['de', 'de-formal', 'en'].includes(v) ? v : undefined),
 };
 const CALENDAR_PREFERENCE_ERRORS = {
   weekStart: "weekStart must be 'mon', 'sun', 'sat' or null",
@@ -59,7 +59,7 @@ const CALENDAR_PREFERENCE_ERRORS = {
   defaultCalendarId: 'defaultCalendarId must be a calendar id or null',
   defaultReminder: `defaultReminder must be a whole number of minutes from 0 to ${MAX_REMINDER} or null`,
   timeZone: 'timeZone must be an IANA time zone name or null',
-  language: "language must be 'de', 'en' or null",
+  language: "language must be 'de', 'de-formal', 'en' or null",
 };
 
 async function readPreferences(userId) {

@@ -9,6 +9,7 @@
 import { store } from './store.js';
 import { GeoAPI } from './api.js';
 import { confirmDialog } from './dialogFocus.js';
+import { t } from './i18n.js';
 
 const $ = id => document.getElementById(id);
 const DEBOUNCE_MS = 400;
@@ -16,12 +17,11 @@ const MIN_QUERY = 3;
 const ZOOM = 16;
 const TILE = 256;
 
-const PROVIDER_NAMES = { off: 'Aus', osm: 'OpenStreetMap (Photon)', google: 'Google Places' };
+// Product names stay as they are; only "off" is a word.
+const providerName = id => ({ osm: 'OpenStreetMap (Photon)', google: 'Google Places' })[id] ?? t('modules.geo.provider.off');
 
 function consentText(p) {
-  return `Beim Tippen im Feld „Ort“ sendet der Shard den eingegebenen Text an ${p.searchHost}. `
-    + `Für die Kartenvorschau lädt er Kartenkacheln rund um den gewählten Ort von ${p.tileHost}. `
-    + 'Beides geschieht nur, während du einen Termin bearbeitest.';
+  return t('modules.geo.consent', { searchHost: p.searchHost, tileHost: p.tileHost });
 }
 
 export async function loadGeoSettings() {
@@ -33,17 +33,17 @@ export function renderGeoSettings() {
   const select = $('geo-provider');
   const providers = store.get('geoProviders');
   select.innerHTML = ['off', ...providers.map(p => p.id)]
-    .map(id => `<option value="${id}">${PROVIDER_NAMES[id]}</option>`).join('');
+    .map(id => `<option value="${id}">${providerName(id)}</option>`).join('');
   select.value = store.get('geoProvider');
   const active = providers.find(p => p.id === store.get('geoProvider'));
   $('geo-provider-notice').textContent = active
     ? consentText(active)
-    : 'Aus: Die Adresssuche und die Kartenvorschau senden nichts an Dritte.';
+    : t('modules.geo.off');
 }
 
 async function changeProvider(id) {
   const p = store.get('geoProviders').find(x => x.id === id);
-  if (p && !(await confirmDialog(consentText(p), `${PROVIDER_NAMES[id]} für Adressen einschalten?`))) {
+  if (p && !(await confirmDialog(consentText(p), t('modules.geo.confirmTitle', { provider: providerName(id) })))) {
     renderGeoSettings();
     return;
   }
@@ -57,6 +57,10 @@ export function initGeoSettings(onError) {
     renderGeoSettings();
     onError(err);
   }));
+  // Settings not loaded yet render once they are, already in the new language.
+  window.addEventListener('ui-language-changed', () => {
+    if (store.get('geoProviders')) renderGeoSettings();
+  });
 }
 
 // Slippy-map tile coordinates (fractional) of a point.
@@ -144,9 +148,9 @@ export function createLocationLookup() {
     credit.href = 'https://www.openstreetmap.org/copyright';
     credit.target = '_blank';
     credit.rel = 'noopener noreferrer';
-    credit.textContent = '© OpenStreetMap-Mitwirkende';
+    credit.textContent = t('modules.geo.credit');
     map.append(grid, pin, credit);
-    map.setAttribute('aria-label', `Kartenvorschau: ${input.value}`);
+    map.setAttribute('aria-label', t('modules.geo.mapLabel', { location: input.value }));
     map.classList.remove('hidden');
   }
 
@@ -166,11 +170,11 @@ export function createLocationLookup() {
     } catch (err) {
       if (mine !== seq) return;
       // 429: the shard's rate limit; the next keystroke asks again.
-      if (err.status !== 429) status.textContent = `Adresssuche fehlgeschlagen: ${err.message}`;
+      if (err.status !== 429) status.textContent = t('modules.geo.searchFailed', { message: err.message });
       return;
     }
     if (mine !== seq || input.value.trim() !== q) return;
-    status.textContent = data.results.length ? '' : 'Keine Adresse gefunden.';
+    status.textContent = data.results.length ? '' : t('modules.geo.noResults');
     results = data.results;
     active = -1;
     renderList();
@@ -216,6 +220,7 @@ export function createLocationLookup() {
   });
 
   input.addEventListener('blur', () => closeList());
+  window.addEventListener('ui-language-changed', () => renderMap());
 
   return {
     set(location, point) {

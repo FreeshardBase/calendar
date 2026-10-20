@@ -6,6 +6,7 @@ import { AccountsAPI } from './api.js';
 import { showToast } from './app.js';
 import { openMSGraphModal } from './msgraph.js';
 import { openDialog, closeDialog } from './dialogFocus.js';
+import { t } from './i18n.js';
 
 let _onAdded = null;
 
@@ -13,18 +14,17 @@ const $ = id => document.getElementById(id);
 
 // #353: a CalDAV provider either has a fixed server (the URL field stays hidden) or asks for its
 // own address. The fixed URLs match server/utils/caldavPresets.js.
+// urlLabel and hint are message keys (public/js/messages/modules.js).
 const PROVIDERS = {
-  custom:    { urlLabel: 'CalDAV Server URL', placeholder: 'https://dav.example.com/calendars/user/' },
+  custom:    { urlLabel: 'modules.account.urlLabel.custom', placeholder: 'https://dav.example.com/calendars/user/' },
   gmx:       { url: 'https://caldav.gmx.net/begenda/dav/' },
   webde:     { url: 'https://caldav.web.de/begenda/dav/' },
   mailbox:   { url: 'https://dav.mailbox.org/caldav/' },
   posteo:    { url: 'https://posteo.de:8443/calendars/' },
-  icloud:    { url: 'https://caldav.icloud.com/',
-               hint: 'Apple verlangt ein app-spezifisches Passwort (appleid.apple.com → Anmeldung und Sicherheit).' },
-  fastmail:  { url: 'https://caldav.fastmail.com/dav/',
-               hint: 'Fastmail verlangt ein app-spezifisches Passwort (Einstellungen → Passwörter & Sicherheit).' },
-  nextcloud: { urlLabel: 'Adresse deiner Nextcloud', placeholder: 'https://cloud.example.com',
-               hint: 'Mit Zwei-Faktor-Anmeldung brauchst du ein App-Passwort (Einstellungen → Sicherheit).' },
+  icloud:    { url: 'https://caldav.icloud.com/', hint: 'modules.account.hint.icloud' },
+  fastmail:  { url: 'https://caldav.fastmail.com/dav/', hint: 'modules.account.hint.fastmail' },
+  nextcloud: { urlLabel: 'modules.account.urlLabel.nextcloud', placeholder: 'https://cloud.example.com',
+               hint: 'modules.account.hint.nextcloud' },
 };
 
 const DOMAIN_PROVIDERS = {
@@ -43,9 +43,14 @@ function applyProvider(id) {
   $('acc-url-group').classList.toggle('hidden', Boolean(provider.url));
   $('acc-url').value = provider.url || '';
   $('acc-url').placeholder = provider.placeholder || '';
-  document.querySelector('label[for="acc-url"]').textContent = provider.urlLabel || 'CalDAV Server URL';
+  renderProviderTexts(provider);
+}
+
+// The provider's URL label and hint in the current language (again on a language switch).
+function renderProviderTexts(provider) {
+  document.querySelector('label[for="acc-url"]').textContent = t(provider.urlLabel || 'modules.account.urlLabel.custom');
   const hint = $('acc-provider-hint');
-  hint.textContent = provider.hint || '';
+  hint.textContent = provider.hint ? t(provider.hint) : '';
   hint.classList.toggle('hidden', !provider.hint);
 }
 
@@ -88,6 +93,10 @@ export function initAccountModal() {
   $('account-cancel-btn').addEventListener('click', closeAccountModal);
 
   $('acc-provider').addEventListener('change', () => applyProvider($('acc-provider').value));
+  window.addEventListener('ui-language-changed', () => {
+    const provider = PROVIDERS[$('acc-provider').value];
+    if (provider) renderProviderTexts(provider);
+  });
 
   // An address of a known provider picks its server, unless a provider was chosen already.
   $('acc-username').addEventListener('input', () => {
@@ -118,7 +127,7 @@ export function initAccountModal() {
     const displayName = $('acc-displayname').value.trim();
 
     if (!url || !username || !password) {
-      showError('Bitte alle Pflichtfelder ausfüllen.');
+      showError(t('modules.account.validation.required'));
       return;
     }
 
@@ -128,7 +137,7 @@ export function initAccountModal() {
     try {
       const result = await AccountsAPI.add({ url, username, password, displayName });
       closeAccountModal();
-      showToast(`Account „${displayName || username}“ hinzugefügt.`, 'success');
+      showToast(t('modules.account.toast.added', { name: displayName || username }), 'success');
       _onAdded?.(result);
     } catch (err) {
       showError(err.message);

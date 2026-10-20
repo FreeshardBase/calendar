@@ -1,9 +1,23 @@
 'use strict';
 process.env.NODE_ENV = 'test';
+process.env.PORT = '3629';
+process.env.DISABLE_INTERNAL_CALDAV = '1';
+process.env.SSL_KEY_PATH = '';
+process.env.SSL_CERT_PATH = '';
 
 const test = require('node:test');
 const assert = require('assert');
+const { server } = require('../index');
+const { fetchModule } = require('./helpers/i18n');
 const { parseShortcutAction, getShortcutHelpList } = require('../../public/js/shortcuts.js');
+
+// #627: the help texts come from the message catalogues as the app serves them, in Deutsch (Du).
+let translate;
+test.before(async () => {
+  if (!server.listening) await new Promise(resolve => server.listen(process.env.PORT, resolve));
+  translate = (await fetchModule(`http://localhost:${process.env.PORT}`)).t;
+});
+test.after(() => server.close());
 
 // Issue #20 shortcut set, bound behind Alt by the #126 maintainer decision (design guide:
 // "plain keys never trigger it").
@@ -85,7 +99,7 @@ test('Keyboard Shortcuts Engine & Navigation Suite (Issues #20, #126)', async (t
   });
 
   await t.test('Shortcut help lists the Alt bindings', () => {
-    const list = getShortcutHelpList();
+    const list = getShortcutHelpList(translate);
     assert.ok(list.some(item => item.key === 'Alt+N / Alt+C' && item.desc.includes('Termin')));
     assert.ok(list.some(item => item.key === 'Alt+M / Alt+1' && item.desc.includes('Monatsansicht')));
     for (const item of list) {

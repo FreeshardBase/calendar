@@ -5271,7 +5271,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         .toBeVisible();
       await expect(page.locator('#toast-container')).not.toContainText(/Benutzer/);
 
-      await page.addScriptTag({ url: '/js/delegates.js' });
+      await page.addScriptTag({ url: '/js/delegates.js', type: 'module' });
       const empty = await page.evaluate(() => {
         const el = document.createElement('div');
         window.DelegatesModule.renderDelegatesList([], el, () => {});
@@ -7557,7 +7557,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect.poll(() => deleted).toEqual([`/api/availability-slots/${encodeURIComponent(bookingPage.id)}`]);
 
       // The delegate list module is served but no page loads it yet; its renderer is exercised directly.
-      await page.addScriptTag({ url: '/js/delegates.js' });
+      await page.addScriptTag({ url: '/js/delegates.js', type: 'module' });
       const delegate = {
         id: 'e2e-404-delegate" data-pwn="delegate', delegate_user_id: `${markup('delegate')}testuser`,
         role: '<b>DELEGATE_WRITE</b>', can_manage_invitations: 1, can_view_private: 0,

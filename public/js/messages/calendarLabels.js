@@ -8,6 +8,14 @@ export default {
     'labels.type.mixed': 'Gemischt',
     'labels.formerLink': 'früher {provider}',
   },
+  'de-formal': {
+    'labels.noun.calendar': 'Kalender',
+    'labels.noun.taskList': 'Aufgabenliste',
+    'labels.type.calendar': 'Kalender',
+    'labels.type.taskList': 'Aufgabenliste',
+    'labels.type.mixed': 'Gemischt',
+    'labels.formerLink': 'früher {provider}',
+  },
   en: {
     'labels.noun.calendar': 'calendar',
     'labels.noun.taskList': 'task list',

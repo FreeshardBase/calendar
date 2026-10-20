@@ -214,6 +214,7 @@ describe('Issue #108 — Search with No Hits & Empty Kanban Board Indicators', (
       parseInt,
       isNaN,
       escapeHtml: (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+      t,
       exports: {},
       module: { exports: {} }
     };
@@ -249,6 +250,7 @@ describe('Issue #108 — Search with No Hits & Empty Kanban Board Indicators', (
       parseInt,
       isNaN,
       escapeHtml: (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+      t,
       exports: {},
       module: { exports: {} }
     };

@@ -3263,7 +3263,7 @@ function attachListeners() {
   function renderShortcutsHelp() {
     const container = $('shortcuts-list');
     if (!container || typeof Shortcuts === 'undefined') return;
-    const list = Shortcuts.getShortcutHelpList();
+    const list = Shortcuts.getShortcutHelpList(t);
     container.innerHTML = list.map(item => `
       <div class="shortcut-row">
         <span class="shortcut-desc">${escHtml(item.desc)}</span>
@@ -3540,6 +3540,7 @@ function attachListeners() {
 
   // ── Keyboard Shortcuts Integration ──────────────────────────────────────────
   renderShortcutsHelp();
+  window.addEventListener('ui-language-changed', renderShortcutsHelp); // #627
 
   const shortcutsCloseBtn = $('shortcuts-modal-close');
   if (shortcutsCloseBtn) {

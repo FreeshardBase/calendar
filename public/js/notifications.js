@@ -5,6 +5,7 @@
 import { store } from './store.js';
 import { showToast } from './app.js';
 import { formatTime } from './locale.js';
+import { t } from './i18n.js';
 
 const NOTIFIED_STORAGE_KEY = 'webcalendar_notified_alarms';
 
@@ -118,10 +119,10 @@ function remindAbout(item, now) {
       notifiedAlarms.add(alarmKey);
       saveNotifiedAlarms();
 
-      const title = `Erinnerung: ${item.title}`;
+      const title = t('modules.notifications.title', { title: item.title });
       const timeIso = item.timeIso;
-      const timeStr = timeIso ? `${item.timeLabel}: ${formatTime(timeIso)}` : '';
-      const locationStr = item.location ? ` | Ort: ${item.location}` : '';
+      const timeStr = timeIso ? t(item.timeLabel, { time: formatTime(timeIso) }) : '';
+      const locationStr = item.location ? t('modules.notifications.location', { location: item.location }) : '';
       const descStr = alarm.description ? ` (${alarm.description})` : '';
       const body = `${timeStr}${locationStr}${descStr}`;
 
@@ -155,8 +156,8 @@ export function checkAndTriggerAlarms() {
     if (ev.pending) continue;
     if (!Array.isArray(ev.alarms) || ev.alarms.length === 0 || !ev.start) continue;
     remindAbout({
-      key: ev.uid || ev.id, title: ev.title || 'Termin', start: ev.start, end: ev.end,
-      location: ev.location, alarms: ev.alarms, timeIso: ev.start, timeLabel: 'Zeit'
+      key: ev.uid || ev.id, title: ev.title || t('modules.notifications.untitledEvent'), start: ev.start, end: ev.end,
+      location: ev.location, alarms: ev.alarms, timeIso: ev.start, timeLabel: 'modules.notifications.eventTime'
     }, now);
   }
 
@@ -165,8 +166,8 @@ export function checkAndTriggerAlarms() {
     if (!Array.isArray(task.alarms) || task.alarms.length === 0 || task.recurrenceId) continue;
     if (task.status === 'COMPLETED' || task.status === 'CANCELLED') continue;
     remindAbout({
-      key: task.uid, title: task.title || 'Aufgabe', start: task.dtstart, end: task.due,
-      alarms: task.alarms, timeIso: task.due, timeLabel: 'Fällig'
+      key: task.uid, title: task.title || t('modules.notifications.untitledTask'), start: task.dtstart, end: task.due,
+      alarms: task.alarms, timeIso: task.due, timeLabel: 'modules.notifications.taskDue'
     }, now);
   }
 }

@@ -1,8 +1,11 @@
-'use strict';
-
 /**
  * FreeShard WebCalendar — Delegate Permissions & Executive Assistant Management Frontend Engine
+ *
+ * An ES module (#627: it reads its texts through i18n.js); no page loads it yet, it is also
+ * exposed as window.DelegatesModule for that future caller and the e2e tests.
  */
+import { t } from './i18n.js';
+
 // The error message of a failed response: the JSON `error` field, or the status when the body is not
 // JSON. Only that parse error is handled; anything else propagates (#343).
 async function responseErrorMessage(res, fallback) {
@@ -16,10 +19,12 @@ async function responseErrorMessage(res, fallback) {
   return `${fallback} (HTTP ${res.status})`;
 }
 
-const DelegatesModule = {
+const yesNo = flag => t(flag ? 'modules.delegates.yes' : 'modules.delegates.no');
+
+export const DelegatesModule = {
   async fetchDelegates() {
     const res = await fetch('/api/delegates');
-    if (!res.ok) throw new Error('Failed to load delegates');
+    if (!res.ok) throw new Error(t('modules.delegates.error.load'));
     return await res.json();
   },
 
@@ -37,21 +42,21 @@ const DelegatesModule = {
       })
     });
     if (!res.ok) {
-      throw new Error(await responseErrorMessage(res, 'Failed to grant delegate permission'));
+      throw new Error(await responseErrorMessage(res, t('modules.delegates.error.grant')));
     }
     return await res.json();
   },
 
   async revokeDelegate(id) {
     const res = await fetch(`/api/delegates/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to revoke delegate permission');
+    if (!res.ok) throw new Error(t('modules.delegates.error.revoke'));
     return await res.json();
   },
 
   renderDelegatesList(delegates, containerEl, onRevoke) {
     if (!containerEl) return;
     if (!delegates || delegates.length === 0) {
-      containerEl.innerHTML = '<div class="text-sm text-slate-500 py-2">Keine Stellvertretung eingerichtet.</div>';
+      containerEl.innerHTML = `<div class="text-sm text-slate-500 py-2">${escHtml(t('modules.delegates.empty'))}</div>`;
       return;
     }
 
@@ -60,13 +65,13 @@ const DelegatesModule = {
         <div>
           <div class="font-semibold text-slate-800 text-sm">${escHtml(d.delegate_user_id)}</div>
           <div class="text-xs text-slate-500">
-            Rolle: <span class="font-medium text-slate-700">${escHtml(d.role)}</span> | 
-            Einladungen: ${d.can_manage_invitations ? 'Ja' : 'Nein'} | 
-            Privat: ${d.can_view_private ? 'Ja' : 'Nein'}
+            ${escHtml(t('modules.delegates.role'))} <span class="font-medium text-slate-700">${escHtml(d.role)}</span> |
+            ${escHtml(t('modules.delegates.invitations', { value: yesNo(d.can_manage_invitations) }))} |
+            ${escHtml(t('modules.delegates.private', { value: yesNo(d.can_view_private) }))}
           </div>
         </div>
         <button type="button" class="revoke-delegate-btn text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 border border-red-200 rounded hover:bg-red-50" data-id="${escHtml(d.id)}">
-          Entfernen
+          ${escHtml(t('modules.delegates.remove'))}
         </button>
       </div>
     `).join('');
@@ -89,9 +94,4 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-if (typeof window !== 'undefined') {
-  window.DelegatesModule = DelegatesModule;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = DelegatesModule;
-}
+window.DelegatesModule = DelegatesModule;

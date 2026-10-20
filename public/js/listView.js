@@ -11,14 +11,15 @@ import { EventsAPI } from './api.js';
 import { calendarLabel, holdsEvents } from './calendarLabels.js';
 import { confirmDialog } from './dialogFocus.js';
 import { formatDate, formatTime } from './locale.js';
+import { t } from './i18n.js';
 
 const PAGE_SIZE = 50;
 const COLUMNS = [
-  { key: 'start', label: 'Datum' },
-  { key: null, label: 'Uhrzeit' },
-  { key: 'title', label: 'Titel' },
-  { key: 'calendar', label: 'Kalender' },
-  { key: 'location', label: 'Ort' },
+  { key: 'start', label: 'views.listView.colDate' },
+  { key: null, label: 'views.listView.colTime' },
+  { key: 'title', label: 'views.listView.colTitle' },
+  { key: 'calendar', label: 'views.listView.colCalendar' },
+  { key: 'location', label: 'views.listView.colLocation' },
 ];
 
 const DATE = { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' };
@@ -47,6 +48,8 @@ const state = {
   selected: new Set(),
   loading: false,
   error: null,
+  // The chosen range ends before it starts (shown in the current language, not stored as text).
+  rangeInvalid: false,
   seq: 0,
 };
 
@@ -74,10 +77,12 @@ export async function loadListPage({ reset = true } = {}) {
   if (end < start) {
     state.rows = [];
     state.total = 0;
-    state.error = 'Das Ende des Zeitraums liegt vor dem Anfang.';
+    state.error = null;
+    state.rangeInvalid = true;
     renderIfShown();
     return;
   }
+  state.rangeInvalid = false;
   if (reset) state.selected.clear();
   state.loading = true;
   state.error = null;
@@ -90,12 +95,12 @@ export async function loadListPage({ reset = true } = {}) {
     state.rows = reset ? page.events : [...state.rows, ...page.events];
     state.total = page.total;
     if (page.errors.length > 0) {
-      deps.showToast('Nicht alle Kalender konnten gelesen werden; ihre Termine fehlen in der Liste.', 'error');
+      deps.showToast(t('views.listView.partialError'), 'error');
     }
   } catch (err) {
     if (seq !== state.seq) return;
     state.error = err.message;
-    deps.showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
+    deps.showToast(t('views.listView.loadError', { message: err.message }), 'error');
   } finally {
     if (seq === state.seq) {
       state.loading = false;
@@ -124,25 +129,27 @@ function rowDate(ev) {
 }
 
 function rowTime(ev) {
-  if (ev.allDay) return 'Ganztägig';
+  if (ev.allDay) return t('views.listView.allDay');
   return ev.end ? `${timeFmt.format(new Date(ev.start))} – ${timeFmt.format(new Date(ev.end))}` : timeFmt.format(new Date(ev.start));
 }
 
 function statusText() {
-  if (state.error) return `Fehler: ${state.error}`;
-  if (state.loading && state.rows.length === 0) return 'Lade Termine…';
-  if (state.total === 0) return 'Keine Termine im gewählten Zeitraum.';
-  return `${state.rows.length} von ${state.total} Termin${state.total !== 1 ? 'en' : ''} angezeigt`;
+  if (state.rangeInvalid) return t('views.listView.error', { message: t('views.listView.rangeError') });
+  if (state.error) return t('views.listView.error', { message: state.error });
+  if (state.loading && state.rows.length === 0) return t('views.listView.loading');
+  if (state.total === 0) return t('views.listView.empty');
+  return t('views.listView.shown', { shown: state.rows.length, count: state.total });
 }
 
 export function renderListView(container) {
   const focusedId = document.activeElement?.id;
   const sortHeader = (col) => {
-    if (!col.key) return `<th scope="col">${col.label}</th>`;
+    const label = t(col.label);
+    if (!col.key) return `<th scope="col">${label}</th>`;
     const active = state.sort === col.key;
     const ariaSort = active ? (state.order === 'asc' ? 'ascending' : 'descending') : 'none';
     const arrow = active ? (state.order === 'asc' ? ' ▲' : ' ▼') : '';
-    return `<th scope="col" data-sort="${col.key}" aria-sort="${ariaSort}"><button type="button" class="list-sort-btn">${col.label}${arrow}</button></th>`;
+    return `<th scope="col" data-sort="${col.key}" aria-sort="${ariaSort}"><button type="button" class="list-sort-btn">${label}${arrow}</button></th>`;
   };
   const writable = (store.get('calendars') || []).filter(c => !c.readOnly && holdsEvents(c));
   const allSelected = state.rows.length > 0 && state.rows.every(ev => state.selected.has(ev.uid));
@@ -150,29 +157,29 @@ export function renderListView(container) {
   container.innerHTML = `
     <div class="list-view">
       <div class="list-controls">
-        <label>Von <input type="date" id="list-from" value="${esc(state.from)}"></label>
-        <label>Bis <input type="date" id="list-to" value="${esc(state.to)}"></label>
-        <input type="search" id="list-filter" class="search-input" placeholder="Titel oder Ort filtern" aria-label="Liste filtern" value="${esc(state.q)}">
+        <label>${t('views.listView.from')} <input type="date" id="list-from" value="${esc(state.from)}"></label>
+        <label>${t('views.listView.to')} <input type="date" id="list-to" value="${esc(state.to)}"></label>
+        <input type="search" id="list-filter" class="search-input" placeholder="${t('views.listView.filterPlaceholder')}" aria-label="${t('views.listView.filterLabel')}" value="${esc(state.q)}">
       </div>
       <div class="list-bulk" id="list-bulk" ${state.selected.size === 0 ? 'hidden' : ''}>
-        <span id="list-bulk-count">${state.selected.size} ausgewählt</span>
-        <label>Verschieben nach
+        <span id="list-bulk-count">${t('views.listView.selectedCount', { count: state.selected.size })}</span>
+        <label>${t('views.listView.moveTo')}
           <select id="list-move-target">
             ${writable.map(c => `<option value="${esc(c.id)}">${esc(calendarLabel(c))}</option>`).join('')}
           </select>
         </label>
-        <button type="button" class="toolbar-btn" id="list-move-btn">Verschieben</button>
-        <button type="button" class="toolbar-btn" id="list-delete-btn">Löschen</button>
+        <button type="button" class="toolbar-btn" id="list-move-btn">${t('views.listView.move')}</button>
+        <button type="button" class="toolbar-btn" id="list-delete-btn">${t('views.listView.delete')}</button>
       </div>
       <table class="list-table" id="list-table">
         <thead><tr>
-          <th scope="col"><input type="checkbox" id="list-select-all" aria-label="Alle angezeigten auswählen" ${allSelected ? 'checked' : ''}></th>
+          <th scope="col"><input type="checkbox" id="list-select-all" aria-label="${t('views.listView.selectAll')}" ${allSelected ? 'checked' : ''}></th>
           ${COLUMNS.map(sortHeader).join('')}
         </tr></thead>
         <tbody>
           ${state.rows.map(ev => `
             <tr data-uid="${esc(ev.uid)}">
-              <td><input type="checkbox" aria-label="${esc(ev.title)} auswählen" ${state.selected.has(ev.uid) ? 'checked' : ''}></td>
+              <td><input type="checkbox" aria-label="${esc(t('views.listView.selectRow', { title: ev.title }))}" ${state.selected.has(ev.uid) ? 'checked' : ''}></td>
               <td class="list-date">${esc(rowDate(ev))}</td>
               <td class="list-time">${esc(rowTime(ev))}</td>
               <td><button type="button" class="list-title">${esc(ev.title)}</button></td>
@@ -182,7 +189,7 @@ export function renderListView(container) {
         </tbody>
       </table>
       <p class="list-status" id="list-status" role="status">${esc(statusText())}</p>
-      <button type="button" class="toolbar-btn" id="list-more" ${state.rows.length < state.total ? '' : 'hidden'} ${state.loading ? 'disabled' : ''}>Weitere laden</button>
+      <button type="button" class="toolbar-btn" id="list-more" ${state.rows.length < state.total ? '' : 'hidden'} ${state.loading ? 'disabled' : ''}>${t('views.listView.loadMore')}</button>
     </div>`;
 
   if (focusedId) {
@@ -243,26 +250,27 @@ function selectedResources() {
 
 const masterUid = ev => ev.masterUid || ev.uid.split('::')[0];
 
-async function runBulk(items, action, done) {
+// `messages`: the keys of the failure and the success toast.
+async function runBulk(items, action, messages) {
   const failed = [];
   for (const ev of items) {
     try {
       await action(ev);
     } catch (err) {
-      failed.push(`„${ev.title}“: ${err.message}`);
+      failed.push(t('views.listView.failedItem', { title: ev.title, message: err.message }));
     }
   }
   if (failed.length > 0) {
-    deps.showToast(`${failed.length} von ${items.length} Terminen nicht ${done}: ${failed.join('; ')}`, 'error');
+    deps.showToast(t(messages.failed, { failed: failed.length, count: items.length, errors: failed.join('; ') }), 'error');
   } else {
-    deps.showToast(`${items.length} Termin${items.length !== 1 ? 'e' : ''} ${done}.`, 'success');
+    deps.showToast(t(messages.done, { count: items.length }), 'success');
   }
   deps.onChanged();
 }
 
 async function moveSelected(targetId) {
   if (!targetId) {
-    deps.showToast('Kein beschreibbarer Kalender als Ziel verfügbar.', 'error');
+    deps.showToast(t('views.listView.noTarget'), 'error');
     return;
   }
   const items = selectedResources().filter(ev => ev.calendarId !== targetId);
@@ -273,17 +281,16 @@ async function moveSelected(targetId) {
     calendarId: targetId,
     sourceCalendarId: ev.calendarId,
     ...(ev.recurrenceId ? { scope: 'series', recurrenceId: ev.recurrenceId } : {}),
-  }), 'verschoben');
+  }), { failed: 'views.listView.moveFailed', done: 'views.listView.moved' });
 }
 
 async function deleteSelected() {
   const items = selectedResources();
   const series = items.some(ev => ev.recurrenceId || ev.recurrence || ev.masterUid);
   const n = items.length;
-  const message = `${n} Termin${n !== 1 ? 'e' : ''} löschen?` +
-    (series ? ' Serientermine werden mit allen Wiederholungen gelöscht.' : '');
+  const message = t(series ? 'views.listView.deleteConfirmSeries' : 'views.listView.deleteConfirm', { count: n });
   if (!(await confirmDialog(message))) return;
   await runBulk(items, ev => EventsAPI.remove(masterUid(ev), {
     calendarId: ev.calendarId, etag: ev.etag, href: ev.href,
-  }), 'gelöscht');
+  }), { failed: 'views.listView.deleteFailed', done: 'views.listView.deleted' });
 }

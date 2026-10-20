@@ -4,8 +4,9 @@
  * The language is resolved in the order of CONCEPTS.md: the user's calendar setting, the platform
  * preference (freeshard#168, not offered by shard_core yet, so skipped), the browser's
  * navigator.languages, then Deutsch (Du). Each module's strings live in public/js/messages/<area>.js
- * as { de: {...}, en: {...} }; a key missing from the active language throws, it never shows
- * the key or another language.
+ * as { de: {...}, 'de-formal': {...}, en: {...} }; a key missing from the active language throws,
+ * it never shows the key or another language. 'de' is Deutsch (Du), 'de-formal' Deutsch (Sie)
+ * (#627); the browser never picks Sie, only the user's setting does.
  *
  * Messages may hold {name} placeholders; a plural message is an object keyed by the
  * Intl.PluralRules categories ({ one, other }) and is chosen by params.count.
@@ -18,15 +19,21 @@ import shell from './messages/shell.js';
 import app from './messages/app.js';
 import eventModal from './messages/eventModal.js';
 import calendarLabels from './messages/calendarLabels.js';
+import tasks from './messages/tasks.js';
+import views from './messages/views.js';
+import modules from './messages/modules.js';
+import booking from './messages/booking.js';
 
-export const LANGUAGES = ['de', 'en'];
+export const LANGUAGES = ['de', 'de-formal', 'en'];
+// The BCP 47 tag each UI language formats dates and plurals in (the page's lang).
+const LOCALE_TAGS = { de: 'de', 'de-formal': 'de', en: 'en' };
 export const DEFAULT_LANGUAGE = 'de';
 
-const AREAS = [shell, app, eventModal, calendarLabels];
+export const AREAS = { shell, app, eventModal, calendarLabels, tasks, views, modules, booking };
 
 function merge(lang) {
   const all = {};
-  for (const area of AREAS) {
+  for (const area of Object.values(AREAS)) {
     for (const [key, value] of Object.entries(area[lang])) {
       if (Object.hasOwn(all, key)) throw new Error(`Duplicate message key: ${key}`);
       all[key] = value;
@@ -57,7 +64,7 @@ export const resolveLanguage = chosen => (chosen && LANGUAGES.includes(chosen) ?
 const pluralRules = new Map();
 
 function pluralCategory(lang, count) {
-  if (!pluralRules.has(lang)) pluralRules.set(lang, new Intl.PluralRules(lang));
+  if (!pluralRules.has(lang)) pluralRules.set(lang, new Intl.PluralRules(LOCALE_TAGS[lang]));
   return pluralRules.get(lang).select(count);
 }
 
@@ -93,7 +100,8 @@ export function translateDom(root = document) {
 export function setLanguage(lang) {
   if (!LANGUAGES.includes(lang)) throw new Error(`Unsupported language: ${lang}`);
   current = lang;
-  document.documentElement.lang = lang;
+  document.documentElement.lang = LOCALE_TAGS[lang];
+  document.documentElement.dataset.uiLanguage = lang;
   translateDom(document);
   window.dispatchEvent(new CustomEvent('ui-language-changed', { detail: { language: lang } }));
 }
