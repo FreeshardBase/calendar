@@ -205,6 +205,14 @@ export const TrashAPI = {
   purge:   (id) => request('DELETE', `/api/trash/${encodeURIComponent(id)}`),
 };
 
+// ── Public holidays (#514) ────────────────────────────────────────────────────
+export const HolidaysAPI = {
+  regions:     ()       => request('GET', '/api/holidays/regions'),
+  getSettings: ()       => request('GET', '/api/holidays/settings'),
+  setRegion:   (region) => request('PUT', '/api/holidays/settings', { region }),
+  getEvents:   (start, end) => request('GET', `/api/holidays/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+};
+
 // ── Per-user preferences (#498) ───────────────────────────────────────────────
 export const PreferencesAPI = {
   get:         ()         => request('GET', '/api/preferences'),
