@@ -94,7 +94,7 @@ export function isDialogOpen(el) {
   if (!el) return false;
   if (el.hasAttribute && el.hasAttribute('inert')) return false;
   if (el.classList.contains('hidden')) return false;
-  if (el.classList.contains('sidebar-settings-drawer') || el.id === 'settings-drawer' || el.classList.contains('sidebar')) {
+  if (el.id === 'settings-drawer' || el.classList.contains('sidebar')) {
     return el.classList.contains('open');
   }
   return true;
@@ -112,7 +112,7 @@ export function getTopDialog() {
   }
   if (typeof document !== 'undefined' && document.querySelectorAll) {
     const candidates = Array.from(document.querySelectorAll(
-      '.modal-backdrop:not(.hidden):not([inert]), .sidebar-settings-drawer.open:not([inert]), #settings-drawer.open:not([inert]), .sidebar.open:not([inert]), .event-popover:not(.hidden):not([inert])'
+      '.modal-backdrop:not(.hidden):not([inert]), #settings-drawer.open:not([inert]), .sidebar.open:not([inert]), .event-popover:not(.hidden):not([inert])'
     ));
     const openModals = candidates.filter(isDialogOpen);
     if (openModals.length > 0) {

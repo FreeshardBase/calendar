@@ -14,16 +14,12 @@ const Db = require('../db');
 const { checkCalendarAccess, queueSyncForCalendar } = require('../utils/calendarAuth');
 const { sendError, userError } = require('../utils/errorSanitizer');
 
-const CALENDAR_GONE = 'Der Kalender dieses Eintrags existiert nicht mehr. Stelle zuerst den Kalender aus dem Papierkorb wieder her.';
-const ITEM_EXISTS = 'Unter dieser Adresse gibt es inzwischen einen neuen Eintrag. Der gelöschte bleibt im Papierkorb.';
-const CALENDAR_EXISTS = 'Unter dieser Adresse gibt es inzwischen einen anderen Kalender. Der gelöschte bleibt im Papierkorb.';
-
 async function resolveCollection(req, calendarId) {
   const sep = calendarId.indexOf('::');
   const accountId = calendarId.slice(0, sep);
   let account = (req.session.accounts || []).find(a => a.id === accountId);
   if (!account) account = (await Db.getAccounts(req.session.userId)).find(a => a.id === accountId);
-  if (!account) throw userError('Das Konto dieses Eintrags ist nicht mehr verbunden.', 409);
+  if (!account) throw userError('ACCOUNT_DISCONNECTED', 409);
   const client = await getClientForAccount(account);
   return { account, client, calendarUrl: resolveUrl(account.url, calendarId.slice(sep + 2)) };
 }
@@ -35,11 +31,11 @@ async function collectionExists(client, calendarUrl) {
   return true;
 }
 
-async function putNew(client, url, ics, conflictMessage) {
+async function putNew(client, url, ics) {
   try {
     await client.put(url, ics, null);
   } catch (err) {
-    if (err.message === 'ETAG_CONFLICT') throw userError(conflictMessage, 409);
+    if (err.message === 'ETAG_CONFLICT') throw userError('TRASH_ITEM_EXISTS', 409);
     throw err;
   }
 }
@@ -48,22 +44,23 @@ async function restore(req, item) {
   const required = item.kind === 'calendar' ? 'owner' : 'write';
   const access = await checkCalendarAccess(req, item.calendarId, required);
   if (!access.allowed || (required === 'owner' && !access.isOwner)) {
-    throw userError(access.reason || 'Dir fehlt die Berechtigung, diesen Eintrag wiederherzustellen.', access.status || 403);
+    // access.reason is the English log text of checkCalendarAccess; the user gets the code.
+    throw userError('TRASH_RESTORE_DENIED', access.status || 403);
   }
   const { account, client, calendarUrl } = await resolveCollection(req, item.calendarId);
   const { payload } = item;
 
   if (item.kind === 'calendar') {
-    if (await collectionExists(client, calendarUrl)) throw userError(CALENDAR_EXISTS, 409);
+    if (await collectionExists(client, calendarUrl)) throw userError('TRASH_CALENDAR_EXISTS', 409);
     await client.mkcalendar(calendarUrl, payload.name, payload.color, payload.components);
     for (const entry of payload.items) {
-      await putNew(client, new URL(entry.href, account.url).href, entry.ics, ITEM_EXISTS);
+      await putNew(client, new URL(entry.href, account.url).href, entry.ics);
     }
     return;
   }
 
-  if (!(await collectionExists(client, calendarUrl))) throw userError(CALENDAR_GONE, 409);
-  await putNew(client, new URL(payload.href, account.url).href, payload.ics, ITEM_EXISTS);
+  if (!(await collectionExists(client, calendarUrl))) throw userError('TRASH_CALENDAR_GONE', 409);
+  await putNew(client, new URL(payload.href, account.url).href, payload.ics);
   // #597: the Microsoft 365 import only reads; its worker creates a restored item at Graph.
   if (payload.msgraph) await Db.addMSGraphRestore(req.session.userId, payload.msgraph.accountId, payload.href);
 }

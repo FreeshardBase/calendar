@@ -21,6 +21,7 @@ const PAGE_UNAVAILABLE = 'Diese Buchungsseite ist derzeit nicht verfügbar.';
 
 function pageUnavailable(detail) {
   const err = new Error(detail);
+  err.userCode = 'BOOKING_PAGE_UNAVAILABLE';
   err.userMessage = PAGE_UNAVAILABLE;
   err.status = 503;
   return err;

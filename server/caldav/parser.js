@@ -1164,10 +1164,10 @@ function advanceRecurringTask(task) {
   try {
     recur = ICAL.Recur.fromString(rruleStr);
   } catch (err) {
-    throw userError(`Ungültige Wiederholungsregel: ${err.message}`, 422);
+    throw userError('INVALID_RRULE', 422, { detail: err.message });
   }
   if (!recur.freq) {
-    throw userError('Ungültige Wiederholungsregel: FREQ fehlt', 422);
+    throw userError('INVALID_RRULE', 422, { detail: 'FREQ fehlt' });
   }
 
   const baseDue = task.due ? new Date(task.due) : new Date();
@@ -1193,7 +1193,7 @@ function advanceRecurringTask(task) {
   const dueMs = baseDue.getTime();
   const originMs = task.dtstart ? new Date(task.dtstart).getTime() : dueMs;
   if (isNaN(originMs) || originMs > dueMs) {
-    throw userError('Aufgabe ungültig: DTSTART liegt nach DUE', 422);
+    throw userError('TASK_START_AFTER_DUE', 422);
   }
   const iterator = recur.iterator(ICAL.Time.fromJSDate(new Date(originMs), true /* isUTC */));
   const maxSteps = 50000; // ical.js iterates impossible rules (e.g. 30 Feb) forever
@@ -1235,7 +1235,7 @@ function advanceRecurringTask(task) {
       completedInstance
     };
   }
-  throw userError(`Wiederholungsregel ergibt kein weiteres Vorkommen: ${rruleStr}`, 422);
+  throw userError('RRULE_NO_NEXT', 422, { detail: rruleStr });
 }
 
 function updateAttendeePartstat(icsString, attendeeEmail, status, recurrenceId = null) {

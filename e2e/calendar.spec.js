@@ -1928,7 +1928,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
           const body = route.request().postDataJSON();
           puts.push(body);
           if (releasePut) await releasePut;
-          if (failPut) return route.fulfill({ status: 500, json: { error: 'CalDAV nicht erreichbar' } });
+          if (failPut) return route.fulfill({ status: 500, json: { error: 'CalDAV nicht erreichbar', code: 'UPSTREAM_DOWN' } });
           tasks = tasks.map(t => (t.uid === body.uid ? { ...t, status: body.status } : t));
           return route.fulfill({ json: { ...body } });
         });
@@ -1958,7 +1958,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         await expect(back).toHaveCount(1, { timeout: 10000 });
         await expect(back).toHaveClass(/kanban-card-rolled-back/);
         await expect(page.locator('.count-in-process')).toHaveText('0');
-        await expect(page.locator('#toast-container .toast.error', { hasText: 'CalDAV nicht erreichbar' })).toBeVisible();
+        await expect(page.locator('#toast-container .toast.error', { hasText: 'Der Kalenderserver ist gerade nicht erreichbar' })).toBeVisible();
       });
 
       test('the status menu on a card moves it with the keyboard alone', async ({ page }) => {
@@ -2868,7 +2868,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   // #497: a failed export is reported before any download starts, never as a broken file or a
   // silent switch to the print dialog.
   for (const failure of [
-    { name: 'a server error', status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'PDF-Erzeugung fehlgeschlagen (Test)' }), shown: 'PDF-Erzeugung fehlgeschlagen (Test)' },
+    { name: 'a server error', status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'PDF-Erzeugung fehlgeschlagen (Test)', code: 'GENERIC' }), shown: 'Ein unerwarteter Fehler ist aufgetreten' },
     { name: 'a non-PDF 200 answer from the proxy', status: 200, contentType: 'text/html', body: '<html><body>Login</body></html>', shown: 'keine PDF-Datei' },
     { name: 'a PDF content type with a broken body', status: 200, contentType: 'application/pdf', body: '<html>gateway</html>', shown: 'keine PDF-Datei' },
   ]) {
@@ -4233,16 +4233,16 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     test('a failed load keeps the error in the bar, also after switching views', async ({ page }) => {
       await page.route('**/api/events?*', route =>
-        route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) }));
+        route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler', code: 'GENERIC' }) }));
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
       const bar = page.locator('#status-bar');
       await expect(page.locator('#toast-container .toast.error', { hasText: 'Fehler beim Laden der Termine' })).toBeVisible({ timeout: 10000 });
-      await expect(bar).toHaveText(/^Fehler: Fehler beim Laden der Termine: .*Datenbankfehler/);
+      await expect(bar).toHaveText(/^Fehler: Fehler beim Laden der Termine: .*Ein unerwarteter Fehler ist aufgetreten/);
 
       await bar.evaluate(el => { el.textContent = ''; });
       await page.click('#view-day');
-      await expect(bar).toHaveText(/Fehler beim Laden der Termine: .*Datenbankfehler/, { timeout: 10000 });
+      await expect(bar).toHaveText(/Fehler beim Laden der Termine: .*Ein unerwarteter Fehler ist aufgetreten/, { timeout: 10000 });
       await expect(bar).not.toHaveText(/Keine Termine/);
     });
   });
@@ -4304,13 +4304,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
 
-    const failWith = (status, error) => route => {
+    const failWith = (status, code) => route => {
       if (route.request().method() !== 'GET') return route.continue();
-      return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error }) });
+      return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: 'Servertext', code }) });
     };
 
     test('a 401 on the account list asks the user to sign in again instead of onboarding', async ({ page }) => {
-      await page.route('**/api/accounts', failWith(401, 'Authentication required'));
+      await page.route('**/api/accounts', failWith(401, 'UNAUTHENTICATED'));
       await page.goto('/');
 
       const reauth = page.locator('#reauth-screen');
@@ -4323,7 +4323,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
 
     test('a 401 on the calendar list asks the user to sign in again', async ({ page }) => {
-      await page.route('**/api/calendars', failWith(401, 'Authentication required'));
+      await page.route('**/api/calendars', failWith(401, 'UNAUTHENTICATED'));
       await page.goto('/');
 
       await expect(page.locator('#reauth-screen')).toBeVisible({ timeout: 10000 });
@@ -4332,24 +4332,24 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
 
     test('a 500 on the account list keeps the app shell, shows the error once and claims no empty sidebar', async ({ page }) => {
-      await page.route('**/api/accounts', failWith(500, 'Fehler beim Laden der Kontodaten.'));
+      await page.route('**/api/accounts', failWith(500, 'GENERIC'));
       await page.goto('/');
 
       await expect(page.locator('#app')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('#onboarding')).toBeHidden();
       await expect(page.locator('#reauth-screen')).toBeHidden();
-      await expect(page.locator('#toast-container .toast.error .toast-msg')).toHaveText('Fehler beim Laden der Kontodaten.');
+      await expect(page.locator('#toast-container .toast.error .toast-msg')).toHaveText('Fehler beim Laden der Kontodaten: Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.');
       const list = page.locator('#calendar-list');
       await expect(list).toHaveText('Kalender konnten nicht geladen werden.');
       await expect(list).not.toContainText('Keine Kalender gefunden.');
     });
 
     test('a 500 on the calendar list shows the failure in the sidebar, not an empty list', async ({ page }) => {
-      await page.route('**/api/calendars', failWith(500, 'CalDAV-Server nicht erreichbar'));
+      await page.route('**/api/calendars', failWith(500, 'UPSTREAM_DOWN'));
       await page.goto('/');
 
       await expect(page.locator('#app')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('#toast-container .toast.error', { hasText: 'CalDAV-Server nicht erreichbar' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Der Kalenderserver ist gerade nicht erreichbar' })).toBeVisible({ timeout: 10000 });
       const list = page.locator('#calendar-list');
       await expect(list).toHaveText('Kalender konnten nicht geladen werden.');
       await expect(list).not.toContainText('Keine Kalender gefunden.');
@@ -6152,12 +6152,12 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // page.route needs the service worker off.
     test.use({ serviceWorkers: 'block' });
 
-    const failWith = (message, status = 500) => route =>
-      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: message }) });
+    const failWith = (code, status = 500) => route =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: 'Servertext', code }) });
 
     test('a failed event save is announced as an alert in the event dialog', async ({ page }) => {
       await page.route('**/api/events', route =>
-        route.request().method() === 'POST' ? failWith('Speichern auf dem Server fehlgeschlagen')(route) : route.continue());
+        route.request().method() === 'POST' ? failWith('UPSTREAM_DOWN')(route) : route.continue());
       await page.goto('/?date=2028-12-28');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
@@ -6170,13 +6170,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#event-save-btn');
 
       const alert = page.locator('#event-modal').getByRole('alert');
-      await expect(alert).toHaveText('Speichern auf dem Server fehlgeschlagen');
+      await expect(alert).toHaveText('Der Kalenderserver ist gerade nicht erreichbar oder hat einen Fehler gemeldet. Bitte versuche es später erneut.');
       await expect(alert).toHaveAttribute('id', 'event-form-error');
     });
 
     test('a failed account add is announced as an alert in the account dialog', async ({ page }) => {
       await page.route('**/api/accounts', route =>
-        route.request().method() === 'POST' ? failWith('Server nicht erreichbar', 502)(route) : route.continue());
+        route.request().method() === 'POST' ? failWith('CONNECTION', 502)(route) : route.continue());
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
@@ -6190,13 +6190,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#account-save-btn');
 
       const alert = page.locator('#account-modal').getByRole('alert');
-      await expect(alert).toHaveText('Server nicht erreichbar');
+      await expect(alert).toHaveText('Verbindung zum Kalenderserver fehlgeschlagen. Bitte prüfe deine Netzwerkverbindung.');
       await expect(alert).toHaveAttribute('id', 'account-form-error');
     });
 
     test('a failed calendar create is announced as an alert in the add-calendar dialog', async ({ page }) => {
       await page.route('**/api/calendars', route =>
-        route.request().method() === 'POST' ? failWith('Kalender konnte nicht angelegt werden')(route) : route.continue());
+        route.request().method() === 'POST' ? failWith('GENERIC')(route) : route.continue());
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
@@ -6205,7 +6205,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#add-cal-submit');
 
       const alert = page.locator('#add-cal-dialog-backdrop').getByRole('alert');
-      await expect(alert).toHaveText(/Kalender konnte nicht angelegt werden/);
+      await expect(alert).toHaveText(/Ein unerwarteter Fehler ist aufgetreten/);
       await expect(alert).toHaveAttribute('id', 'add-cal-error');
     });
 
@@ -6235,14 +6235,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(chip).toBeVisible({ timeout: 15000 });
 
       const failDelete = route =>
-        route.request().method() === 'DELETE' ? failWith('Termin ist gesperrt')(route) : route.continue();
+        route.request().method() === 'DELETE' ? failWith('ACCESS_DENIED', 403)(route) : route.continue();
       await page.route('**/api/events/**', failDelete);
       try {
         await chip.click();
         await page.click('#popover-delete-btn');
         await page.click('#confirm-dialog-ok');
 
-        const toast = page.locator('#toast-container').getByRole('alert').filter({ hasText: 'Termin ist gesperrt' });
+        const toast = page.locator('#toast-container').getByRole('alert').filter({ hasText: 'Dir fehlt die Berechtigung' });
         await expect(toast).toBeVisible();
         await expect(toast).toHaveAttribute('aria-live', 'assertive');
         await page.waitForTimeout(4600);
@@ -6266,7 +6266,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     test('a failed calendar delete in settings names the failure once', async ({ page }) => {
       await page.route('**/api/calendars/**', route =>
-        route.request().method() === 'DELETE' ? failWith('Kalender ist gesperrt')(route) : route.continue());
+        route.request().method() === 'DELETE' ? failWith('ACCESS_DENIED', 403)(route) : route.continue());
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
 
@@ -6279,8 +6279,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.click('#typed-confirm-ok');
 
       const toast = page.locator('#toast-container').getByRole('alert');
-      await expect(toast).toHaveText(/Kalender ist gesperrt/);
-      await expect(page.locator('#status-bar')).toHaveText('Fehler: Kalender ist gesperrt');
+      await expect(toast).toHaveText(/Dir fehlt die Berechtigung/);
+      await expect(page.locator('#status-bar')).toHaveText('Fehler: Dir fehlt die Berechtigung für diese Aktion.');
     });
   });
 
@@ -6351,11 +6351,11 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     }
 
     // Answers `method` on `pattern` with a 500 after a delay — a slow, then failing Radicale.
-    async function failRequests(page, pattern, method, message) {
+    async function failRequests(page, pattern, method, code) {
       await page.route(pattern, async route => {
         if (route.request().method() !== method) return route.continue();
         await new Promise(resolve => setTimeout(resolve, 1500));
-        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: message }) });
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Servertext', code }) });
       });
     }
 
@@ -6392,7 +6392,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     test('a failed create removes the shown event, says so in German and reopens the dialog with the entries', async ({ page }) => {
       const title = `E2E 174 Failing ${Date.now()}`;
       await openApp(page);
-      await failRequests(page, '**/api/events', 'POST', 'Radicale nicht erreichbar');
+      await failRequests(page, '**/api/events', 'POST', 'UPSTREAM_DOWN');
       await fillNewAllDayEvent(page, title);
       await page.click('#event-save-btn');
 
@@ -6403,13 +6403,13 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       const toast = page.locator('#toast-container .toast.error', { hasText: title });
       await expect(toast).toBeVisible({ timeout: 10000 });
       await expect(toast).toContainText('wurde nicht gespeichert und ist wieder entfernt');
-      await expect(toast).toContainText('Radicale nicht erreichbar');
+      await expect(toast).toContainText('Der Kalenderserver ist gerade nicht erreichbar');
       await expect(toast).toHaveAttribute('role', 'alert');
       await expect(chip).toHaveCount(0);
       // Nothing typed is lost: the dialog is back with the title and the server's reason.
       await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
       await expect(page.locator('#ev-title')).toHaveValue(title);
-      await expect(page.locator('#event-form-error')).toHaveText('Radicale nicht erreichbar');
+      await expect(page.locator('#event-form-error')).toHaveText('Der Kalenderserver ist gerade nicht erreichbar oder hat einen Fehler gemeldet. Bitte versuche es später erneut.');
     });
 
     test('a failed edit rolls the event back to its saved state', async ({ page }) => {
@@ -6428,7 +6428,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       try {
         await openApp(page);
-        await failRequests(page, '**/api/events/*', 'PUT', 'Radicale nicht erreichbar');
+        await failRequests(page, '**/api/events/*', 'PUT', 'UPSTREAM_DOWN');
         await page.locator('.event-chip', { hasText: oldTitle }).first().click();
         await page.click('#popover-edit-btn');
         await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
@@ -6444,7 +6444,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         await expect(toast).toContainText('wurde nicht gespeichert und ist zurückgenommen');
         await expect(edited).toHaveCount(0);
         await expect(page.locator('.event-chip', { hasText: oldTitle }).first()).toBeVisible();
-        await expect(page.locator('#event-form-error')).toHaveText('Radicale nicht erreichbar');
+        await expect(page.locator('#event-form-error')).toHaveText('Der Kalenderserver ist gerade nicht erreichbar oder hat einen Fehler gemeldet. Bitte versuche es später erneut.');
       } finally {
         await page.unroute('**/api/events/*');
         await deleteByTitle(page, oldTitle);
@@ -7407,7 +7407,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         ? { ...body, status: 'NEEDS-ACTION', percentComplete: 0, due: new Date(Date.parse(body.due) + 7 * 864e5).toISOString() }
         : { ...body, status: 'COMPLETED' });
       await page.route('**/api/tasks/*', route => route.request().method() === 'DELETE'
-        ? route.fulfill({ status: 500, json: { error: 'API delete failed' } })
+        ? route.fulfill({ status: 500, json: { error: 'API delete failed', code: 'GENERIC' } })
         : route.fallback());
       await openApp(page);
 
@@ -7443,7 +7443,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await card('E2E 404 Single').locator('.btn-delete').click();
       await expect(page.locator('#confirm-dialog-text')).toHaveText('Aufgabe „E2E 404 Single“ wirklich löschen?');
       await page.click('#confirm-dialog-ok');
-      await takeToast(page, 'error', 'Fehler beim Löschen: API delete failed');
+      await takeToast(page, 'error', 'Fehler beim Löschen: Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.');
       expect(dialogs).toEqual([]);
     });
 
@@ -7504,7 +7504,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await page.route('**/api/events/*/rsvp', route => {
         rsvps.push(route.request().postDataJSON());
         return failRsvp
-          ? route.fulfill({ status: 500, json: { error: 'CalDAV 500 Internal Server Error' } })
+          ? route.fulfill({ status: 500, json: { error: 'CalDAV 500 Internal Server Error', code: 'UPSTREAM_DOWN' } })
           : route.fulfill({ json: { success: true, status: 'ACCEPTED' } });
       });
       await openApp(page);
@@ -7518,7 +7518,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
       failRsvp = true;
       await card.getByRole('button', { name: 'Absagen' }).click();
-      await takeToast(page, 'error', 'RSVP konnte nicht gespeichert werden: CalDAV 500 Internal Server Error');
+      await takeToast(page, 'error', 'RSVP konnte nicht gespeichert werden: Der Kalenderserver ist gerade nicht erreichbar oder hat einen Fehler gemeldet. Bitte versuche es später erneut.');
       expect(rsvps[1].status).toBe('DECLINED');
       expect(dialogs).toEqual([]);
     });
@@ -7840,14 +7840,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await createEvent(page, { title: 'E2E 494 bleibt', start: '2038-03-11T10:00:00.000Z', end: '2038-03-11T11:00:00.000Z' });
       await editAt(page, '2038-03-11', 'E2E 494 bleibt');
       await page.route('**/api/events/*', route => (route.request().method() === 'PUT'
-        ? route.fulfill({ status: 502, json: { error: 'Zielkalender nicht erreichbar' } })
+        ? route.fulfill({ status: 502, json: { error: 'Zielkalender nicht erreichbar', code: 'UPSTREAM_DOWN' } })
         : route.fallback()));
 
       await page.selectOption('#ev-calendar', targetId);
       await page.click('#event-save-btn');
-      await expect(page.locator('#toast-container .toast.error', { hasText: 'Zielkalender nicht erreichbar' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Der Kalenderserver ist gerade nicht erreichbar' })).toBeVisible({ timeout: 10000 });
       await expect(page.locator('#event-modal-backdrop')).not.toHaveClass(/hidden/);
-      await expect(page.locator('#event-form-error')).toHaveText('Zielkalender nicht erreichbar');
+      await expect(page.locator('#event-form-error')).toHaveText('Der Kalenderserver ist gerade nicht erreichbar oder hat einen Fehler gemeldet. Bitte versuche es später erneut.');
 
       expect(await titlesIn(page, sourceId)).toEqual(['E2E 494 bleibt']);
       expect(await titlesIn(page, targetId)).toEqual([]);
@@ -8088,7 +8088,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('#task-modal-backdrop')).not.toHaveClass(/hidden/);
       await page.fill('#task-title', 'E2E 495 renamed');
       await page.click('#task-save-btn');
-      await expect(page.locator('#toast-container .toast.error', { hasText: 'does not accept tasks' })).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#toast-container .toast.error', { hasText: 'Dieser Kalender nimmt keine Aufgaben auf' })).toBeVisible({ timeout: 10000 });
       expect(await titlesIn(page, googleId)).toEqual([title]);
     });
 

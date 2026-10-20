@@ -52,7 +52,8 @@ describe('Issue #162 — Public Share Route JSON & Clean Error Handling', () => 
     for (const fragment of leaks) {
       assert.strictEqual(raw.includes(fragment), false, `Response must not contain ${JSON.stringify(fragment)}: ${raw}`);
     }
-    assert.deepStrictEqual(JSON.parse(raw), { error: PUBLIC_SHARE_ERROR });
+    // #628: the code of the status comes with the message.
+    assert.deepStrictEqual(JSON.parse(raw), { error: PUBLIC_SHARE_ERROR, code: 'GENERIC' });
   }
 
   test('GET /api/public/calendars/share/invalidtoken.ics returns a German JSON error with status 404', async () => {
@@ -60,7 +61,7 @@ describe('Issue #162 — Public Share Route JSON & Clean Error Handling', () => 
     assert.strictEqual(res.status, 404);
     const contentType = res.headers.get('content-type') || '';
     assert.ok(contentType.includes('application/json'), `Expected application/json, got ${contentType}`);
-    assert.deepStrictEqual(await res.json(), { error: 'Kalenderfreigabe nicht gefunden oder Token ungültig.' });
+    assert.deepStrictEqual(await res.json(), { error: 'Kalenderfreigabe nicht gefunden oder Token ungültig.', code: 'RESOURCE_NOT_FOUND' });
   });
 
   test('missing OAuth configuration is answered with the fixed German error, not the config detail', async () => {

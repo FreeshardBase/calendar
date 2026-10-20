@@ -191,8 +191,11 @@
       </button>
     </div>
 
-    <!-- Settings Drawer -->
-    <div class="sidebar-settings-drawer hidden" id="settings-drawer" inert role="dialog" aria-modal="true" aria-labelledby="settings-drawer-title">
+  </aside>
+
+  <!-- Settings (#628): a dialog with one section per topic; the topic list jumps to a section -->
+  <div class="settings-dialog hidden" id="settings-drawer" inert role="dialog" aria-modal="true" aria-labelledby="settings-drawer-title">
+    <div class="settings-panel">
       <div class="settings-drawer-header">
         <h2 id="settings-drawer-title" data-i18n="shell.settings.title">Einstellungen</h2>
         <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen" data-i18n-aria-label="shell.settings.close">
@@ -201,310 +204,334 @@
           </svg>
         </button>
       </div>
-      <div class="settings-drawer-body">
-        <!-- Accounts Section -->
-        <div class="settings-section">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0" data-i18n="shell.settings.accounts">Accounts verwalten</h3>
-            <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px" aria-label="Account hinzufügen" data-i18n-title="shell.settings.addAccount" data-i18n-aria-label="shell.settings.addAccount">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
-                <path d="M12 5v14M5 12h14"/>
-              </svg>
-            </button>
-          </div>
-          <div class="settings-list" id="settings-account-list"></div>
-        </div>
-        <!-- Calendars Section -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0" data-i18n="shell.settings.calendars">Kalender &amp; Aufgabenlisten löschen</h3>
-            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender oder Aufgabenliste erstellen" style="padding:2px" aria-label="Kalender oder Aufgabenliste erstellen" data-i18n-title="shell.settings.createCalendar" data-i18n-aria-label="shell.settings.createCalendar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
-                <path d="M12 5v14M5 12h14"/>
-              </svg>
-            </button>
-          </div>
-          <div class="settings-list" id="settings-calendar-list"></div>
-        </div>
-        <!-- Trash Section (#348) -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.trash">Papierkorb</h3>
-          <p class="trash-hint" data-i18n="shell.settings.trashHint">Gelöschte Kalender, Aufgabenlisten, Termine und Aufgaben bleiben 30 Tage wiederherstellbar.</p>
-          <div class="settings-list" id="settings-trash-list"></div>
-        </div>
-        <!-- App-Specific Passwords Section -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0" data-i18n="shell.settings.appPasswords">App-Passwörter (CalDAV)</h3>
-            <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" style="padding:2px" aria-label="App-Passwort erstellen" data-i18n-title="shell.settings.createAppPassword" data-i18n-aria-label="shell.settings.createAppPassword">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
-                <path d="M12 5v14M5 12h14"/>
-              </svg>
-            </button>
-          </div>
-          <div class="settings-list" id="settings-asp-list"></div>
-        </div>
-        <!-- Theme / Appearance Section -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.appearance">Erscheinungsbild</h3>
-          <!-- #626: the UI language; "Wie im Browser" leaves it to the browser, then Deutsch (Du) -->
-          <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-language" style="font-size:11px;" data-i18n="shell.settings.language">Sprache</label>
-            <select class="form-select" id="pref-language" data-pref="language" style="width:100%; font-size:12px; padding:4px 6px;">
-              <option value="" data-i18n="shell.settings.languageBrowser">Wie im Browser</option>
-              <option value="de" lang="de">Deutsch (Du)</option>
-              <option value="de-formal" lang="de">Deutsch (Sie)</option>
-              <option value="en" lang="en">English</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" for="theme-select" style="font-size:11px;" data-i18n="shell.settings.theme">Farbschema / Theme</label>
-            <select class="form-select" id="theme-select" style="width:100%; font-size:12px; padding:4px 6px;">
-              <option value="system" data-i18n="shell.settings.themeSystem">System (Automatisch)</option>
-              <option value="light" data-i18n="shell.settings.themeLight">Helle Ansicht (Light)</option>
-              <option value="dark" data-i18n="shell.settings.themeDark">Dunkle Ansicht (Dark)</option>
-            </select>
-          </div>
-        </div>
-        <!-- #625: calendar preferences; "Wie im Browser" leaves the choice to the browser's conventions -->
-        <div class="settings-section" id="calendar-prefs" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.prefs">Datum, Uhrzeit und neue Termine</h3>
-          <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-week-start" style="font-size:11px;" data-i18n="shell.settings.weekStart">Woche beginnt am</label>
-            <select class="form-select" id="pref-week-start" data-pref="weekStart">
-              <option value="" data-i18n="shell.settings.browserDefault">Wie im Browser</option>
-              <option value="mon" data-i18n="shell.weekday.mon">Montag</option>
-              <option value="sun" data-i18n="shell.weekday.sun">Sonntag</option>
-              <option value="sat" data-i18n="shell.weekday.sat">Samstag</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-time-format" style="font-size:11px;" data-i18n="shell.settings.timeFormat">Uhrzeit</label>
-            <select class="form-select" id="pref-time-format" data-pref="timeFormat">
-              <option value="" data-i18n="shell.settings.browserDefault">Wie im Browser</option>
-              <option value="24h" data-i18n="shell.settings.time24h">24 Stunden (13:00)</option>
-              <option value="12h" data-i18n="shell.settings.time12h">12 Stunden (1:00 PM)</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-time-zone" style="font-size:11px;" data-i18n="shell.settings.defaultTimeZone">Zeitzone neuer Termine</label>
-            <select class="form-select" id="pref-time-zone" data-pref="timeZone"></select>
-          </div>
-          <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-default-duration" style="font-size:11px;" data-i18n="shell.settings.defaultDuration">Dauer neuer Termine</label>
-            <select class="form-select" id="pref-default-duration" data-pref="defaultDuration" data-number>
-              <option value="15" data-i18n="shell.settings.duration15">15 Minuten</option>
-              <option value="30" data-i18n="shell.settings.duration30">30 Minuten</option>
-              <option value="45" data-i18n="shell.settings.duration45">45 Minuten</option>
-              <option value="60" data-i18n="shell.settings.duration60">1 Stunde</option>
-              <option value="90" data-i18n="shell.settings.duration90">1,5 Stunden</option>
-              <option value="120" data-i18n="shell.settings.duration120">2 Stunden</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-default-calendar" style="font-size:11px;" data-i18n="shell.settings.defaultCalendar">Kalender neuer Termine</label>
-            <select class="form-select" id="pref-default-calendar" data-pref="defaultCalendarId"></select>
-          </div>
-          <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" for="pref-default-reminder" style="font-size:11px;" data-i18n="shell.settings.defaultReminder">Erinnerung neuer Termine</label>
-            <select class="form-select" id="pref-default-reminder" data-pref="defaultReminder" data-number>
-              <option value="" data-i18n="shell.common.none">Keine</option>
-              <option value="0" data-i18n="shell.settings.reminderAtStart">Zum Beginn</option>
-              <option value="5" data-i18n="shell.settings.reminder5">5 Minuten vorher</option>
-              <option value="10" data-i18n="shell.settings.reminder10">10 Minuten vorher</option>
-              <option value="15" data-i18n="shell.settings.reminder15">15 Minuten vorher</option>
-              <option value="30" data-i18n="shell.settings.reminder30">30 Minuten vorher</option>
-              <option value="60" data-i18n="shell.settings.reminder60">1 Stunde vorher</option>
-              <option value="1440" data-i18n="shell.settings.reminder1440">1 Tag vorher</option>
-            </select>
-          </div>
-        </div>
-        <!-- #517: Week numbers -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.weekNumbers">Kalenderwochen</h3>
-          <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
-              <input type="checkbox" id="show-week-numbers-toggle" />
-              <span data-i18n="shell.settings.weekNumbersShow">Kalenderwochen (ISO) in Monat, Woche und Mini-Monat anzeigen</span>
-            </label>
-          </div>
-        </div>
-        <!-- Timezone Settings Section -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.secondaryTz">Zweite Zeitzone</h3>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
-              <input type="checkbox" id="show-secondary-tz-toggle" />
-              <span data-i18n="shell.settings.secondaryTzShow">Zweite Zeitleiste in Woche und Tag anzeigen</span>
-            </label>
-          </div>
-          <div class="form-group hidden" id="secondary-tz-picker" style="margin-bottom:4px;">
-            <div id="secondary-tz-current" style="font-size:11px; margin-bottom:6px;" aria-live="polite"></div>
-            <label class="form-label" for="secondary-tz-search" style="font-size:11px;" data-i18n="shell.settings.secondaryTzSearch">Zeitzone suchen</label>
-            <input type="search" class="form-input" id="secondary-tz-search" autocomplete="off" spellcheck="false"
-                   placeholder="Stadt oder Zone, z. B. Tokyo" data-i18n-placeholder="shell.settings.secondaryTzPlaceholder" aria-controls="secondary-tz-results"
-                   style="width:100%; font-size:12px; padding:4px 6px;" />
-            <ul class="tz-results" id="secondary-tz-results" aria-label="Passende Zeitzonen" data-i18n-aria-label="shell.settings.secondaryTzResults"></ul>
-          </div>
-        </div>
-        <!-- Public holidays (#514): a built-in, read-only subscription computed on the shard -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.holidays">Feiertage</h3>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" for="holiday-country" style="font-size:11px;" data-i18n="shell.settings.holidaysCountry">Land</label>
-            <select class="form-select" id="holiday-country" style="width:100%; font-size:12px; padding:4px 6px;">
-              <option value="">Keine Feiertage anzeigen</option>
-            </select>
-          </div>
-          <div class="form-group hidden" id="holiday-region-group" style="margin-bottom:4px;">
-            <label class="form-label" for="holiday-region" style="font-size:11px;" data-i18n="shell.settings.holidaysRegion">Region</label>
-            <select class="form-select" id="holiday-region" style="width:100%; font-size:12px; padding:4px 6px;"></select>
-          </div>
-          <p style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;" data-i18n="shell.settings.holidaysNote">Werden auf dem Shard berechnet, ohne Anfrage an Dritte.</p>
-        </div>
-        <!-- Weather (#513): opt-in, because the location goes to a third party -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.weather">Wetter</h3>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
-              <input type="checkbox" id="weather-enabled" aria-describedby="weather-notice" />
-              <span data-i18n="shell.settings.weatherShow">Wettervorhersage in Woche und Tag anzeigen</span>
-            </label>
-          </div>
-          <p id="weather-notice" style="font-size:11px; color:var(--ink-muted); margin:0 0 8px;">
-            <span data-i18n="shell.settings.weatherNoticeBefore">Eingeschaltet sendet der Shard den hier eingetragenen Ort, auf etwa 1&nbsp;km gerundet, an</span>
-            <span id="weather-provider-host">Bright Sky (api.brightsky.dev)</span><span data-i18n="shell.settings.weatherNoticeAfter">. Bright Sky liefert die offenen
-            Vorhersagen des Deutschen Wetterdienstes für Deutschland und Umgebung. Ausgeschaltet geht nichts dorthin.</span>
-          </p>
-          <form class="hidden" id="weather-location-form" novalidate>
-            <div style="display:flex; gap:8px; margin-bottom:8px;">
-              <div style="flex:1;">
-                <label class="form-label" for="weather-latitude" style="font-size:11px;" data-i18n="shell.settings.latitude">Breitengrad</label>
-                <input type="text" inputmode="decimal" class="form-input" id="weather-latitude" placeholder="52.52" autocomplete="off"
-                       style="width:100%; font-size:12px; padding:4px 6px;" />
+      <div class="settings-layout">
+        <nav class="settings-nav" id="settings-nav" aria-label="Bereiche der Einstellungen" data-i18n-aria-label="shell.settings.navLabel">
+          <ul>
+            <li><button type="button" class="settings-nav-btn" aria-controls="settings-topic-general" data-i18n="shell.settings.topicGeneral">Allgemein</button></li>
+            <li><button type="button" class="settings-nav-btn" aria-controls="settings-topic-accounts" data-i18n="shell.settings.topicAccounts">Konten &amp; Kalender</button></li>
+            <li><button type="button" class="settings-nav-btn" aria-controls="settings-topic-work" data-i18n="shell.settings.workingHours">Arbeitszeiten &amp; Abwesenheit</button></li>
+            <li><button type="button" class="settings-nav-btn" aria-controls="settings-topic-services" data-i18n="shell.settings.topicServices">Dienste</button></li>
+            <li><button type="button" class="settings-nav-btn" aria-controls="settings-topic-notifications" data-i18n="shell.settings.notifications">Benachrichtigungen</button></li>
+          </ul>
+        </nav>
+        <div class="settings-drawer-body" id="settings-body">
+          <section class="settings-topic" id="settings-topic-general" aria-labelledby="settings-topic-general-title">
+            <h3 class="settings-topic-title" id="settings-topic-general-title" tabindex="-1" data-i18n="shell.settings.topicGeneral">Allgemein</h3>
+            <!-- Theme / Appearance Section -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.appearance">Erscheinungsbild</h4>
+              <!-- #626: the UI language; "Wie im Browser" leaves it to the browser, then Deutsch (Du) -->
+              <div class="form-group">
+                <label class="form-label" for="pref-language" data-i18n="shell.settings.language">Sprache</label>
+                <select class="form-select" id="pref-language" data-pref="language">
+                  <option value="" data-i18n="shell.settings.languageBrowser">Wie im Browser</option>
+                  <option value="de" lang="de">Deutsch (Du)</option>
+                  <option value="de-formal" lang="de">Deutsch (Sie)</option>
+                  <option value="en" lang="en">English</option>
+                </select>
               </div>
-              <div style="flex:1;">
-                <label class="form-label" for="weather-longitude" style="font-size:11px;" data-i18n="shell.settings.longitude">Längengrad</label>
-                <input type="text" inputmode="decimal" class="form-input" id="weather-longitude" placeholder="13.40" autocomplete="off"
-                       style="width:100%; font-size:12px; padding:4px 6px;" />
+              <div class="form-group">
+                <label class="form-label" for="theme-select" data-i18n="shell.settings.theme">Farbschema / Theme</label>
+                <select class="form-select" id="theme-select">
+                  <option value="system" data-i18n="shell.settings.themeSystem">System (Automatisch)</option>
+                  <option value="light" data-i18n="shell.settings.themeLight">Helle Ansicht (Light)</option>
+                  <option value="dark" data-i18n="shell.settings.themeDark">Dunkle Ansicht (Dark)</option>
+                </select>
               </div>
             </div>
-            <p id="weather-error" class="hidden" role="alert" style="font-size:11px; color:var(--danger); margin:0 0 8px;"></p>
-            <button type="submit" class="btn btn-ghost" id="weather-save-btn" data-i18n="shell.settings.weatherSave">Ort speichern und Wetter einschalten</button>
-          </form>
-          <p id="weather-status" style="font-size:11px; margin:6px 0 0;" aria-live="polite"></p>
-        </div>
-        <!-- Video conference link (#521): off until the user sets a Jitsi server -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.conference">Videokonferenz</h3>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
-              <input type="checkbox" id="conference-enabled" aria-describedby="conference-notice" />
-              <span data-i18n="shell.settings.conferenceOffer">„Videokonferenz hinzufügen“ im Termin-Dialog anbieten (Jitsi)</span>
-            </label>
-          </div>
-          <form class="hidden" id="conference-form" novalidate>
-            <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label" for="conference-base-url" style="font-size:11px;" data-i18n="shell.settings.conferenceServer">Jitsi-Server (eigener oder öffentlicher)</label>
-              <input type="url" class="form-input" id="conference-base-url" autocomplete="off"
-                     style="width:100%; font-size:12px; padding:4px 6px;" />
-            </div>
-            <p id="conference-error" class="hidden" role="alert" style="font-size:11px; color:var(--danger); margin:0 0 8px;"></p>
-            <button type="submit" class="btn btn-ghost" id="conference-save-btn" data-i18n="shell.settings.conferenceSave">Server speichern</button>
-          </form>
-          <p id="conference-notice" aria-live="polite" style="font-size:11px; color:var(--ink-muted); margin:6px 0 0;"></p>
-        </div>
-        <!-- Address lookup and map preview (#512): off until the user opts into a provider -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.geo">Adresssuche &amp; Karte</h3>
-          <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" for="geo-provider" style="font-size:11px;" data-i18n="shell.settings.geoProvider">Dienst für Adressvorschläge im Feld „Ort“</label>
-            <select class="form-select" id="geo-provider" style="width:100%; font-size:12px; padding:4px 6px;"></select>
-          </div>
-          <p id="geo-provider-notice" aria-live="polite" style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;"></p>
-        </div>
-        <!-- Working Hours & Out of Office Section -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.workingHours">Arbeitszeiten & Abwesenheit</h3>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <div style="flex:1;">
-              <label class="form-label" for="wh-start-hour" style="font-size:11px;" data-i18n="shell.settings.whStart">Beginn</label>
-              <select class="form-select" id="wh-start-hour" style="width:100%; font-size:12px; padding:4px 6px;">
-                <option value="6" data-i18n="shell.settings.whHour6">06:00 Uhr</option>
-                <option value="7" data-i18n="shell.settings.whHour7">07:00 Uhr</option>
-                <option value="8" data-i18n="shell.settings.whHour8">08:00 Uhr</option>
-                <option value="9" selected data-i18n="shell.settings.whHour9">09:00 Uhr</option>
-                <option value="10" data-i18n="shell.settings.whHour10">10:00 Uhr</option>
-              </select>
-            </div>
-            <div style="flex:1;">
-              <label class="form-label" for="wh-end-hour" style="font-size:11px;" data-i18n="shell.settings.whEnd">Ende</label>
-              <select class="form-select" id="wh-end-hour" style="width:100%; font-size:12px; padding:4px 6px;">
-                <option value="15" data-i18n="shell.settings.whHour15">15:00 Uhr</option>
-                <option value="16" data-i18n="shell.settings.whHour16">16:00 Uhr</option>
-                <option value="17" selected data-i18n="shell.settings.whHour17">17:00 Uhr</option>
-                <option value="18" data-i18n="shell.settings.whHour18">18:00 Uhr</option>
-                <option value="19" data-i18n="shell.settings.whHour19">19:00 Uhr</option>
-                <option value="20" data-i18n="shell.settings.whHour20">20:00 Uhr</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:8px;">
-            <div class="form-label" id="wh-days-caption" style="font-size:11px; display:block; margin-bottom:4px;" data-i18n="shell.settings.whDays">Arbeitstage</div>
-            <div role="group" aria-labelledby="wh-days-caption" style="display:flex; flex-wrap:wrap; gap:6px; font-size:11px;">
-              <label><input type="checkbox" id="wh-day-1" checked /> <span data-i18n="shell.weekday.monShort">Mo</span></label>
-              <label><input type="checkbox" id="wh-day-2" checked /> <span data-i18n="shell.weekday.tueShort">Di</span></label>
-              <label><input type="checkbox" id="wh-day-3" checked /> <span data-i18n="shell.weekday.wedShort">Mi</span></label>
-              <label><input type="checkbox" id="wh-day-4" checked /> <span data-i18n="shell.weekday.thuShort">Do</span></label>
-              <label><input type="checkbox" id="wh-day-5" checked /> <span data-i18n="shell.weekday.friShort">Fr</span></label>
-              <label><input type="checkbox" id="wh-day-6" /> <span data-i18n="shell.weekday.satShort">Sa</span></label>
-              <label><input type="checkbox" id="wh-day-0" /> <span data-i18n="shell.weekday.sunShort">So</span></label>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
-              <input type="checkbox" id="wh-auto-decline" />
-              <span data-i18n="shell.settings.whAutoDecline">Automatische Absage bei Termin außerhalb</span>
-            </label>
-          </div>
-          <div class="form-group" style="margin-bottom:8px; border-top:1px dashed var(--border); padding-top:8px;">
-            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; font-weight:600;">
-              <input type="checkbox" id="wh-ooo-enabled" />
-              <span data-i18n="shell.settings.whOoo">Abwesenheitsmodus (Out of Office)</span>
-            </label>
-          </div>
-          <div id="wh-ooo-fields" style="display:none; margin-bottom:8px;">
-            <div style="display:flex; gap:8px; margin-bottom:6px;">
-              <div style="flex:1;">
-                <label class="form-label" for="wh-ooo-start" style="font-size:11px;" data-i18n="shell.common.from">Von</label>
-                <input type="date" class="form-input" id="wh-ooo-start" style="width:100%; font-size:11px; padding:3px 5px;" />
+            <!-- #625: calendar preferences; "Wie im Browser" leaves the choice to the browser's conventions -->
+            <div class="settings-section" id="calendar-prefs">
+              <h4 class="settings-section-title" data-i18n="shell.settings.prefs">Datum, Uhrzeit und neue Termine</h4>
+              <div class="form-group">
+                <label class="form-label" for="pref-week-start" data-i18n="shell.settings.weekStart">Woche beginnt am</label>
+                <select class="form-select" id="pref-week-start" data-pref="weekStart">
+                  <option value="" data-i18n="shell.settings.browserDefault">Wie im Browser</option>
+                  <option value="mon" data-i18n="shell.weekday.mon">Montag</option>
+                  <option value="sun" data-i18n="shell.weekday.sun">Sonntag</option>
+                  <option value="sat" data-i18n="shell.weekday.sat">Samstag</option>
+                </select>
               </div>
-              <div style="flex:1;">
-                <label class="form-label" for="wh-ooo-end" style="font-size:11px;" data-i18n="shell.common.to">Bis</label>
-                <input type="date" class="form-input" id="wh-ooo-end" style="width:100%; font-size:11px; padding:3px 5px;" />
+              <div class="form-group">
+                <label class="form-label" for="pref-time-format" data-i18n="shell.settings.timeFormat">Uhrzeit</label>
+                <select class="form-select" id="pref-time-format" data-pref="timeFormat">
+                  <option value="" data-i18n="shell.settings.browserDefault">Wie im Browser</option>
+                  <option value="24h" data-i18n="shell.settings.time24h">24 Stunden (13:00)</option>
+                  <option value="12h" data-i18n="shell.settings.time12h">12 Stunden (1:00 PM)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="pref-time-zone" data-i18n="shell.settings.defaultTimeZone">Zeitzone neuer Termine</label>
+                <select class="form-select" id="pref-time-zone" data-pref="timeZone"></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="pref-default-duration" data-i18n="shell.settings.defaultDuration">Dauer neuer Termine</label>
+                <select class="form-select" id="pref-default-duration" data-pref="defaultDuration" data-number>
+                  <option value="15" data-i18n="shell.settings.duration15">15 Minuten</option>
+                  <option value="30" data-i18n="shell.settings.duration30">30 Minuten</option>
+                  <option value="45" data-i18n="shell.settings.duration45">45 Minuten</option>
+                  <option value="60" data-i18n="shell.settings.duration60">1 Stunde</option>
+                  <option value="90" data-i18n="shell.settings.duration90">1,5 Stunden</option>
+                  <option value="120" data-i18n="shell.settings.duration120">2 Stunden</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="pref-default-calendar" data-i18n="shell.settings.defaultCalendar">Kalender neuer Termine</label>
+                <select class="form-select" id="pref-default-calendar" data-pref="defaultCalendarId"></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="pref-default-reminder" data-i18n="shell.settings.defaultReminder">Erinnerung neuer Termine</label>
+                <select class="form-select" id="pref-default-reminder" data-pref="defaultReminder" data-number>
+                  <option value="" data-i18n="shell.common.none">Keine</option>
+                  <option value="0" data-i18n="shell.settings.reminderAtStart">Zum Beginn</option>
+                  <option value="5" data-i18n="shell.settings.reminder5">5 Minuten vorher</option>
+                  <option value="10" data-i18n="shell.settings.reminder10">10 Minuten vorher</option>
+                  <option value="15" data-i18n="shell.settings.reminder15">15 Minuten vorher</option>
+                  <option value="30" data-i18n="shell.settings.reminder30">30 Minuten vorher</option>
+                  <option value="60" data-i18n="shell.settings.reminder60">1 Stunde vorher</option>
+                  <option value="1440" data-i18n="shell.settings.reminder1440">1 Tag vorher</option>
+                </select>
               </div>
             </div>
-            <div style="margin-bottom:4px;">
-              <label class="form-label" for="wh-ooo-message" style="font-size:11px;" data-i18n="shell.settings.whOooMessage">Abwesenheitsnachricht</label>
-              <input type="text" class="form-input" id="wh-ooo-message" value="Out of Office / Abwesend" data-i18n-value="views.workingHours.oooDefault" style="width:100%; font-size:11px; padding:4px 6px;" />
+            <!-- #517: Week numbers -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.weekNumbers">Kalenderwochen</h4>
+              <div class="form-group">
+                <label class="settings-check">
+                  <input type="checkbox" id="show-week-numbers-toggle" />
+                  <span data-i18n="shell.settings.weekNumbersShow">Kalenderwochen (ISO) in Monat, Woche und Mini-Monat anzeigen</span>
+                </label>
+              </div>
             </div>
-          </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-            <button class="btn btn-primary" id="wh-save-btn" style="font-size:11px; padding:4px 10px;" data-i18n="shell.settings.whSave">Regeln speichern</button>
-            <span id="wh-save-status" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <!-- Notifications Settings Section -->
-        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.notifications">Benachrichtigungen</h3>
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size:12px;" id="notification-status-text">Status: Standard</span>
-            <button class="btn btn-sm btn-ghost" id="request-notification-btn" style="font-size:11px;">Aktivieren</button>
-          </div>
+            <!-- Timezone Settings Section -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.secondaryTz">Zweite Zeitzone</h4>
+              <div class="form-group">
+                <label class="settings-check">
+                  <input type="checkbox" id="show-secondary-tz-toggle" />
+                  <span data-i18n="shell.settings.secondaryTzShow">Zweite Zeitleiste in Woche und Tag anzeigen</span>
+                </label>
+              </div>
+              <div class="form-group hidden" id="secondary-tz-picker">
+                <div id="secondary-tz-current" class="settings-note" aria-live="polite"></div>
+                <label class="form-label" for="secondary-tz-search" data-i18n="shell.settings.secondaryTzSearch">Zeitzone suchen</label>
+                <input type="search" class="form-input" id="secondary-tz-search" autocomplete="off" spellcheck="false"
+                       placeholder="Stadt oder Zone, z. B. Tokyo" data-i18n-placeholder="shell.settings.secondaryTzPlaceholder" aria-controls="secondary-tz-results"
+                       />
+                <ul class="tz-results" id="secondary-tz-results" aria-label="Passende Zeitzonen" data-i18n-aria-label="shell.settings.secondaryTzResults"></ul>
+              </div>
+            </div>
+          </section>
+          <section class="settings-topic" id="settings-topic-accounts" aria-labelledby="settings-topic-accounts-title">
+            <h3 class="settings-topic-title" id="settings-topic-accounts-title" tabindex="-1" data-i18n="shell.settings.topicAccounts">Konten &amp; Kalender</h3>
+            <!-- Accounts Section -->
+            <div class="settings-section">
+              <div class="settings-section-head">
+                <h4 class="settings-section-title" data-i18n="shell.settings.accounts">Accounts verwalten</h4>
+                <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" aria-label="Account hinzufügen" data-i18n-title="shell.settings.addAccount" data-i18n-aria-label="shell.settings.addAccount">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="settings-list" id="settings-account-list"></div>
+            </div>
+            <!-- Calendars Section -->
+            <div class="settings-section">
+              <div class="settings-section-head">
+                <h4 class="settings-section-title" data-i18n="shell.settings.calendars">Kalender &amp; Aufgabenlisten löschen</h4>
+                <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender oder Aufgabenliste erstellen" aria-label="Kalender oder Aufgabenliste erstellen" data-i18n-title="shell.settings.createCalendar" data-i18n-aria-label="shell.settings.createCalendar">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="settings-list" id="settings-calendar-list"></div>
+            </div>
+            <!-- App-Specific Passwords Section -->
+            <div class="settings-section">
+              <div class="settings-section-head">
+                <h4 class="settings-section-title" data-i18n="shell.settings.appPasswords">App-Passwörter (CalDAV)</h4>
+                <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" aria-label="App-Passwort erstellen" data-i18n-title="shell.settings.createAppPassword" data-i18n-aria-label="shell.settings.createAppPassword">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="settings-list" id="settings-asp-list"></div>
+            </div>
+            <!-- Trash Section (#348) -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.trash">Papierkorb</h4>
+              <p class="trash-hint" data-i18n="shell.settings.trashHint">Gelöschte Kalender, Aufgabenlisten, Termine und Aufgaben bleiben 30 Tage wiederherstellbar.</p>
+              <div class="settings-list" id="settings-trash-list"></div>
+            </div>
+          </section>
+          <section class="settings-topic" id="settings-topic-work" aria-labelledby="settings-topic-work-title">
+            <h3 class="settings-topic-title" id="settings-topic-work-title" tabindex="-1" data-i18n="shell.settings.workingHours">Arbeitszeiten &amp; Abwesenheit</h3>
+            <!-- Working Hours & Out of Office Section -->
+            <div class="settings-section">
+              <div class="settings-row">
+                <div class="settings-row-item">
+                  <label class="form-label" for="wh-start-hour" data-i18n="shell.settings.whStart">Beginn</label>
+                  <select class="form-select" id="wh-start-hour">
+                    <option value="6" data-i18n="shell.settings.whHour6">06:00 Uhr</option>
+                    <option value="7" data-i18n="shell.settings.whHour7">07:00 Uhr</option>
+                    <option value="8" data-i18n="shell.settings.whHour8">08:00 Uhr</option>
+                    <option value="9" selected data-i18n="shell.settings.whHour9">09:00 Uhr</option>
+                    <option value="10" data-i18n="shell.settings.whHour10">10:00 Uhr</option>
+                  </select>
+                </div>
+                <div class="settings-row-item">
+                  <label class="form-label" for="wh-end-hour" data-i18n="shell.settings.whEnd">Ende</label>
+                  <select class="form-select" id="wh-end-hour">
+                    <option value="15" data-i18n="shell.settings.whHour15">15:00 Uhr</option>
+                    <option value="16" data-i18n="shell.settings.whHour16">16:00 Uhr</option>
+                    <option value="17" selected data-i18n="shell.settings.whHour17">17:00 Uhr</option>
+                    <option value="18" data-i18n="shell.settings.whHour18">18:00 Uhr</option>
+                    <option value="19" data-i18n="shell.settings.whHour19">19:00 Uhr</option>
+                    <option value="20" data-i18n="shell.settings.whHour20">20:00 Uhr</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="form-label" id="wh-days-caption" data-i18n="shell.settings.whDays">Arbeitstage</div>
+                <div class="settings-days" role="group" aria-labelledby="wh-days-caption">
+                  <label><input type="checkbox" id="wh-day-1" checked /> <span data-i18n="shell.weekday.monShort">Mo</span></label>
+                  <label><input type="checkbox" id="wh-day-2" checked /> <span data-i18n="shell.weekday.tueShort">Di</span></label>
+                  <label><input type="checkbox" id="wh-day-3" checked /> <span data-i18n="shell.weekday.wedShort">Mi</span></label>
+                  <label><input type="checkbox" id="wh-day-4" checked /> <span data-i18n="shell.weekday.thuShort">Do</span></label>
+                  <label><input type="checkbox" id="wh-day-5" checked /> <span data-i18n="shell.weekday.friShort">Fr</span></label>
+                  <label><input type="checkbox" id="wh-day-6" /> <span data-i18n="shell.weekday.satShort">Sa</span></label>
+                  <label><input type="checkbox" id="wh-day-0" /> <span data-i18n="shell.weekday.sunShort">So</span></label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="settings-check">
+                  <input type="checkbox" id="wh-auto-decline" />
+                  <span data-i18n="shell.settings.whAutoDecline">Automatische Absage bei Termin außerhalb</span>
+                </label>
+              </div>
+              <div class="form-group settings-subgroup">
+                <label class="settings-check settings-check-strong">
+                  <input type="checkbox" id="wh-ooo-enabled" />
+                  <span data-i18n="shell.settings.whOoo">Abwesenheitsmodus (Out of Office)</span>
+                </label>
+              </div>
+              <div id="wh-ooo-fields" class="hidden">
+                <div class="settings-row">
+                  <div class="settings-row-item">
+                    <label class="form-label" for="wh-ooo-start" data-i18n="shell.common.from">Von</label>
+                    <input type="date" class="form-input" id="wh-ooo-start" />
+                  </div>
+                  <div class="settings-row-item">
+                    <label class="form-label" for="wh-ooo-end" data-i18n="shell.common.to">Bis</label>
+                    <input type="date" class="form-input" id="wh-ooo-end" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="wh-ooo-message" data-i18n="shell.settings.whOooMessage">Abwesenheitsnachricht</label>
+                  <input type="text" class="form-input" id="wh-ooo-message" value="Out of Office / Abwesend" data-i18n-value="views.workingHours.oooDefault" />
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="wh-save-btn" data-i18n="shell.settings.whSave">Regeln speichern</button>
+                <span class="settings-note" id="wh-save-status"></span>
+              </div>
+            </div>
+          </section>
+          <section class="settings-topic" id="settings-topic-services" aria-labelledby="settings-topic-services-title">
+            <h3 class="settings-topic-title" id="settings-topic-services-title" tabindex="-1" data-i18n="shell.settings.topicServices">Dienste</h3>
+            <!-- Public holidays (#514): a built-in, read-only subscription computed on the shard -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.holidays">Feiertage</h4>
+              <div class="form-group">
+                <label class="form-label" for="holiday-country" data-i18n="shell.settings.holidaysCountry">Land</label>
+                <select class="form-select" id="holiday-country">
+                  <option value="">Keine Feiertage anzeigen</option>
+                </select>
+              </div>
+              <div class="form-group hidden" id="holiday-region-group">
+                <label class="form-label" for="holiday-region" data-i18n="shell.settings.holidaysRegion">Region</label>
+                <select class="form-select" id="holiday-region"></select>
+              </div>
+              <p class="settings-note" data-i18n="shell.settings.holidaysNote">Werden auf dem Shard berechnet, ohne Anfrage an Dritte.</p>
+            </div>
+            <!-- Weather (#513): opt-in, because the location goes to a third party -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.weather">Wetter</h4>
+              <div class="form-group">
+                <label class="settings-check">
+                  <input type="checkbox" id="weather-enabled" aria-describedby="weather-notice" />
+                  <span data-i18n="shell.settings.weatherShow">Wettervorhersage in Woche und Tag anzeigen</span>
+                </label>
+              </div>
+              <p class="settings-note" id="weather-notice">
+                <span data-i18n="shell.settings.weatherNoticeBefore">Eingeschaltet sendet der Shard den hier eingetragenen Ort, auf etwa 1&nbsp;km gerundet, an</span>
+                <span id="weather-provider-host">Bright Sky (api.brightsky.dev)</span><span data-i18n="shell.settings.weatherNoticeAfter">. Bright Sky liefert die offenen
+                Vorhersagen des Deutschen Wetterdienstes für Deutschland und Umgebung. Ausgeschaltet geht nichts dorthin.</span>
+              </p>
+              <form class="hidden" id="weather-location-form" novalidate>
+                <div class="settings-row">
+                  <div class="settings-row-item">
+                    <label class="form-label" for="weather-latitude" data-i18n="shell.settings.latitude">Breitengrad</label>
+                    <input type="text" inputmode="decimal" class="form-input" id="weather-latitude" placeholder="52.52" autocomplete="off"
+                           />
+                  </div>
+                  <div class="settings-row-item">
+                    <label class="form-label" for="weather-longitude" data-i18n="shell.settings.longitude">Längengrad</label>
+                    <input type="text" inputmode="decimal" class="form-input" id="weather-longitude" placeholder="13.40" autocomplete="off"
+                           />
+                  </div>
+                </div>
+                <p id="weather-error" class="settings-error hidden" role="alert"></p>
+                <button type="submit" class="btn btn-ghost" id="weather-save-btn" data-i18n="shell.settings.weatherSave">Ort speichern und Wetter einschalten</button>
+              </form>
+              <p class="settings-note" id="weather-status" aria-live="polite"></p>
+            </div>
+            <!-- Video conference link (#521): off until the user sets a Jitsi server -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.conference">Videokonferenz</h4>
+              <div class="form-group">
+                <label class="settings-check">
+                  <input type="checkbox" id="conference-enabled" aria-describedby="conference-notice" />
+                  <span data-i18n="shell.settings.conferenceOffer">„Videokonferenz hinzufügen“ im Termin-Dialog anbieten (Jitsi)</span>
+                </label>
+              </div>
+              <form class="hidden" id="conference-form" novalidate>
+                <div class="form-group">
+                  <label class="form-label" for="conference-base-url" data-i18n="shell.settings.conferenceServer">Jitsi-Server (eigener oder öffentlicher)</label>
+                  <input type="url" class="form-input" id="conference-base-url" autocomplete="off"
+                         />
+                </div>
+                <p id="conference-error" class="settings-error hidden" role="alert"></p>
+                <button type="submit" class="btn btn-ghost" id="conference-save-btn" data-i18n="shell.settings.conferenceSave">Server speichern</button>
+              </form>
+              <p class="settings-note" id="conference-notice" aria-live="polite"></p>
+            </div>
+            <!-- Address lookup and map preview (#512): off until the user opts into a provider -->
+            <div class="settings-section">
+              <h4 class="settings-section-title" data-i18n="shell.settings.geo">Adresssuche &amp; Karte</h4>
+              <div class="form-group">
+                <label class="form-label" for="geo-provider" data-i18n="shell.settings.geoProvider">Dienst für Adressvorschläge im Feld „Ort“</label>
+                <select class="form-select" id="geo-provider"></select>
+              </div>
+              <p class="settings-note" id="geo-provider-notice" aria-live="polite"></p>
+            </div>
+          </section>
+          <section class="settings-topic" id="settings-topic-notifications" aria-labelledby="settings-topic-notifications-title">
+            <h3 class="settings-topic-title" id="settings-topic-notifications-title" tabindex="-1" data-i18n="shell.settings.notifications">Benachrichtigungen</h3>
+            <!-- Notifications Settings Section -->
+            <div class="settings-section">
+              <div class="settings-section-head">
+                <span class="settings-note" id="notification-status-text">Status: Standard</span>
+                <button class="btn btn-sm btn-ghost" id="request-notification-btn">Aktivieren</button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
-  </aside>
+  </div>
 
   <!-- Main Content -->
   <main class="main" id="main-content">

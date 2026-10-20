@@ -2,21 +2,34 @@
  * api.js — Typed fetch wrapper for the FreeShard CalDAV backend.
  */
 
+import { t } from './i18n.js';
+
 const BASE = '';
 
 /**
- * The error message of a failed response: the JSON `error` field, or the status line when the body is
- * not JSON (e.g. a proxy error page). Only that parse error is handled; anything else propagates.
+ * The error message of a failed response in the user's language: the server answers an error code and
+ * its parameters (#628, #160), never shown as the server's own text. A body that is not JSON (e.g. a
+ * proxy error page) gives the fallback or the HTTP status. Only that parse error is handled; anything
+ * else propagates, and a code without a message is a missing translation that fails loudly.
  */
+// A `weekday` parameter is 0 (Sunday) … 6 and is shown as the day's name in the UI language
+// (2026-01-04 is a Sunday). Intl directly, not locale.js: the public booking page has no store.
+function messageParams(params = {}) {
+  if (!Number.isInteger(params.weekday)) return params;
+  const name = new Intl.DateTimeFormat(document.documentElement.lang, { weekday: 'long' }).format(new Date(2026, 0, 4 + params.weekday));
+  return { ...params, weekday: name };
+}
+
 export async function responseErrorMessage(res, fallback) {
   const text = await res.text();
+  let data = null;
   try {
-    const data = JSON.parse(text);
-    if (data && data.error) return data.error;
+    data = JSON.parse(text);
   } catch (err) {
     if (!(err instanceof SyntaxError)) throw err;
   }
-  return fallback ? `${fallback} (HTTP ${res.status})` : (res.statusText || `HTTP ${res.status}`);
+  if (data && typeof data.code === 'string') return t(`serverError.${data.code}`, messageParams(data.params));
+  return fallback ? `${fallback} (HTTP ${res.status})` : t('serverError.http', { status: res.status });
 }
 
 // #224: a 401 means the session is gone. The app registers one handler that asks the user to sign in
@@ -47,7 +60,9 @@ async function request(method, path, body, onResponse) {
   // path no router matched, #164) is reported instead of being handed to the caller as data.
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('application/json')) {
-    const err = new Error(`Unerwartete Antwort von ${path.split('?')[0]} (HTTP ${res.status}, ${ct || 'ohne Content-Type'}) statt JSON`);
+    const err = new Error(t('serverError.notJson', {
+      path: path.split('?')[0], status: res.status, contentType: ct || t('serverError.noContentType'),
+    }));
     err.status = res.status;
     throw err;
   }

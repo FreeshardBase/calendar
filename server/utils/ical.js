@@ -1343,7 +1343,7 @@ const RECURRENCE_ID_FORMAT = /^\d{4}-?\d{2}-?\d{2}(T\d{2}:?\d{2}:?\d{2}(\.\d+)?(
 // deleting an already deleted occurrence again stays harmless.
 function seriesOccurrenceTime(master, recurrenceId) {
   const recStr = String(recurrenceId || '').trim();
-  const refuse = () => userError(`Ungültige recurrenceId: „${recStr.slice(0, 40)}“ ist kein Termin dieser Serie.`, 400);
+  const refuse = () => userError('INVALID_RECURRENCE_ID', 400, { detail: recStr.slice(0, 40) });
   if (!RECURRENCE_ID_FORMAT.test(recStr)) throw refuse();
   const time = occurrenceTime(master, recStr);
   const unix = time.toUnixTime();

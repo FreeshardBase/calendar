@@ -37,7 +37,7 @@ test.describe('Issue #353 — first run and account linking', () => {
     await page.route('**/api/accounts', route => {
       if (route.request().method() !== 'POST') return route.continue();
       posted = route.request().postDataJSON();
-      return route.fulfill({ status: 401, json: { error: 'Ungültige Zugangsdaten.' } });
+      return route.fulfill({ status: 401, json: { error: 'Ungültige Zugangsdaten.', code: 'UPSTREAM_UNAUTHORIZED' } });
     });
     await openWelcome(page);
     await tile(welcome(page), 'iCloud').click();
@@ -53,7 +53,7 @@ test.describe('Issue #353 — first run and account linking', () => {
     await page.fill('#acc-username', 'testuser@example.com');
     await page.fill('#acc-password', 'wrong-password');
     await page.click('#account-save-btn');
-    await expect(page.locator('#account-form-error')).toHaveText('Ungültige Zugangsdaten.');
+    await expect(page.locator('#account-form-error')).toHaveText('Der Kalenderserver hat die Zugangsdaten abgelehnt. Bitte prüfe das verknüpfte Konto.');
     expect(posted).toMatchObject({ url: 'https://caldav.icloud.com/', username: 'testuser@example.com' });
   });
 

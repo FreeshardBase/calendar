@@ -4,7 +4,7 @@
  * as the PDF (server/utils/pdfExport.js), so the dialog shows what the file will print.
  */
 import { store } from './store.js';
-import { EventsAPI } from './api.js';
+import { EventsAPI, responseErrorMessage } from './api.js';
 import { openDialog, closeDialog } from './dialogFocus.js';
 import { calendarLabel, holdsEvents } from './calendarLabels.js';
 import { sanitizeColor } from './calendar.js';
@@ -116,10 +116,7 @@ async function postExport(kind, body) {
     body: JSON.stringify(body)
   });
   const type = res.headers.get('Content-Type') || '';
-  if (!res.ok) {
-    const err = type.includes('application/json') ? await res.json() : null;
-    throw new Error(err?.error || `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(await responseErrorMessage(res));
   return { res, type, blob: await res.blob() };
 }
 

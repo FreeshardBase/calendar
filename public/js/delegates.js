@@ -5,19 +5,7 @@
  * exposed as window.DelegatesModule for that future caller and the e2e tests.
  */
 import { t } from './i18n.js';
-
-// The error message of a failed response: the JSON `error` field, or the status when the body is not
-// JSON. Only that parse error is handled; anything else propagates (#343).
-async function responseErrorMessage(res, fallback) {
-  const text = await res.text();
-  try {
-    const data = JSON.parse(text);
-    if (data && data.error) return data.error;
-  } catch (err) {
-    if (!(err instanceof SyntaxError)) throw err;
-  }
-  return `${fallback} (HTTP ${res.status})`;
-}
+import { responseErrorMessage } from './api.js';
 
 const yesNo = flag => t(flag ? 'modules.delegates.yes' : 'modules.delegates.no');
 
