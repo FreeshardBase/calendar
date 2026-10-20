@@ -82,7 +82,7 @@ These were asked for in the bootstrap session and shape the boundaries above; th
 | :--- | :--- |
 | `server/index.js` | Process start-up and the middleware pipeline: sessions, CSRF, auth gateways, health checks. |
 | `server/routes/auth.js` | Sign-in through the shard's OIDC provider and the session's identity. |
-| `server/routes/calendars.js`, `events.js`, `tasks.js` | CRUD on Radicale collections, events (occurrence vs. series) and VTODOs, through `CalDAVClient`. |
+| `server/routes/calendars.js`, `events.js`, `tasks.js` | CRUD on Radicale collections, events (occurrence, this and following — a split into a new series, #346 — or series) and VTODOs, through `CalDAVClient`. |
 | `server/routes/shares.js` | The permission matrix: internal shares and public links. |
 | `server/routes/accounts.js`, `msgraph.js` | Connecting external accounts that are mirrored into Radicale. |
 | `server/routes/webcal.js` | ICS subscriptions and their refresh. |

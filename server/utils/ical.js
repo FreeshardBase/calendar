@@ -1480,6 +1480,93 @@ function cloneOccurrenceOverride(comp, recurrenceId) {
   return override;
 }
 
+// Keep only the values of every `name` property (EXDATE, RDATE) whose start passes `keep`.
+function _filterDateValues(vevent, name, keep) {
+  for (const prop of vevent.getAllProperties(name)) {
+    const kept = prop.getValues().filter(v => keep(v instanceof ICAL.Time ? v : v.start));
+    if (kept.length === 0) vevent.removeProperty(prop);
+    else prop.setValues(kept);
+  }
+}
+
+/**
+ * Split a series at one of its occurrences ("this and following", #346).
+ *
+ * Returns `{ head, tail }`. `head` is the stored series ending just before the occurrence: each
+ * RRULE gets an UNTIL in DTSTART's value type (DATE, UTC for a zoned or UTC DTSTART, floating
+ * otherwise, RFC 5545 3.3.10) in place of a COUNT, and RDATEs, EXDATEs and overrides from the
+ * occurrence on are removed. `head` is null when the occurrence is the first, so nothing remains
+ * before it. `tail` is a new series under `newUid` starting at the occurrence with the master's
+ * duration; it takes those RDATEs, EXDATEs and overrides, and a COUNT keeps the remaining number.
+ */
+function splitSeries(icsString, recurrenceId, newUid) {
+  const comp = new ICAL.Component(ICAL.parse(icsString));
+  _registerEmbeddedTimezones(comp);
+  const master = getMasterVEvent(comp);
+  const split = seriesOccurrenceTime(master, recurrenceId);
+  const splitUnix = split.toUnixTime();
+  const dtstart = master.getFirstPropertyValue('dtstart');
+  const uid = master.getFirstPropertyValue('uid');
+  const isFollowing = t => t.toUnixTime() >= splitUnix;
+  const ownOverrides = c => c.getAllSubcomponents('vevent')
+    .filter(v => v.hasProperty('recurrence-id') && v.getFirstPropertyValue('uid') === uid);
+
+  const tailComp = new ICAL.Component(JSON.parse(JSON.stringify(comp.jCal)));
+  const tailMaster = getMasterVEvent(tailComp);
+  for (const ovr of ownOverrides(tailComp)) {
+    if (isFollowing(ovr.getFirstPropertyValue('recurrence-id'))) ovr.updatePropertyWithValue('uid', newUid);
+    else tailComp.removeSubcomponent(ovr);
+  }
+  _filterDateValues(tailMaster, 'rdate', isFollowing);
+  _filterDateValues(tailMaster, 'exdate', isFollowing);
+  tailMaster.updatePropertyWithValue('uid', newUid);
+  const masterEvent = new ICAL.Event(master);
+  tailMaster.getFirstProperty('dtstart').setValue(split.clone());
+  const dtendProp = tailMaster.getFirstProperty('dtend');
+  if (dtendProp) {
+    const end = split.clone();
+    end.addDuration(masterEvent.endDate.subtractDate(masterEvent.startDate));
+    const endTzid = dtendProp.getParameter('tzid');
+    dtendProp.setValue(endTzid && isValidTimezone(endTzid) && !end.isDate
+      ? end.convertToZone(ICAL.TimezoneService.get(endTzid)) : end);
+  }
+
+  if (splitUnix === dtstart.toUnixTime()) return { head: null, tail: cleanMalformedTzidZ(tailComp.toString()) };
+
+  const floating = !dtstart.isDate && !dtstart.isUtc && !master.getFirstProperty('dtstart').getParameter('tzid');
+  const until = dtstart.isDate || floating ? split.clone() : split.convertToZone(ICAL.Timezone.utcTimezone);
+  if (dtstart.isDate) until.adjust(-1, 0, 0, 0);
+  else until.adjust(0, 0, 0, -1);
+
+  const headRules = master.getAllProperties('rrule');
+  const tailRules = tailMaster.getAllProperties('rrule');
+  headRules.forEach((prop, i) => {
+    const recur = ICAL.Recur.fromString(prop.getFirstValue().toString());
+    if (recur.count) {
+      const it = recur.iterator(dtstart);
+      let before = 0;
+      let next;
+      while ((next = it.next()) && next.toUnixTime() < splitUnix) {
+        if (++before >= SERIES_INSTANT_MAX_ITERATIONS) throw new Error('Recurrence rule too dense to split; save refused');
+      }
+      const tailRecur = ICAL.Recur.fromString(recur.toString());
+      tailRecur.count = recur.count - before;
+      if (tailRecur.count > 0) tailRules[i].setValue(tailRecur);
+      else tailMaster.removeProperty(tailRules[i]);
+      recur.count = null;
+    }
+    recur.until = until;
+    prop.setValue(recur);
+  });
+  for (const ovr of ownOverrides(comp)) {
+    if (isFollowing(ovr.getFirstPropertyValue('recurrence-id'))) comp.removeSubcomponent(ovr);
+  }
+  _filterDateValues(master, 'rdate', t => !isFollowing(t));
+  _filterDateValues(master, 'exdate', t => !isFollowing(t));
+
+  return { head: cleanMalformedTzidZ(comp.toString()), tail: cleanMalformedTzidZ(tailComp.toString()) };
+}
+
 function escParamVal(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -2402,6 +2489,7 @@ module.exports = {
   addOccurrenceException,
   upsertOccurrenceOverride,
   cloneOccurrenceOverride,
+  splitSeries,
   updateWholeSeries,
   normalizeRecurrenceRule,
   foldLines

@@ -154,7 +154,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   DTSTART by the same days and minutes and keeps DUE and DTSTART of the same value type.
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
-- `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).
+- `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, `updateWholeSeries` (EXDATE & detached override isolation) and `splitSeries` (scope `following`, #346: the old series ends with UNTIL, a new UID takes the rest with its EXDATEs and overrides).
 - Weather (#513) — opt-in per user: `routes/weather.js` stores a location (rounded to 0.01°, about 1 km) in
   `user_weather_location`; without one nothing is sent. `utils/weather.js` asks Bright Sky (DWD open data, no key;
   `WEATHER_BRIGHTSKY_URL`, default `https://api.brightsky.dev`, for a self-hosted instance) for the next 7 days,
