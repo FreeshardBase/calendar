@@ -12,7 +12,7 @@ import { searchTimeZones, zoneOffsetLabel, localTimeZone } from './timezones.js'
 import { initEventModal, openCreateModal, openEditModal, openDuplicateModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { openContextMenu } from './contextMenu.js';
 import { isDragArmed } from './eventDrag.js';
-import { initAccountModal, openAccountModal } from './accountModal.js';
+import { initAccountModal, openAccountModal, startProviderLink } from './accountModal.js';
 import { initNotificationService, checkAndTriggerAlarms, requestNotificationPermission } from './notifications.js';
 import { initTaskUI, openTaskModal, openDuplicateTaskModal, renderTaskArea, renderSidebarTasks } from './tasks.js';
 import { initInvitations } from './invitations.js';
@@ -3275,14 +3275,7 @@ function attachListeners() {
 
   // Add account from settings
   $('settings-add-account-btn').addEventListener('click', () => {
-    openAccountModal({ onAdded: async () => {
-      const accounts = await AccountsAPI.list();
-      store.set({ accounts });
-      showApp();
-      await loadCalendars();
-      await loadEvents();
-      renderSidebar();
-    }});
+    openAccountModal({ onAdded: reloadAfterAccountAdded });
   });
 
   // Add calendar
@@ -3472,46 +3465,10 @@ function attachListeners() {
     }
   });
 
-  // Onboarding form
-  $('onboarding-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData($('onboarding-form')));
-    const btn  = $('onboarding-submit');
-    btn.querySelector('.btn-label').style.display = 'none';
-    btn.querySelector('.btn-spinner').classList.remove('hidden');
-    btn.disabled = true;
-    $('onboarding-error').classList.add('hidden');
-
-    try {
-      await AccountsAPI.add(data);
-      const accounts = await AccountsAPI.list();
-      store.set({ accounts });
-      showApp();
-      await loadCalendars();
-      await loadEvents();
-    } catch (err) {
-      const errEl = $('onboarding-error');
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
-      btn.querySelector('.btn-label').style.display = '';
-      btn.querySelector('.btn-spinner').classList.add('hidden');
-      btn.disabled = false;
-    }
-  });
-
-  // Onboarding Google Link
-  $('btn-onboarding-link-google').addEventListener('click', () => {
-    const width = 600;
-    const height = 650;
-    const left = (window.screen.width - width) / 2;
-    const top = (window.screen.height - height) / 2;
-    const popup = window.open(
-      '/api/auth/google',
-      'google-oauth',
-      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-    );
-    if (popup) popup.focus();
-  });
+  // Onboarding provider tiles (#353)
+  for (const tile of document.querySelectorAll('#onboarding .provider-tile')) {
+    tile.addEventListener('click', () => startProviderLink(tile.dataset.provider, reloadAfterAccountAdded));
+  }
 
   // Global Message Listener for OAuth Popups
   window.addEventListener('message', async e => {
@@ -3829,17 +3786,22 @@ function initWelcomeModal() {
   $('welcome-modal-close').addEventListener('click', closeWelcome);
   $('welcome-btn-close').addEventListener('click', closeWelcome);
 
-  $('welcome-btn-add-account').addEventListener('click', () => {
-    closeWelcome();
-    openAccountModal({ onAdded: async () => {
-      const accounts = await AccountsAPI.list();
-      store.set({ accounts });
-      showApp();
-      await loadCalendars();
-      await loadEvents();
-      renderSidebar();
-    }});
-  });
+  // #353: a provider tile replaces the welcome dialog with that provider's linking step.
+  for (const tile of document.querySelectorAll('#welcome-modal .provider-tile')) {
+    tile.addEventListener('click', () => {
+      closeWelcome();
+      startProviderLink(tile.dataset.provider, reloadAfterAccountAdded);
+    });
+  }
+}
+
+async function reloadAfterAccountAdded() {
+  const accounts = await AccountsAPI.list();
+  store.set({ accounts });
+  showApp();
+  await loadCalendars();
+  await loadEvents();
+  renderSidebar();
 }
 
 function checkWelcomePopup(accounts) {

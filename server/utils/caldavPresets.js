@@ -2,7 +2,7 @@
 
 /**
  * caldavPresets.js — Autoconfiguration presets for popular CalDAV providers.
- * Supports GMX, WEB.DE, mailbox.org, Posteo.
+ * Supports GMX, WEB.DE, mailbox.org, Posteo, iCloud, Fastmail.
  */
 
 const CALDAV_PRESETS = {
@@ -29,6 +29,19 @@ const CALDAV_PRESETS = {
     name: 'Posteo',
     domains: ['posteo.de', 'posteo.net', 'posteo.org', 'posteo.at', 'posteo.ch'],
     url: 'https://posteo.de:8443/calendars/'
+  },
+  // #353: provider tiles of the first run. Both need an app-specific password.
+  icloud: {
+    id: 'icloud',
+    name: 'iCloud',
+    domains: ['icloud.com', 'me.com', 'mac.com'],
+    url: 'https://caldav.icloud.com/'
+  },
+  fastmail: {
+    id: 'fastmail',
+    name: 'Fastmail',
+    domains: ['fastmail.com', 'fastmail.fm'],
+    url: 'https://caldav.fastmail.com/dav/'
   }
 };
 
