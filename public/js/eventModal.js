@@ -12,6 +12,7 @@ import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.
 import { createTemplatePicker, templateAlarms } from './templates.js';
 import { allTimeZones, localTimeZone } from './timezones.js';
 import { createLocationLookup } from './geoLookup.js';
+import { createConferenceField } from './conference.js';
 
 export { formatAlarmTriggerLabel };
 
@@ -27,6 +28,7 @@ let _recurrenceTouched = false;
 let _reminders = null; // #508: reminder list editor, created in initEventModal
 let _templates = null; // #515: "Neu aus Vorlage" picker, created in initEventModal
 let _location = null; // #512: location field with address autocomplete and map preview
+let _conference = null; // #521: "Videokonferenz hinzufügen" and the event's video link
 
 // ── DOM refs (lazily grabbed) ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -179,6 +181,7 @@ export function openEditModal(event, callbacks) {
   $('ev-title').value       = event.title       || '';
   _location.set(event.location, event.geo);
   $('ev-description').value = event.description || '';
+  _conference.set(event.conference);
   if ($('ev-categories')) {
     const catList = Array.isArray(event.categories) ? event.categories : [];
     $('ev-categories').value = catList.join(', ');
@@ -395,6 +398,7 @@ function applyTemplate(fields) {
   updateAlldayUI(Boolean(fields.allDay));
   _location.set(fields.location, null);
   $('ev-description').value = fields.description || '';
+  _conference.set(null);
   $('ev-categories').value  = (fields.categories || []).join(', ');
   renderAttendeeList((fields.attendees || []).map(a => ({ ...a, status: 'NEEDS-ACTION' })));
   _reminders.setAlarms(fields.alarms || []);
@@ -525,6 +529,7 @@ function resetForm() {
   $('event-form-error').classList.add('hidden');
   $('ev-attendee-list').innerHTML = '';
   _location.set('', null);
+  _conference.set(null);
 
   document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
   const byMonthDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYMONTHDAY"]');
@@ -817,6 +822,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     allDay,
     location:    $('ev-location').value.trim()    || null,
     geo:         _location.geo(),
+    conference:  _conference.get(),
     description: $('ev-description').value.trim() || null,
     categories,
     attendees:   collectAttendees(),
@@ -917,6 +923,7 @@ function previewEvent(payload, original) {
     allDay: payload.allDay,
     location: payload.location,
     geo: payload.geo,
+    conference: payload.conference,
     description: payload.description,
     categories: payload.categories,
     attendees: payload.attendees,
@@ -1007,6 +1014,7 @@ export function initEventModal() {
   $('event-duplicate-btn').addEventListener('click', duplicateCurrent);
   $('event-template-btn').addEventListener('click', saveAsTemplate);
   _location = createLocationLookup();
+  _conference = createConferenceField();
   _templates = createTemplatePicker({
     kind: 'event',
     row: $('ev-template-row'),

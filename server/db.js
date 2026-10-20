@@ -496,6 +496,7 @@ db.serialize(() => {
       secondary_timezone TEXT,
       show_week_numbers INTEGER NOT NULL DEFAULT 0 CHECK (show_week_numbers IN (0, 1)),
       geo_provider TEXT NOT NULL DEFAULT 'off',
+      conference_base_url TEXT,
       updated_at INTEGER NOT NULL
     )
   `);
@@ -2904,6 +2905,27 @@ const Db = {
          ON CONFLICT(user_id) DO UPDATE SET show_week_numbers = excluded.show_week_numbers, updated_at = excluded.updated_at`,
         [userId, show ? 1 : 0, Date.now()],
         (err) => (err ? reject(err) : resolve(show))
+      );
+    });
+  },
+
+  // #521: the Jitsi base URL for "Videokonferenz hinzufügen"; null (off) until the user sets one.
+  getConferenceBaseUrlPreference(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT conference_base_url FROM user_preferences WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.conference_base_url : null);
+      });
+    });
+  },
+
+  setConferenceBaseUrlPreference(userId, url) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO user_preferences (user_id, conference_base_url, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET conference_base_url = excluded.conference_base_url, updated_at = excluded.updated_at`,
+        [userId, url, Date.now()],
+        (err) => (err ? reject(err) : resolve(url))
       );
     });
   },

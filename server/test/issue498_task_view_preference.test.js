@@ -51,19 +51,19 @@ test('Issue #498 — task view preference', async (t) => {
   await t.test('a user who never chose sees the kanban board', async () => {
     const res = await getPrefs(aliceCookie);
     assert.strictEqual(res.status, 200);
-    assert.deepStrictEqual(await res.json(), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false });
+    assert.deepStrictEqual(await res.json(), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null });
   });
 
   await t.test('the choice is stored for that user only', async () => {
     const put = await putPrefs(aliceCookie, { taskView: 'list' });
     assert.strictEqual(put.status, 200);
-    assert.deepStrictEqual(await put.json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false });
+    assert.deepStrictEqual(await put.json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null });
 
-    assert.deepStrictEqual(await (await getPrefs(aliceCookie)).json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false });
-    assert.deepStrictEqual(await (await getPrefs(bobCookie)).json(), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false });
+    assert.deepStrictEqual(await (await getPrefs(aliceCookie)).json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null });
+    assert.deepStrictEqual(await (await getPrefs(bobCookie)).json(), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null });
 
     await putPrefs(aliceCookie, { taskView: 'kanban' });
-    assert.deepStrictEqual(await (await getPrefs(aliceCookie)).json(), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false });
+    assert.deepStrictEqual(await (await getPrefs(aliceCookie)).json(), { taskView: 'kanban', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null });
   });
 
   await t.test('an unknown view is refused and nothing changes', async () => {
@@ -72,7 +72,7 @@ test('Issue #498 — task view preference', async (t) => {
       const res = await putPrefs(bobCookie, body);
       assert.strictEqual(res.status, 400, JSON.stringify(body));
     }
-    assert.deepStrictEqual(await (await getPrefs(bobCookie)).json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false });
+    assert.deepStrictEqual(await (await getPrefs(bobCookie)).json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null });
   });
 
   await t.test('deleting the user deletes the preference', async () => {

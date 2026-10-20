@@ -91,6 +91,9 @@ export const store = createStore({
   geoProvider:  'off',
   geoProviders: [],
 
+  // #521: the Jitsi server behind "Videokonferenz hinzufügen"; null = off (per-user setting).
+  conferenceBaseUrl: null,
+
   // Working Hours Policy
   workingHours:          { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' },
 });

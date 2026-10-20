@@ -261,6 +261,26 @@ function assertValidGeo(event) {
   if (!ok) throw new Error('Invalid geo: must be { lat: -90..90, lon: -180..180 } or null');
 }
 
+// #521: a video conference link (RFC 7986 CONFERENCE) is an http(s) URL without whitespace; null means none.
+const MAX_CONFERENCE_URL = 2048;
+const CONFERENCE_PARAMS = 'CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO;LABEL=Videokonferenz';
+
+function isConferenceUrl(value) {
+  return typeof value === 'string' && value.length <= MAX_CONFERENCE_URL && !/[\s\u0000-\u001f\u007f]/.test(value)
+    && URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol);
+}
+
+function assertValidConference(event) {
+  if (event.conference == null) return;
+  if (!isConferenceUrl(event.conference)) throw new Error('Invalid conference: must be an http(s) URL or null');
+}
+
+// The event's video link: the first CONFERENCE that is an http(s) URL. Dial-in numbers (tel:) and
+// foreign script schemes are not one.
+function conferenceProperty(vevent) {
+  return vevent.getAllProperties('conference').find(p => isConferenceUrl(String(p.getFirstValue()))) || null;
+}
+
 // ical.js reads GEO as [lat, lon]; a value outside that shape (another client's typo) is no point.
 function parseGeo(value) {
   if (!Array.isArray(value) || value.length !== 2) return null;
@@ -438,6 +458,8 @@ function parseVEventToEvent(vevent, meta = {}) {
     attachments.push({ url, name, mimeType });
   }
 
+  const conference = conferenceProperty(vevent);
+
   return {
     uid:         ev.uid,
     title:       ev.summary   || '(No title)',
@@ -447,6 +469,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     allDay:      isAllDay,
     location:    ev.location  || null,
     geo:         parseGeo(vevent.getFirstPropertyValue('geo')),
+    conference:  conference ? String(conference.getFirstValue()) : null,
     description: ev.description || null,
     status:      vevent.getFirstPropertyValue('status') || null,
     sequence:    vevent.getFirstPropertyValue('sequence') || 0,
@@ -814,6 +837,7 @@ function eventToICS(event, existingIcs = null) {
   assertValidAlarms(event.alarms);
   assertValidTranspClass(event);
   assertValidGeo(event);
+  assertValidConference(event);
   const baseIcs = existingIcs || event.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
@@ -852,6 +876,14 @@ function eventToICS(event, existingIcs = null) {
         if ('geo' in event) {
           if (event.geo) setPropValue('geo', [event.geo.lat, event.geo.lon]);
           else master.removeAllProperties('geo');
+        }
+        if ('conference' in event) {
+          // Only the video link changes; other CONFERENCE entries (dial-in numbers) stay.
+          const current = conferenceProperty(master);
+          if (!current || String(current.getFirstValue()) !== event.conference) {
+            if (current) master.removeProperty(current);
+            if (event.conference) master.addProperty(ICAL.Property.fromString(`${CONFERENCE_PARAMS}:${event.conference}`));
+          }
         }
         if ('status' in event) {
           if (event.status) setPropValue('status', String(event.status).toUpperCase());
@@ -1185,6 +1217,7 @@ function eventToICS(event, existingIcs = null) {
   if (event.description) lines.push(`DESCRIPTION:${escIcal(event.description)}`);
   if (event.location)    lines.push(`LOCATION:${escIcal(event.location)}`);
   if (event.geo)         lines.push(`GEO:${event.geo.lat};${event.geo.lon}`);
+  if (event.conference)  lines.push(`${CONFERENCE_PARAMS}:${event.conference}`);
   if (event.status)      lines.push(`STATUS:${String(event.status).replace(/[\r\n]/g, '')}`);
   if (event.transp)         lines.push(`TRANSP:${event.transp}`);
   if (event.classification) lines.push(`CLASS:${event.classification}`);
@@ -2351,6 +2384,7 @@ module.exports = {
   valarmLines,
   assertValidTranspClass,
   assertValidGeo,
+  assertValidConference,
   parseVEventToEvent,
   parseICSToEvent,
   parseICSToEvents,

@@ -234,6 +234,7 @@ export const PreferencesAPI = {
   setSecondaryTimezone: (secondaryTimezone) => request('PUT', '/api/preferences', { secondaryTimezone }),
   setTaskListInCalendar: (calendarId, shown) => request('PUT', '/api/preferences', { taskListInCalendar: { calendarId, shown } }),
   setShowWeekNumbers: (showWeekNumbers) => request('PUT', '/api/preferences', { showWeekNumbers }),
+  setConferenceBaseUrl: (conferenceBaseUrl) => request('PUT', '/api/preferences', { conferenceBaseUrl }),
 };
 
 // ── Event and task templates (#515), per user, never synced ──────────────────
