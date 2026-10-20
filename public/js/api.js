@@ -158,6 +158,14 @@ export const EventsAPI = {
     }
     return body;
   },
+  // #349: search every calendar on the server; resolves to { events, total, rangeStart, rangeEnd, errors }.
+  search: async (q) => {
+    const body = await request('GET', `/api/events/search?q=${encodeURIComponent(q)}`);
+    if (!Array.isArray(body.events) || !Array.isArray(body.errors) || !Number.isInteger(body.total)) {
+      throw new Error('Unerwartete Antwort von /api/events/search');
+    }
+    return body;
+  },
   create: (data)          => request('POST',   '/api/events', data),
   update: (uid, data)     => request('PUT',    `/api/events/${encodeURIComponent(uid)}`, data),
   remove: (uid, data)     => request('DELETE', `/api/events/${encodeURIComponent(uid)}`, data),

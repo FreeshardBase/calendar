@@ -444,6 +444,28 @@ a { color: inherit; text-decoration: none; }
 .search-input::placeholder { color: var(--ink-muted); }
 .search-input:focus { outline: none; border-color: var(--line); }
 
+/* #349: hits from every calendar, grouped by day, under the toolbar search */
+.search-results {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 300;
+  width: min(380px, 90vw); max-height: 60vh; overflow-y: auto;
+  background: var(--bg); color: var(--ink);
+  border: var(--border-w) solid var(--border-cool); border-radius: var(--radius-control);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+  font: 400 var(--fs-small)/1.4 var(--font-ui);
+}
+.search-results-status { padding: var(--sp-2) var(--sp-3); color: var(--ink-muted); }
+.search-results-day { margin: 0; padding: var(--sp-2) var(--sp-3) 2px; font-size: var(--fs-small); font-weight: 600; color: var(--ink-muted); }
+.search-results ul { list-style: none; margin: 0; padding: 0; }
+.search-result {
+  display: flex; gap: var(--sp-2); width: 100%; padding: 6px var(--sp-3);
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.search-result:hover, .search-result:focus-visible { background: var(--bg-hover, rgba(0, 0, 0, .05)); outline: none; }
+.search-result-dot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; }
+.search-result-time { flex: none; min-width: 72px; color: var(--ink-muted); }
+.search-result-text { min-width: 0; overflow-wrap: anywhere; }
+.search-result-location { display: block; color: var(--ink-muted); }
+
 /* View tabs */
 .view-tabs { display: flex; align-items: center; border: var(--border-w) solid var(--border-cool); border-radius: var(--radius-control); overflow: hidden; }
 .view-tab {

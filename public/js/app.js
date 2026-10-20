@@ -1121,6 +1121,91 @@ function getFilteredEvents() {
   return filtered;
 }
 
+// #349: the view filter above only sees the loaded range; the server searches every calendar
+// years back and ahead. Its hits are listed by day under the search field, a click opens the event.
+const SEARCH_MIN_LENGTH = 2;
+const SEARCH_DEBOUNCE_MS = 300;
+const searchState = { timer: null, seq: 0, hits: [] };
+const searchDayFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+
+function hideSearchResults() {
+  $('search-results').classList.add('hidden');
+}
+
+function eventLocalDay(ev) {
+  if (ev.allDay) {
+    const [y, m, d] = String(ev.start).slice(0, 10).split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const start = new Date(ev.start);
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate());
+}
+
+function scheduleServerSearch() {
+  clearTimeout(searchState.timer);
+  const query = store.get('searchQuery').trim();
+  const seq = ++searchState.seq;
+  if (query.length < SEARCH_MIN_LENGTH || store.get('view') === 'kanban') {
+    hideSearchResults();
+    return;
+  }
+  searchState.timer = setTimeout(() => runServerSearch(query, seq), SEARCH_DEBOUNCE_MS);
+}
+
+async function runServerSearch(query, seq) {
+  const panel = $('search-results');
+  panel.innerHTML = '<div class="search-results-status">Suche in allen Kalendern…</div>';
+  panel.classList.remove('hidden');
+  try {
+    const result = await EventsAPI.search(query);
+    if (seq !== searchState.seq) return;
+    renderSearchResults(query, result);
+  } catch (err) {
+    if (seq !== searchState.seq) return;
+    console.error('[search] Server search failed:', err);
+    panel.innerHTML = `<div class="search-results-status" role="alert">Suche fehlgeschlagen: ${escHtml(err.message)}</div>`;
+  }
+}
+
+function renderSearchResults(query, { events, total, errors }) {
+  const panel = $('search-results');
+  const hidden = store.get('hiddenCalendars');
+  searchState.hits = events.filter(ev => !hidden.has(ev.calendarId));
+  const cals = calendarsById();
+  const groups = [];
+  searchState.hits.forEach((ev, index) => {
+    const label = searchDayFmt.format(eventLocalDay(ev));
+    if (groups.length === 0 || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
+    groups[groups.length - 1].items.push({ ev, index });
+  });
+  const summary = searchState.hits.length === 0
+    ? `Keine Termine für „${escHtml(query)}“ in allen Kalendern gefunden.`
+    : total > events.length
+      ? `${events.length} von ${total} Treffern – bitte Suche verfeinern.`
+      : `${total} Treffer in allen Kalendern`;
+  const partial = errors.length > 0
+    ? '<div class="search-results-status" role="alert">Nicht alle Kalender konnten durchsucht werden.</div>'
+    : '';
+  panel.innerHTML = `<div class="search-results-status" role="status">${summary}</div>${partial}` + groups.map(g => `
+    <h3 class="search-results-day">${escHtml(g.label)}</h3>
+    <ul>${g.items.map(({ ev, index }) => `
+      <li><button type="button" class="search-result" data-index="${index}" data-event-uid="${escHtml(ev.uid)}">
+        <span class="search-result-dot" style="background:${escHtml(ev.color || cals[ev.calendarId]?.color || '#6366f1')}"></span>
+        <span class="search-result-time">${ev.allDay ? 'Ganztägig' : escHtml(fmt(ev.start))}</span>
+        <span class="search-result-text">${escHtml(ev.title || '(Ohne Titel)')}${ev.location ? `<span class="search-result-location">${escHtml(ev.location)}</span>` : ''}</span>
+      </button></li>`).join('')}</ul>`).join('');
+  panel.classList.remove('hidden');
+}
+
+async function openSearchResult(index) {
+  const ev = searchState.hits[index];
+  if (!ev) throw new Error(`Search result ${index} does not exist`);
+  hideSearchResults();
+  store.set({ currentDate: eventLocalDay(ev) });
+  await loadEvents();
+  showEventPopover(ev, { target: $('search-input') });
+}
+
 function getFilteredTasks() {
   const hidden = store.get('hiddenCalendars');
   const tasks = (store.get('tasks') || []).filter(t => !hidden.has(t.calendarId));
@@ -3313,6 +3398,20 @@ function attachListeners() {
   $('search-input').addEventListener('input', e => {
     store.set({ searchQuery: e.target.value });
     renderCalendarView();
+    scheduleServerSearch();
+  });
+  $('search-input').addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('search-results').classList.contains('hidden')) {
+      e.stopPropagation();
+      hideSearchResults();
+    }
+  });
+  $('search-results').addEventListener('click', e => {
+    const btn = e.target.closest('.search-result');
+    if (btn) openSearchResult(Number(btn.dataset.index));
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.search-wrapper')) hideSearchResults();
   });
 
   // Close popover on outside click

@@ -560,7 +560,8 @@
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
-        <input type="text" id="search-input" aria-keyshortcuts="Alt+S" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" />
+        <input type="text" id="search-input" aria-keyshortcuts="Alt+S" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" aria-controls="search-results" />
+        <div id="search-results" class="search-results hidden" role="region" aria-label="Suchergebnisse in allen Kalendern"></div>
       </div>
     </header>
 
