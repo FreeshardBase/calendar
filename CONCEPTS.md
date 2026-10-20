@@ -6,7 +6,7 @@ The theory this calendar is built on: what it is for, the rules that span module
 
 The calendar is a FreeShard app: it runs inside one user's shard, next to the shard's own CalDAV server (Radicale), and gives the shard's people one place for all their calendars and tasks. A shard has an owner (the shard admin) and members — a family or a small team — who sign in through the shard's OIDC provider. *(Confirmed 2026-10-12.)*
 
-**Radicale is the source of truth.** Every calendar a user sees lives in the shard's Radicale. External accounts — Google, Microsoft 365, Nextcloud, mailbox.org and other CalDAV servers — are *mirrored* into Radicale and synchronised in both directions; they are never read live by the web app. Disconnecting an external account stops the mirror and leaves the local copy in place, so a user can leave a provider and keep working with nothing lost. For the user, all calendars behave the same regardless of where they came from. *(Confirmed 2026-10-12 — "verbindung zu google trennen und der shard kalender … soll dann einfach weiterlaufen".)*
+**Radicale is the source of truth.** Every calendar a user sees lives in the shard's Radicale. External accounts — Google, Microsoft 365, Nextcloud, mailbox.org and other CalDAV servers — are *mirrored* into Radicale and synchronised in both directions; they are never read live by the web app. Disconnecting an external account stops the mirror and leaves the local copy in place, so a user can leave a provider and keep working with nothing lost. The same holds for a single linked calendar. The kept copy is a normal shard calendar, labelled with its former provider ("früher Google"), and goes to the trash like any other when deleted; nothing is deleted at the provider. Linking the same account again offers to re-attach the kept calendars, and the sync then resumes in them instead of mirroring a second copy (#614). For the user, all calendars behave the same regardless of where they came from. *(Confirmed 2026-10-12 — "verbindung zu google trennen und der shard kalender … soll dann einfach weiterlaufen".)*
 
 ```mermaid
 flowchart LR
@@ -98,7 +98,6 @@ These were asked for in the bootstrap session and shape the boundaries above; th
 Where the code does not yet match the theory above. Each item is the subject of an issue or of pass two.
 
 - Webcal subscriptions are cached in `webcal_subscriptions.cached_events` in SQLite, not mirrored into Radicale.
-- Whether disconnecting an external account keeps the local calendar has not been verified in code.
 - Basic-auth accounts can still be used live rather than mirrored. Every live request and redirect hop is limited to public addresses (#524).
 - Microsoft 365 is synced by polling (`sync-worker/msgraph_worker.py`, one mirror per Microsoft calendar, #613); Graph webhooks are not used (#97). Recurring series are mirrored as their single occurrences, and a series created in the shard is not written to Microsoft.
 - The UI is German-only with `de-DE` hard-coded (#355); copy uses the generic masculine (#168).

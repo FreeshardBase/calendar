@@ -40,16 +40,23 @@ async function seedMSGraphAccount(userId, mappings) {
       'INSERT INTO msgraph_event_mappings (local_uid, graph_id, account_id, last_synced_at) VALUES (?, ?, ?, ?)',
       [`${accountId}-uid-${i}`, `${accountId}-graph-${i}`, accountId, now]);
   }
+  // #614: the mirror is the last thing deleteMSGraphAccount unpairs; the mappings stay.
+  await sql('run',
+    `INSERT INTO msgraph_calendar_collections (account_id, user_id, graph_calendar_id, local_collection, created_at)
+     VALUES (?, ?, 'cal', ?, ?)`, [accountId, userId, `msgraph-${accountId}`, now]);
   return accountId;
 }
 
 async function msgraphState(accountId) {
   const account = await sql('get', 'SELECT id FROM msgraph_accounts WHERE id = ?', [accountId]);
   const { n } = await sql('get', 'SELECT COUNT(*) AS n FROM msgraph_event_mappings WHERE account_id = ?', [accountId]);
-  return { accountPresent: Boolean(account), mappings: n };
+  const { detached } = await sql('get', 'SELECT COUNT(*) AS detached FROM detached_mirrors WHERE former_account_id = ?', [accountId]);
+  return { accountPresent: Boolean(account), mappings: n, detached };
 }
 
 async function cleanupMSGraph(accountId) {
+  await sql('run', 'DELETE FROM msgraph_calendar_collections WHERE account_id = ?', [accountId]);
+  await sql('run', 'DELETE FROM detached_mirrors WHERE former_account_id = ?', [accountId]);
   await sql('run', 'DELETE FROM msgraph_event_mappings WHERE account_id = ?', [accountId]);
   await sql('run', 'DELETE FROM msgraph_accounts WHERE id = ?', [accountId]);
 }
@@ -72,14 +79,14 @@ test('Db.withTransaction commits when the callback resolves and rolls back when 
   await Db.deleteUser(committed);
 });
 
-test('deleteMSGraphAccount keeps the account when its mappings delete fails', async () => {
+test('deleteMSGraphAccount keeps the account when unpairing its mirrors fails', async () => {
   const userId = uniq('owner');
   const accountId = await seedMSGraphAccount(userId, 2);
   try {
     await withFailingTrigger('t149_fail_mappings_single',
-      `BEFORE DELETE ON msgraph_event_mappings WHEN OLD.account_id = '${accountId}'`,
+      `BEFORE DELETE ON msgraph_calendar_collections WHEN OLD.account_id = '${accountId}'`,
       () => assert.rejects(Db.deleteMSGraphAccount(accountId), /injected failure/));
-    assert.deepEqual(await msgraphState(accountId), { accountPresent: true, mappings: 2 });
+    assert.deepEqual(await msgraphState(accountId), { accountPresent: true, mappings: 2, detached: 0 });
   } finally {
     await cleanupMSGraph(accountId);
   }
@@ -126,7 +133,7 @@ test('an overlapping transaction does not commit a failed deleteMSGraphAccount h
   const accountId = await seedMSGraphAccount(userId, 3);
   try {
     await withFailingTrigger('t149_fail_mappings_overlap',
-      `BEFORE DELETE ON msgraph_event_mappings WHEN OLD.account_id = '${accountId}'`,
+      `BEFORE DELETE ON msgraph_calendar_collections WHEN OLD.account_id = '${accountId}'`,
       async () => {
         // Caller A holds a transaction open (e.g. waiting on a busy lock) while caller B arrives.
         const a = Db.withTransaction(async (tx) => {
@@ -140,7 +147,7 @@ test('an overlapping transaction does not commit a failed deleteMSGraphAccount h
         assert.equal(bResult.status, 'rejected');
         assert.match(bResult.reason.message, /injected failure/);
       });
-    assert.deepEqual(await msgraphState(accountId), { accountPresent: true, mappings: 3 },
+    assert.deepEqual(await msgraphState(accountId), { accountPresent: true, mappings: 3, detached: 0 },
       'a failed delete must leave neither an orphan nor a missing account');
   } finally {
     await cleanupMSGraph(accountId);

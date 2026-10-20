@@ -36,6 +36,53 @@ router.get('/presets', (req, res) => {
   });
 });
 
+// #614: GET /api/accounts/reattach-offers — calendars kept from a disconnected account that the
+// same account, linked again, can take back instead of mirroring them a second time.
+router.get('/reattach-offers', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    res.json(await Db.getReattachOffers(req.session.userId));
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+// #614: POST /api/accounts/reattach-offers { accept } — re-attach the offered calendars (the sync
+// resumes in them) or keep them as they are (the account gets new mirrors).
+router.post('/reattach-offers', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  if (typeof req.body?.accept !== 'boolean') {
+    return res.status(400).json({ error: 'accept muss true oder false sein.' });
+  }
+  try {
+    const resolved = await Db.resolveReattachOffers(req.session.userId, req.body.accept);
+    if (resolved) await Db.addSyncJob(req.session.userId);
+    res.json({ resolved });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+// #614: POST /api/accounts/mirrors/:collection/disconnect — stop syncing one mirrored calendar; it
+// stays as a normal calendar, nothing is deleted at the provider.
+router.post('/mirrors/:collection/disconnect', async (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Nicht authentifiziert.' });
+  }
+  try {
+    if (!(await Db.detachCalendar(req.session.userId, req.params.collection))) {
+      return res.status(404).json({ error: 'Kein verknüpfter Kalender.' });
+    }
+    res.json({ message: 'Verbindung getrennt.' });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
 // GET /api/accounts — list accounts (passwords redacted)
 router.get('/', async (req, res) => {
   if (req.accountLoadError) {
@@ -163,6 +210,7 @@ router.post('/', async (req, res) => {
       password,
       displayName
     });
+    await Db.claimDetachedMirrors(userId);
     await Db.addSyncJob(userId);
     res.status(201).json({ id, displayName: finalDisplayName, message: 'Account added.' });
   } catch (err) {

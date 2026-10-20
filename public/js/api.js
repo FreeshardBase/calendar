@@ -65,6 +65,10 @@ export const AccountsAPI = {
   remove: (id)            => request('DELETE', `/api/accounts/${id}`),
   update: (id, data)      => request('PATCH',  `/api/accounts/${id}`, data),
   removeAll: ()           => request('DELETE', '/api/accounts'),
+  // #614: kept calendars of a disconnected account, re-attachable when it is linked again.
+  getReattachOffers:     ()         => request('GET',  '/api/accounts/reattach-offers'),
+  resolveReattachOffers: (accept)   => request('POST', '/api/accounts/reattach-offers', { accept }),
+  disconnectMirror:      (collection) => request('POST', `/api/accounts/mirrors/${encodeURIComponent(collection)}/disconnect`),
   listAppPasswords: ()    => request('GET',    '/api/accounts/app-passwords'),
   addAppPassword: (label) => request('POST',   '/api/accounts/app-passwords', { label }),
   removeAppPassword: (id) => request('DELETE', `/api/accounts/app-passwords/${id}`),

@@ -273,6 +273,8 @@ router.get('/google/callback', async (req, res) => {
       expiresAt: Date.now() + expiresIn * 1000,
       displayName: `Google Kalender (${name})`
     });
+    // #614: calendars kept from an earlier link of this account wait for the user's choice.
+    await Db.claimDetachedMirrors(userId);
 
     // Enqueue a sync job immediately to download calendars and events
     try {

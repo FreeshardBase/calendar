@@ -6,7 +6,7 @@
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
 import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, PreferencesAPI, TrashAPI, setUnauthorizedHandler } from './api.js';
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
-import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel } from './calendarLabels.js';
+import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel, formerLinkLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { searchTimeZones, zoneOffsetLabel, localTimeZone } from './timezones.js';
 import { initEventModal, openCreateModal, openEditModal, openDuplicateModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
@@ -114,7 +114,13 @@ async function boot() {
         secondaryTimezone: prefs.secondaryTimezone,
         tasksHiddenInCalendar: new Set(prefs.tasksHiddenInCalendar),
       });
+      // #614: msgraph.js reports a Microsoft 365 account disconnected.
+      window.addEventListener('linked-accounts-changed', async () => {
+        await loadCalendars();
+        renderSidebar();
+      });
       await loadCalendars();
+      await offerReattach();
       await loadWebcalSubscriptions();
       await loadEvents();
       await loadTasks();
@@ -179,6 +185,24 @@ async function listAfterLocalEdits(collection, fetchList) {
     const res = await fetchList();
     if (edits === localEdits[collection]) return res;
   }
+}
+
+// #614: an account linked again can take back the calendars kept when it was disconnected.
+async function offerReattach() {
+  const offers = await AccountsAPI.getReattachOffers();
+  if (!offers.length) return;
+  const names = offers.map(o => {
+    const cal = store.get('calendars').find(c => c.id === o.calendarId);
+    return `„${cal ? cal.name : o.calendarId}“`;
+  }).join(', ');
+  const accept = await confirmDialog(
+    `Dieses Konto war schon einmal verknüpft. Sollen die behaltenen Kalender ${names} wieder damit verbunden werden? ` +
+    'Die Synchronisation läuft dann in ihnen weiter, ohne Termine zu verdoppeln. Sonst bleiben sie eigene Kalender, und das Konto bekommt neue.',
+    'Kalender wieder verbinden'
+  );
+  await AccountsAPI.resolveReattachOffers(accept);
+  showToast(accept ? 'Kalender wieder verbunden.' : 'Kalender bleiben eigene Kalender.', 'info');
+  await loadCalendars();
 }
 
 async function loadCalendars() {
@@ -978,6 +1002,7 @@ function calendarListItemHtml(c, hidden, orderGroup, taskView) {
           ${googleBadge}
         </div>
         ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">von ${escHtml(c.owner)}</span>` : ''}
+        ${c.formerLink ? `<span class="calendar-former-link">${escHtml(formerLinkLabel(c))}</span>` : ''}
         ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">⚠ Nicht erreichbar – Termine fehlen</span>` : ''}
       </div>
       <div class="cal-item-actions">
@@ -2141,7 +2166,7 @@ function renderSettingsAccounts() {
       const id = btn.dataset.deleteAcc;
       const acc = accounts.find(a => a.id === id);
       if (!acc) return;
-      if (!(await confirmDialog(`Möchtest du den Account „${acc.displayName || acc.username}“ wirklich entfernen? Alle zugehörigen Kalender werden ausgeblendet.`))) return;
+      if (!(await confirmDialog(`Möchtest du den Account „${acc.displayName || acc.username}“ wirklich entfernen? Die Synchronisation endet; die Kalender bleiben als eigene Kalender erhalten, beim Anbieter wird nichts gelöscht.`))) return;
       try {
         await AccountsAPI.remove(id);
         const updated = store.get('accounts').filter(a => a.id !== id);
@@ -2212,6 +2237,11 @@ function renderSettingsCalendars() {
          </svg>`
       : '';
 
+    // #614: a mirror in the shard's own Radicale can be disconnected on its own.
+    const disconnectBtn = c.linkedAccountId && c.accountId === 'internal-caldav'
+      ? `<button class="settings-action-btn" data-disconnect-cal="${escHtml(c.id)}">Verbindung trennen</button>`
+      : '';
+
     return `
       <div class="settings-item">
         <div style="display:flex; flex-direction:column; min-width:0; flex:1;">
@@ -2220,13 +2250,32 @@ function renderSettingsCalendars() {
             <span class="settings-item-name" title="${escHtml(calendarLabel(c))}">${escHtml(calendarLabel(c))}</span>
             <span class="settings-item-type">${collectionTypeLabel(c)}</span>
             ${googleBadge}
+            ${c.formerLink ? `<span class="calendar-former-link">${escHtml(formerLinkLabel(c))}</span>` : ''}
           </div>
         </div>
         <div class="settings-item-actions">
+          ${disconnectBtn}
           ${deleteBtn}
         </div>
       </div>`;
   }).join('');
+
+  list.querySelectorAll('[data-disconnect-cal]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const cal = cals.find(c => c.id === btn.dataset.disconnectCal);
+      if (!cal) return;
+      if (!(await confirmDialog(`Verbindung von „${cal.name}“ zum Konto trennen? Der Kalender bleibt mit allen Terminen als eigener Kalender erhalten, beim Anbieter wird nichts gelöscht.`))) return;
+      try {
+        await AccountsAPI.disconnectMirror(cal.href.replace(/\/$/, '').split('/').pop());
+        showToast(`„${cal.name}“ ist nicht mehr verknüpft.`, 'info');
+        await loadCalendars();
+        renderSidebar();
+        renderSettingsCalendars();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
 
   // Delete Calendar from Settings
   list.querySelectorAll('[data-delete-cal-settings]').forEach(btn => {

@@ -84,6 +84,7 @@ test.beforeEach(async () => {
   await dbRun('DELETE FROM msgraph_calendar_collections');
   await dbRun('DELETE FROM msgraph_event_mappings');
   await dbRun('DELETE FROM msgraph_accounts');
+  await dbRun('DELETE FROM detached_mirrors');
 });
 
 test('Issue #613 — GET /api/calendars lists each Microsoft mirror under its account, by the account e-mail', async () => {
@@ -117,5 +118,6 @@ test('Issue #613 — disconnecting the account unpairs all its mirrors', async (
   const accountId = await pairMirrors();
   await Db.deleteMSGraphAccount(accountId);
   assert.deepEqual(await dbAll('SELECT * FROM msgraph_calendar_collections'), []);
-  assert.deepEqual(await dbAll('SELECT * FROM msgraph_event_mappings'), []);
+  // #614: the event mappings stay with the kept calendars, for a later re-attach.
+  assert.deepEqual((await dbAll('SELECT graph_id FROM msgraph_event_mappings ORDER BY graph_id')).map(r => r.graph_id), ['g1', 'g2']);
 });

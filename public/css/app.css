@@ -323,6 +323,8 @@ a { color: inherit; text-decoration: none; }
 
 .calendar-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .calendar-name { font-size: var(--fs-small); color: var(--ink); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* #614: a disconnected mirror says where it came from. */
+.calendar-former-link { font-size: 0.65rem; color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-check {
   width: 14px; height: 14px; flex-shrink: 0;
   border: var(--border-w-glyph) solid var(--border-cool);
