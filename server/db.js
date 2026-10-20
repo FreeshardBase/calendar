@@ -495,6 +495,7 @@ db.serialize(() => {
       task_view TEXT NOT NULL DEFAULT 'kanban' CHECK (task_view IN ('list', 'kanban')),
       secondary_timezone TEXT,
       show_week_numbers INTEGER NOT NULL DEFAULT 0 CHECK (show_week_numbers IN (0, 1)),
+      geo_provider TEXT NOT NULL DEFAULT 'off',
       updated_at INTEGER NOT NULL
     )
   `);
@@ -2845,6 +2846,27 @@ const Db = {
          ON CONFLICT(user_id) DO UPDATE SET task_view = excluded.task_view, updated_at = excluded.updated_at`,
         [userId, taskView, Date.now()],
         (err) => (err ? reject(err) : resolve(taskView))
+      );
+    });
+  },
+
+  // #512: the address lookup / map service a user opted into; 'off' until they choose one.
+  getGeoProviderPreference(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT geo_provider FROM user_preferences WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.geo_provider : 'off');
+      });
+    });
+  },
+
+  setGeoProviderPreference(userId, provider) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO user_preferences (user_id, geo_provider, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET geo_provider = excluded.geo_provider, updated_at = excluded.updated_at`,
+        [userId, provider, Date.now()],
+        (err) => (err ? reject(err) : resolve(provider))
       );
     });
   },

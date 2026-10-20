@@ -39,6 +39,10 @@ services:
       SSL_CERT_PATH: ""
       INTERNAL_CALDAV_URL: http://caldav-server:5232
       OUTBOUND_FETCH_ALLOW_HOSTS: ${OUTBOUND_FETCH_ALLOW_HOSTS:-}
+      # #512: address lookup / map preview services (used only for users who opt in); empty = public defaults
+      GEOCODER_PHOTON_URL: ${GEOCODER_PHOTON_URL:-}
+      OSM_TILE_URL: ${OSM_TILE_URL:-}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
       SYSTEM_SYNC_SECRET: ${SYSTEM_SYNC_SECRET:?set SYSTEM_SYNC_SECRET in .env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
       INTERNAL_WEBHOOK_SECRET: ${INTERNAL_WEBHOOK_SECRET:?set INTERNAL_WEBHOOK_SECRET in .env}

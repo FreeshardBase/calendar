@@ -92,6 +92,10 @@ module.exports = defineConfig({
       // #513: the weather spec serves a Bright Sky stand-in on this loopback port; the shipping
       // default is the public https://api.brightsky.dev.
       WEATHER_BRIGHTSKY_URL: 'http://127.0.0.1:3713',
+      // #512: the address lookup and map tile services, played by e2e/issue512_location_lookup.spec.js
+      // on loopback, so the specs can see exactly which requests leave the shard.
+      GEOCODER_PHOTON_URL: 'http://127.0.0.1:3514',
+      OSM_TILE_URL: 'http://127.0.0.1:3514/tiles',
     },
     url: 'http://localhost:3098',
     reuseExistingServer: !process.env.CI,

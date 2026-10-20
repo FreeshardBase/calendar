@@ -28,7 +28,7 @@ const { sendError, describeError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
 const { isSafeLinkUrl } = require('../../public/js/safeUrl');
-const { assertValidAlarms, assertValidTranspClass } = require('../utils/ical');
+const { assertValidAlarms, assertValidTranspClass, assertValidGeo } = require('../utils/ical');
 
 // Issue #338: attachment URLs are rendered as links — reject non-link schemes up front.
 function hasUnsafeAttachment(attachments) {
@@ -52,10 +52,11 @@ function invalidAlarmsError(alarms) {
   }
 }
 
-// Issue #506: TRANSP and CLASS only take their RFC 5545 values.
+// Issue #506: TRANSP and CLASS only take their RFC 5545 values; #512: GEO is a valid point.
 function invalidTranspClassError(eventData) {
   try {
     assertValidTranspClass(eventData);
+    assertValidGeo(eventData);
     return null;
   } catch (e) {
     return e.message;
