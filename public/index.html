@@ -341,6 +341,38 @@
           </div>
           <p style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;">Werden auf dem Shard berechnet, ohne Anfrage an Dritte.</p>
         </div>
+        <!-- Weather (#513): opt-in, because the location goes to a third party -->
+        <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <h3 style="margin:0 0 8px 0">Wetter</h3>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
+              <input type="checkbox" id="weather-enabled" aria-describedby="weather-notice" />
+              Wettervorhersage in Woche und Tag anzeigen
+            </label>
+          </div>
+          <p id="weather-notice" style="font-size:11px; color:var(--ink-muted); margin:0 0 8px;">
+            Eingeschaltet sendet der Shard den hier eingetragenen Ort, auf etwa 1&nbsp;km gerundet, an
+            <span id="weather-provider-host">Bright Sky (api.brightsky.dev)</span>. Bright Sky liefert die offenen
+            Vorhersagen des Deutschen Wetterdienstes für Deutschland und Umgebung. Ausgeschaltet geht nichts dorthin.
+          </p>
+          <form class="hidden" id="weather-location-form" novalidate>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <div style="flex:1;">
+                <label class="form-label" for="weather-latitude" style="font-size:11px;">Breitengrad</label>
+                <input type="text" inputmode="decimal" class="form-input" id="weather-latitude" placeholder="52.52" autocomplete="off"
+                       style="width:100%; font-size:12px; padding:4px 6px;" />
+              </div>
+              <div style="flex:1;">
+                <label class="form-label" for="weather-longitude" style="font-size:11px;">Längengrad</label>
+                <input type="text" inputmode="decimal" class="form-input" id="weather-longitude" placeholder="13.40" autocomplete="off"
+                       style="width:100%; font-size:12px; padding:4px 6px;" />
+              </div>
+            </div>
+            <p id="weather-error" class="hidden" role="alert" style="font-size:11px; color:var(--danger); margin:0 0 8px;"></p>
+            <button type="submit" class="btn btn-ghost" id="weather-save-btn">Ort speichern und Wetter einschalten</button>
+          </form>
+          <p id="weather-status" style="font-size:11px; margin:6px 0 0;" aria-live="polite"></p>
+        </div>
         <!-- Working Hours & Out of Office Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <h3 style="margin:0 0 8px 0">Arbeitszeiten & Abwesenheit</h3>

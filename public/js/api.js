@@ -205,6 +205,13 @@ export const TrashAPI = {
   purge:   (id) => request('DELETE', `/api/trash/${encodeURIComponent(id)}`),
 };
 
+// ── Weather forecast (#513) ───────────────────────────────────────────────────
+export const WeatherAPI = {
+  getSettings: ()         => request('GET', '/api/weather/settings'),
+  setLocation: (location) => request('PUT', '/api/weather/settings', { location }),
+  getForecast: (tz)       => request('GET', `/api/weather/forecast?tz=${encodeURIComponent(tz)}`),
+};
+
 // ── Public holidays (#514) ────────────────────────────────────────────────────
 export const HolidaysAPI = {
   regions:     ()       => request('GET', '/api/holidays/regions'),

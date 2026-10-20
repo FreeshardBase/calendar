@@ -506,6 +506,16 @@ db.serialize(() => {
       updated_at INTEGER NOT NULL
     )
   `);
+  // #513: where a user wants the weather forecast for, rounded to two decimals (about 1 km).
+  // Absent while the weather is off, so nothing is sent to the provider.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_weather_location (
+      user_id TEXT PRIMARY KEY,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   // #518: the task lists whose due tasks a user does not want in the calendar views; every other
   // list shows them. Absent until the user turns a list off.
   db.run(`
@@ -1324,6 +1334,7 @@ const Db = {
       await tx.run('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_tasks_hidden_in_calendar WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM user_holiday_region WHERE user_id = ?', [userId]);
+      await tx.run('DELETE FROM user_weather_location WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM item_templates WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE owner_user_id = ? OR deleted_by = ?', [userId, userId]);
       await tx.run('DELETE FROM trash_items WHERE user_id = ?', [userId]);
@@ -1431,6 +1442,7 @@ const Db = {
       await tx.run('DELETE FROM user_calendar_order');
       await tx.run('DELETE FROM user_tasks_hidden_in_calendar');
       await tx.run('DELETE FROM user_holiday_region');
+      await tx.run('DELETE FROM user_weather_location');
       await tx.run('DELETE FROM webcal_subscriptions');
       await tx.run('DELETE FROM sync_queue');
       await tx.run('DELETE FROM trash_items');
@@ -2923,6 +2935,33 @@ const Db = {
           `INSERT INTO user_holiday_region (user_id, region, updated_at) VALUES (?, ?, ?)
            ON CONFLICT(user_id) DO UPDATE SET region = excluded.region, updated_at = excluded.updated_at`,
           [userId, region, Date.now()], done
+        );
+      }
+    });
+  },
+
+  // #513: the weather location a user set, { latitude, longitude } or null.
+  getWeatherLocation(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT latitude, longitude FROM user_weather_location WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? { latitude: row.latitude, longitude: row.longitude } : null);
+      });
+    });
+  },
+
+  // null switches the weather off.
+  setWeatherLocation(userId, location) {
+    return new Promise((resolve, reject) => {
+      const done = (err) => (err ? reject(err) : resolve(location));
+      if (location === null) {
+        db.run('DELETE FROM user_weather_location WHERE user_id = ?', [userId], done);
+      } else {
+        db.run(
+          `INSERT INTO user_weather_location (user_id, latitude, longitude, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET latitude = excluded.latitude, longitude = excluded.longitude,
+             updated_at = excluded.updated_at`,
+          [userId, location.latitude, location.longitude, Date.now()], done
         );
       }
     });
