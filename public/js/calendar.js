@@ -36,6 +36,7 @@ export function renderView(container, events, view, currentDate, callbacks) {
     case 'month':  renderMonth(container, events, currentDate, callbacks); break;
     case 'week':   renderWeek(container, events, currentDate, callbacks, 'week');  break;
     case 'workweek': renderWeek(container, events, currentDate, callbacks, 'workweek'); break;
+    case '3day':   renderWeek(container, events, currentDate, callbacks, '3day'); break;
     case 'day':    renderDay(container, events, currentDate, callbacks);   break;
     case 'agenda': renderAgenda(container, events, currentDate, callbacks);break;
   }
@@ -46,6 +47,7 @@ export function getToolbarTitle(view, date) {
     case 'month':  return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
     case 'week':   return weekTitle(date);
     case 'workweek': return workweekTitle(date);
+    case '3day':   return rangeTitle(dayStart(date), 3);
     case 'day':    return `${DAYS[date.getDay()]}, ${date.getDate()}. ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
     case 'agenda': return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
     // #510: the list chooses its own range in the view.
@@ -68,6 +70,7 @@ export function navigate(view, date, direction) {
     }
     case 'week':
     case 'workweek': d.setDate(d.getDate() + 7 * direction); break;
+    case '3day':     d.setDate(d.getDate() + 3 * direction);  break;
     case 'day':      d.setDate(d.getDate() + direction);      break;
   }
   return d;
@@ -94,6 +97,12 @@ export function getDateRange(view, date) {
     case 'workweek': {
       start = mondayStart(date);
       end   = new Date(start); end.setDate(start.getDate() + 4); end.setHours(23, 59, 59, 999);
+      break;
+    }
+    // #351: the phone's view, three days from the current one.
+    case '3day': {
+      start = dayStart(date);
+      end   = new Date(start); end.setDate(start.getDate() + 2); end.setHours(23, 59, 59, 999);
       break;
     }
     case 'day': {
@@ -454,8 +463,8 @@ function hourLabelHtml(cls, h, day, secTz) {
 function renderWeek(container, events, currentDate, cb, view = 'week') {
   const isWorkWeek = (view === 'workweek');
   const today = new Date(); today.setHours(0,0,0,0);
-  const ws    = isWorkWeek ? mondayStart(currentDate) : weekStart(currentDate);
-  const numDays = isWorkWeek ? 5 : 7;
+  const ws    = view === '3day' ? dayStart(currentDate) : isWorkWeek ? mondayStart(currentDate) : weekStart(currentDate);
+  const numDays = view === '3day' ? 3 : isWorkWeek ? 5 : 7;
   const days  = Array.from({length: numDays}, (_, i) => {
     const d = new Date(ws); d.setDate(ws.getDate() + i); return d;
   });
@@ -474,7 +483,7 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   const wrap = document.createElement('div');
   wrap.className = 'week-view';
   wrap.setAttribute('role', 'grid');
-  wrap.setAttribute('aria-label', isWorkWeek ? 'Arbeitswochenansicht' : 'Wochenansicht');
+  wrap.setAttribute('aria-label', view === '3day' ? 'Dreitagesansicht' : isWorkWeek ? 'Arbeitswochenansicht' : 'Wochenansicht');
 
   // Header row
   const header = document.createElement('div');
@@ -1109,8 +1118,18 @@ function mondayStart(date) {
 }
 
 function workweekTitle(date) {
-  const ws = mondayStart(date);
-  const we = new Date(ws); we.setDate(ws.getDate() + 4);
+  return rangeTitle(mondayStart(date), 5);
+}
+
+function dayStart(date) {
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+// "14. – 16. Mai 2037" for `days` days from `ws`; across months the months are abbreviated.
+function rangeTitle(ws, days) {
+  const we = new Date(ws); we.setDate(ws.getDate() + days - 1);
   if (ws.getMonth() === we.getMonth()) {
     return `${ws.getDate()}. – ${we.getDate()}. ${MONTHS[we.getMonth()]} ${we.getFullYear()}`;
   }

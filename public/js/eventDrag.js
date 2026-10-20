@@ -35,6 +35,11 @@ export function deferRenderWhileDragging(render) {
   return true;
 }
 
+// A long press has picked up an event or started drawing one: the finger is dragging, not swiping (#351).
+export function isDragArmed() {
+  return Boolean(active?.armed);
+}
+
 const handleHtml = edge => `<div class="event-resize-handle ${edge}" data-edge="${edge}" aria-hidden="true"></div>`;
 
 const CHIP_SELECTOR = '.week-day-col .event-block[data-event-uid], .week-day-header .event-chip[data-event-uid], .month-day .event-chip[data-event-uid]';

@@ -969,21 +969,17 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     const menuBtn = page.locator('#menu-btn');
     await expect(menuBtn).toBeVisible();
 
-    // Verify toolbar title shows full text without truncating to "A…"
+    // Verify toolbar title shows full text without truncating to "A…"; a phone opens in three days (#351).
     const titleEl = page.locator('#toolbar-title');
     await expect(titleEl).toBeVisible();
-    const titleText = await titleEl.textContent();
-    expect(titleText).toContain('August 2026');
-    expect(titleText).not.toBe('A…');
-
-    // All 6 view tabs must be clickable via standard browser clicks on mobile viewport and render target container
-    await page.click('#view-week');
-    await expect(page.locator('#view-week')).toHaveClass(/active/);
+    await expect(titleEl).toHaveText('25. – 27. August 2026');
+    await expect(page.locator('#view-3day')).toHaveClass(/active/);
     await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
-    await page.click('#view-workweek');
-    await expect(page.locator('#view-workweek')).toHaveClass(/active/);
-    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
+    // Every view the phone offers (#351: no seven-column weeks, no list) is clickable and renders.
+    await expect(page.locator('#view-week')).toBeHidden();
+    await expect(page.locator('#view-workweek')).toBeHidden();
+    await expect(page.locator('#view-list')).toBeHidden();
 
     await page.click('#view-day');
     await expect(page.locator('#view-day')).toHaveClass(/active/);
@@ -1000,6 +996,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.click('#view-month');
     await expect(page.locator('#view-month')).toHaveClass(/active/);
     await expect(page.locator('.month-grid')).toBeVisible({ timeout: 10000 });
+
+    await page.click('#view-3day');
+    await expect(page.locator('#view-3day')).toHaveClass(/active/);
+    await expect(page.locator('.week-view .week-day-header')).toHaveCount(3);
   });
 
   // Issue #85: on a short window the task dialog's footer stays on screen and the form scrolls.
@@ -7216,13 +7216,14 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     });
   });
 
-  // Issue #83: on a phone the toolbar is three rows — title and navigation, the view tabs across the
-  // full width, the search — and the desktop-only buttons leave the title room.
+  // Issue #83: on a phone the toolbar keeps the title whole and the desktop-only buttons leave it room.
+  // #351: the toolbar is two rows — title and navigation, then the search — and the view tabs are a
+  // bottom navigation across the full width.
   test('Issue #83 — the mobile toolbar keeps the title whole and spans the view tabs across a row', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/?date=2026-09-25');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#toolbar-title')).toHaveText('September 2026');
+    await expect(page.locator('#toolbar-title')).toHaveText('25. – 27. September 2026');
 
     const layout = await page.evaluate(() => {
       const box = sel => document.querySelector(sel).getBoundingClientRect();
@@ -7232,22 +7233,24 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
         title: box('#toolbar-title'),
         titleClipped: title.scrollWidth > title.clientWidth,
         tabs: box('.toolbar .view-tabs'),
-        tab: Array.from(document.querySelectorAll('.toolbar .view-tab')).map(el => el.getBoundingClientRect()),
+        tab: Array.from(document.querySelectorAll('.toolbar .view-tab'))
+          .filter(el => el.offsetParent !== null).map(el => el.getBoundingClientRect()),
         search: box('.toolbar .search-wrapper'),
       };
     });
     expect(layout.titleClipped).toBe(false);
-    // Row 2: the tabs sit below the title and take the toolbar's whole content width.
-    expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.title.bottom);
-    expect(layout.tabs.width).toBeGreaterThan(layout.toolbar.width - 40);
-    expect(layout.tab).toHaveLength(7);
+    // Row 2: the search below the title.
+    expect(layout.search.top).toBeGreaterThanOrEqual(layout.title.bottom);
+    // The tabs: one row along the bottom edge, the screen's whole width.
+    expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.toolbar.bottom);
+    expect(Math.abs(layout.tabs.bottom - 667)).toBeLessThan(1);
+    expect(layout.tabs.width).toBeGreaterThan(374);
+    expect(layout.tab).toHaveLength(5);
     for (const t of layout.tab) {
       expect(t.left).toBeGreaterThanOrEqual(0);
       expect(t.right).toBeLessThanOrEqual(375);
       expect(Math.abs(t.top - layout.tab[0].top)).toBeLessThan(1);
     }
-    // Row 3: the search below the tabs.
-    expect(layout.search.top).toBeGreaterThanOrEqual(layout.tabs.bottom);
     for (const sel of ['#export-pdf-btn', '#invitations-btn', '#availability-btn']) {
       await expect(page.locator(sel), sel).toBeHidden();
     }

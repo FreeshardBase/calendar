@@ -9,11 +9,21 @@ const DAY = '2037-05-14'; // a Thursday; the browser runs in Europe/Berlin (UTC+
 
 const isTouch = () => test.info().project.name === 'mobile-touch';
 
-// The app opens in the month view; once the event shows there, the start-up loads are done.
-async function openView(page, view, title) {
+// Opens the app on DAY in the month view; once the event shows there, the start-up loads are done.
+// A phone opens in three days (#351) and is switched to the month first.
+async function openMonthView(page, title) {
   await page.goto(`/?date=${DAY}`);
   await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
+  if (isTouch()) {
+    await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#loading-screen')).toBeHidden({ timeout: 10000 });
+    await page.click('#view-month');
+  }
   await expect(page.locator('.month-view [data-event-uid]', { hasText: title }).first()).toBeVisible({ timeout: 10000 });
+}
+
+async function openView(page, view, title) {
+  await openMonthView(page, title);
   await page.click(`#view-${view}`);
   await expect(page.locator(view === 'day' ? '.day-view' : '.week-view')).toBeVisible();
 }
@@ -342,9 +352,7 @@ test.describe('Issue #575 — month view: move events and change multi-day spans
   const chipIn = (page, day, title) => cell(page, day).locator('.event-chip', { hasText: title });
 
   async function openMonth(page, title) {
-    await page.goto(`/?date=${DAY}`);
-    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('.month-view [data-event-uid]', { hasText: title }).first()).toBeVisible({ timeout: 10000 });
+    await openMonthView(page, title);
     // The loading screen fades out over the month view; until it is gone it takes the pointer.
     await expect(page.locator('#loading-screen')).toBeHidden();
   }
@@ -607,8 +615,7 @@ test.describe('Issue #576 — create events by dragging on empty space', () => {
 
   test('#576 dragging across days in the month view opens the dialog for a multi-day event', async ({ page }) => {
     await seed(page, { calendarId, title: 'E2E 576 Month Anchor', start: `${DAY}T03:00:00.000Z`, end: `${DAY}T03:30:00.000Z` });
-    await page.goto(`/?date=${DAY}`);
-    await expect(page.locator('.month-view [data-event-uid]', { hasText: 'E2E 576 Month Anchor' }).first()).toBeVisible({ timeout: 10000 });
+    await openMonthView(page, 'E2E 576 Month Anchor');
     await expect(page.locator('#loading-screen')).toBeHidden();
     const bottomOf = async day => {
       const box = await cell(page, day).boundingBox();
@@ -643,9 +650,7 @@ test.describe('Issue #577 — keyboard moves and tasks with a due date', () => {
   const announcer = page => page.locator('#aria-announcer');
 
   async function openMonth(page, title) {
-    await page.goto(`/?date=${DAY}`);
-    await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('.month-view [data-event-uid]', { hasText: title }).first()).toBeVisible({ timeout: 10000 });
+    await openMonthView(page, title);
     await expect(page.locator('#loading-screen')).toBeHidden();
   }
 
