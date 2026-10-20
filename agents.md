@@ -160,6 +160,14 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `WEATHER_BRIGHTSKY_URL`, default `https://api.brightsky.dev`, for a self-hosted instance) for the next 7 days,
   summarises them per local date, caches each location/zone for an hour, backs off 5 minutes after a failure and
   for Retry-After on 429/503. A failure answers 502 and the web app hides the `.weather-badge`s in the week/day headers.
+- Video conference link (#521) — `public/js/conference.js`. Per-user Jitsi base URL
+  (`user_preferences.conference_base_url`, `conferenceBaseUrl` in `/api/preferences`; null = off, the default; only
+  plain http(s) without credentials, query or fragment, stored without trailing slash). Saving one in the settings asks
+  via `confirmDialog`, naming the host. "Videokonferenz hinzufügen" in the event dialog appends a random room
+  (`freeshard-` + 20 base32 chars from `crypto.getRandomValues`), with no request anywhere, and writes it as
+  `event.conference` → `CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO;LABEL=Videokonferenz` (RFC 7986) plus a line
+  `Videokonferenz: <url>` in the description; "Entfernen" drops both. Reading takes the first http(s) CONFERENCE;
+  other CONFERENCE entries (tel: dial-ins) are kept on save.
 - Address autocomplete and map preview (#512) — `routes/geo.js` + `public/js/geoLookup.js`. Per-user provider
   (`user_preferences.geo_provider`: `off` default, `osm` = Photon, `google` = Places Text Search, offered only with
   `GOOGLE_PLACES_API_KEY`); switching one on in the settings asks via `confirmDialog`, naming the hosts. The browser
