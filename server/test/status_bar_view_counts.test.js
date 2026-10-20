@@ -86,7 +86,8 @@ function loadApp() {
     // boot() runs on load; its account load never settles, so it leaves the state these tests set alone.
     AccountsAPI: { list: () => new Promise(() => {}) },
     CalendarsAPI: {},
-    EventsAPI: {},
+    // #517: the mini month loads its own month outside the month view.
+    EventsAPI: { list: async () => ({ events: [], errors: [] }) },
     TasksAPI: {},
     WebcalAPI: {},
     exports: {},

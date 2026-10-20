@@ -115,23 +115,74 @@ export function getDateRange(view, date) {
   return { start, end };
 }
 
+// ── Week numbers (#517) ───────────────────────────────────────────────────────
+
+// ISO 8601 week number of the week containing `date` (weeks start on Monday, week 1 holds 4 January).
+export function isoWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 3 - (d.getUTCDay() + 6) % 7); // the Thursday of that week
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+// The ISO week a displayed row of seven days stands for: the week holding most of its days, i.e.
+// the week of its middle day. With weeks starting on Monday that is the row's own ISO week.
+function rowWeekNumber(rowStart) {
+  const mid = new Date(rowStart);
+  mid.setDate(mid.getDate() + 3);
+  return isoWeekNumber(mid);
+}
+
 // ── Mini Calendar ─────────────────────────────────────────────────────────────
 
-export function renderMiniCalendar(container, currentDate, events, onDayClick) {
+// Days of `year`/`month` (day numbers) on which an event lies, all days of a multi-day event included.
+function eventDaysInMonth(events, year, month) {
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 1);
+  const days = new Set();
+  for (const ev of events) {
+    if (!ev.start) continue;
+    const start = new Date(ev.start);
+    // The end is exclusive; an event without an end, or ending at its start, covers its start day.
+    const end = ev.end && new Date(ev.end) > start ? new Date(ev.end) : new Date(start.getTime() + 1);
+    const d = new Date(Math.max(start, monthStart));
+    d.setHours(0, 0, 0, 0);
+    for (; d < end && d < monthEnd; d.setDate(d.getDate() + 1)) {
+      if (d >= monthStart) days.add(d.getDate());
+    }
+  }
+  return days;
+}
+
+// The day to focus once the mini month shows it, after a keyboard move left the displayed month.
+let pendingMiniFocus = null;
+
+// Keys of the mini month's day grid, as in a date-picker grid: arrows move by day and week,
+// Home/End to the row's ends, Page Up/Down by month.
+function miniKeyTarget(key, date) {
+  const d = new Date(date);
+  switch (key) {
+    case 'ArrowLeft':  d.setDate(d.getDate() - 1); return d;
+    case 'ArrowRight': d.setDate(d.getDate() + 1); return d;
+    case 'ArrowUp':    d.setDate(d.getDate() - 7); return d;
+    case 'ArrowDown':  d.setDate(d.getDate() + 7); return d;
+    case 'Home':       d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d;
+    case 'End':        d.setDate(d.getDate() + 6 - (d.getDay() + 6) % 7); return d;
+    case 'PageUp':     return navigate('month', d, -1);
+    case 'PageDown':   return navigate('month', d, +1);
+    default:           return null;
+  }
+}
+
+// options.range: the main view's { start, end }, highlighted (#517);
+// options.showWeekNumbers: a column of ISO week numbers (#517).
+export function renderMiniCalendar(container, currentDate, events, onDayClick, options = {}) {
+  const { range = null, showWeekNumbers = false } = options;
   const today = new Date(); today.setHours(0,0,0,0);
   const month = currentDate.getMonth();
   const year  = currentDate.getFullYear();
 
-  // Days with events for dot indicators
-  const eventDays = new Set();
-  for (const ev of events) {
-    if (ev.start) {
-      const d = new Date(ev.start);
-      if (d.getMonth() === month && d.getFullYear() === year) {
-        eventDays.add(d.getDate());
-      }
-    }
-  }
+  const eventDays = eventDaysInMonth(events, year, month);
 
   const first = new Date(year, month, 1);
   const startDay = (first.getDay() + 6) % 7;
@@ -144,15 +195,19 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
         <button data-mini-next aria-label="Nächster Monat" title="Nächster Monat">›</button>
       </div>
     </div>
-    <div class="mini-cal-grid">
+    <div class="mini-cal-grid${showWeekNumbers ? ' with-weeks' : ''}">
+      ${showWeekNumbers ? '<div class="mini-cal-dow" aria-hidden="true">KW</div>' : ''}
       ${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => `<div class="mini-cal-dow">${d}</div>`).join('')}
   `;
 
-  let day = 1;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   for (let i = 0; i < 42; i++) {
     const col = i - startDay;
+    if (showWeekNumbers && i % 7 === 0) {
+      const week = rowWeekNumber(new Date(year, month, col + 1));
+      html += `<div class="mini-cal-week" aria-label="Kalenderwoche ${week}">${week}</div>`;
+    }
     if (col < 0 || col >= daysInMonth) {
       html += `<div class="mini-cal-day other-month"></div>`;
     } else {
@@ -160,10 +215,13 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
       const isToday    = sameDay(d, today);
       const isSelected = sameDay(d, currentDate);
       const hasEvents  = eventDays.has(col + 1);
-      const label = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-      html += `<div class="mini-cal-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${hasEvents ? 'has-events' : ''}"
-                    data-mini-day="${d.toISOString()}" tabindex="0" role="button"
-                    aria-label="${label}"${isToday ? ' aria-current="date"' : ''}>${col + 1}</div>`;
+      const inRange    = range !== null && d >= range.start && d <= range.end;
+      const label = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        + (hasEvents ? ', mit Terminen' : '');
+      // One tab stop for the grid (the selected day); the arrow keys move between the days.
+      html += `<div class="mini-cal-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${hasEvents ? 'has-events' : ''} ${inRange ? 'in-range' : ''}"
+                    data-mini-day="${d.toISOString()}" tabindex="${isSelected ? 0 : -1}" role="button"
+                    aria-label="${label}"${isToday ? ' aria-current="date"' : ''}${inRange ? ' aria-pressed="true"' : ''}>${col + 1}</div>`;
     }
   }
 
@@ -172,17 +230,40 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick) {
   // keyboard focus back on the same day instead of dropping it to <body>.
   const focusedDay = document.activeElement?.getAttribute?.('data-mini-day');
   container.innerHTML = html;
-  if (focusedDay) {
-    [...container.querySelectorAll('[data-mini-day]')]
-      .find(el => el.dataset.miniDay === focusedDay)?.focus();
+  const dayCells = [...container.querySelectorAll('[data-mini-day]')];
+  const cellFor = date => dayCells.find(el => sameDay(new Date(el.dataset.miniDay), date));
+  const restore = pendingMiniFocus ? cellFor(pendingMiniFocus) : dayCells.find(el => el.dataset.miniDay === focusedDay);
+  if (restore) {
+    pendingMiniFocus = null;
+    restore.focus();
   }
 
-  container.querySelectorAll('[data-mini-day]').forEach(el => {
+  // Within the month only focus moves; leaving it shows the target month, and the main view
+  // moves there as with ‹ ›.
+  const moveFocus = (from, to) => {
+    const target = cellFor(to);
+    if (target) {
+      from.tabIndex = -1;
+      target.tabIndex = 0;
+      target.focus();
+    } else {
+      pendingMiniFocus = to;
+      onDayClick(to);
+    }
+  };
+
+  dayCells.forEach(el => {
     el.addEventListener('click', () => onDayClick(new Date(el.dataset.miniDay)));
     el.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         onDayClick(new Date(el.dataset.miniDay));
+        return;
+      }
+      const target = miniKeyTarget(e.key, new Date(el.dataset.miniDay));
+      if (target) {
+        e.preventDefault();
+        moveFocus(el, target);
       }
     });
   });
@@ -261,7 +342,10 @@ function renderMonth(container, events, currentDate, cb) {
       chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}" role="button" tabindex="0" aria-label="${overflowText}">${overflowText}</div>`;
     }
 
-    cell.innerHTML = `<div class="month-day-num">${date.getDate()}</div>${chipsHtml}`;
+    // #517: the row's ISO week number, in its first day (the week start).
+    const week = i % 7 === 0 && store.get('showWeekNumbers') ? rowWeekNumber(date) : null;
+    const weekHtml = week === null ? '' : `<span class="month-week-num" aria-label="Kalenderwoche ${week}">KW ${week}</span>`;
+    cell.innerHTML = `<div class="month-day-head"><div class="month-day-num">${date.getDate()}</div>${weekHtml}</div>${chipsHtml}`;
 
 
     if (!isCurrentMonth) {
@@ -398,6 +482,12 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   header.setAttribute('role', 'row');
   header.style.gridTemplateColumns = `${gutterW} repeat(${numDays}, 1fr)`;
   header.innerHTML = gutterHtml;
+  // #517: the week's ISO number above the hour axis.
+  if (store.get('showWeekNumbers')) {
+    const week = rowWeekNumber(ws);
+    header.firstElementChild.insertAdjacentHTML('afterbegin', `<div class="week-num">KW ${week}</div>`);
+    wrap.setAttribute('aria-label', `${wrap.getAttribute('aria-label')}, Kalenderwoche ${week}`);
+  }
   days.forEach(d => {
     const isToday = sameDay(d, today);
     const allDayEvs = eventsForDay(events, d).filter(e => Boolean(e.allDay));

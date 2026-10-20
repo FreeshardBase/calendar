@@ -494,6 +494,7 @@ db.serialize(() => {
       user_id TEXT PRIMARY KEY,
       task_view TEXT NOT NULL DEFAULT 'kanban' CHECK (task_view IN ('list', 'kanban')),
       secondary_timezone TEXT,
+      show_week_numbers INTEGER NOT NULL DEFAULT 0 CHECK (show_week_numbers IN (0, 1)),
       updated_at INTEGER NOT NULL
     )
   `);
@@ -2861,6 +2862,27 @@ const Db = {
       : 'INSERT OR IGNORE INTO user_tasks_hidden_in_calendar (user_id, calendar_id) VALUES (?, ?)';
     return new Promise((resolve, reject) => {
       db.run(sql, [userId, calendarId], (err) => (err ? reject(err) : resolve()));
+    });
+  },
+
+  // #517: ISO week numbers in the grids and the mini month; off until the user switches them on.
+  getWeekNumbersPreference(userId) {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT show_week_numbers FROM user_preferences WHERE user_id = ?', [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.show_week_numbers === 1 : false);
+      });
+    });
+  },
+
+  setWeekNumbersPreference(userId, show) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO user_preferences (user_id, show_week_numbers, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET show_week_numbers = excluded.show_week_numbers, updated_at = excluded.updated_at`,
+        [userId, show ? 1 : 0, Date.now()],
+        (err) => (err ? reject(err) : resolve(show))
+      );
     });
   },
 

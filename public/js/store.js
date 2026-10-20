@@ -83,6 +83,9 @@ export const store = createStore({
   secondaryTimezone: null,
   weather:         null,   // #513: Map 'YYYY-MM-DD' → { icon, tempMin, tempMax, precipitation }, or null (off or unavailable)
 
+  // #517: ISO week numbers in the month/week grid and the mini month (per-user setting, #355).
+  showWeekNumbers: false,
+
   // Working Hours Policy
   workingHours:          { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' },
 });
