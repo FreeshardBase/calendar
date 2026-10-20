@@ -595,6 +595,16 @@ a { color: inherit; text-decoration: none; }
 .week-day-header.today .week-day-num {
   background: var(--data); color: var(--surface); font-weight: 600;
 }
+/* #513: the forecast under the day number; quiet, like the label above it. */
+.weather-badge {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-1);
+  margin-top: var(--sp-1);
+  font: 400 var(--fs-label)/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.weather-icon { font-family: var(--font-ui); font-size: var(--fs-small); }
 .all-day-events {
   margin-top: var(--sp-1);
   display: flex;

@@ -4,7 +4,7 @@
  */
 
 import { store, toggleCalendar, invalidateEventCache, cacheEvents, getCachedEvents, setCalendarSyncCache, getCalendarSyncCache } from './store.js';
-import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, HolidaysAPI, PreferencesAPI, TrashAPI, setUnauthorizedHandler } from './api.js';
+import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, HolidaysAPI, WeatherAPI, PreferencesAPI, TrashAPI, setUnauthorizedHandler } from './api.js';
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel, formerLinkLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
@@ -122,6 +122,10 @@ async function boot() {
       await loadCalendars();
       await offerReattach();
       holidayRegion = (await HolidaysAPI.getSettings()).region;
+      weatherSettings = await WeatherAPI.getSettings();
+      // #513: the forecast loads beside the events and never holds them up.
+      loadWeather();
+      setInterval(() => { if (weatherSettings && weatherSettings.location) loadWeather(); }, WEATHER_REFRESH_MS);
       await loadWebcalSubscriptions();
       await loadEvents();
       await loadTasks();
@@ -590,6 +594,52 @@ async function changeHolidayRegion(region) {
   webcalEvents = [...webcalEvents.filter(ev => !ev.isHoliday), ...holidays];
   mergeAndRenderEvents();
   announce(holidayRegion ? `Feiertage: ${holidayName}` : 'Feiertage ausgeblendet');
+}
+
+// #513: the weather forecast, opt-in. weatherSettings holds the stored location (null: off) and the
+// provider; the forecast goes into the store, where the week and day headers read it. A failed
+// forecast hides the badges and leaves the view as it is.
+let weatherSettings = null;
+const WEATHER_REFRESH_MS = 30 * 60 * 1000;
+
+async function loadWeather() {
+  const location = weatherSettings && weatherSettings.location;
+  let weather = null;
+  if (location) {
+    try {
+      const res = await WeatherAPI.getForecast(localTimeZone());
+      weather = new Map(res.days.map(d => [d.date, d]));
+    } catch (err) {
+      console.warn('[weather] forecast hidden:', err.message);
+    }
+    // Switched off or moved meanwhile: this answer belongs to the old setting.
+    if (location !== (weatherSettings && weatherSettings.location)) return;
+  }
+  store.set({ weather });
+  renderCalendarView({ announceStatus: false });
+}
+
+function renderSettingsWeather() {
+  const location = weatherSettings && weatherSettings.location;
+  $('weather-enabled').checked = Boolean(location);
+  $('weather-location-form').classList.toggle('hidden', !location);
+  $('weather-error').classList.add('hidden');
+  $('weather-latitude').value = location ? String(location.latitude) : '';
+  $('weather-longitude').value = location ? String(location.longitude) : '';
+  if (weatherSettings) {
+    $('weather-provider-host').textContent = `Bright Sky (${weatherSettings.provider.host})`;
+  }
+  $('weather-status').textContent = location
+    ? `Eingeschaltet für ${location.latitude}, ${location.longitude}.`
+    : 'Ausgeschaltet.';
+}
+
+async function changeWeatherLocation(location) {
+  const saved = (await WeatherAPI.setLocation(location)).location;
+  weatherSettings = { ...weatherSettings, location: saved };
+  renderSettingsWeather();
+  announce(saved ? 'Wettervorhersage eingeschaltet' : 'Wettervorhersage ausgeschaltet');
+  await loadWeather();
 }
 
 function mergeAndRenderEvents() {
@@ -2013,6 +2063,7 @@ function renderSettings() {
   renderSettingsAppPasswords();
   renderSettingsTimezone();
   renderSettingsHolidays().catch(err => showToast('Feiertage konnten nicht geladen werden: ' + err.message, 'error'));
+  renderSettingsWeather();
   renderSettingsNotifications();
   renderSettingsTrash();
 }
@@ -3101,6 +3152,38 @@ function attachListeners() {
     $('holiday-region').focus();
   });
   $('holiday-region').addEventListener('change', e => saveHolidayRegion(e.target.value));
+
+  // #513: the checkbox opens the location form; only saving a location sends anything anywhere.
+  const saveWeatherLocation = location => changeWeatherLocation(location)
+    .catch(err => showToast('Die Wettereinstellung konnte nicht gespeichert werden: ' + err.message, 'error'));
+  $('weather-enabled').addEventListener('change', e => {
+    if (e.target.checked) {
+      $('weather-location-form').classList.remove('hidden');
+      $('weather-latitude').focus();
+    } else if (weatherSettings && weatherSettings.location) {
+      saveWeatherLocation(null);
+    } else {
+      $('weather-location-form').classList.add('hidden');
+    }
+  });
+  $('weather-location-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const parse = id => {
+      const raw = $(id).value.trim().replace(',', '.');
+      return /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+    };
+    const latitude = parse('weather-latitude');
+    const longitude = parse('weather-longitude');
+    const error = $('weather-error');
+    if (!(Math.abs(latitude) <= 90) || !(Math.abs(longitude) <= 180)) {
+      error.textContent = 'Breitengrad von -90 bis 90 und Längengrad von -180 bis 180 eintragen, z. B. 52.52 und 13.40.';
+      error.classList.remove('hidden');
+      $(Math.abs(latitude) <= 90 ? 'weather-longitude' : 'weather-latitude').focus();
+      return;
+    }
+    error.classList.add('hidden');
+    saveWeatherLocation({ latitude, longitude });
+  });
 
   // #509: second time zone — the checkbox opens the search, a hit switches the column on.
   $('show-secondary-tz-toggle').addEventListener('change', e => {

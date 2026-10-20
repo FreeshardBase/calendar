@@ -406,9 +406,10 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
       : '';
     header.innerHTML += `
       <div class="week-day-header${isToday ? ' today' : ''}" data-date="${d.toISOString()}"
-           role="columnheader" aria-label="${dayHeaderLabel(d, allDayEvs.length)}"${isToday ? ' aria-current="date"' : ''}>
+           role="columnheader" aria-label="${dayHeaderLabel(d, allDayEvs.length)}${weatherLabelSuffix(d)}"${isToday ? ' aria-current="date"' : ''}>
         <div class="week-day-label">${DAYS[d.getDay()]}</div>
         <div class="week-day-num">${d.getDate()}</div>
+        ${weatherBadgeHtml(d)}
         ${allDayHtml}
       </div>`;
   });
@@ -502,9 +503,10 @@ function renderDay(container, events, currentDate, cb) {
   header.innerHTML = `
     ${gutterHtml}
     <div class="week-day-header${isToday ? ' today' : ''}" data-date="${currentDate.toISOString()}"
-         role="columnheader" aria-label="${dayHeaderLabel(currentDate, allDayEvs.length)}"${isToday ? ' aria-current="date"' : ''}>
+         role="columnheader" aria-label="${dayHeaderLabel(currentDate, allDayEvs.length)}${weatherLabelSuffix(currentDate)}"${isToday ? ' aria-current="date"' : ''}>
       <div class="week-day-label">${DAYS[currentDate.getDay()]}</div>
       <div class="week-day-num">${currentDate.getDate()}</div>
+      ${weatherBadgeHtml(currentDate)}
       ${allDayHtml}
     </div>`;
   wrap.appendChild(header);
@@ -953,6 +955,52 @@ function dayCellLabel(date, eventCount) {
 function dayHeaderLabel(date, allDayCount) {
   if (allDayCount === 0) return longDateLabel(date);
   return `${longDateLabel(date)}, ${allDayCount === 1 ? '1 ganztägiger Termin' : `${allDayCount} ganztägige Termine`}`;
+}
+
+// #513: the forecast badge under a day's number in the week and day headers. Days outside the
+// forecast, or no forecast at all (off or the provider down), show nothing.
+const WEATHER_SYMBOLS = {
+  'clear-day':         ['\u2600\uFE0E', 'Sonnig'],
+  'partly-cloudy-day': ['\u26C5\uFE0E', 'Teils bewölkt'],
+  'cloudy':            ['\u2601\uFE0E', 'Bewölkt'],
+  'fog':               ['\u2261', 'Nebel'],
+  'wind':              ['\u224B', 'Windig'],
+  'rain':              ['\u2602\uFE0E', 'Regen'],
+  'sleet':             ['\u2602\uFE0E', 'Schneeregen'],
+  'snow':              ['\u2744\uFE0E', 'Schnee'],
+  'hail':              ['\u2744\uFE0E', 'Hagel'],
+  'thunderstorm':      ['\u03DF', 'Gewitter'],
+};
+const MM = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
+
+function forecastFor(date) {
+  const weather = store.get('weather');
+  if (!weather) return null;
+  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return weather.get(key) || null;
+}
+
+// The symbol comes from the provider, so only the table's own keys count ('constructor' is no symbol).
+const weatherSymbol = icon => (Object.hasOwn(WEATHER_SYMBOLS, icon) ? WEATHER_SYMBOLS[icon] : ['', 'Vorhersage']);
+
+function weatherText(day) {
+  const [, name] = weatherSymbol(day.icon);
+  const rain = day.precipitation > 0 ? `, ${MM.format(day.precipitation)} mm Niederschlag` : '';
+  return `${name}, ${day.tempMin} bis ${day.tempMax} °C${rain}`;
+}
+
+function weatherLabelSuffix(date) {
+  const day = forecastFor(date);
+  return day ? `, Wetter: ${weatherText(day)}` : '';
+}
+
+function weatherBadgeHtml(date) {
+  const day = forecastFor(date);
+  if (!day) return '';
+  const [symbol] = weatherSymbol(day.icon);
+  return `<div class="weather-badge" data-weather-date="${day.date}" title="${weatherText(day)}" aria-hidden="true">`
+    + `<span class="weather-icon">${symbol}</span>`
+    + `<span class="weather-temp">${day.tempMax}° / ${day.tempMin}°</span></div>`;
 }
 
 function sameDay(a, b) {

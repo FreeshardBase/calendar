@@ -89,6 +89,9 @@ module.exports = defineConfig({
       // #97: a placeholder Azure app id, so the Microsoft 365 connect flow is offered. The specs only
       // inspect the redirect to Microsoft; no browser navigation or request reaches it.
       MSGRAPH_CLIENT_ID: '00000000-0000-0000-0000-0000000e2e97',
+      // #513: the weather spec serves a Bright Sky stand-in on this loopback port; the shipping
+      // default is the public https://api.brightsky.dev.
+      WEATHER_BRIGHTSKY_URL: 'http://127.0.0.1:3713',
     },
     url: 'http://localhost:3098',
     reuseExistingServer: !process.env.CI,

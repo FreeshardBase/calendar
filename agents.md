@@ -155,6 +155,11 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
 - `server/caldav/client.js` — raw CalDAV over native fetch (PROPFIND/REPORT/PUT/MKCALENDAR/…,
   discovery via .well-known, Nextcloud/owncloud + calendarserver sharing dialects).
 - `server/utils/ical.js` — Central iCalendar (RFC 5545) processing layer: `eventToICS`, `taskToICS`, `parseAndExpandEvent`, `buildVTimezoneBlock` (TZID registration), RFC 6868 parameter escaping (`escParamVal`), UTF-8 octet line folding (`foldLines`), foreign property preservation, and `updateWholeSeries` (EXDATE & detached override isolation).
+- Weather (#513) — opt-in per user: `routes/weather.js` stores a location (rounded to 0.01°, about 1 km) in
+  `user_weather_location`; without one nothing is sent. `utils/weather.js` asks Bright Sky (DWD open data, no key;
+  `WEATHER_BRIGHTSKY_URL`, default `https://api.brightsky.dev`, for a self-hosted instance) for the next 7 days,
+  summarises them per local date, caches each location/zone for an hour, backs off 5 minutes after a failure and
+  for Retry-After on 429/503. A failure answers 502 and the web app hides the `.weather-badge`s in the week/day headers.
 - Microsoft 365 (#97) — optional, configured by `MSGRAPH_CLIENT_ID` (+ `MSGRAPH_CLIENT_SECRET` for a confidential
   client) and `BASE_URL`; without them `GET /api/msgraph/accounts` reports `available: false`, the modal says so and
   `/api/msgraph/authorize` answers 503. `server/utils/msgraph.js` + `routes/msgraph.js`: authorization code flow

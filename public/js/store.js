@@ -81,6 +81,7 @@ export const store = createStore({
   // #509: second time zone of the week/day grid (IANA name), null while switched off.
   // A per-user setting on the server, loaded with the other preferences.
   secondaryTimezone: null,
+  weather:         null,   // #513: Map 'YYYY-MM-DD' → { icon, tempMin, tempMax, precipitation }, or null (off or unavailable)
 
   // Working Hours Policy
   workingHours:          { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' },
