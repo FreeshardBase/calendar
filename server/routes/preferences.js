@@ -5,6 +5,7 @@
 // Issue #518: so is, per task list, whether its due tasks show in the calendar views.
 // Issue #517: so are the ISO week numbers in the month/week grid and the mini month.
 // Issue #521: so is the Jitsi base URL behind "Videokonferenz hinzufügen" (null = off).
+// Issue #625: so are week start, 12/24 h, default duration/calendar/reminder and the time zone.
 
 const express = require('express');
 const router = express.Router();
@@ -36,6 +37,28 @@ function ianaZone(value) {
   return resolved;
 }
 
+const MAX_DURATION = 24 * 60;
+const MAX_REMINDER = 4 * 7 * 24 * 60;
+const isMinutes = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+
+// #625: each returns the value to store, or undefined for one that is not acceptable. null = not chosen.
+const CALENDAR_PREFERENCES = {
+  weekStart: v => (v === null || ['mon', 'sun', 'sat'].includes(v) ? v : undefined),
+  timeFormat: v => (v === null || ['12h', '24h'].includes(v) ? v : undefined),
+  defaultDuration: v => (isMinutes(v, 5, MAX_DURATION) ? v : undefined),
+  defaultCalendarId: v => (v === null || (typeof v === 'string' && v.length > 0 && v.length <= 1024) ? v : undefined),
+  defaultReminder: v => (v === null || isMinutes(v, 0, MAX_REMINDER) ? v : undefined),
+  timeZone: v => (v === null ? null : ianaZone(v) ?? undefined),
+};
+const CALENDAR_PREFERENCE_ERRORS = {
+  weekStart: "weekStart must be 'mon', 'sun', 'sat' or null",
+  timeFormat: "timeFormat must be '12h', '24h' or null",
+  defaultDuration: `defaultDuration must be a whole number of minutes from 5 to ${MAX_DURATION}`,
+  defaultCalendarId: 'defaultCalendarId must be a calendar id or null',
+  defaultReminder: `defaultReminder must be a whole number of minutes from 0 to ${MAX_REMINDER} or null`,
+  timeZone: 'timeZone must be an IANA time zone name or null',
+};
+
 async function readPreferences(userId) {
   return {
     taskView: await Db.getTaskViewPreference(userId),
@@ -43,6 +66,7 @@ async function readPreferences(userId) {
     tasksHiddenInCalendar: await Db.getTasksHiddenInCalendar(userId),
     showWeekNumbers: await Db.getWeekNumbersPreference(userId),
     conferenceBaseUrl: await Db.getConferenceBaseUrlPreference(userId),
+    ...await Db.getCalendarPreferences(userId),
   };
 }
 
@@ -57,7 +81,7 @@ router.get('/', async (req, res, next) => {
 
 // PUT /api/preferences — { taskView?: 'list' | 'kanban', secondaryTimezone?: '<IANA zone>' | null,
 //   taskListInCalendar?: { calendarId: '<id>', shown: boolean }, showWeekNumbers?: boolean,
-//   conferenceBaseUrl?: '<http(s) URL>' | null }
+//   conferenceBaseUrl?: '<http(s) URL>' | null, plus the CALENDAR_PREFERENCES keys (#625) }
 router.put('/', async (req, res, next) => {
   const body = req.body || {};
   const hasTaskView = Object.prototype.hasOwnProperty.call(body, 'taskView');
@@ -65,8 +89,16 @@ router.put('/', async (req, res, next) => {
   const hasListToggle = Object.prototype.hasOwnProperty.call(body, 'taskListInCalendar');
   const hasWeekNumbers = Object.prototype.hasOwnProperty.call(body, 'showWeekNumbers');
   const hasConference = Object.prototype.hasOwnProperty.call(body, 'conferenceBaseUrl');
-  if (!hasTaskView && !hasZone && !hasListToggle && !hasWeekNumbers && !hasConference) {
-    return res.status(400).json({ error: 'Expected taskView, secondaryTimezone, taskListInCalendar, showWeekNumbers or conferenceBaseUrl' });
+  const calendarPrefs = {};
+  for (const key of Object.keys(CALENDAR_PREFERENCES)) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    const value = CALENDAR_PREFERENCES[key](body[key]);
+    if (value === undefined) return res.status(400).json({ error: CALENDAR_PREFERENCE_ERRORS[key] });
+    calendarPrefs[key] = value;
+  }
+  const hasCalendarPrefs = Object.keys(calendarPrefs).length > 0;
+  if (!hasTaskView && !hasZone && !hasListToggle && !hasWeekNumbers && !hasConference && !hasCalendarPrefs) {
+    return res.status(400).json({ error: `Expected taskView, secondaryTimezone, taskListInCalendar, showWeekNumbers, conferenceBaseUrl or ${Object.keys(CALENDAR_PREFERENCES).join(', ')}` });
   }
   const conference = hasConference && body.conferenceBaseUrl !== null ? conferenceBaseUrl(body.conferenceBaseUrl) : null;
   if (hasConference && body.conferenceBaseUrl !== null && conference === null) {
@@ -94,6 +126,7 @@ router.put('/', async (req, res, next) => {
     if (hasListToggle) await Db.setTaskListInCalendar(userId, toggle.calendarId, toggle.shown);
     if (hasWeekNumbers) await Db.setWeekNumbersPreference(userId, body.showWeekNumbers);
     if (hasConference) await Db.setConferenceBaseUrlPreference(userId, conference);
+    if (hasCalendarPrefs) await Db.setCalendarPreferences(userId, calendarPrefs);
     res.json(await readPreferences(userId));
   } catch (err) {
     next(err);

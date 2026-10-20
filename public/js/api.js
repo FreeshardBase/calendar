@@ -238,6 +238,8 @@ export const HolidaysAPI = {
 // ── Per-user preferences (#498) ───────────────────────────────────────────────
 export const PreferencesAPI = {
   get:         ()         => request('GET', '/api/preferences'),
+  // #625: any of weekStart, timeFormat, defaultDuration, defaultCalendarId, defaultReminder, timeZone.
+  set:         (values)   => request('PUT', '/api/preferences', values),
   setTaskView: (taskView) => request('PUT', '/api/preferences', { taskView }),
   setSecondaryTimezone: (secondaryTimezone) => request('PUT', '/api/preferences', { secondaryTimezone }),
   setTaskListInCalendar: (calendarId, shown) => request('PUT', '/api/preferences', { taskListInCalendar: { calendarId, shown } }),

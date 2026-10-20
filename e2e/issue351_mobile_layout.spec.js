@@ -45,7 +45,7 @@ test.describe('Issue #351 — phone layout', () => {
     await expect(page.locator('#view-3day')).toHaveClass(/active/);
     await expect(page.locator('.week-view .week-day-header')).toHaveCount(3);
     await expect(page.locator('.week-view .week-day-num')).toHaveText(['14', '15', '16']);
-    await expect(page.locator('#toolbar-title')).toHaveText('14. – 16. Mai 2037');
+    await expect(page.locator('#toolbar-title')).toHaveText('14.–16. Mai 2037');
 
     // The views a phone can use, at the bottom of the screen; the seven-column weeks and the list are not offered.
     const tabs = page.locator('.view-tabs');
@@ -83,15 +83,15 @@ test.describe('Issue #351 — phone layout', () => {
     await open(page);
     const width = page.viewportSize().width;
     const title = page.locator('#toolbar-title');
-    await expect(title).toHaveText('14. – 16. Mai 2037');
+    await expect(title).toHaveText('14.–16. Mai 2037');
 
     await swipe(page, width - 40, 40);
-    await expect(title).toHaveText('17. – 19. Mai 2037');
+    await expect(title).toHaveText('17.–19. Mai 2037');
     await expect(page.locator('.week-view .week-day-num')).toHaveText(['17', '18', '19']);
     await swipe(page, 40, width - 40);
-    await expect(title).toHaveText('14. – 16. Mai 2037');
+    await expect(title).toHaveText('14.–16. Mai 2037');
     await swipe(page, 40, width - 40);
-    await expect(title).toHaveText('11. – 13. Mai 2037');
+    await expect(title).toHaveText('11.–13. Mai 2037');
 
     // In the day view one swipe is one day.
     await page.locator('#view-day').tap();

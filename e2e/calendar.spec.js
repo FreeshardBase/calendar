@@ -972,7 +972,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     // Verify toolbar title shows full text without truncating to "A…"; a phone opens in three days (#351).
     const titleEl = page.locator('#toolbar-title');
     await expect(titleEl).toBeVisible();
-    await expect(titleEl).toHaveText('25. – 27. August 2026');
+    await expect(titleEl).toHaveText('25.–27. August 2026');
     await expect(page.locator('#view-3day')).toHaveClass(/active/);
     await expect(page.locator('.week-view')).toBeVisible({ timeout: 10000 });
 
@@ -2164,30 +2164,30 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
 
     test('› from 31 January shows February, then March, and ‹ returns to January', async ({ page }) => {
       await openAt(page, '2026-01-31');
-      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jan 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jan. 2026');
       await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('31');
 
       await page.locator('#mini-calendar [data-mini-next]').click();
-      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb. 2026');
       await expect(page.locator('#toolbar-title')).toHaveText('Februar 2026');
       await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('28');
 
       await page.locator('#mini-calendar [data-mini-next]').click();
-      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Mär 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('März 2026');
       await expect(page.locator('#toolbar-title')).toHaveText('März 2026');
 
       await page.locator('#mini-calendar [data-mini-prev]').click();
       await page.locator('#mini-calendar [data-mini-prev]').click();
-      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jan 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jan. 2026');
       await expect(page.locator('#toolbar-title')).toHaveText('Januar 2026');
     });
 
     test('‹ from 31 March shows February, not March again', async ({ page }) => {
       await openAt(page, '2026-03-31');
-      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Mär 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('März 2026');
 
       await page.locator('#mini-calendar [data-mini-prev]').click();
-      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb 2026');
+      await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Feb. 2026');
       await expect(page.locator('#toolbar-title')).toHaveText('Februar 2026');
       await expect(page.locator('#mini-calendar .mini-cal-day.selected')).toHaveText('28');
     });
@@ -2575,10 +2575,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(prev).toHaveText('‹');
       await expect(next).toHaveText('›');
       await next.click();
-      await expect(mini.locator('.mini-cal-title')).toHaveText('Nov 2026');
+      await expect(mini.locator('.mini-cal-title')).toHaveText('Nov. 2026');
       await prev.click();
       await prev.click();
-      await expect(mini.locator('.mini-cal-title')).toHaveText('Sep 2026');
+      await expect(mini.locator('.mini-cal-title')).toHaveText('Sept. 2026');
     });
   });
 
@@ -7223,7 +7223,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/?date=2026-09-25');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-    await expect(page.locator('#toolbar-title')).toHaveText('25. – 27. September 2026');
+    await expect(page.locator('#toolbar-title')).toHaveText('25.–27. September 2026');
 
     const layout = await page.evaluate(() => {
       const box = sel => document.querySelector(sel).getBoundingClientRect();
@@ -7608,10 +7608,10 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       await expect(page.locator('.month-more')).toHaveText(['+1 weiterer', '+2 weitere']);
 
       await page.click('#view-week');
-      await expect(page.locator('#toolbar-title')).toHaveText('8. – 14. Juni 2037');
+      await expect(page.locator('#toolbar-title')).toHaveText('8.–14. Juni 2037');
       await openApp(page, '/?date=2037-06-30');
       await page.click('#view-week');
-      await expect(page.locator('#toolbar-title')).toHaveText(/^29\. Jun\.? – 5\. Jul\.? 2037$/);
+      await expect(page.locator('#toolbar-title')).toHaveText(/^29\. Jun(i|\.)? – 5\. Jul(i|\.)? 2037$/);
 
       await page.click('#view-month');
       await page.fill('#search-input', 'zzz-e2e-404');

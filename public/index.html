@@ -256,6 +256,59 @@
             </select>
           </div>
         </div>
+        <!-- #625: calendar preferences; "Wie im Browser" leaves the choice to the browser's conventions -->
+        <div class="settings-section" id="calendar-prefs" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
+          <h3 style="margin:0 0 8px 0">Datum, Uhrzeit und neue Termine</h3>
+          <div class="form-group" style="margin-bottom:6px;">
+            <label class="form-label" for="pref-week-start" style="font-size:11px;">Woche beginnt am</label>
+            <select class="form-select" id="pref-week-start" data-pref="weekStart">
+              <option value="">Wie im Browser</option>
+              <option value="mon">Montag</option>
+              <option value="sun">Sonntag</option>
+              <option value="sat">Samstag</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:6px;">
+            <label class="form-label" for="pref-time-format" style="font-size:11px;">Uhrzeit</label>
+            <select class="form-select" id="pref-time-format" data-pref="timeFormat">
+              <option value="">Wie im Browser</option>
+              <option value="24h">24 Stunden (13:00)</option>
+              <option value="12h">12 Stunden (1:00 PM)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:6px;">
+            <label class="form-label" for="pref-time-zone" style="font-size:11px;">Zeitzone neuer Termine</label>
+            <select class="form-select" id="pref-time-zone" data-pref="timeZone"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:6px;">
+            <label class="form-label" for="pref-default-duration" style="font-size:11px;">Dauer neuer Termine</label>
+            <select class="form-select" id="pref-default-duration" data-pref="defaultDuration" data-number>
+              <option value="15">15 Minuten</option>
+              <option value="30">30 Minuten</option>
+              <option value="45">45 Minuten</option>
+              <option value="60">1 Stunde</option>
+              <option value="90">1,5 Stunden</option>
+              <option value="120">2 Stunden</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:6px;">
+            <label class="form-label" for="pref-default-calendar" style="font-size:11px;">Kalender neuer Termine</label>
+            <select class="form-select" id="pref-default-calendar" data-pref="defaultCalendarId"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:4px;">
+            <label class="form-label" for="pref-default-reminder" style="font-size:11px;">Erinnerung neuer Termine</label>
+            <select class="form-select" id="pref-default-reminder" data-pref="defaultReminder" data-number>
+              <option value="">Keine</option>
+              <option value="0">Zum Beginn</option>
+              <option value="5">5 Minuten vorher</option>
+              <option value="10">10 Minuten vorher</option>
+              <option value="15">15 Minuten vorher</option>
+              <option value="30">30 Minuten vorher</option>
+              <option value="60">1 Stunde vorher</option>
+              <option value="1440">1 Tag vorher</option>
+            </select>
+          </div>
+        </div>
         <!-- #517: Week numbers -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <h3 style="margin:0 0 8px 0">Kalenderwochen</h3>

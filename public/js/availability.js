@@ -6,14 +6,12 @@ import { AvailabilityAPI, CalendarsAPI } from './api.js';
 import { showToast } from './app.js';
 import { holdsEvents } from './calendarLabels.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
+import { startOfWeek, weekDays, weekdayName } from './locale.js';
 
-// #503: weekly hours are indexed like Date#getUTCDay (0 = Sunday); the dialog lists Monday first.
-const WEEKDAYS = [
-  { day: 1, name: 'Montag', short: 'Mo' }, { day: 2, name: 'Dienstag', short: 'Di' },
-  { day: 3, name: 'Mittwoch', short: 'Mi' }, { day: 4, name: 'Donnerstag', short: 'Do' },
-  { day: 5, name: 'Freitag', short: 'Fr' }, { day: 6, name: 'Samstag', short: 'Sa' },
-  { day: 0, name: 'Sonntag', short: 'So' }
-];
+// #503: weekly hours are indexed like Date#getUTCDay (0 = Sunday); the dialog lists them from the
+// user's week start (#625), named by Intl.
+const weekdayList = () => weekDays(startOfWeek(new Date()))
+  .map(d => ({ day: d.getDay(), name: weekdayName(d, 'long'), short: weekdayName(d) }));
 const DEFAULT_WINDOW = { start: '09:00', end: '17:00' };
 // A new page is open Monday to Friday 09:00–17:00, as on the server.
 const DEFAULT_WEEKLY_HOURS = [0, 1, 2, 3, 4, 5, 6].map(d => (d >= 1 && d <= 5 ? [DEFAULT_WINDOW] : []));
@@ -92,7 +90,7 @@ export function initAvailabilityManager() {
 
   // One row per weekday: a switch and that day's windows, shown only while the day is on.
   function renderWeekdays(weeklyHours) {
-    weekdaysEl.innerHTML = WEEKDAYS.map(({ day, name }) => {
+    weekdaysEl.innerHTML = weekdayList().map(({ day, name }) => {
       const windows = weeklyHours[day];
       return `
         <div class="ap-day" data-day="${day}" style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; font-size: 13px;">
@@ -117,7 +115,7 @@ export function initAvailabilityManager() {
     windowsEl.hidden = !e.target.checked;
     // A day switched on gets the default window back if all of its windows were removed.
     if (e.target.checked && !windowsEl.querySelector('.ap-window')) {
-      const { name } = WEEKDAYS.find(w => w.day === Number(dayEl.dataset.day));
+      const { name } = weekdayList().find(w => w.day === Number(dayEl.dataset.day));
       windowsEl.querySelector('.ap-window-add').insertAdjacentHTML('beforebegin', windowRow(name, DEFAULT_WINDOW));
     }
   });
@@ -125,7 +123,7 @@ export function initAvailabilityManager() {
   weekdaysEl?.addEventListener('click', (e) => {
     const dayEl = e.target.closest('.ap-day');
     if (!dayEl) return;
-    const { name } = WEEKDAYS.find(w => w.day === Number(dayEl.dataset.day));
+    const { name } = weekdayList().find(w => w.day === Number(dayEl.dataset.day));
     if (e.target.classList.contains('ap-window-add')) {
       e.target.insertAdjacentHTML('beforebegin', windowRow(name, DEFAULT_WINDOW));
       e.target.previousElementSibling.querySelector('.ap-window-start').focus();
@@ -261,7 +259,7 @@ export function initAvailabilityManager() {
   }
 
   function describeHours(p) {
-    const days = WEEKDAYS.filter(({ day }) => p.weeklyHours[day].length)
+    const days = weekdayList().filter(({ day }) => p.weeklyHours[day].length)
       .map(({ day, short }) => `${short} ${p.weeklyHours[day].map(w => `${w.start}–${w.end}`).join(', ')}`);
     const limits = [];
     if (p.bufferMinutes) limits.push(`Puffer ${p.bufferMinutes} Min.`);

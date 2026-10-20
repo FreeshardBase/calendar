@@ -8,7 +8,8 @@ import { AccountsAPI, CalendarsAPI, EventsAPI, TasksAPI, WebcalAPI, HolidaysAPI,
 import { enableReorder, applyGroupOrder, renderLater } from './sidebarOrder.js';
 import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents, holdsTasks, collectionNoun, collectionTypeLabel, formerLinkLabel } from './calendarLabels.js';
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
-import { searchTimeZones, zoneOffsetLabel, localTimeZone } from './timezones.js';
+import { searchTimeZones, zoneOffsetLabel, localTimeZone, allTimeZones } from './timezones.js';
+import { formatDate, formatNumber, allDayDate } from './locale.js';
 import { initEventModal, openCreateModal, openEditModal, openDuplicateModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { openContextMenu } from './contextMenu.js';
 import { isDragArmed } from './eventDrag.js';
@@ -123,6 +124,7 @@ async function boot() {
         tasksHiddenInCalendar: new Set(prefs.tasksHiddenInCalendar),
         showWeekNumbers: prefs.showWeekNumbers,
         conferenceBaseUrl: prefs.conferenceBaseUrl,
+        ...calendarPreferences(prefs),
       });
       // #614: msgraph.js reports a Microsoft 365 account disconnected.
       window.addEventListener('linked-accounts-changed', async () => {
@@ -1134,7 +1136,7 @@ function renderMiniMonth(loaded = []) {
     (d) => {
       store.set({ currentDate: d });
       loadEvents();
-      announce(`Datum: ${d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
+      announce(`Datum: ${formatDate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
     },
     { range: view === 'list' ? null : getDateRange(view, date), showWeekNumbers: store.get('showWeekNumbers') }
   );
@@ -1173,17 +1175,14 @@ function getFilteredEvents() {
 const SEARCH_MIN_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 const searchState = { timer: null, seq: 0, hits: [] };
-const searchDayFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+const searchDayFmt = { format: d => formatDate(d, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) };
 
 function hideSearchResults() {
   $('search-results').classList.add('hidden');
 }
 
 function eventLocalDay(ev) {
-  if (ev.allDay) {
-    const [y, m, d] = String(ev.start).slice(0, 10).split('-').map(Number);
-    return new Date(y, m - 1, d);
-  }
+  if (ev.allDay) return allDayDate(ev.start);
   const start = new Date(ev.start);
   return new Date(start.getFullYear(), start.getMonth(), start.getDate());
 }
@@ -1640,7 +1639,7 @@ function openImportDialog(fileName, icsText) {
 
 const IMPORT_POLL_MS = 1000;
 const SYNC_POLL_MS = 2000;
-const formatCount = n => new Intl.NumberFormat('de-DE').format(n);
+const formatCount = n => formatNumber(n);
 
 function renderImportProgress(job) {
   const banner = $('import-progress');
@@ -2244,6 +2243,7 @@ function renderSettings() {
   renderSettingsCalendars();
   renderSettingsAppPasswords();
   renderSettingsTimezone();
+  renderSettingsCalendarPrefs();
   renderSettingsHolidays().catch(err => showToast('Feiertage konnten nicht geladen werden: ' + err.message, 'error'));
   renderSettingsWeather();
   $('show-week-numbers-toggle').checked = store.get('showWeekNumbers');
@@ -2279,6 +2279,41 @@ function renderSettingsNotifications() {
     btn.textContent = 'Aktivieren';
     btn.disabled = false;
     btn.classList.remove('hidden');
+  }
+}
+
+// #625: week start, 12/24 h, time zone and the defaults of new events; one store key per setting.
+const CALENDAR_PREF_KEYS = ['weekStart', 'timeFormat', 'defaultDuration', 'defaultCalendarId', 'defaultReminder', 'timeZone'];
+
+function calendarPreferences(prefs) {
+  return Object.fromEntries(CALENDAR_PREF_KEYS.map(key => [key, prefs[key]]));
+}
+
+function renderSettingsCalendarPrefs() {
+  const writable = (store.get('calendars') || []).filter(c => holdsEvents(c) && !c.readOnly);
+  const calSelect = $('pref-default-calendar');
+  fillCalendarSelect(calSelect, writable);
+  calSelect.prepend(new Option('Der erste beschreibbare Kalender', ''));
+  const zoneSelect = $('pref-time-zone');
+  zoneSelect.replaceChildren(new Option(`Wie im Browser (${localTimeZone()})`, ''),
+    ...allTimeZones().map(zone => new Option(zone, zone)));
+  for (const el of $('calendar-prefs').querySelectorAll('select[data-pref]')) {
+    const value = store.get(el.dataset.pref);
+    el.value = value === null || value === undefined ? '' : String(value);
+  }
+}
+
+async function changeCalendarPreference(el) {
+  const key = el.dataset.pref;
+  const value = el.value === '' ? null : ('number' in el.dataset ? Number(el.value) : el.value);
+  try {
+    const saved = await PreferencesAPI.set({ [key]: value });
+    store.set(calendarPreferences(saved));
+    renderCalendarView();
+    announce('Einstellung gespeichert');
+  } catch (err) {
+    renderSettingsCalendarPrefs();
+    showToast('Die Einstellung konnte nicht gespeichert werden: ' + err.message, 'error');
   }
 }
 
@@ -2323,7 +2358,7 @@ async function renderSettingsAppPasswords() {
     }
 
     list.innerHTML = listData.map(asp => {
-      const dateStr = new Date(asp.createdAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const dateStr = formatDate(asp.createdAt, { day: '2-digit', month: '2-digit', year: 'numeric' });
       return `
         <div class="settings-item" style="padding: 6px 0">
           <div class="settings-item-info" style="display:flex; flex-direction:column; align-items:flex-start">
@@ -2367,7 +2402,7 @@ async function renderSettingsAppPasswords() {
 // the first status poll has answered.
 function accountSyncStatusHtml(jobs) {
   if (!jobs) return '';
-  const fmt = ms => new Date(ms).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const fmt = ms => formatDate(ms, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   // Server orders by created_at DESC.
   const latestFinished = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
   const lastSuccess = jobs.find(j => j.status === 'SUCCESS');
@@ -3364,6 +3399,11 @@ function attachListeners() {
     }
     error.classList.add('hidden');
     saveWeatherLocation({ latitude, longitude });
+  });
+
+  // #625: each calendar preference is saved as soon as it is chosen.
+  $('calendar-prefs').addEventListener('change', e => {
+    if (e.target.matches('select[data-pref]')) changeCalendarPreference(e.target);
   });
 
   // #517: ISO week numbers, a per-user setting on the server.

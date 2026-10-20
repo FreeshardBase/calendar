@@ -8,10 +8,9 @@
 import { store, visibleCalendars, calendarById } from './store.js';
 import { zoneAbbreviation, zoneOffsetLabel, timeInZone, localTimeZone } from './timezones.js';
 import { enableEventDrag, deferRenderWhileDragging } from './eventDrag.js';
+import { dateFormat, formatDate, formatTime, formatNumber, weekdayName, startOfWeek, weekDays, allDayDate, localDateString } from './locale.js';
 
-const DAYS   = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-const MONTHS = ['Januar','Februar','März','April','Mai','Juni',
-                'Juli','August','September','Oktober','November','Dezember'];
+const monthYear = date => formatDate(date, { month: 'long', year: 'numeric' });
 
 const HOUR_H = 60; // px per hour in time grid
 const DAY_START = 0; // render from hour 0
@@ -44,12 +43,12 @@ export function renderView(container, events, view, currentDate, callbacks) {
 
 export function getToolbarTitle(view, date) {
   switch (view) {
-    case 'month':  return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
-    case 'week':   return weekTitle(date);
-    case 'workweek': return workweekTitle(date);
+    case 'month':  return monthYear(date);
+    case 'week':   return rangeTitle(startOfWeek(date), 7);
+    case 'workweek': return rangeTitle(startOfWeek(date, 1), 5);
     case '3day':   return rangeTitle(dayStart(date), 3);
-    case 'day':    return `${DAYS[date.getDay()]}, ${date.getDate()}. ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
-    case 'agenda': return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+    case 'day':    return `${weekdayName(date)}, ${formatDate(date, { day: 'numeric', month: 'long', year: 'numeric' })}`;
+    case 'agenda': return monthYear(date);
     // #510: the list chooses its own range in the view.
     case 'list':   return 'Liste';
   }
@@ -80,22 +79,19 @@ export function getDateRange(view, date) {
   let start, end;
   switch (view) {
     case 'month': {
-      start = new Date(date.getFullYear(), date.getMonth(), 1);
-      const startDay = (start.getDay() + 6) % 7;
-      start.setDate(start.getDate() - startDay); // back to Monday
-      start.setHours(0, 0, 0, 0);
+      start = startOfWeek(new Date(date.getFullYear(), date.getMonth(), 1));
       end = new Date(start);
       end.setDate(start.getDate() + 41); // 42 days total (6 full weeks)
       end.setHours(23, 59, 59, 999);
       break;
     }
     case 'week': {
-      start = weekStart(date);
+      start = startOfWeek(date);
       end   = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
       break;
     }
     case 'workweek': {
-      start = mondayStart(date);
+      start = startOfWeek(date, 1);
       end   = new Date(start); end.setDate(start.getDate() + 4); end.setHours(23, 59, 59, 999);
       break;
     }
@@ -175,8 +171,8 @@ function miniKeyTarget(key, date) {
     case 'ArrowRight': d.setDate(d.getDate() + 1); return d;
     case 'ArrowUp':    d.setDate(d.getDate() - 7); return d;
     case 'ArrowDown':  d.setDate(d.getDate() + 7); return d;
-    case 'Home':       d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d;
-    case 'End':        d.setDate(d.getDate() + 6 - (d.getDay() + 6) % 7); return d;
+    case 'Home':       return startOfWeek(d);
+    case 'End':        { const ws = startOfWeek(d); ws.setDate(ws.getDate() + 6); return ws; }
     case 'PageUp':     return navigate('month', d, -1);
     case 'PageDown':   return navigate('month', d, +1);
     default:           return null;
@@ -194,11 +190,12 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick, o
   const eventDays = eventDaysInMonth(events, year, month);
 
   const first = new Date(year, month, 1);
-  const startDay = (first.getDay() + 6) % 7;
+  const gridStart = startOfWeek(first);
+  const startDay = Math.round((first - gridStart) / 86400000);
 
   let html = `
     <div class="mini-cal-header">
-      <span class="mini-cal-title">${MONTHS[month].slice(0,3)} ${year}</span>
+      <span class="mini-cal-title">${formatDate(first, { month: 'short', year: 'numeric' })}</span>
       <div class="mini-cal-nav">
         <button data-mini-prev aria-label="Vorheriger Monat" title="Vorheriger Monat">‹</button>
         <button data-mini-next aria-label="Nächster Monat" title="Nächster Monat">›</button>
@@ -206,7 +203,7 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick, o
     </div>
     <div class="mini-cal-grid${showWeekNumbers ? ' with-weeks' : ''}">
       ${showWeekNumbers ? '<div class="mini-cal-dow" aria-hidden="true">KW</div>' : ''}
-      ${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => `<div class="mini-cal-dow">${d}</div>`).join('')}
+      ${weekDays(gridStart).map(d => `<div class="mini-cal-dow">${weekdayName(d)}</div>`).join('')}
   `;
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -225,8 +222,7 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick, o
       const isSelected = sameDay(d, currentDate);
       const hasEvents  = eventDays.has(col + 1);
       const inRange    = range !== null && d >= range.start && d <= range.end;
-      const label = d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-        + (hasEvents ? ', mit Terminen' : '');
+      const label = longDateLabel(d) + (hasEvents ? ', mit Terminen' : '');
       // One tab stop for the grid (the selected day); the arrow keys move between the days.
       html += `<div class="mini-cal-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${hasEvents ? 'has-events' : ''} ${inRange ? 'in-range' : ''}"
                     data-mini-day="${d.toISOString()}" tabindex="${isSelected ? 0 : -1}" role="button"
@@ -292,7 +288,8 @@ function renderMonth(container, events, currentDate, cb) {
   const year   = currentDate.getFullYear();
 
   const first    = new Date(year, month, 1);
-  const startDay = (first.getDay() + 6) % 7;
+  const gridStart = startOfWeek(first);
+  const startDay = Math.round((first - gridStart) / 86400000);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const div = document.createElement('div');
@@ -300,17 +297,9 @@ function renderMonth(container, events, currentDate, cb) {
   div.setAttribute('role', 'grid');
   div.setAttribute('aria-label', 'Monatsansicht');
 
-  // Day-of-week header
-  const dowNames = [
-    { short: 'Mo', full: 'Montag' },
-    { short: 'Di', full: 'Dienstag' },
-    { short: 'Mi', full: 'Mittwoch' },
-    { short: 'Do', full: 'Donnerstag' },
-    { short: 'Fr', full: 'Freitag' },
-    { short: 'Sa', full: 'Samstag' },
-    { short: 'So', full: 'Sonntag' }
-  ];
-  div.innerHTML = `<div class="month-dow-header" role="row">${dowNames.map(d => `<div class="month-dow" role="columnheader" aria-label="${d.full}">${d.short}</div>`).join('')}</div>`;
+  // Day-of-week header, from the user's week start (#625)
+  div.innerHTML = `<div class="month-dow-header" role="row">${weekDays(gridStart).map(d =>
+    `<div class="month-dow" role="columnheader" aria-label="${weekdayName(d, 'long')}">${weekdayName(d)}</div>`).join('')}</div>`;
 
   const grid = document.createElement('div');
   grid.className = 'month-grid';
@@ -463,7 +452,7 @@ function hourLabelHtml(cls, h, day, secTz) {
 function renderWeek(container, events, currentDate, cb, view = 'week') {
   const isWorkWeek = (view === 'workweek');
   const today = new Date(); today.setHours(0,0,0,0);
-  const ws    = view === '3day' ? dayStart(currentDate) : isWorkWeek ? mondayStart(currentDate) : weekStart(currentDate);
+  const ws    = view === '3day' ? dayStart(currentDate) : isWorkWeek ? startOfWeek(currentDate, 1) : startOfWeek(currentDate);
   const numDays = view === '3day' ? 3 : isWorkWeek ? 5 : 7;
   const days  = Array.from({length: numDays}, (_, i) => {
     const d = new Date(ws); d.setDate(ws.getDate() + i); return d;
@@ -506,7 +495,7 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
     header.innerHTML += `
       <div class="week-day-header${isToday ? ' today' : ''}" data-date="${d.toISOString()}"
            role="columnheader" aria-label="${dayHeaderLabel(d, allDayEvs.length)}${weatherLabelSuffix(d)}"${isToday ? ' aria-current="date"' : ''}>
-        <div class="week-day-label">${DAYS[d.getDay()]}</div>
+        <div class="week-day-label">${weekdayName(d)}</div>
         <div class="week-day-num">${d.getDate()}</div>
         ${weatherBadgeHtml(d)}
         ${allDayHtml}
@@ -603,7 +592,7 @@ function renderDay(container, events, currentDate, cb) {
     ${gutterHtml}
     <div class="week-day-header${isToday ? ' today' : ''}" data-date="${currentDate.toISOString()}"
          role="columnheader" aria-label="${dayHeaderLabel(currentDate, allDayEvs.length)}${weatherLabelSuffix(currentDate)}"${isToday ? ' aria-current="date"' : ''}>
-      <div class="week-day-label">${DAYS[currentDate.getDay()]}</div>
+      <div class="week-day-label">${weekdayName(currentDate)}</div>
       <div class="week-day-num">${currentDate.getDate()}</div>
       ${weatherBadgeHtml(currentDate)}
       ${allDayHtml}
@@ -813,16 +802,12 @@ function renderAgenda(container, events, currentDate, cb) {
   const div   = document.createElement('div');
   div.className = 'agenda-view';
 
-  // Group by day
+  // Group by local calendar day: an all-day event's date is that day, a timed event's is the day
+  // its start falls on here (#625: one group per day, also east of UTC).
   const byDay = new Map();
   for (const ev of events) {
     if (!ev.start) continue;
-    let key;
-    if (ev.allDay) {
-      key = typeof ev.start === 'string' ? ev.start.slice(0, 10) : new Date(ev.start).toISOString().slice(0, 10);
-    } else {
-      key = new Date(ev.start).toDateString();
-    }
+    const key = ev.allDay ? String(ev.start).slice(0, 10) : localDateString(new Date(ev.start));
     if (!byDay.has(key)) byDay.set(key, []);
     byDay.get(key).push(ev);
   }
@@ -834,25 +819,10 @@ function renderAgenda(container, events, currentDate, cb) {
   }
 
   // Sort days
-  const sortedDays = [...byDay.keys()].sort((a, b) => new Date(a) - new Date(b));
+  const sortedDays = [...byDay.keys()].sort();
 
   for (const dayKey of sortedDays) {
-    const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(dayKey);
-    let d, dateNum, monthNum, yearNum, dayName;
-    if (isIsoDate) {
-      const parts = dayKey.split('-').map(Number);
-      d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-      dateNum  = d.getUTCDate();
-      monthNum = d.getUTCMonth();
-      yearNum  = d.getUTCFullYear();
-      dayName  = DAYS[d.getUTCDay()];
-    } else {
-      d = new Date(dayKey);
-      dateNum  = d.getDate();
-      monthNum = d.getMonth();
-      yearNum  = d.getFullYear();
-      dayName  = DAYS[d.getDay()];
-    }
+    const d = allDayDate(dayKey);
     const isT  = sameDay(d, today);
     const dayEvs = sortEvents(byDay.get(dayKey));
 
@@ -861,8 +831,8 @@ function renderAgenda(container, events, currentDate, cb) {
 
     row.innerHTML = `
       <div class="agenda-day-header">
-        <span class="agenda-day-date">${dateNum}. ${MONTHS[monthNum]} ${yearNum}</span>
-        <span class="agenda-day-name">${dayName}</span>
+        <span class="agenda-day-date">${formatDate(d, { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+        <span class="agenda-day-name">${weekdayName(d)}</span>
       </div>
       <div class="agenda-events">
         ${dayEvs.map(ev => agendaEventHtml(ev)).join('')}
@@ -1019,12 +989,10 @@ function eventsForDay(events, date) {
   const filtered = events.filter(ev => {
     if (!ev.start) return false;
     if (ev.allDay) {
-      const startStr = typeof ev.start === 'string' ? ev.start.slice(0, 10) : new Date(ev.start).toISOString().slice(0, 10);
-      const endStr = ev.end ? (typeof ev.end === 'string' ? ev.end.slice(0, 10) : new Date(ev.end).toISOString().slice(0, 10)) : startStr;
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      const dStr = `${y}-${m}-${d}`;
+      // All-day values carry their calendar date in the first ten characters (never a UTC instant).
+      const startStr = String(ev.start).slice(0, 10);
+      const endStr = ev.end ? String(ev.end).slice(0, 10) : startStr;
+      const dStr = localDateString(date);
       if (endStr > startStr) {
         return dStr >= startStr && dStr < endStr;
       }
@@ -1042,7 +1010,7 @@ function eventsForDay(events, date) {
 // Accessible names for the grid views (#183): "Donnerstag, 13. August 2026"
 // and, for a cell, the number of events it holds.
 function longDateLabel(date) {
-  return date.toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  return formatDate(date, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 function dayCellLabel(date, eventCount) {
@@ -1070,7 +1038,7 @@ const WEATHER_SYMBOLS = {
   'hail':              ['\u2744\uFE0E', 'Hagel'],
   'thunderstorm':      ['\u03DF', 'Gewitter'],
 };
-const MM = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
+const MM = { format: n => formatNumber(n, { maximumFractionDigits: 1 }) };
 
 function forecastFor(date) {
   const weather = store.get('weather');
@@ -1108,56 +1076,20 @@ function sameDay(a, b) {
          a.getDate()     === b.getDate();
 }
 
-function mondayStart(date) {
-  const d = new Date(date);
-  d.setHours(0,0,0,0);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return d;
-}
-
-function workweekTitle(date) {
-  return rangeTitle(mondayStart(date), 5);
-}
-
 function dayStart(date) {
   const d = new Date(date);
   d.setHours(0,0,0,0);
   return d;
 }
 
-// "14. – 16. Mai 2037" for `days` days from `ws`; across months the months are abbreviated.
+// "14.–16. Mai 2037" for `days` days from `ws`; across months the months are abbreviated.
 function rangeTitle(ws, days) {
   const we = new Date(ws); we.setDate(ws.getDate() + days - 1);
-  if (ws.getMonth() === we.getMonth()) {
-    return `${ws.getDate()}. – ${we.getDate()}. ${MONTHS[we.getMonth()]} ${we.getFullYear()}`;
-  }
-  return `${ws.getDate()}. ${MONTHS[ws.getMonth()].slice(0,3)} – ${we.getDate()}. ${MONTHS[we.getMonth()].slice(0,3)} ${we.getFullYear()}`;
+  const month = ws.getMonth() === we.getMonth() ? 'long' : 'short';
+  return dateFormat({ day: 'numeric', month, year: 'numeric' }).formatRange(ws, we);
 }
 
-function weekStart(date) {
-  const d = new Date(date);
-  d.setHours(0,0,0,0);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return d;
-}
-
-function weekTitle(date) {
-  const ws = weekStart(date);
-  const we = new Date(ws); we.setDate(ws.getDate() + 6);
-  if (ws.getMonth() === we.getMonth()) {
-    return `${ws.getDate()}. – ${we.getDate()}. ${MONTHS[we.getMonth()]} ${we.getFullYear()}`;
-  }
-  return `${ws.getDate()}. ${MONTHS[ws.getMonth()].slice(0,3)} – ${we.getDate()}. ${MONTHS[we.getMonth()].slice(0,3)} ${we.getFullYear()}`;
-}
-
-function fmtTime(iso) {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
+const fmtTime = iso => formatTime(iso);
 
 export function sanitizeColor(color, fallback = '#6366f1') {
   if (!color || typeof color !== 'string') return fallback;

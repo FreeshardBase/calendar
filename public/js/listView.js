@@ -10,6 +10,7 @@ import { store } from './store.js';
 import { EventsAPI } from './api.js';
 import { calendarLabel, holdsEvents } from './calendarLabels.js';
 import { confirmDialog } from './dialogFocus.js';
+import { formatDate, formatTime } from './locale.js';
 
 const PAGE_SIZE = 50;
 const COLUMNS = [
@@ -20,9 +21,10 @@ const COLUMNS = [
   { key: 'location', label: 'Ort' },
 ];
 
-const dateFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
-const allDayFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
-const timeFmt = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+const DATE = { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' };
+const dateFmt = { format: d => formatDate(d, DATE) };
+const allDayFmt = { format: d => formatDate(d, { ...DATE, timeZone: 'UTC' }) };
+const timeFmt = { format: d => formatTime(d) };
 
 function isoDay(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

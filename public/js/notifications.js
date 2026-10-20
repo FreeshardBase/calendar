@@ -4,6 +4,7 @@
 
 import { store } from './store.js';
 import { showToast } from './app.js';
+import { formatTime } from './locale.js';
 
 const NOTIFIED_STORAGE_KEY = 'webcalendar_notified_alarms';
 
@@ -119,7 +120,7 @@ function remindAbout(item, now) {
 
       const title = `Erinnerung: ${item.title}`;
       const timeIso = item.timeIso;
-      const timeStr = timeIso ? `${item.timeLabel}: ${new Date(timeIso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : '';
+      const timeStr = timeIso ? `${item.timeLabel}: ${formatTime(timeIso)}` : '';
       const locationStr = item.location ? ` | Ort: ${item.location}` : '';
       const descStr = alarm.description ? ` (${alarm.description})` : '';
       const body = `${timeStr}${locationStr}${descStr}`;
