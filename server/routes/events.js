@@ -222,6 +222,140 @@ function pageEvents(events, { limit, offset, sort, order, q }, calendarNames) {
   return { events: sorted.slice(offset, offset + limit), total: sorted.length };
 }
 
+/**
+ * Reads the events of [startDate, endDate) from every calendar the session can see (all
+ * non-OAuth accounts plus calendars shared with the user), or only from `calendarId`.
+ * A calendar or account that could not be read is named in `errors`, never dropped silently.
+ */
+async function collectEvents(req, startDate, endDate, calendarId) {
+  const accounts = req.session.accounts || [];
+  const allEvents = [];
+  const calendarNames = new Map();
+  const errors = [];
+  const unparseable = [];
+  let successfulCalendars = 0;
+
+  // Only query events from local/non-oauth accounts to avoid duplication,
+  // since oauth2 accounts are synced in the background.
+  const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
+
+  const hasCalDAVEnv = Boolean(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
+  await Promise.allSettled(
+    activeAccounts.map(async (account) => {
+      if (
+        (account.id === 'internal-caldav' && process.env.DISABLE_INTERNAL_CALDAV === '1') ||
+        (account.id === 'env-default' && !hasCalDAVEnv && process.env.DISABLE_INTERNAL_CALDAV === '1')
+      ) {
+        return;
+      }
+      try {
+        const client = await getClientForAccount(account);
+
+        const calXml    = await client.getCalendars();
+        let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
+
+        // Fetch shared calendars for this user if this is the internal-caldav account
+        if (account.id === 'internal-caldav' && req.session.userId) {
+          try {
+            const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
+            for (const share of sharedCals) {
+              const parts = share.calendar_id.split('::');
+              const calendarHref = parts[1];
+              
+              const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
+              const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
+              
+              calendars.push({
+                id: share.calendar_id,
+                url: calendarUrl,
+                name: calendarHref,
+                color: '#cccccc'
+              });
+            }
+          } catch (dbErr) {
+            console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
+          }
+        }
+
+        if (calendarId) {
+          calendars = calendars.filter(c => c.id === calendarId);
+        }
+        for (const cal of calendars) calendarNames.set(cal.id, cal.name || '');
+
+        await forEachLimited(calendars, CALDAV_REPORT_CONCURRENCY, async (cal) => {
+          try {
+            const eventsXml = await client.getEvents(cal.url, startDate, endDate);
+            const parseErrors = [];
+            const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate, parseErrors);
+            allEvents.push(...events);
+            for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
+            successfulCalendars++;
+          } catch (eventErr) {
+            console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
+            const { status, message } = describeError(eventErr);
+            errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
+          }
+        });
+      } catch (accountErr) {
+        console.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
+        const { status, message } = describeError(accountErr);
+        errors.push({ accountId: account.id, status, error: message });
+      }
+    })
+  );
+  return { allEvents, calendarNames, errors, unparseable, successfulCalendars, activeAccounts };
+}
+
+// #349: the toolbar search looks through every calendar, not only the loaded view. It covers
+// SEARCH_YEARS before and after today (recurring series are expanded inside that window) and
+// answers the first SEARCH_MAX_RESULTS hits in date order plus the total.
+const SEARCH_YEARS = 3;
+const SEARCH_MAX_RESULTS = 200;
+const SEARCH_MIN_LENGTH = 2;
+
+function matchesSearch(ev, q) {
+  return [ev.title, ev.location, ev.description].some(text => (text || '').toLowerCase().includes(q));
+}
+
+// ── GET /api/events/search?q=text ─────────────────────────────────────────────
+router.get('/search', async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    if (q.length < SEARCH_MIN_LENGTH) {
+      return res.status(400).json({ error: `q must have at least ${SEARCH_MIN_LENGTH} characters` });
+    }
+
+    const rangeStart = new Date();
+    rangeStart.setUTCFullYear(rangeStart.getUTCFullYear() - SEARCH_YEARS);
+    const rangeEnd = new Date();
+    rangeEnd.setUTCFullYear(rangeEnd.getUTCFullYear() + SEARCH_YEARS);
+
+    const { allEvents, errors, unparseable, successfulCalendars, activeAccounts } =
+      await collectEvents(req, rangeStart, rangeEnd, null);
+    setUnparseableHeader(res, unparseable);
+
+    if (activeAccounts.length > 0 && errors.length >= activeAccounts.length && successfulCalendars === 0) {
+      return res.status(errors[0].status).json({ error: errors[0].error, errors });
+    }
+
+    const hits = allEvents
+      .filter(ev => matchesSearch(ev, q))
+      .sort((a, b) => (new Date(a.start) - new Date(b.start)) || compareText(a.uid || '', b.uid || ''));
+    res.json({
+      events: hits.slice(0, SEARCH_MAX_RESULTS),
+      total: hits.length,
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: rangeEnd.toISOString(),
+      errors
+    });
+  } catch (err) {
+    return sendError(res, err, '[events search]');
+  }
+});
+
 // ── GET /api/events?start=ISO&end=ISO ─────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -251,81 +385,8 @@ router.get('/', async (req, res) => {
     const paging = parseListPaging(req.query);
     if (paging.error) return res.status(400).json({ error: paging.error });
 
-    const accounts = req.session.accounts || [];
-    const allEvents = [];
-    const calendarNames = new Map();
-    const errors = [];
-    const unparseable = [];
-    let successfulCalendars = 0;
-
-    // Only query events from local/non-oauth accounts to avoid duplication,
-    // since oauth2 accounts are synced in the background.
-    const activeAccounts = accounts.filter(account => account.authType !== 'oauth2');
-
-    const hasCalDAVEnv = Boolean(process.env.CALDAVURL && process.env.CALDAV_USERNAME && process.env.CALDAV_PASSWORD);
-    await Promise.allSettled(
-      activeAccounts.map(async (account) => {
-        if (
-          (account.id === 'internal-caldav' && process.env.DISABLE_INTERNAL_CALDAV === '1') ||
-          (account.id === 'env-default' && !hasCalDAVEnv && process.env.DISABLE_INTERNAL_CALDAV === '1')
-        ) {
-          return;
-        }
-        try {
-          const client = await getClientForAccount(account);
-
-          const calXml    = await client.getCalendars();
-          let calendars = parseCalendarList(calXml, account.id, account.url, account.username);
-
-          // Fetch shared calendars for this user if this is the internal-caldav account
-          if (account.id === 'internal-caldav' && req.session.userId) {
-            try {
-              const sharedCals = await Db.getSharedCalendarsForUser(req.session.userId);
-              for (const share of sharedCals) {
-                const parts = share.calendar_id.split('::');
-                const calendarHref = parts[1];
-                
-                const localCalDAVCUrl = process.env.INTERNAL_CALDAV_URL || 'https://caldav-server:5232';
-                const calendarUrl = localCalDAVCUrl.replace(/\/+$/, '') + calendarHref;
-                
-                calendars.push({
-                  id: share.calendar_id,
-                  url: calendarUrl,
-                  name: calendarHref,
-                  color: '#cccccc'
-                });
-              }
-            } catch (dbErr) {
-              console.error('[events GET] Failed to fetch shared calendars:', dbErr.message);
-            }
-          }
-
-          if (calendarId) {
-            calendars = calendars.filter(c => c.id === calendarId);
-          }
-          for (const cal of calendars) calendarNames.set(cal.id, cal.name || '');
-
-          await forEachLimited(calendars, CALDAV_REPORT_CONCURRENCY, async (cal) => {
-            try {
-              const eventsXml = await client.getEvents(cal.url, startDate, endDate);
-              const parseErrors = [];
-              const events    = parseEventList(eventsXml, cal.id, account.id, cal.url, startDate, endDate, parseErrors);
-              allEvents.push(...events);
-              for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
-              successfulCalendars++;
-            } catch (eventErr) {
-              console.error(`[events GET] Failed to fetch events for calendar ${cal.id}:`, eventErr.message);
-              const { status, message } = describeError(eventErr);
-              errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
-            }
-          });
-        } catch (accountErr) {
-          console.error(`[events GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
-          const { status, message } = describeError(accountErr);
-          errors.push({ accountId: account.id, status, error: message });
-        }
-      })
-    );
+    const { allEvents, calendarNames, errors, unparseable, successfulCalendars, activeAccounts } =
+      await collectEvents(req, startDate, endDate, calendarId);
 
     if (errors.length > 0) {
       res.setHeader('X-CalDAV-Error', JSON.stringify(errors.map(e => e.error)));
