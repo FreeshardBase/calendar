@@ -777,6 +777,7 @@ function renderWebcalSidebar() {
   enableReorder(list, {
     itemSelector: '[data-webcal-id]',
     idOf: el => el.dataset.webcalId,
+    nameOf: el => el.querySelector('.calendar-name').textContent,
     onReorder: ids => {
       webcalSubscriptions = applyGroupOrder(webcalSubscriptions, ids, sub => sub.id);
       renderWebcalSidebar();
@@ -1445,6 +1446,7 @@ function renderCalendarList() {
   enableReorder(list, {
     itemSelector: '[data-cal-id]',
     idOf: el => el.dataset.calId,
+    nameOf: el => el.querySelector('.calendar-name').textContent,
     onReorder: ids => {
       store.set({ calendars: applyGroupOrder(store.get('calendars'), ids, c => c.id) });
       renderCalendarList();

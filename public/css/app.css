@@ -306,6 +306,22 @@ a { color: inherit; text-decoration: none; }
 .calendar-item.dragging { opacity: 0.5; position: relative; z-index: 1; }
 .calendar-item.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .calendar-item.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+/* #573: the grip drags the entry by touch (only there, so the rest of it still scrolls the
+   sidebar) and opens the "Nach oben" / "Nach unten" menu when tapped. Shown on hover with a
+   mouse, always on a phone, where it is a 44 px target. */
+.sidebar-order-handle {
+  width: 24px; min-height: 24px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-muted); border-radius: var(--radius-glyph);
+  cursor: grab; touch-action: none;
+  opacity: 0; transition: opacity var(--t);
+}
+.calendar-item:hover .sidebar-order-handle,
+.sidebar-order-handle:focus-visible,
+.sidebar-order-handle[aria-expanded="true"] { opacity: 1; }
+@media (max-width: 768px), (pointer: coarse) {
+  .sidebar-order-handle { width: 44px; height: 44px; margin: -5px 0; opacity: 1; }
+}
 
 /* Action buttons that appear on hover */
 .cal-item-actions {
@@ -1228,6 +1244,7 @@ textarea.form-input { height: auto; padding: var(--sp-3); resize: vertical; }
   cursor: pointer;
 }
 .context-menu-item:hover, .context-menu-item:focus { background: var(--surface-hover); }
+.context-menu-item:disabled { color: var(--ink-muted); background: none; cursor: default; }
 
 /* ── 17. Event Popover ────────────────────────────────────────────────────── */
 .event-popover {
