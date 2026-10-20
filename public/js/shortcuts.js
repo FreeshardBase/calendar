@@ -67,27 +67,35 @@
     return ARROW_BINDINGS[e.key] || null;
   }
 
+  // #627: descriptions (and the one worded key) are message keys of public/js/messages/modules.js.
+  const HELP = [
+    { key: 'Alt+N / Alt+C', desc: 'modules.shortcuts.createEvent' },
+    { key: 'Alt+M / Alt+1', desc: 'modules.shortcuts.month' },
+    { key: 'Alt+W / Alt+2', desc: 'modules.shortcuts.week' },
+    { key: 'Alt+D / Alt+3', desc: 'modules.shortcuts.day' },
+    { key: 'Alt+A / Alt+4', desc: 'modules.shortcuts.agenda' },
+    { key: 'Alt+K / Alt+5', desc: 'modules.shortcuts.tasks' },
+    { key: 'Alt+T', desc: 'modules.shortcuts.today' },
+    { key: 'Alt+J', desc: 'modules.shortcuts.next' },
+    { key: 'Alt+P', desc: 'modules.shortcuts.prev' },
+    { key: '← / →', desc: 'modules.shortcuts.arrows' },
+    { key: 'Alt+S / Alt+/', desc: 'modules.shortcuts.search' },
+    { key: 'Alt+H / Alt+?', desc: 'modules.shortcuts.help' },
+    { keyMessage: 'modules.shortcuts.holdAltKey', desc: 'modules.shortcuts.holdAlt' },
+    { key: 'Esc', desc: 'modules.shortcuts.close' }
+  ];
+
   /**
    * Returns list of available keyboard shortcuts for help modal UI.
+   * @param {function(string): string} translate the i18n t() of public/js/i18n.js
    * @returns {Array<{key: string, desc: string}>}
    */
-  function getShortcutHelpList() {
-    return [
-      { key: 'Alt+N / Alt+C', desc: 'Neuen Termin erstellen' },
-      { key: 'Alt+M / Alt+1', desc: 'Monatsansicht' },
-      { key: 'Alt+W / Alt+2', desc: 'Wochenansicht' },
-      { key: 'Alt+D / Alt+3', desc: 'Tagesansicht' },
-      { key: 'Alt+A / Alt+4', desc: 'Agendaansicht' },
-      { key: 'Alt+K / Alt+5', desc: 'Aufgaben' },
-      { key: 'Alt+T', desc: 'Heute (Aktueller Tag)' },
-      { key: 'Alt+J', desc: 'Nächster Zeitraum' },
-      { key: 'Alt+P', desc: 'Vorheriger Zeitraum' },
-      { key: '← / →', desc: 'Zeitraum wechseln (wenn kein Bedienelement fokussiert ist)' },
-      { key: 'Alt+S / Alt+/', desc: 'Suchfeld fokussieren' },
-      { key: 'Alt+H / Alt+?', desc: 'Tastaturkürzel-Hilfe anzeigen' },
-      { key: 'Alt halten', desc: 'Tastenhinweise einblenden' },
-      { key: 'Esc', desc: 'Dialog / Modal schließen' }
-    ];
+  function getShortcutHelpList(translate) {
+    if (typeof translate !== 'function') throw new Error('getShortcutHelpList needs the translate function t()');
+    return HELP.map(item => ({
+      key: item.keyMessage ? translate(item.keyMessage) : item.key,
+      desc: translate(item.desc)
+    }));
   }
 
   return {

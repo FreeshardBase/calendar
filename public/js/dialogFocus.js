@@ -2,6 +2,8 @@
  * dialogFocus.js — Universal Modal Focus & Escape Key Manager (Issue #87)
  */
 
+import { t } from './i18n.js';
+
 let activeModalStack = [];
 
 /**
@@ -188,7 +190,7 @@ export function handleEscapeKey(e) {
 /**
  * Prompts user with custom accessible modal dialog replacing native browser confirm().
  */
-export function confirmDialog(message, title = 'Bestätigung') {
+export function confirmDialog(message, title = t('modules.dialog.confirmTitle')) {
   if (typeof document === 'undefined') return Promise.resolve(true);
 
   const backdrop = document.getElementById('confirm-dialog-backdrop');
@@ -232,7 +234,7 @@ export function confirmDialog(message, title = 'Bestätigung') {
 /**
  * A confirmation that only passes once the user typed `expected` (#348: deleting a calendar).
  */
-export function typedConfirmDialog(message, expected, title = 'Bestätigung') {
+export function typedConfirmDialog(message, expected, title = t('modules.dialog.confirmTitle')) {
   const backdrop = document.getElementById('typed-confirm-backdrop');
   if (!backdrop) {
     throw new Error('typedConfirmDialog: #typed-confirm-backdrop is missing from the page');

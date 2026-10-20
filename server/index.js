@@ -165,6 +165,11 @@ const PUBLIC_BOOKING_FILES = new Map([
   ['/public/booking/booking.js', 'js/booking.js'],
   ['/public/booking/api.js', 'js/api.js'],
   ['/public/booking/app.css', 'css/app.css'],
+  // #627: the page's texts, i18n.js and the message catalogues it imports (UI strings only).
+  ['/public/booking/i18n.js', 'js/i18n.js'],
+  ...fs.readdirSync(path.join(__dirname, '../public/js/messages'))
+    .filter(name => /^\w+\.js$/.test(name))
+    .map(name => [`/public/booking/messages/${name}`, `js/messages/${name}`]),
 ]);
 const isPublicPath = (req) => req.path.startsWith('/api/public/') || PUBLIC_BOOKING_FILES.has(req.path);
 

@@ -252,7 +252,8 @@
             <label class="form-label" for="pref-language" style="font-size:11px;" data-i18n="shell.settings.language">Sprache</label>
             <select class="form-select" id="pref-language" data-pref="language" style="width:100%; font-size:12px; padding:4px 6px;">
               <option value="" data-i18n="shell.settings.languageBrowser">Wie im Browser</option>
-              <option value="de" lang="de">Deutsch</option>
+              <option value="de" lang="de">Deutsch (Du)</option>
+              <option value="de-formal" lang="de">Deutsch (Sie)</option>
               <option value="en" lang="en">English</option>
             </select>
           </div>
@@ -485,7 +486,7 @@
             </div>
             <div style="margin-bottom:4px;">
               <label class="form-label" for="wh-ooo-message" style="font-size:11px;" data-i18n="shell.settings.whOooMessage">Abwesenheitsnachricht</label>
-              <input type="text" class="form-input" id="wh-ooo-message" value="Out of Office / Abwesend" style="width:100%; font-size:11px; padding:4px 6px;" />
+              <input type="text" class="form-input" id="wh-ooo-message" value="Out of Office / Abwesend" data-i18n-value="views.workingHours.oooDefault" style="width:100%; font-size:11px; padding:4px 6px;" />
             </div>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
@@ -975,7 +976,7 @@
           <span class="form-hint hidden" id="acc-provider-hint"></span>
         </div>
         <div class="form-group" id="acc-url-group">
-          <label class="form-label" for="acc-url">CalDAV Server URL</label>
+          <label class="form-label" for="acc-url" data-i18n="modules.account.urlLabel.custom">CalDAV Server URL</label>
           <input class="form-input" id="acc-url" type="url" name="url"
                  placeholder="https://dav.example.com/calendars/user/" required />
         </div>
@@ -989,7 +990,7 @@
           <div class="input-with-action">
             <input class="form-input" id="acc-password" type="password" name="password"
                    autocomplete="current-password" required />
-            <button type="button" class="toggle-password" data-target="acc-password" aria-label="Passwort anzeigen">
+            <button type="button" class="toggle-password" data-target="acc-password" aria-label="Passwort anzeigen" data-i18n-aria-label="event.password.show">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
               </svg>
@@ -1108,7 +1109,7 @@
 <div class="modal-backdrop hidden" id="confirm-dialog-backdrop" inert>
   <div class="modal modal-sm" id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="confirm-dialog-title">Bestätigung</h3>
+      <h3 class="modal-title" id="confirm-dialog-title" data-i18n="modules.dialog.confirmTitle">Bestätigung</h3>
       <button class="icon-btn modal-close" id="confirm-dialog-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -1129,7 +1130,7 @@
 <div class="modal-backdrop hidden" id="typed-confirm-backdrop" inert>
   <div class="modal modal-sm" id="typed-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="typed-confirm-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="typed-confirm-title">Bestätigung</h3>
+      <h3 class="modal-title" id="typed-confirm-title" data-i18n="modules.dialog.confirmTitle">Bestätigung</h3>
     </div>
     <div class="modal-body">
       <label class="form-label" id="typed-confirm-text" for="typed-confirm-input"></label>
@@ -1197,7 +1198,7 @@
 <div class="modal-backdrop hidden" id="task-modal-backdrop" inert>
   <div class="modal" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="task-modal-title">Neue Aufgabe</h3>
+      <h3 class="modal-title" id="task-modal-title" data-i18n="tasks.modal.titleNew">Neue Aufgabe</h3>
       <button class="icon-btn" id="task-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -1329,7 +1330,7 @@
       </button>
     </div>
     <div class="modal-body" id="invitations-list-body" style="max-height: 450px; overflow-y: auto; padding: 16px;">
-      <p class="empty-state">Keine ausstehenden Einladungen vorhanden.</p>
+      <p class="empty-state" data-i18n="modules.invitations.empty">Keine ausstehenden Einladungen vorhanden.</p>
     </div>
   </div>
 </div>
@@ -1432,7 +1433,7 @@
         <span data-i18n="shell.msgraph.connected">Verbundene Microsoft Konten</span>
       </div>
       <div id="msgraph-accounts-list">
-        <p class="empty-state">Keine Office 365 Konten verbunden.</p>
+        <p class="empty-state" data-i18n="modules.msgraph.empty">Keine Office 365 Konten verbunden.</p>
       </div>
     </div>
   </div>
@@ -1506,7 +1507,7 @@
       <div>
         <h4 style="margin-top:0; margin-bottom:12px;" data-i18n="shell.availability.published">Veröffentlichte buchbare Zeiten</h4>
         <div id="availability-pages-list">
-          <p class="empty-state">Noch keine buchbaren Zeiten veröffentlicht.</p>
+          <p class="empty-state" data-i18n="views.availability.noPages">Noch keine buchbaren Zeiten veröffentlicht.</p>
         </div>
       </div>
     </div>

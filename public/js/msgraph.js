@@ -1,12 +1,13 @@
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { responseErrorMessage } from './api.js';
 import { showToast } from './app.js';
+import { t } from './i18n.js';
 
 export const MSGraphAPI = {
   // { available, accounts }: available is false when the shard has no Microsoft app registration.
   async listAccounts() {
     const res = await fetch('/api/msgraph/accounts');
-    if (!res.ok) throw new Error('Fehler beim Laden der MS Graph Konten');
+    if (!res.ok) throw new Error(t('modules.msgraph.error.load'));
     const data = await res.json();
     return { available: data.available === true, accounts: data.accounts };
   },
@@ -16,7 +17,7 @@ export const MSGraphAPI = {
       method: 'DELETE'
     });
     if (!res.ok) {
-      throw new Error(await responseErrorMessage(res, 'Fehler beim Trennen des MS Graph Kontos'));
+      throw new Error(await responseErrorMessage(res, t('modules.msgraph.error.delete')));
     }
     return await res.json();
   },
@@ -26,7 +27,7 @@ export const MSGraphAPI = {
       method: 'POST'
     });
     if (!res.ok) {
-      throw new Error(await responseErrorMessage(res, 'Fehler beim Synchronisieren des MS Graph Kontos'));
+      throw new Error(await responseErrorMessage(res, t('modules.msgraph.error.sync')));
     }
     return await res.json();
   }
@@ -52,13 +53,13 @@ export function closeMSGraphModal() {
 export async function loadMSGraphAccounts() {
   const list = $('msgraph-accounts-list');
   if (!list) return;
-  list.innerHTML = '<p class="empty-state">Lade MS Graph Konten...</p>';
+  list.innerHTML = `<p class="empty-state">${escHtml(t('modules.msgraph.loading'))}</p>`;
   try {
     const { available, accounts } = await MSGraphAPI.listAccounts();
     $('msgraph-unavailable').classList.toggle('hidden', available);
     $('msgraph-connect-actions').classList.toggle('hidden', !available);
     if (accounts.length === 0) {
-      list.innerHTML = '<p class="empty-state">Keine Office 365 Konten verbunden.</p>';
+      list.innerHTML = `<p class="empty-state">${escHtml(t('modules.msgraph.empty'))}</p>`;
       return;
     }
     list.innerHTML = accounts.map(a => `
@@ -66,14 +67,14 @@ export async function loadMSGraphAccounts() {
         <div style="min-width:0; flex:1;">
           <strong>${escHtml(a.accountEmail)}</strong>
           ${a.reconnectRequired
-            ? '<div class="msgraph-reconnect-required" style="font-size:0.75rem; color:var(--danger);">Autorisierung abgelaufen – bitte neu verbinden.</div>'
+            ? `<div class="msgraph-reconnect-required" style="font-size:0.75rem; color:var(--danger);">${escHtml(t('modules.msgraph.reconnectRequired'))}</div>`
             : ''}
         </div>
         <div style="display:flex; gap:6px;">
           ${a.reconnectRequired
-            ? (available ? '<a class="btn btn-ghost btn-sm btn-reconnect-msgraph" href="/api/msgraph/authorize">Neu verbinden</a>' : '')
-            : `<button class="btn btn-ghost btn-sm btn-sync-msgraph" data-id="${escHtml(a.id)}" title="Synchronisieren">Sync</button>`}
-          <button class="btn btn-ghost btn-sm btn-danger btn-delete-msgraph" data-id="${escHtml(a.id)}" title="Entfernen">Trennen</button>
+            ? (available ? `<a class="btn btn-ghost btn-sm btn-reconnect-msgraph" href="/api/msgraph/authorize">${escHtml(t('modules.msgraph.reconnect'))}</a>` : '')
+            : `<button class="btn btn-ghost btn-sm btn-sync-msgraph" data-id="${escHtml(a.id)}" title="${escHtml(t('modules.msgraph.sync.title'))}">${escHtml(t('modules.msgraph.sync.label'))}</button>`}
+          <button class="btn btn-ghost btn-sm btn-danger btn-delete-msgraph" data-id="${escHtml(a.id)}" title="${escHtml(t('modules.msgraph.disconnect.title'))}">${escHtml(t('modules.msgraph.disconnect.label'))}</button>
         </div>
       </div>
     `).join('');
@@ -84,7 +85,7 @@ export async function loadMSGraphAccounts() {
         try {
           btn.disabled = true;
           await MSGraphAPI.syncAccount(id);
-          showToast('Synchronisierung gestartet; sie läuft im Hintergrund.', 'success');
+          showToast(t('modules.msgraph.toast.syncStarted'), 'success');
         } catch (e) {
           showToast(e.message, 'error');
         } finally {
@@ -96,11 +97,11 @@ export async function loadMSGraphAccounts() {
     list.querySelectorAll('.btn-delete-msgraph').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
-        if (!(await confirmDialog('Microsoft-365-Konto trennen? Die Synchronisation endet; die Kalender bleiben als eigene Kalender erhalten, bei Microsoft wird nichts gelöscht.'))) return;
+        if (!(await confirmDialog(t('modules.msgraph.confirm.disconnect')))) return;
         try {
           btn.disabled = true;
           await MSGraphAPI.deleteAccount(id);
-          showToast('MS Graph Konto getrennt.', 'info');
+          showToast(t('modules.msgraph.toast.disconnected'), 'info');
           loadMSGraphAccounts();
           window.dispatchEvent(new Event('linked-accounts-changed'));
         } catch (e) {
@@ -122,9 +123,9 @@ function reportAuthorizationResult() {
   url.searchParams.delete('msgraph');
   window.history.replaceState(null, '', url.pathname + url.search + url.hash);
   if (result === 'connected') {
-    showToast('Microsoft 365 Konto verbunden. Die Synchronisierung läuft im Hintergrund.', 'success');
+    showToast(t('modules.msgraph.toast.connected'), 'success');
   } else {
-    showToast('Verbindung mit Microsoft 365 fehlgeschlagen. Bitte erneut versuchen.', 'error');
+    showToast(t('modules.msgraph.toast.failed'), 'error');
   }
 }
 
@@ -136,6 +137,10 @@ export function initMSGraphModal() {
   if (backdrop) {
     backdrop.addEventListener('click', e => {
       if (e.target === backdrop) closeMSGraphModal();
+    });
+    // The account list is rendered by this module; an open dialog re-renders it in the new language.
+    window.addEventListener('ui-language-changed', () => {
+      if (!backdrop.classList.contains('hidden')) loadMSGraphAccounts();
     });
   }
 

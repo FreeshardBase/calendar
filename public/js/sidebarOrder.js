@@ -12,8 +12,8 @@
  * gesture without a move. A tap on the grip opens its menu, so no dragging is needed at all.
  */
 import { openContextMenu } from './contextMenu.js';
+import { t } from './i18n.js';
 
-export const REORDER_HINT = 'Mit Alt+↑ / Alt+↓, per Drag & Drop oder über den Griff verschieben';
 const GRIP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
 const DRAG_THRESHOLD_PX = 5;
 
@@ -134,8 +134,8 @@ function openMoveMenu(list, el, grip, { itemSelector, idOf, onReorder }) {
   const r = grip.getBoundingClientRect();
   grip.setAttribute('aria-expanded', 'true');
   openContextMenu(r.left, r.bottom, [
-    { label: 'Nach oben', action: moveTo(index - 1), disabled: index === 0 },
-    { label: 'Nach unten', action: moveTo(index + 1), disabled: index === ids.length - 1 },
+    { label: t('modules.sidebarOrder.up'), action: moveTo(index - 1), disabled: index === 0 },
+    { label: t('modules.sidebarOrder.down'), action: moveTo(index + 1), disabled: index === ids.length - 1 },
   ], grip, { label: grip.getAttribute('aria-label'), onClose: () => grip.setAttribute('aria-expanded', 'false') });
 }
 
@@ -143,14 +143,14 @@ function openMoveMenu(list, el, grip, { itemSelector, idOf, onReorder }) {
 export function enableReorder(list, { itemSelector, idOf, nameOf, onReorder }) {
   for (const el of list.querySelectorAll(itemSelector)) {
     el.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
-    el.title = REORDER_HINT;
+    el.title = t('modules.sidebarOrder.hint');
 
     const grip = document.createElement('button');
     grip.type = 'button';
     grip.className = 'sidebar-order-handle';
     grip.innerHTML = GRIP_SVG;
-    grip.title = 'Ziehen oder antippen, um zu verschieben';
-    grip.setAttribute('aria-label', `„${nameOf(el)}“ verschieben`);
+    grip.title = t('modules.sidebarOrder.gripTitle');
+    grip.setAttribute('aria-label', t('modules.sidebarOrder.gripLabel', { name: nameOf(el) }));
     grip.setAttribute('aria-haspopup', 'menu');
     grip.setAttribute('aria-expanded', 'false');
     // Opening the menu does not toggle the entry's visibility.

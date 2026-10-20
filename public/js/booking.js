@@ -4,6 +4,10 @@
  * visitors as /public/booking/booking.js (#480), so its imports resolve there too.
  */
 import { AvailabilityAPI } from './api.js';
+import { t, setLanguage, browserLanguage } from './i18n.js';
+
+// #627: a visitor has no settings; the page speaks the browser's language, else Deutsch (Du).
+setLanguage(browserLanguage());
 
 const slug = new URLSearchParams(window.location.search).get('slug');
 
@@ -15,6 +19,8 @@ const slotsContainer = document.getElementById('slots-container');
 const formWrapper = document.getElementById('booking-form-wrapper');
 const successBox = document.getElementById('booking-success');
 const bookingForm = document.getElementById('public-booking-form');
+
+const escHtml = str => String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 // Default to today's date, or next business day (Monday) if weekend
 // #625: the visitor's local calendar date, never the UTC date of toISOString().
@@ -34,24 +40,24 @@ let selectedSlotTime = null;
 
 async function loadSlots() {
   try {
-    slotsContainer.innerHTML = '<p class="empty-state">Zeitslots werden geladen…</p>';
+    slotsContainer.innerHTML = `<p class="empty-state">${escHtml(t('booking.slots.loading'))}</p>`;
     const data = await AvailabilityAPI.getPublicPage(slug, dateInput.value);
 
     loadingEl.classList.add('hidden');
     contentEl.classList.remove('hidden');
 
     document.getElementById('page-title').textContent = data.title;
-    document.getElementById('page-meta').textContent = `Dauer: ${data.durationMinutes} Minuten`;
+    document.getElementById('page-meta').textContent = t('booking.duration', { count: data.durationMinutes });
 
     if (!data.availableSlots || data.availableSlots.length === 0) {
-      slotsContainer.innerHTML = '<p class="empty-state">An diesem Tag sind keine freien Zeitslots verfügbar.</p>';
+      slotsContainer.innerHTML = `<p class="empty-state">${escHtml(t('booking.slots.none'))}</p>`;
       formWrapper.classList.add('hidden');
       return;
     }
 
     slotsContainer.innerHTML = data.availableSlots.map(slot => {
-      const timeLabel = new Date(slot.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-      return `<button class="slot-btn" data-time="${slot.startTime}">${timeLabel} Uhr</button>`;
+      const time = new Date(slot.startTime).toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      return `<button class="slot-btn" data-time="${escHtml(slot.startTime)}">${escHtml(t('booking.slots.time', { time }))}</button>`;
     }).join('');
 
     slotsContainer.querySelectorAll('.slot-btn').forEach(btn => {
@@ -67,8 +73,16 @@ async function loadSlots() {
   } catch (err) {
     loadingEl.classList.add('hidden');
     errorEl.classList.remove('hidden');
-    document.getElementById('error-message').textContent = err.message || 'Buchungsseite konnte nicht geladen werden.';
+    document.getElementById('error-message').textContent = bookingError(err, 'booking.error.load');
   }
+}
+
+// #627: the server's error texts are German; a visitor reads the known ones in the page's language.
+const ERROR_BY_STATUS = { 400: 'booking.error.invalidDate', 404: 'booking.error.notFound', 409: 'booking.error.slotTaken' };
+
+function bookingError(err, fallbackKey) {
+  if (ERROR_BY_STATUS[err.status]) return t(ERROR_BY_STATUS[err.status]);
+  return `${t(fallbackKey)} (${err.message})`;
 }
 
 dateInput.addEventListener('change', () => {
@@ -88,7 +102,7 @@ bookingForm?.addEventListener('submit', async (e) => {
   try {
     const confirmBtn = document.getElementById('confirm-booking-btn');
     confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Wird gebucht…';
+    confirmBtn.textContent = t('booking.form.submitting');
 
     await AvailabilityAPI.bookPublicSlot(slug, {
       startTime: selectedSlotTime,
@@ -101,10 +115,10 @@ bookingForm?.addEventListener('submit', async (e) => {
     slotsContainer.innerHTML = '';
     successBox.classList.remove('hidden');
   } catch (err) {
-    alert(err.message || 'Fehler bei der Buchung');
+    alert(bookingError(err, 'booking.error.book'));
     const confirmBtn = document.getElementById('confirm-booking-btn');
     confirmBtn.disabled = false;
-    confirmBtn.textContent = 'Termin verbindlich buchen';
+    confirmBtn.textContent = t('booking.form.submit');
   }
 });
 

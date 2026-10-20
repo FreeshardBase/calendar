@@ -7,70 +7,63 @@
  */
 
 import { formatDate } from './locale.js';
+import { t } from './i18n.js';
 
 const UNITS = [
-  ['M', 'Minuten'],
-  ['H', 'Stunden'],
-  ['D', 'Tage'],
-  ['W', 'Wochen']
+  ['M', 'views.reminderEditor.unitMinutes'],
+  ['H', 'views.reminderEditor.unitHours'],
+  ['D', 'views.reminderEditor.unitDays'],
+  ['W', 'views.reminderEditor.unitWeeks']
 ];
-const ACTION_SUFFIX = { AUDIO: ' (Ton)', EMAIL: ' (E-Mail)' };
+const ACTION_SUFFIX = { AUDIO: 'views.reminderEditor.actionAudio', EMAIL: 'views.reminderEditor.actionEmail' };
+// The words of the direction select for each anchor (event start, task due date).
+const ANCHOR_DIRECTIONS = {
+  START: ['views.reminderEditor.beforeAnchorStart', 'views.reminderEditor.afterAnchorStart'],
+  END: ['views.reminderEditor.beforeAnchorEnd', 'views.reminderEditor.afterAnchorEnd']
+};
 const DURATION_RE = /^([+-])?P(?:(\d+)([WD])|T(\d+)([HMS]))$/;
 const ABSOLUTE_RE = /^(\d{4})-?(\d{2})-?(\d{2})T(\d{2}):?(\d{2}):?(\d{2})(?:\.\d+)?Z$/;
+// The parts of a relative trigger, largest unit first, with their plural messages.
+const DURATION_PARTS = [
+  [2, 'views.reminderEditor.weeks'],
+  [3, 'views.reminderEditor.days'],
+  [4, 'views.reminderEditor.hours'],
+  [5, 'views.reminderEditor.minutes'],
+  [6, 'views.reminderEditor.seconds']
+];
 
 export function formatAlarmTriggerLabel(trigger, related = null) {
-  if (!trigger) return 'Keine Erinnerung';
+  if (!trigger) return t('views.reminderEditor.none');
   let str = String(trigger).trim();
   if (str.toUpperCase().startsWith('TRIGGER:')) {
     str = str.substring(8).trim();
   }
 
-  const abs = str.match(/^(\d{4})-?(\d{2})-?(\d{2})T(\d{2}):?(\d{2}):?(\d{2})(?:\.\d+)?Z$/);
+  const abs = str.match(ABSOLUTE_RE);
   if (abs) {
     const [, y, mo, d, h, mi, sec] = abs;
     const when = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec));
-    return `Am ${formatDate(when, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+    return t('views.reminderEditor.at', { when: formatDate(when, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) });
   }
 
-  if (String(related || '').toUpperCase() === 'END') {
-    const label = formatAlarmTriggerLabel(str);
-    if (label === 'Zum Zeitpunkt des Termins') return 'Zum Ende des Termins';
-    return label.replace(/ vorher$/, ' vor Ende').replace(/ nachher$/, ' nach Ende');
-  }
-
-  if (str === 'PT0S' || str === 'PT0M' || str === '0') return 'Zum Zeitpunkt des Termins';
-
-  const presets = {
-    'PT0S': 'Zum Zeitpunkt des Termins',
-    '-PT5M': '5 Minuten vorher',
-    '-PT15M': '15 Minuten vorher',
-    '-PT30M': '30 Minuten vorher',
-    '-PT1H': '1 Stunde vorher',
-    '-P1D': '1 Tag vorher'
-  };
-  if (presets[str]) return presets[str];
+  const toEnd = String(related || '').toUpperCase() === 'END';
+  const atAnchor = t(toEnd ? 'views.reminderEditor.atEnd' : 'views.reminderEditor.atStart');
+  if (str === 'PT0S' || str === 'PT0M' || str === '0') return atAnchor;
 
   const match = str.match(/^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i);
-  if (!match) return `Erinnerung (${str})`;
+  if (!match) return t('views.reminderEditor.unknown', { trigger: str });
 
-  const isNegative = match[1] === '-';
-  const weeks = parseInt(match[2] || '0', 10);
-  const days = parseInt(match[3] || '0', 10);
-  const hours = parseInt(match[4] || '0', 10);
-  const minutes = parseInt(match[5] || '0', 10);
-  const seconds = parseInt(match[6] || '0', 10);
+  const parts = DURATION_PARTS
+    .map(([group, key]) => [parseInt(match[group] || '0', 10), key])
+    .filter(([count]) => count > 0)
+    .map(([count, key]) => t(key, { count }));
+  if (parts.length === 0) return atAnchor;
 
-  const parts = [];
-  if (weeks > 0) parts.push(`${weeks} Woche${weeks > 1 ? 'n' : ''}`);
-  if (days > 0) parts.push(`${days} Tag${days > 1 ? 'e' : ''}`);
-  if (hours > 0) parts.push(`${hours} Stunde${hours > 1 ? 'n' : ''}`);
-  if (minutes > 0) parts.push(`${minutes} Minute${minutes > 1 ? 'n' : ''}`);
-  if (seconds > 0) parts.push(`${seconds} Sekunde${seconds > 1 ? 'n' : ''}`);
-
-  if (parts.length === 0) return 'Zum Zeitpunkt des Termins';
-
-  const suffix = isNegative ? 'vorher' : 'nachher';
-  return `${parts.join(' ')} ${suffix}`;
+  const before = match[1] === '-';
+  const key = toEnd
+    ? (before ? 'views.reminderEditor.beforeEnd' : 'views.reminderEditor.afterEnd')
+    : (before ? 'views.reminderEditor.before' : 'views.reminderEditor.after');
+  return t(key, { amount: parts.join(' ') });
 }
 
 const pad = n => String(n).padStart(2, '0');
@@ -113,15 +106,20 @@ function option(value, text) {
 /**
  * @param {HTMLElement} list    <ul> holding the rows
  * @param {HTMLElement} addBtn  button that appends a reminder
- * @param {object} opts         anchor: 'START' | 'END'; anchorName: e.g. 'Beginn';
+ * @param {object} opts         anchor: 'START' (event start) | 'END' (task due date), which also
+ *                              names the direction ("vor Beginn" / "vor Fälligkeit");
  *                              onAdd: called after a reminder was added
  */
-export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd = null }) {
+export function createReminderEditor(list, addBtn, { anchor, onAdd = null }) {
+  if (!Object.hasOwn(ANCHOR_DIRECTIONS, anchor)) throw new Error(`Unknown reminder anchor: ${anchor}`);
   let rows = [];
 
   function render() {
     list.replaceChildren(...rows.map(renderRow));
   }
+
+  // The rows hold their state outside the DOM, so a new language just redraws them.
+  window.addEventListener('ui-language-changed', render);
 
   function renderRow(row, index) {
     const li = document.createElement('li');
@@ -130,7 +128,7 @@ export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd =
     remove.type = 'button';
     remove.className = 'icon-btn reminder-remove';
     remove.textContent = '×';
-    remove.setAttribute('aria-label', 'Erinnerung entfernen');
+    remove.setAttribute('aria-label', t('views.reminderEditor.remove'));
     remove.addEventListener('click', () => {
       rows.splice(index, 1);
       render();
@@ -141,8 +139,9 @@ export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd =
       const label = document.createElement('span');
       label.className = 'reminder-fixed';
       const action = String(row.original.action || 'DISPLAY').toUpperCase();
-      label.textContent = formatAlarmTriggerLabel(row.original.trigger, row.original.related) + (ACTION_SUFFIX[action] || '');
-      label.title = 'Von einer anderen App angelegt, wird unverändert gespeichert';
+      const text = formatAlarmTriggerLabel(row.original.trigger, row.original.related);
+      label.textContent = Object.hasOwn(ACTION_SUFFIX, action) ? t(ACTION_SUFFIX[action], { label: text }) : text;
+      label.title = t('views.reminderEditor.foreign');
       li.append(label, remove);
       return li;
     }
@@ -150,8 +149,8 @@ export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd =
     const state = row.state;
     const kind = document.createElement('select');
     kind.className = 'form-select inline-select reminder-kind';
-    kind.setAttribute('aria-label', 'Art der Erinnerung');
-    kind.append(option('relative', 'Relativ'), option('absolute', 'Zeitpunkt'));
+    kind.setAttribute('aria-label', t('views.reminderEditor.kind'));
+    kind.append(option('relative', t('views.reminderEditor.kindRelative')), option('absolute', t('views.reminderEditor.kindAbsolute')));
     kind.value = state.kind;
 
     const amount = document.createElement('input');
@@ -159,25 +158,26 @@ export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd =
     amount.min = '0';
     amount.step = '1';
     amount.className = 'form-input inline-input reminder-amount';
-    amount.setAttribute('aria-label', 'Abstand');
+    amount.setAttribute('aria-label', t('views.reminderEditor.amount'));
     amount.value = state.amount ?? '15';
 
     const unit = document.createElement('select');
     unit.className = 'form-select inline-select reminder-unit';
-    unit.setAttribute('aria-label', 'Einheit');
-    unit.append(...UNITS.map(([v, t]) => option(v, t)));
+    unit.setAttribute('aria-label', t('views.reminderEditor.unit'));
+    unit.append(...UNITS.map(([v, key]) => option(v, t(key))));
     unit.value = state.unit ?? 'M';
 
     const direction = document.createElement('select');
     direction.className = 'form-select inline-select reminder-direction';
-    direction.setAttribute('aria-label', 'Vor oder nach');
-    direction.append(option('-', `vor ${anchorName}`), option('+', `nach ${anchorName}`));
+    direction.setAttribute('aria-label', t('views.reminderEditor.direction'));
+    const [beforeKey, afterKey] = ANCHOR_DIRECTIONS[anchor];
+    direction.append(option('-', t(beforeKey)), option('+', t(afterKey)));
     direction.value = state.direction ?? '-';
 
     const at = document.createElement('input');
     at.type = 'datetime-local';
     at.className = 'form-input inline-input reminder-at';
-    at.setAttribute('aria-label', 'Zeitpunkt der Erinnerung');
+    at.setAttribute('aria-label', t('views.reminderEditor.atLabel'));
     at.value = state.at ?? '';
 
     const sync = () => {
@@ -234,10 +234,10 @@ export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd =
         let related = null;
         if (s.kind === 'absolute') {
           const when = new Date(s.at);
-          if (!s.at || isNaN(when.getTime())) return { error: 'Bitte einen Zeitpunkt für die Erinnerung angeben.' };
+          if (!s.at || isNaN(when.getTime())) return { error: t('views.reminderEditor.errorAt') };
           trigger = when.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
         } else {
-          if (!/^\d+$/.test(String(s.amount))) return { error: 'Bitte den Abstand der Erinnerung als ganze Zahl angeben.' };
+          if (!/^\d+$/.test(String(s.amount))) return { error: t('views.reminderEditor.errorAmount') };
           const n = Number(s.amount);
           trigger = n === 0 ? 'PT0S' : `${s.direction === '-' ? '-' : ''}P${s.unit === 'H' || s.unit === 'M' ? 'T' : ''}${n}${s.unit}`;
           if (anchor === 'END') related = 'END';

@@ -10,12 +10,13 @@
 import { store } from './store.js';
 import { PreferencesAPI } from './api.js';
 import { confirmDialog } from './dialogFocus.js';
+import { t, catalogues, LANGUAGES } from './i18n.js';
 
 const $ = id => document.getElementById(id);
 const DEFAULT_BASE_URL = 'https://meet.jit.si';
 const ROOM_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567'; // 32 letters: 5 random bits each
 const ROOM_LENGTH = 20; // 100 bits, so nobody guesses a room
-const DESCRIPTION_PREFIX = 'Videokonferenz: ';
+const DESCRIPTION_PREFIX_KEY = 'modules.conference.descriptionPrefix';
 
 export function randomRoomName() {
   const bytes = crypto.getRandomValues(new Uint8Array(ROOM_LENGTH));
@@ -23,13 +24,15 @@ export function randomRoomName() {
 }
 
 function consentText(baseUrl) {
-  const host = new URL(baseUrl).host;
-  return `„Videokonferenz hinzufügen“ im Termin-Dialog erzeugt einen Link mit zufälligem Raumnamen auf ${host}. `
-    + `Der Shard sendet dafür nichts dorthin; erst wer den Link öffnet, auch eingeladene Personen, verbindet sich mit ${host}. `
-    + 'Wer den Link kennt, kann dem Raum beitreten.';
+  return t('modules.conference.consent', { host: new URL(baseUrl).host });
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
+
+function renderNotice() {
+  const baseUrl = store.get('conferenceBaseUrl');
+  $('conference-notice').textContent = baseUrl ? consentText(baseUrl) : t('modules.conference.off');
+}
 
 export function renderConferenceSettings() {
   const baseUrl = store.get('conferenceBaseUrl');
@@ -37,9 +40,7 @@ export function renderConferenceSettings() {
   $('conference-form').classList.toggle('hidden', !baseUrl);
   $('conference-base-url').value = baseUrl || DEFAULT_BASE_URL;
   $('conference-error').classList.add('hidden');
-  $('conference-notice').textContent = baseUrl
-    ? consentText(baseUrl)
-    : 'Aus: Der Termin-Dialog bietet keinen Konferenz-Link an.';
+  renderNotice();
 }
 
 async function saveBaseUrl(baseUrl) {
@@ -53,6 +54,11 @@ export function initConferenceSettings(onError) {
     renderConferenceSettings();
     onError(err);
   };
+
+  window.addEventListener('ui-language-changed', () => {
+    renderNotice();
+    if (!$('conference-error').classList.contains('hidden')) $('conference-error').textContent = t('modules.conference.invalidUrl');
+  });
 
   // Ticking the box only opens the form; nothing is on before "Speichern".
   $('conference-enabled').addEventListener('change', e => {
@@ -71,13 +77,13 @@ export function initConferenceSettings(onError) {
     const value = $('conference-base-url').value.trim();
     const error = $('conference-error');
     if (!/^https?:\/\/[^\s?#]+$/.test(value) || !URL.canParse(value)) {
-      error.textContent = 'Bitte die Adresse des Jitsi-Servers eintragen, z. B. https://meet.jit.si.';
+      error.textContent = t('modules.conference.invalidUrl');
       error.classList.remove('hidden');
       $('conference-base-url').focus();
       return;
     }
     error.classList.add('hidden');
-    if (!(await confirmDialog(consentText(value), 'Videokonferenz-Links einschalten?'))) {
+    if (!(await confirmDialog(consentText(value), t('modules.conference.confirmTitle')))) {
       renderConferenceSettings();
       return;
     }
@@ -87,9 +93,10 @@ export function initConferenceSettings(onError) {
 
 // ── Event dialog ────────────────────────────────────────────────────────────
 
+// The line may have been written in another UI language than the current one.
 function removeDescriptionLine(description, url) {
-  const line = DESCRIPTION_PREFIX + url;
-  return description.split('\n').filter(l => l.trim() !== line).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const lines = new Set(LANGUAGES.map(lang => catalogues[lang][DESCRIPTION_PREFIX_KEY] + url));
+  return description.split('\n').filter(l => !lines.has(l.trim())).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
@@ -114,7 +121,7 @@ export function createConferenceField() {
   addBtn.addEventListener('click', () => {
     url = `${store.get('conferenceBaseUrl')}/${randomRoomName()}`;
     const text = description.value.trim();
-    description.value = (text ? text + '\n\n' : '') + DESCRIPTION_PREFIX + url;
+    description.value = (text ? text + '\n\n' : '') + t(DESCRIPTION_PREFIX_KEY) + url;
     render();
     link.focus();
   });

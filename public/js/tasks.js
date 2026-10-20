@@ -10,6 +10,7 @@ import { showToast, showUndoToast } from './app.js';
 import { createReminderEditor } from './reminderEditor.js';
 import { formatDate } from './locale.js';
 import { createTemplatePicker, templateAlarms } from './templates.js';
+import { t } from './i18n.js';
 
 function notifyToast(message, type = 'info') {
   if (typeof showToast === 'function') {
@@ -28,11 +29,8 @@ function formatDueDate(d, isDate) {
 export function formatRecurrenceLabel(recurrence) {
   if (!recurrence) return '';
   const str = String(recurrence).replace(/^RRULE:/i, '').toUpperCase();
-  if (str.includes('FREQ=DAILY')) return 'Täglich';
-  if (str.includes('FREQ=WEEKLY')) return 'Wöchentlich';
-  if (str.includes('FREQ=MONTHLY')) return 'Monatlich';
-  if (str.includes('FREQ=YEARLY')) return 'Jährlich';
-  return recurrence;
+  const freq = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].find(f => str.includes(`FREQ=${f}`));
+  return freq ? t(`tasks.recurrence.${freq}`) : recurrence;
 }
 
 // Completing a task is decided server-side: for a recurring task the server
@@ -43,13 +41,15 @@ function completionPayload(task) {
   return { ...task, status: 'COMPLETED', percentComplete: 100 };
 }
 
-// The board has one lane per VTODO STATUS of RFC 5545 (#499).
+// The board has one lane per VTODO STATUS of RFC 5545 (#499); its label is t(`tasks.status.<status>`).
 const KANBAN_LANES = [
-  { status: 'NEEDS-ACTION', label: 'Zu erledigen', key: 'todo' },
-  { status: 'IN-PROCESS', label: 'In Bearbeitung', key: 'in-process' },
-  { status: 'COMPLETED', label: 'Erledigt', key: 'completed' },
-  { status: 'CANCELLED', label: 'Abgebrochen', key: 'cancelled' },
+  { status: 'NEEDS-ACTION', key: 'todo' },
+  { status: 'IN-PROCESS', key: 'in-process' },
+  { status: 'COMPLETED', key: 'completed' },
+  { status: 'CANCELLED', key: 'cancelled' },
 ];
+
+const statusLabel = status => t(`tasks.status.${status}`);
 
 function laneOf(task) {
   return KANBAN_LANES.some(l => l.status === task.status) ? task.status : 'NEEDS-ACTION';
@@ -57,10 +57,11 @@ function laneOf(task) {
 
 // #518: PRIORITY 1–4 is high, 5 medium, 6–9 low; 0 or none is undefined (RFC 5545 §3.8.1.9).
 // The app writes 1, 5 and 9; another client's value keeps its number while its level is unchanged.
+// A level's label is t(`tasks.priority.<level>`).
 const PRIORITY_LEVELS = {
-  high: { label: 'Hoch', value: 1, cls: 'prio-high' },
-  medium: { label: 'Mittel', value: 5, cls: 'prio-med' },
-  low: { label: 'Niedrig', value: 9, cls: 'prio-low' },
+  high: { value: 1, cls: 'prio-high' },
+  medium: { value: 5, cls: 'prio-med' },
+  low: { value: 9, cls: 'prio-low' },
 };
 
 export function priorityLevel(priority) {
@@ -101,19 +102,64 @@ export function getTaskCompletionToast(task, payload) {
     const dateStr = d && !isNaN(d.getTime())
       ? formatDueDate(d, isDate)
       : '';
-    return dateStr ? `Aufgabe auf ${dateStr} verschoben.` : 'Aufgabe verschoben.';
+    return dateStr ? t('tasks.toast.movedTo', { date: dateStr }) : t('tasks.toast.moved');
   }
-  return 'Aufgabe als erledigt markiert.';
+  return t('tasks.toast.completed');
 }
 
 let taskCallbacks = {};
 let _currentTask = null;
+let _modalMode = null; // 'new' | 'edit' | 'duplicate': which title the open dialog shows
+// #627: the latest renderTaskArea call, redrawn in a new language.
+let _lastTaskArea = null;
 let _reminders = null; // #508: reminder list editor, created in setupTaskModal
 let _templates = null; // #515: "Neu aus Vorlage" picker, created in setupTaskModal
 
 export function initTaskUI(callbacks = {}) {
   taskCallbacks = callbacks;
   setupTaskModal();
+  window.addEventListener('ui-language-changed', rerenderForLanguage);
+}
+
+// #627: what tasks.js drew itself follows a language switch (the sidebar list is redrawn by app.js).
+function rerenderForLanguage() {
+  if (_lastTaskArea && _lastTaskArea.container.isConnected
+    && _lastTaskArea.container.querySelector(':scope > .task-area')) {
+    renderTaskArea(..._lastTaskArea.args);
+  }
+  if (_modalMode) renderTaskModalTexts();
+}
+
+const MODAL_TITLES = { new: 'tasks.modal.titleNew', edit: 'tasks.modal.titleEdit', duplicate: 'tasks.modal.titleDuplicate' };
+
+// The dialog's own texts: title, the list select's suffixes, the stranded hint and the subtasks.
+function renderTaskModalTexts() {
+  document.getElementById('task-modal-title').textContent = t(MODAL_TITLES[_modalMode]);
+  const task = _currentTask;
+  // Only collections whose component set holds VTODO take tasks (#495). A task stranded in another
+  // one (e.g. a Google calendar, which has no tasks) shows it as its current, unselectable list,
+  // so it can be moved out.
+  const calendars = (store.get('calendars') || [])
+    .filter(c => c.supportsVTODO === true || (task && c.id === task.calendarId));
+  const selectCal = document.getElementById('task-calendar-id');
+  if (selectCal) {
+    const chosen = selectCal.value;
+    fillCalendarSelect(selectCal, calendars, (opt, c) => {
+      if (c.supportsVTODO !== true) opt.textContent += t('tasks.modal.noTasksSuffix');
+      opt.disabled = c.supportsVTODO !== true;
+    });
+    if (chosen && [...selectCal.options].some(o => o.value === chosen)) selectCal.value = chosen;
+  }
+  // Says why such a task does not sync and what to do (#572); the sync worker names it too.
+  const strandedHint = document.getElementById('task-stranded-hint');
+  if (strandedHint) {
+    const home = task ? calendars.find(c => c.id === task.calendarId) : null;
+    const stranded = !!home && home.supportsVTODO !== true;
+    strandedHint.textContent = !stranded ? ''
+      : t(home.source === 'google' ? 'tasks.modal.strandedGoogle' : 'tasks.modal.strandedOther');
+    strandedHint.classList.toggle('hidden', !stranded);
+  }
+  renderSubtasks();
 }
 
 function setupTaskModal() {
@@ -138,7 +184,7 @@ function setupTaskModal() {
   // #508: relative task reminders count from the due date (RELATED=END, RFC 5545 §3.8.6.3).
   _reminders = createReminderEditor(document.getElementById('task-reminder-list'), document.getElementById('task-add-reminder'), {
     anchor: 'END',
-    anchorName: 'Fälligkeit'
+    anchorName: t('tasks.modal.reminderAnchor')
   });
 
   document.getElementById('task-duplicate-btn').addEventListener('click', duplicateCurrentTask);
@@ -197,7 +243,6 @@ export function openTaskModal(task = null) {
   const backdrop = document.getElementById('task-modal-backdrop');
   if (!backdrop) return;
 
-  const titleEl = document.getElementById('task-modal-title');
   const idInput = document.getElementById('task-id');
   const hrefInput = document.getElementById('task-href');
   const etagInput = document.getElementById('task-etag');
@@ -211,29 +256,11 @@ export function openTaskModal(task = null) {
   const inputPercent = document.getElementById('task-percent-complete');
   const selectPrio = document.getElementById('task-priority');
 
-  // Only collections whose component set holds VTODO take tasks (#495). A task stranded in another
-  // one (e.g. a Google calendar, which has no tasks) shows it as its current, unselectable list,
-  // so it can be moved out.
-  const calendars = (store.get('calendars') || [])
-    .filter(c => c.supportsVTODO === true || (task && c.id === task.calendarId));
-  if (selectCal) {
-    fillCalendarSelect(selectCal, calendars, (opt, c) => {
-      if (c.supportsVTODO !== true) opt.textContent += ' (keine Aufgaben möglich)';
-      opt.disabled = c.supportsVTODO !== true;
-    });
-  }
-  // Says why such a task does not sync and what to do (#572); the sync worker names it too.
-  const strandedHint = document.getElementById('task-stranded-hint');
-  if (strandedHint) {
-    const home = task ? calendars.find(c => c.id === task.calendarId) : null;
-    const stranded = !!home && home.supportsVTODO !== true;
-    strandedHint.textContent = !stranded ? ''
-      : `${home.source === 'google' ? 'Google nimmt' : 'Dieser Kalender nimmt'} keine Aufgaben an, bitte in eine Aufgabenliste verschieben`;
-    strandedHint.classList.toggle('hidden', !stranded);
-  }
+  _modalMode = task ? 'edit' : 'new';
+  if (selectCal) selectCal.value = '';
+  renderTaskModalTexts();
 
   if (task) {
-    if (titleEl) titleEl.textContent = 'Aufgabe bearbeiten';
     if (idInput) idInput.value = task.uid || '';
     if (hrefInput) hrefInput.value = task.href || '';
     if (etagInput) etagInput.value = task.etag || '';
@@ -281,7 +308,6 @@ export function openTaskModal(task = null) {
     document.getElementById('task-duplicate-btn').classList.remove('hidden');
     _templates.hide();
   } else {
-    if (titleEl) titleEl.textContent = 'Neue Aufgabe';
     if (idInput) idInput.value = '';
     if (hrefInput) hrefInput.value = '';
     if (etagInput) etagInput.value = '';
@@ -320,7 +346,8 @@ function duplicateCurrentTask() {
   delete copy.completed;
   delete copy.completedHistory;
   _currentTask = copy;
-  document.getElementById('task-modal-title').textContent = 'Aufgabe duplizieren';
+  _modalMode = 'duplicate';
+  document.getElementById('task-modal-title').textContent = t(MODAL_TITLES.duplicate);
   document.getElementById('task-id').value = '';
   document.getElementById('task-href').value = '';
   document.getElementById('task-etag').value = '';
@@ -333,7 +360,7 @@ function duplicateCurrentTask() {
 async function saveTaskAsTemplate() {
   const title = document.getElementById('task-title').value.trim();
   if (!title) {
-    notifyToast('Bitte einen Titel eingeben.', 'error');
+    notifyToast(t('tasks.validation.title'), 'error');
     return;
   }
   const reminders = _reminders.collect(title);
@@ -382,7 +409,7 @@ function renderSubtasks() {
   const list = document.getElementById('task-subtask-list');
   const subtasks = subtasksOf(parent).sort(byTitle);
   if (subtasks.length === 0) {
-    list.innerHTML = '<li class="task-subtask-empty">Keine Teilaufgaben</li>';
+    list.innerHTML = `<li class="task-subtask-empty">${escapeHtml(t('tasks.modal.subtasksEmpty'))}</li>`;
     return;
   }
   list.innerHTML = subtasks.map((t, i) => {
@@ -416,7 +443,7 @@ async function setSubtaskDone(subtask, done) {
       ? completionPayload(subtask)
       : { ...subtask, status: 'NEEDS-ACTION', completed: null, percentComplete: 0 });
   } catch (err) {
-    notifyToast('Teilaufgabe konnte nicht gespeichert werden: ' + err.message, 'error');
+    notifyToast(t('tasks.toast.subtaskSaveFailed', { error: err.message }), 'error');
   }
   // Reload either way: after a failure the checkbox shows the stored state again.
   if (_currentTask && _currentTask.uid === parentUid) {
@@ -433,7 +460,7 @@ async function addSubtask() {
   try {
     await TasksAPI.create({ calendarId: parent.calendarId, title, status: 'NEEDS-ACTION', parentUid: parent.uid });
   } catch (err) {
-    notifyToast('Teilaufgabe konnte nicht angelegt werden: ' + err.message, 'error');
+    notifyToast(t('tasks.toast.subtaskCreateFailed', { error: err.message }), 'error');
     return;
   }
   input.value = '';
@@ -443,6 +470,7 @@ async function addSubtask() {
 
 export function closeTaskModal() {
   _currentTask = null;
+  _modalMode = null;
   const backdrop = document.getElementById('task-modal-backdrop');
   if (backdrop) closeDialog(backdrop);
 }
@@ -554,17 +582,17 @@ async function handleTaskSave() {
     if (uid && href) {
       // A different list than the stored one moves the task (#495).
       await TasksAPI.update(uid, { ...taskData, href, etag, sourceCalendarId: _currentTask.calendarId });
-      notifyToast('Aufgabe gespeichert.', 'success');
+      notifyToast(t('tasks.toast.saved'), 'success');
     } else {
       await TasksAPI.create(taskData);
-      notifyToast('Aufgabe erstellt.', 'success');
+      notifyToast(t('tasks.toast.created'), 'success');
     }
     closeTaskModal();
     if (taskCallbacks.onTaskChanged) {
       await taskCallbacks.onTaskChanged();
     }
   } catch (err) {
-    notifyToast('Fehler beim Speichern der Aufgabe: ' + err.message, 'error');
+    notifyToast(t('tasks.toast.saveFailed', { error: err.message }), 'error');
   }
 }
 
@@ -574,8 +602,8 @@ export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}
   if (options && options.error) {
     container.innerHTML = `
       <div class="kanban-empty-state kanban-error-state" style="padding: 40px; text-align: center;">
-        <div class="kanban-empty-title" style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: var(--danger, #e53e3e);">Fehler beim Laden der Aufgaben</div>
-        <div class="kanban-empty-subtitle" style="font-size: 0.85rem; color: var(--ink-muted, #718096);">Die Aufgaben konnten nicht geladen werden.</div>
+        <div class="kanban-empty-title" style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: var(--danger, #e53e3e);">${escapeHtml(t('tasks.error.loadTitle'))}</div>
+        <div class="kanban-empty-subtitle" style="font-size: 0.85rem; color: var(--ink-muted, #718096);">${escapeHtml(t('tasks.error.loadSubtitle'))}</div>
       </div>
     `;
     return;
@@ -590,15 +618,15 @@ export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}
     if (searchQuery && searchQuery.trim()) {
       emptyNoticeHtml = `
         <div class="kanban-empty-state search-empty-state">
-          <div class="kanban-empty-title">Keine Aufgaben gefunden</div>
-          <div class="kanban-empty-subtitle">Es wurden keine Aufgaben für „${escapeHtml(searchQuery.trim())}“ gefunden.</div>
+          <div class="kanban-empty-title">${escapeHtml(t('tasks.board.searchEmptyTitle'))}</div>
+          <div class="kanban-empty-subtitle">${escapeHtml(t('tasks.board.searchEmptySubtitle', { query: searchQuery.trim() }))}</div>
         </div>
       `;
     } else {
       emptyNoticeHtml = `
         <div class="kanban-empty-state board-empty-state">
-          <div class="kanban-empty-title">Keine Aufgaben vorhanden</div>
-          <div class="kanban-empty-subtitle">Klicke oben auf „Neue Aufgabe“, um die erste Aufgabe zu erstellen.</div>
+          <div class="kanban-empty-title">${escapeHtml(t('tasks.board.emptyTitle'))}</div>
+          <div class="kanban-empty-subtitle">${escapeHtml(t('tasks.board.emptySubtitle'))}</div>
         </div>
       `;
     }
@@ -607,7 +635,7 @@ export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}
   const lanesHtml = KANBAN_LANES.map(l => `
       <div class="kanban-column" data-status="${l.status}">
         <div class="kanban-column-header">
-          <span class="kanban-column-title">${l.label}</span>
+          <span class="kanban-column-title">${escapeHtml(statusLabel(l.status))}</span>
           <span class="kanban-badge count-${l.key}">0</span>
         </div>
         <div class="kanban-cards-container" id="kanban-cards-${l.key}"></div>
@@ -631,7 +659,7 @@ export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}
       const laneTasks = shown.filter(t => laneOf(t) === lane.status);
       container.querySelector(`.count-${lane.key}`).textContent = laneTasks.length;
       if (laneTasks.length === 0) {
-        list.innerHTML = '<div class="kanban-column-empty">Keine Aufgaben</div>';
+        list.innerHTML = `<div class="kanban-column-empty">${escapeHtml(t('tasks.board.columnEmpty'))}</div>`;
         continue;
       }
       for (const t of laneTasks) {
@@ -668,12 +696,12 @@ export function renderKanbanBoard(container, tasks, callbacks = {}, options = {}
       marks.delete(moved);
       marks.set(task, 'kanban-card-rolled-back');
       draw();
-      notifyToast('Status konnte nicht gespeichert werden: ' + err.message, 'error');
+      notifyToast(t('tasks.toast.statusSaveFailed', { error: err.message }), 'error');
       return;
     }
     marks.delete(moved);
     draw();
-    notifyToast(status === 'COMPLETED' ? getTaskCompletionToast(task, updated || payload) : 'Aufgabenstatus aktualisiert.', 'success');
+    notifyToast(status === 'COMPLETED' ? getTaskCompletionToast(task, updated || payload) : t('tasks.toast.statusUpdated'), 'success');
     if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
   };
 
@@ -742,20 +770,21 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
   // is shown without actions.
   if (task.recurrenceId) {
     card.setAttribute('data-recurrence-id', task.recurrenceId);
-    card.title = 'Erledigtes Vorkommen einer wiederkehrenden Aufgabe';
+    card.title = t('tasks.card.occurrence');
   }
   // A task in a read-only collection keeps its status: no drag, no status controls (#499).
   const movable = !task.recurrenceId && !isReadOnlyTask(task);
   if (movable) card.classList.add('kanban-card-movable');
+  const label = key => escapeHtml(t(key));
   const statusMenu = movable ? `
-      <select class="kanban-status-select" aria-label="Status von „${escapeHtml(task.title)}“">
-        ${KANBAN_LANES.map(l => `<option value="${l.status}"${l.status === laneOf(task) ? ' selected' : ''}>${l.label}</option>`).join('')}
+      <select class="kanban-status-select" aria-label="${escapeHtml(t('tasks.card.statusOf', { title: task.title }))}">
+        ${KANBAN_LANES.map(l => `<option value="${l.status}"${l.status === laneOf(task) ? ' selected' : ''}>${escapeHtml(statusLabel(l.status))}</option>`).join('')}
       </select>` : '';
   const statusButtons = !movable ? '' : task.status !== 'COMPLETED' ? `
-        <button class="kanban-btn btn-status-next" title="Status weiterschalten" aria-label="Status weiterschalten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
-        <button class="kanban-btn btn-complete" title="Als erledigt markieren" aria-label="Als erledigt markieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
+        <button class="kanban-btn btn-status-next" title="${label('tasks.card.statusNext')}" aria-label="${label('tasks.card.statusNext')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+        <button class="kanban-btn btn-complete" title="${label('tasks.card.complete')}" aria-label="${label('tasks.card.complete')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
       ` : `
-        <button class="kanban-btn btn-reopen" title="Wieder öffnen" aria-label="Wieder öffnen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
+        <button class="kanban-btn btn-reopen" title="${label('tasks.card.reopen')}" aria-label="${label('tasks.card.reopen')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
       `;
 
   let dueBadge = '';
@@ -766,16 +795,16 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
   }
 
   const level = PRIORITY_LEVELS[priorityLevel(task.priority)];
-  const prioBadge = level ? `<span class="kanban-prio ${level.cls}">${level.label}</span>` : '';
+  const prioBadge = level ? `<span class="kanban-prio ${level.cls}">${label(`tasks.priority.${priorityLevel(task.priority)}`)}</span>` : '';
 
   let recurBadge = '';
   if (task.recurrence) {
     const recurLabel = formatRecurrenceLabel(task.recurrence);
-    recurBadge = `<span class="kanban-recurrence-badge" title="Wiederholende Aufgabe: ${escapeHtml(recurLabel)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-right:4px;vertical-align:middle;display:inline-block;" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>${escapeHtml(recurLabel)}</span>`;
+    recurBadge = `<span class="kanban-recurrence-badge" title="${escapeHtml(t('tasks.card.recurring', { rule: recurLabel }))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="margin-right:4px;vertical-align:middle;display:inline-block;" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>${escapeHtml(recurLabel)}</span>`;
   }
 
   card.innerHTML = `
-    ${movable ? `<span class="kanban-drag-handle" title="Ziehen, um den Status zu ändern" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span>` : ''}
+    ${movable ? `<span class="kanban-drag-handle" title="${label('tasks.card.drag')}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span>` : ''}
     <div class="kanban-card-body">
       <div class="kanban-card-title">${escapeHtml(task.title)}</div>
       ${task.description ? `<div class="kanban-card-desc">${escapeHtml(task.description)}</div>` : ''}
@@ -788,8 +817,8 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
     ${task.recurrenceId ? '' : `<div class="kanban-card-actions">
       ${statusMenu}
       ${statusButtons}
-      <button class="kanban-btn btn-edit" title="Bearbeiten" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-      <button class="kanban-btn btn-delete" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg></button>
+      <button class="kanban-btn btn-edit" title="${label('tasks.card.edit')}" aria-label="${label('tasks.card.edit')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+      <button class="kanban-btn btn-delete" title="${label('tasks.card.delete')}" aria-label="${label('tasks.card.delete')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg></button>
     </div>`}
   `;
 
@@ -801,13 +830,13 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
   }
 
   card.querySelector('.btn-delete')?.addEventListener('click', async () => {
-    if (await confirmDialog(`Aufgabe „${task.title}“ wirklich löschen?`)) {
+    if (await confirmDialog(t('tasks.confirm.delete', { title: task.title }))) {
       try {
         const { trashId } = await TasksAPI.remove(task.uid, { calendarId: task.calendarId, href: task.href, etag: task.etag });
-        showUndoToast('Aufgabe gelöscht.', trashId);
+        showUndoToast(t('tasks.toast.deleted'), trashId);
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
-        notifyToast('Fehler beim Löschen: ' + err.message, 'error');
+        notifyToast(t('tasks.toast.deleteFailed', { error: err.message }), 'error');
       }
     }
   });
@@ -820,11 +849,11 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
       if (nextStatus === 'COMPLETED') {
         notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
       } else {
-        notifyToast('Aufgabenstatus aktualisiert.', 'success');
+        notifyToast(t('tasks.toast.statusUpdated'), 'success');
       }
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
-      notifyToast('Fehler beim Aktualisieren des Status: ' + err.message, 'error');
+      notifyToast(t('tasks.toast.statusUpdateFailed', { error: err.message }), 'error');
     }
   });
 
@@ -835,17 +864,17 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
       notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
-      notifyToast('Fehler beim Abschließen: ' + err.message, 'error');
+      notifyToast(t('tasks.toast.completeFailed', { error: err.message }), 'error');
     }
   });
 
   card.querySelector('.btn-reopen')?.addEventListener('click', async () => {
     try {
       await TasksAPI.update(task.uid, { ...task, status: 'NEEDS-ACTION', completed: null, percentComplete: 0 });
-      notifyToast('Aufgabe wieder geöffnet.', 'info');
+      notifyToast(t('tasks.toast.reopened'), 'info');
       if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
     } catch (err) {
-      notifyToast('Fehler beim Öffnen: ' + err.message, 'error');
+      notifyToast(t('tasks.toast.reopenFailed', { error: err.message }), 'error');
     }
   });
 
@@ -853,13 +882,6 @@ function createKanbanCard(task, callbacks, { board, onMove }) {
 }
 
 // ── Task area: "Liste | Kanban" (#498) ────────────────────────────────────────
-
-const STATUS_LABELS = {
-  'NEEDS-ACTION': 'Zu erledigen',
-  'IN-PROCESS': 'In Bearbeitung',
-  'COMPLETED': 'Erledigt',
-  'CANCELLED': 'Abgebrochen',
-};
 
 function isDone(task) {
   return task.status === 'COMPLETED' || task.status === 'CANCELLED';
@@ -918,14 +940,16 @@ export function renderTaskArea(container, tasks, callbacks = {}, options = {}) {
 
   const focusKey = focusedKey(container);
   taskAreaOptions.set(container, options);
+  _lastTaskArea = { container, args: [container, tasks, callbacks, options] };
   // The switch is built once and kept: only the view below it is redrawn, so the kanban board
-  // finds its focused status menu again (#499) and the switch keeps its focus.
+  // finds its focused status menu again (#499) and the switch keeps its focus. Its texts carry
+  // data-i18n, so i18n.js translates them in place on a language switch.
   if (!container.querySelector(':scope > .task-area')) {
     container.innerHTML = `
       <div class="task-area">
-        <div class="task-view-switch" role="group" aria-label="Aufgabenansicht">
-          <button type="button" class="task-view-btn" data-task-view="list" data-focus-key="view-list">Liste</button>
-          <button type="button" class="task-view-btn" data-task-view="kanban" data-focus-key="view-kanban">Kanban</button>
+        <div class="task-view-switch" role="group" aria-label="${escapeHtml(t('tasks.area.switch'))}" data-i18n-aria-label="tasks.area.switch">
+          <button type="button" class="task-view-btn" data-task-view="list" data-focus-key="view-list" data-i18n="tasks.area.list">${escapeHtml(t('tasks.area.list'))}</button>
+          <button type="button" class="task-view-btn" data-task-view="kanban" data-focus-key="view-kanban" data-i18n="tasks.area.kanban">${escapeHtml(t('tasks.area.kanban'))}</button>
         </div>
         <div class="task-view-body"></div>
       </div>
@@ -977,8 +1001,8 @@ function renderTaskList(container, tasks, callbacks, options, rerender) {
   if (options.error) {
     container.innerHTML = `
       <div class="kanban-empty-state kanban-error-state">
-        <div class="kanban-empty-title">Fehler beim Laden der Aufgaben</div>
-        <div class="kanban-empty-subtitle">Die Aufgaben konnten nicht geladen werden.</div>
+        <div class="kanban-empty-title">${escapeHtml(t('tasks.error.loadTitle'))}</div>
+        <div class="kanban-empty-subtitle">${escapeHtml(t('tasks.error.loadSubtitle'))}</div>
       </div>
     `;
     return;
@@ -994,49 +1018,50 @@ function renderTaskList(container, tasks, callbacks, options, rerender) {
   const searchQuery = (options.searchQuery || '').trim();
   let emptyText = '';
   if (shown.length === 0) {
-    if (searchQuery) emptyText = `Keine Aufgaben für „${escapeHtml(searchQuery)}“ gefunden.`;
-    else if (listOptions.priority !== 'all') emptyText = 'Keine Aufgaben mit dieser Priorität.';
-    else if (tasks.length > 0) emptyText = 'Keine offenen Aufgaben.';
-    else emptyText = 'Keine Aufgaben vorhanden. Klicke oben auf „Neue Aufgabe“, um die erste Aufgabe zu erstellen.';
+    if (searchQuery) emptyText = t('tasks.list.emptySearch', { query: searchQuery });
+    else if (listOptions.priority !== 'all') emptyText = t('tasks.list.emptyPriority');
+    else if (tasks.length > 0) emptyText = t('tasks.list.emptyNoOpen');
+    else emptyText = t('tasks.list.emptyNone');
   }
 
+  const label = key => escapeHtml(t(key));
   container.innerHTML = `
     <div class="task-list-controls">
-      <label class="task-list-control">Sortieren nach
+      <label class="task-list-control">${label('tasks.list.sortBy')}
         <select id="task-list-sort" class="form-select" data-focus-key="sort">
-          <option value="due">Fälligkeit</option>
-          <option value="priority">Priorität</option>
-          <option value="title">Titel</option>
+          <option value="due">${label('tasks.list.sortDue')}</option>
+          <option value="priority">${label('tasks.list.sortPriority')}</option>
+          <option value="title">${label('tasks.list.sortTitle')}</option>
         </select>
       </label>
-      <label class="task-list-control">Priorität
+      <label class="task-list-control">${label('tasks.list.priority')}
         <select id="task-list-priority" class="form-select" data-focus-key="priority">
-          <option value="all">Alle</option>
-          <option value="high">Hoch</option>
-          <option value="medium">Mittel</option>
-          <option value="low">Niedrig</option>
-          <option value="none">Ohne</option>
+          <option value="all">${label('tasks.list.priorityAll')}</option>
+          <option value="high">${label('tasks.priority.high')}</option>
+          <option value="medium">${label('tasks.priority.medium')}</option>
+          <option value="low">${label('tasks.priority.low')}</option>
+          <option value="none">${label('tasks.list.priorityNone')}</option>
         </select>
       </label>
       <label class="task-list-control">
         <input type="checkbox" id="task-list-group" data-focus-key="group" ${listOptions.groupByList ? 'checked' : ''} />
-        Nach Liste gruppieren
+        ${label('tasks.list.groupByList')}
       </label>
       <label class="task-list-control">
         <input type="checkbox" id="task-list-show-completed" data-focus-key="show-completed" ${listOptions.showCompleted ? 'checked' : ''} />
-        Erledigte anzeigen
+        ${label('tasks.list.showCompleted')}
       </label>
     </div>
-    ${emptyText ? `<div class="task-list-empty">${emptyText}</div>` : `
-    <table class="task-list-table" aria-label="Aufgaben">
+    ${emptyText ? `<div class="task-list-empty">${escapeHtml(emptyText)}</div>` : `
+    <table class="task-list-table" aria-label="${label('tasks.list.table')}">
       <thead>
         <tr>
-          <th scope="col" class="task-list-col-check"><span class="sr-only">Erledigt</span></th>
-          <th scope="col">Titel</th>
-          <th scope="col">Liste</th>
-          <th scope="col">Fällig</th>
-          <th scope="col">Priorität</th>
-          <th scope="col">Status</th>
+          <th scope="col" class="task-list-col-check"><span class="sr-only">${label('tasks.list.colDone')}</span></th>
+          <th scope="col">${label('tasks.list.colTitle')}</th>
+          <th scope="col">${label('tasks.list.colList')}</th>
+          <th scope="col">${label('tasks.list.colDue')}</th>
+          <th scope="col">${label('tasks.list.colPriority')}</th>
+          <th scope="col">${label('tasks.list.colStatus')}</th>
         </tr>
       </thead>
       ${groups.map(g => `
@@ -1087,10 +1112,10 @@ function taskListRow(task) {
   const done = isDone(task);
   const title = escapeHtml(task.title);
   // An occurrence finished from a series cannot be reopened on its own (#264).
-  const checkLabel = task.recurrenceId
-    ? `„${title}“ ist ein erledigtes Vorkommen`
-    : `„${title}“ ${done ? 'wieder öffnen' : 'als erledigt markieren'}`;
-  const prio = hasPriority(task) ? PRIORITY_LEVELS[priorityLevel(task.priority)].label : '';
+  const checkLabel = escapeHtml(t(task.recurrenceId ? 'tasks.list.rowOccurrence'
+    : done ? 'tasks.list.rowReopen' : 'tasks.list.rowComplete', { title: task.title }));
+  const prio = hasPriority(task) ? t(`tasks.priority.${priorityLevel(task.priority)}`) : '';
+  const status = task.status || 'NEEDS-ACTION';
   return `
     <tr class="task-list-row${done ? ' is-done' : ''}" data-task-id="${escapeHtml(task.uid)}" data-row-key="${key}">
       <td class="task-list-col-check">
@@ -1101,7 +1126,7 @@ function taskListRow(task) {
       <td class="task-list-calendar">${escapeHtml(calendarName(task.calendarId))}</td>
       <td class="task-list-due">${task.due ? formatDueDate(new Date(task.due), Boolean(task.dueIsDate || task.allDay)) : ''}</td>
       <td class="task-list-priority">${escapeHtml(prio)}</td>
-      <td class="task-list-status">${STATUS_LABELS[task.status || 'NEEDS-ACTION'] || escapeHtml(task.status)}</td>
+      <td class="task-list-status">${escapeHtml(KANBAN_LANES.some(l => l.status === status) ? statusLabel(status) : status)}</td>
     </tr>
   `;
 }
@@ -1114,10 +1139,10 @@ async function setTaskDone(task, done, callbacks) {
       notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
     } else {
       await TasksAPI.update(task.uid, { ...task, status: 'NEEDS-ACTION', completed: null, percentComplete: 0 });
-      notifyToast('Aufgabe wieder geöffnet.', 'info');
+      notifyToast(t('tasks.toast.reopened'), 'info');
     }
   } catch (err) {
-    notifyToast('Fehler beim Aktualisieren: ' + err.message, 'error');
+    notifyToast(t('tasks.toast.updateFailed', { error: err.message }), 'error');
   }
   // Reload either way: after a failure the checkbox shows the stored state again.
   if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
@@ -1127,10 +1152,10 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
   if (options && options.error) {
     if (countBadge) {
       countBadge.textContent = '!';
-      countBadge.title = 'Fehler beim Laden der Aufgaben';
+      countBadge.title = t('tasks.error.loadTitle');
     }
     if (container) {
-      container.innerHTML = `<div class="sidebar-tasks-error" style="font-size:0.78rem;color:var(--danger);padding:4px 8px">Fehler beim Laden der Aufgaben.</div>`;
+      container.innerHTML = `<div class="sidebar-tasks-error" style="font-size:0.78rem;color:var(--danger);padding:4px 8px">${escapeHtml(t('tasks.sidebar.loadError'))}</div>`;
     }
     return;
   }
@@ -1146,7 +1171,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
   if (!container) return;
 
   if (pendingTasks.length === 0) {
-    container.innerHTML = `<div class="sidebar-tasks-empty">Keine offenen Aufgaben.</div>`;
+    container.innerHTML = `<div class="sidebar-tasks-empty">${escapeHtml(t('tasks.sidebar.empty'))}</div>`;
     return;
   }
 
@@ -1159,7 +1184,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
     const prioClass = PRIORITY_LEVELS[priorityLevel(task.priority)]?.cls || '';
 
     item.innerHTML = `
-      <input type="checkbox" class="sidebar-task-checkbox" title="Als erledigt markieren" />
+      <input type="checkbox" class="sidebar-task-checkbox" title="${escapeHtml(t('tasks.sidebar.complete'))}" />
       <div class="sidebar-task-info" tabindex="0" role="button">
         <div class="sidebar-task-title ${prioClass}">${escapeHtml(task.title)}</div>
         <div class="sidebar-task-meta">
@@ -1177,7 +1202,7 @@ export function renderSidebarTasks(container, countBadge, tasks, callbacks = {},
         notifyToast(getTaskCompletionToast(task, updated || payload), 'success');
         if (callbacks.onTaskChanged) await callbacks.onTaskChanged();
       } catch (err) {
-        notifyToast('Fehler beim Aktualisieren: ' + err.message, 'error');
+        notifyToast(t('tasks.toast.updateFailed', { error: err.message }), 'error');
       }
     });
 

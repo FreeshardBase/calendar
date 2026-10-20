@@ -20,6 +20,7 @@
  */
 
 import { formatDate, formatTime } from './locale.js';
+import { t } from './i18n.js';
 
 const SNAP_MIN = 15;
 const LONG_PRESS_MS = 400;
@@ -259,7 +260,7 @@ function onChipKey(e, byUid, opts) {
     const { change } = keyMove;
     clearKeyMove();
     if (e.key === 'Escape') {
-      opts.announce?.('Verschieben abgebrochen.');
+      opts.announce?.(t('views.eventDrag.cancelled'));
     } else if (!sameTimes(ev, change)) {
       refocus = { uid: ev.uid, until: Date.now() + 15000 };
       opts.onDrop(ev, change);
@@ -287,7 +288,7 @@ function onChipKey(e, byUid, opts) {
   if (!keyMove) keyMove = { el, ev, opts, ghost: null };
   keyMove.change = change;
   showKeyMove(keyMove);
-  opts.announce?.(`„${ev.title}“: ${describe(change)}. Eingabetaste übernimmt, Escape bricht ab.`);
+  opts.announce?.(t('views.eventDrag.announce', { title: ev.title, times: describe(change) }));
 }
 
 // `base` shifted by whole days and minutes; for an edge only that end moves and stays at least one
@@ -338,7 +339,9 @@ function describe(change) {
   const day = d => formatDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
   if (change.allDay) {
     const { first, last } = daySpan(change);
-    return first === last ? `ganztägig ${day(parseYmd(first))}` : `ganztägig ${day(parseYmd(first))} – ${day(parseYmd(last))}`;
+    return first === last
+      ? t('views.eventDrag.allDay', { day: day(parseYmd(first)) })
+      : t('views.eventDrag.allDayRange', { first: day(parseYmd(first)), last: day(parseYmd(last)) });
   }
   const s = new Date(change.start);
   const e = new Date(change.end);

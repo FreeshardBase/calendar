@@ -503,7 +503,7 @@ db.serialize(() => {
       default_calendar_id TEXT,
       default_reminder INTEGER,
       time_zone TEXT,
-      language TEXT CHECK (language IN ('de', 'en')),
+      language TEXT CHECK (language IN ('de', 'de-formal', 'en')),
       updated_at INTEGER NOT NULL
     )
   `);

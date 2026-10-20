@@ -7,6 +7,7 @@ import { showToast } from './app.js';
 import { holdsEvents } from './calendarLabels.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { startOfWeek, weekDays, weekdayName } from './locale.js';
+import { t } from './i18n.js';
 
 // #503: weekly hours are indexed like Date#getUTCDay (0 = Sunday); the dialog lists them from the
 // user's week start (#625), named by Intl.
@@ -31,6 +32,15 @@ export function initAvailabilityManager() {
   renderWeekdays(DEFAULT_WEEKLY_HOURS);
 
   let calendarNames = new Map();
+  // The last answer for the published pages: { pages } or { error: true }, redrawn on a language change.
+  let pagesState = null;
+
+  // #627: the weekday rows and the page list are drawn by this module; a new language redraws
+  // them, keeping what the owner has entered.
+  window.addEventListener('ui-language-changed', () => {
+    renderWeekdays(readWeekdays());
+    if (pagesState) renderPages();
+  });
 
   btn.addEventListener('click', async () => {
     openDialog(backdrop);
@@ -68,23 +78,23 @@ export function initAvailabilityManager() {
         busyCalendarIds
       });
 
-      showToast('Buchbare Zeiten veröffentlicht', 'success');
+      showToast(t('views.availability.published'), 'success');
       form.reset();
       renderWeekdays(DEFAULT_WEEKLY_HOURS);
       await loadCalendars();
       await loadPages();
     } catch (err) {
-      showToast(err.message || 'Fehler beim Veröffentlichen der buchbaren Zeiten', 'error');
+      showToast(err.message || t('views.availability.publishError'), 'error');
     }
   });
 
   function windowRow(name, win) {
     return `
       <span class="ap-window" style="display: inline-flex; gap: 4px; align-items: center;">
-        <input class="form-input ap-window-start" type="time" value="${win.start}" aria-label="${name} von" style="width: auto;" />
+        <input class="form-input ap-window-start" type="time" value="${win.start}" aria-label="${t('views.availability.windowFrom', { day: name })}" style="width: auto;" />
         –
-        <input class="form-input ap-window-end" type="time" value="${win.end}" aria-label="${name} bis" style="width: auto;" />
-        <button type="button" class="btn btn-ghost btn-sm ap-window-remove" aria-label="Zeitfenster am ${name} entfernen">×</button>
+        <input class="form-input ap-window-end" type="time" value="${win.end}" aria-label="${t('views.availability.windowTo', { day: name })}" style="width: auto;" />
+        <button type="button" class="btn btn-ghost btn-sm ap-window-remove" aria-label="${t('views.availability.removeWindow', { day: name })}">×</button>
       </span>`;
   }
 
@@ -101,7 +111,7 @@ export function initAvailabilityManager() {
           <div class="ap-day-windows" ${windows.length ? '' : 'hidden'}>
             <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
               ${(windows.length ? windows : [DEFAULT_WINDOW]).map(win => windowRow(name, win)).join('')}
-              <button type="button" class="btn btn-ghost btn-sm ap-window-add" aria-label="Zeitfenster am ${name} hinzufügen">+ Zeitfenster</button>
+              <button type="button" class="btn btn-ghost btn-sm ap-window-add" aria-label="${t('views.availability.addWindowLabel', { day: name })}">${t('views.availability.addWindow')}</button>
             </div>
           </div>
         </div>`;
@@ -161,7 +171,7 @@ export function initAvailabilityManager() {
     } catch (err) {
       calSelect.innerHTML = '';
       busyList.innerHTML = '';
-      showToast(err.message || 'Kalender konnten nicht geladen werden', 'error');
+      showToast(err.message || t('views.availability.calendarsError'), 'error');
       return;
     }
     calendarNames = new Map(list.map(c => [c.id, c.displayName || c.name || c.id]));
@@ -196,12 +206,24 @@ export function initAvailabilityManager() {
   async function loadPages() {
     if (!pagesList) return;
     try {
-      const pages = await AvailabilityAPI.getPages();
-      if (!pages || pages.length === 0) {
-        pagesList.innerHTML = '<p class="empty-state">Noch keine buchbaren Zeiten veröffentlicht.</p>';
-        return;
-      }
+      pagesState = { pages: await AvailabilityAPI.getPages() };
+    } catch (err) {
+      console.error('[availability] Error loading pages:', err);
+      pagesState = { error: true };
+    }
+    renderPages();
+  }
 
+  function renderPages() {
+    if (pagesState.error) {
+      pagesList.innerHTML = `<p class="empty-state">${t('views.availability.loadError')}</p>`;
+      return;
+    }
+    const { pages } = pagesState;
+    if (!pages || pages.length === 0) {
+      pagesList.innerHTML = `<p class="empty-state">${t('views.availability.noPages')}</p>`;
+      return;
+    }
       pagesList.innerHTML = pages.map(p => {
         const publicUrl = `${window.location.origin}/public/booking/?slug=${encodeURIComponent(p.slug)}`;
         const busyNames = [p.calendarId, ...(p.busyCalendarIds || [])].map(id => calendarNames.get(id) || id);
@@ -210,21 +232,21 @@ export function initAvailabilityManager() {
             <div>
               <strong style="font-size: 14px;">${escapeHtml(p.title)}</strong>
               <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                Dauer: ${p.durationMinutes} Min. | Slug: <code>${escapeHtml(p.slug)}</code>
+                ${t('views.availability.duration', { minutes: p.durationMinutes })} | ${t('views.availability.slug')} <code>${escapeHtml(p.slug)}</code>
               </div>
               <div class="availability-page-hours" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
                 ${escapeHtml(describeHours(p))}
               </div>
               <div class="availability-page-busy" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                Belegt aus: ${busyNames.map(escapeHtml).join(', ')}
+                ${t('views.availability.busyFrom', { calendars: busyNames.map(escapeHtml).join(', ') })}
               </div>
               <div style="margin-top: 4px;">
                 <a href="${publicUrl}" target="_blank" style="font-size: 12px; color: var(--accent); text-decoration: underline;">${publicUrl}</a>
               </div>
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
-              <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeHtml(publicUrl)}">Link kopieren</button>
-              <button class="btn btn-danger btn-sm delete-page-btn" data-id="${escapeHtml(p.id)}">Löschen</button>
+              <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeHtml(publicUrl)}">${t('views.availability.copyLink')}</button>
+              <button class="btn btn-danger btn-sm delete-page-btn" data-id="${escapeHtml(p.id)}">${t('views.availability.delete')}</button>
             </div>
           </div>
         `;
@@ -234,37 +256,33 @@ export function initAvailabilityManager() {
         b.addEventListener('click', () => {
           const url = b.getAttribute('data-url');
           navigator.clipboard.writeText(url);
-          showToast('Link in Zwischenablage kopiert', 'success');
+          showToast(t('views.availability.copied'), 'success');
         });
       });
 
       pagesList.querySelectorAll('.delete-page-btn').forEach(b => {
         b.addEventListener('click', async () => {
           const id = b.getAttribute('data-id');
-          if (await confirmDialog('Möchtest du diese buchbaren Zeiten wirklich löschen?')) {
+          if (await confirmDialog(t('views.availability.deleteConfirm'))) {
             try {
               await AvailabilityAPI.deletePage(id);
-              showToast('Buchbare Zeiten gelöscht', 'success');
+              showToast(t('views.availability.deleted'), 'success');
               await loadPages();
             } catch (err) {
-              showToast(err.message || 'Fehler beim Löschen', 'error');
+              showToast(err.message || t('views.availability.deleteError'), 'error');
             }
           }
         });
       });
-    } catch (err) {
-      console.error('[availability] Error loading pages:', err);
-      pagesList.innerHTML = '<p class="empty-state">Fehler beim Laden der buchbaren Zeiten.</p>';
-    }
   }
 
   function describeHours(p) {
     const days = weekdayList().filter(({ day }) => p.weeklyHours[day].length)
       .map(({ day, short }) => `${short} ${p.weeklyHours[day].map(w => `${w.start}–${w.end}`).join(', ')}`);
     const limits = [];
-    if (p.bufferMinutes) limits.push(`Puffer ${p.bufferMinutes} Min.`);
-    if (p.maxBookingsPerDay !== null) limits.push(`höchstens ${p.maxBookingsPerDay} pro Tag`);
-    if (p.minNoticeMinutes) limits.push(`Vorlauf ${p.minNoticeMinutes / 60} Std.`);
+    if (p.bufferMinutes) limits.push(t('views.availability.buffer', { minutes: p.bufferMinutes }));
+    if (p.maxBookingsPerDay !== null) limits.push(t('views.availability.maxPerDay', { count: p.maxBookingsPerDay }));
+    if (p.minNoticeMinutes) limits.push(t('views.availability.minNotice', { hours: p.minNoticeMinutes / 60 }));
     return [days.join(' · '), ...limits].join(' | ');
   }
 

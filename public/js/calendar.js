@@ -9,6 +9,7 @@ import { store, visibleCalendars, calendarById } from './store.js';
 import { zoneAbbreviation, zoneOffsetLabel, timeInZone, localTimeZone } from './timezones.js';
 import { enableEventDrag, deferRenderWhileDragging } from './eventDrag.js';
 import { dateFormat, formatDate, formatTime, formatNumber, weekdayName, startOfWeek, weekDays, allDayDate, localDateString } from './locale.js';
+import { t } from './i18n.js';
 
 const monthYear = date => formatDate(date, { month: 'long', year: 'numeric' });
 
@@ -50,7 +51,7 @@ export function getToolbarTitle(view, date) {
     case 'day':    return `${weekdayName(date)}, ${formatDate(date, { day: 'numeric', month: 'long', year: 'numeric' })}`;
     case 'agenda': return monthYear(date);
     // #510: the list chooses its own range in the view.
-    case 'list':   return 'Liste';
+    case 'list':   return t('views.calendar.listTitle');
   }
 }
 
@@ -197,12 +198,12 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick, o
     <div class="mini-cal-header">
       <span class="mini-cal-title">${formatDate(first, { month: 'short', year: 'numeric' })}</span>
       <div class="mini-cal-nav">
-        <button data-mini-prev aria-label="Vorheriger Monat" title="Vorheriger Monat">‹</button>
-        <button data-mini-next aria-label="Nächster Monat" title="Nächster Monat">›</button>
+        <button data-mini-prev aria-label="${t('views.calendar.prevMonth')}" title="${t('views.calendar.prevMonth')}">‹</button>
+        <button data-mini-next aria-label="${t('views.calendar.nextMonth')}" title="${t('views.calendar.nextMonth')}">›</button>
       </div>
     </div>
     <div class="mini-cal-grid${showWeekNumbers ? ' with-weeks' : ''}">
-      ${showWeekNumbers ? '<div class="mini-cal-dow" aria-hidden="true">KW</div>' : ''}
+      ${showWeekNumbers ? `<div class="mini-cal-dow" aria-hidden="true">${t('views.calendar.weekAbbr')}</div>` : ''}
       ${weekDays(gridStart).map(d => `<div class="mini-cal-dow">${weekdayName(d)}</div>`).join('')}
   `;
 
@@ -212,7 +213,7 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick, o
     const col = i - startDay;
     if (showWeekNumbers && i % 7 === 0) {
       const week = rowWeekNumber(new Date(year, month, col + 1));
-      html += `<div class="mini-cal-week" aria-label="Kalenderwoche ${week}">${week}</div>`;
+      html += `<div class="mini-cal-week" aria-label="${t('views.calendar.weekLabel', { week })}">${week}</div>`;
     }
     if (col < 0 || col >= daysInMonth) {
       html += `<div class="mini-cal-day other-month"></div>`;
@@ -222,7 +223,7 @@ export function renderMiniCalendar(container, currentDate, events, onDayClick, o
       const isSelected = sameDay(d, currentDate);
       const hasEvents  = eventDays.has(col + 1);
       const inRange    = range !== null && d >= range.start && d <= range.end;
-      const label = longDateLabel(d) + (hasEvents ? ', mit Terminen' : '');
+      const label = hasEvents ? t('views.calendar.dayWithEvents', { date: longDateLabel(d) }) : longDateLabel(d);
       // One tab stop for the grid (the selected day); the arrow keys move between the days.
       html += `<div class="mini-cal-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${hasEvents ? 'has-events' : ''} ${inRange ? 'in-range' : ''}"
                     data-mini-day="${d.toISOString()}" tabindex="${isSelected ? 0 : -1}" role="button"
@@ -295,7 +296,7 @@ function renderMonth(container, events, currentDate, cb) {
   const div = document.createElement('div');
   div.className = 'month-view';
   div.setAttribute('role', 'grid');
-  div.setAttribute('aria-label', 'Monatsansicht');
+  div.setAttribute('aria-label', t('views.calendar.monthView'));
 
   // Day-of-week header, from the user's week start (#625)
   div.innerHTML = `<div class="month-dow-header" role="row">${weekDays(gridStart).map(d =>
@@ -336,13 +337,13 @@ function renderMonth(container, events, currentDate, cb) {
 
     let chipsHtml = dayEvents.slice(0, MAX_VISIBLE).map(ev => chipHtml(ev)).join('');
     if (overflow > 0) {
-      const overflowText = overflow === 1 ? '+1 weiterer' : `+${overflow} weitere`;
+      const overflowText = t('views.calendar.more', { count: overflow });
       chipsHtml += `<div class="month-more" data-event-overflow="${date.toISOString()}" role="button" tabindex="0" aria-label="${overflowText}">${overflowText}</div>`;
     }
 
     // #517: the row's ISO week number, in its first day (the week start).
     const week = i % 7 === 0 && store.get('showWeekNumbers') ? rowWeekNumber(date) : null;
-    const weekHtml = week === null ? '' : `<span class="month-week-num" aria-label="Kalenderwoche ${week}">KW ${week}</span>`;
+    const weekHtml = week === null ? '' : `<span class="month-week-num" aria-label="${t('views.calendar.weekLabel', { week })}">${t('views.calendar.weekShort', { week })}</span>`;
     cell.innerHTML = `<div class="month-day-head"><div class="month-day-num">${date.getDate()}</div>${weekHtml}</div>${chipsHtml}`;
 
 
@@ -387,21 +388,18 @@ function renderMonth(container, events, currentDate, cb) {
   });
 }
 
-// Issue #577: a task shown by its due date.
-function taskLabel(ev) {
-  return ev.kind === 'task' ? 'Aufgabe: ' : '';
-}
-
-// Issue #174: an event whose optimistic save is still running.
-function pendingLabel(ev) {
-  return ev.pending ? ' (wird gespeichert)' : '';
+// The accessible name of an event: #577 marks a task shown by its due date, #174 an event whose
+// optimistic save is still running.
+function eventLabel(ev, text) {
+  const saved = ev.pending ? t('views.calendar.pending', { label: text }) : text;
+  return ev.kind === 'task' ? t('views.calendar.task', { label: saved }) : saved;
 }
 
 export function chipHtml(ev) {
   const cal   = calendarById(ev.calendarId);
   const color = sanitizeColor(cal?.color || '#6366f1');
   const timeStr = ev.allDay ? '' : `<span class="event-chip-time">${fmtTime(ev.start)}</span>`;
-  const labelText = taskLabel(ev) + (ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`) + pendingLabel(ev);
+  const labelText = eventLabel(ev, ev.allDay ? ev.title : `${fmtTime(ev.start)} ${ev.title}`);
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
     : '';
@@ -472,7 +470,7 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   const wrap = document.createElement('div');
   wrap.className = 'week-view';
   wrap.setAttribute('role', 'grid');
-  wrap.setAttribute('aria-label', view === '3day' ? 'Dreitagesansicht' : isWorkWeek ? 'Arbeitswochenansicht' : 'Wochenansicht');
+  wrap.setAttribute('aria-label', t(view === '3day' ? 'views.calendar.threeDayView' : isWorkWeek ? 'views.calendar.workWeekView' : 'views.calendar.weekView'));
 
   // Header row
   const header = document.createElement('div');
@@ -483,8 +481,8 @@ function renderWeek(container, events, currentDate, cb, view = 'week') {
   // #517: the week's ISO number above the hour axis.
   if (store.get('showWeekNumbers')) {
     const week = rowWeekNumber(ws);
-    header.firstElementChild.insertAdjacentHTML('afterbegin', `<div class="week-num">KW ${week}</div>`);
-    wrap.setAttribute('aria-label', `${wrap.getAttribute('aria-label')}, Kalenderwoche ${week}`);
+    header.firstElementChild.insertAdjacentHTML('afterbegin', `<div class="week-num">${t('views.calendar.weekShort', { week })}</div>`);
+    wrap.setAttribute('aria-label', t('views.calendar.viewWithWeek', { view: wrap.getAttribute('aria-label'), week }));
   }
   days.forEach(d => {
     const isToday = sameDay(d, today);
@@ -567,7 +565,7 @@ function renderDay(container, events, currentDate, cb) {
   const wrap = document.createElement('div');
   wrap.className = 'day-view';
   wrap.setAttribute('role', 'grid');
-  wrap.setAttribute('aria-label', 'Tagesansicht');
+  wrap.setAttribute('aria-label', t('views.calendar.dayView'));
   const today = new Date(); today.setHours(0,0,0,0);
   const isToday = sameDay(currentDate, today);
 
@@ -746,7 +744,7 @@ function createEventBlock(ev, evCol, totalCols, cb) {
   block.setAttribute('role', 'button');
   const timeText = fmtTime(ev.start) + (ev.end && !isShort ? ' – ' + fmtTime(ev.end) : '');
   const labelText = timeText ? `${timeText} ${ev.title || ''}` : (ev.title || '');
-  block.setAttribute('aria-label', taskLabel(ev) + labelText.trim() + pendingLabel(ev));
+  block.setAttribute('aria-label', eventLabel(ev, labelText.trim()));
 
   const recurIcon = (ev.recurrence || ev.masterUid)
     ? `<svg class="recur-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>`
@@ -813,7 +811,7 @@ function renderAgenda(container, events, currentDate, cb) {
   }
 
   if (byDay.size === 0) {
-    div.innerHTML = `<div class="agenda-empty">Keine Termine im gewählten Zeitraum.</div>`;
+    div.innerHTML = `<div class="agenda-empty">${t('views.calendar.agendaEmpty')}</div>`;
     container.appendChild(div);
     return;
   }
@@ -860,7 +858,7 @@ function renderAgenda(container, events, currentDate, cb) {
 export function agendaEventHtml(ev) {
   const cal   = calendarById(ev.calendarId);
   const color = sanitizeColor(cal?.color || '#6366f1');
-  const timeStr = ev.allDay ? 'Ganztägig'
+  const timeStr = ev.allDay ? t('views.calendar.allDay')
     : `${fmtTime(ev.start)}${ev.end ? ' – ' + fmtTime(ev.end) : ''}`;
 
   const recurIcon = (ev.recurrence || ev.masterUid)
@@ -1015,28 +1013,28 @@ function longDateLabel(date) {
 
 function dayCellLabel(date, eventCount) {
   if (eventCount === 0) return longDateLabel(date);
-  return `${longDateLabel(date)}, ${eventCount === 1 ? '1 Termin' : `${eventCount} Termine`}`;
+  return t('views.calendar.dayEvents', { date: longDateLabel(date), count: eventCount });
 }
 
 // Week/day column header, which also holds the day's all-day events.
 function dayHeaderLabel(date, allDayCount) {
   if (allDayCount === 0) return longDateLabel(date);
-  return `${longDateLabel(date)}, ${allDayCount === 1 ? '1 ganztägiger Termin' : `${allDayCount} ganztägige Termine`}`;
+  return t('views.calendar.dayAllDayEvents', { date: longDateLabel(date), count: allDayCount });
 }
 
 // #513: the forecast badge under a day's number in the week and day headers. Days outside the
 // forecast, or no forecast at all (off or the provider down), show nothing.
 const WEATHER_SYMBOLS = {
-  'clear-day':         ['\u2600\uFE0E', 'Sonnig'],
-  'partly-cloudy-day': ['\u26C5\uFE0E', 'Teils bewölkt'],
-  'cloudy':            ['\u2601\uFE0E', 'Bewölkt'],
-  'fog':               ['\u2261', 'Nebel'],
-  'wind':              ['\u224B', 'Windig'],
-  'rain':              ['\u2602\uFE0E', 'Regen'],
-  'sleet':             ['\u2602\uFE0E', 'Schneeregen'],
-  'snow':              ['\u2744\uFE0E', 'Schnee'],
-  'hail':              ['\u2744\uFE0E', 'Hagel'],
-  'thunderstorm':      ['\u03DF', 'Gewitter'],
+  'clear-day':         ['\u2600\uFE0E', 'views.calendar.weather.clearDay'],
+  'partly-cloudy-day': ['\u26C5\uFE0E', 'views.calendar.weather.partlyCloudy'],
+  'cloudy':            ['\u2601\uFE0E', 'views.calendar.weather.cloudy'],
+  'fog':               ['\u2261', 'views.calendar.weather.fog'],
+  'wind':              ['\u224B', 'views.calendar.weather.wind'],
+  'rain':              ['\u2602\uFE0E', 'views.calendar.weather.rain'],
+  'sleet':             ['\u2602\uFE0E', 'views.calendar.weather.sleet'],
+  'snow':              ['\u2744\uFE0E', 'views.calendar.weather.snow'],
+  'hail':              ['\u2744\uFE0E', 'views.calendar.weather.hail'],
+  'thunderstorm':      ['\u03DF', 'views.calendar.weather.thunderstorm'],
 };
 const MM = { format: n => formatNumber(n, { maximumFractionDigits: 1 }) };
 
@@ -1048,17 +1046,19 @@ function forecastFor(date) {
 }
 
 // The symbol comes from the provider, so only the table's own keys count ('constructor' is no symbol).
-const weatherSymbol = icon => (Object.hasOwn(WEATHER_SYMBOLS, icon) ? WEATHER_SYMBOLS[icon] : ['', 'Vorhersage']);
+const weatherSymbol = icon => (Object.hasOwn(WEATHER_SYMBOLS, icon) ? WEATHER_SYMBOLS[icon] : ['', 'views.calendar.weather.forecast']);
 
 function weatherText(day) {
-  const [, name] = weatherSymbol(day.icon);
-  const rain = day.precipitation > 0 ? `, ${MM.format(day.precipitation)} mm Niederschlag` : '';
-  return `${name}, ${day.tempMin} bis ${day.tempMax} °C${rain}`;
+  const [, nameKey] = weatherSymbol(day.icon);
+  const params = { name: t(nameKey), min: day.tempMin, max: day.tempMax };
+  return day.precipitation > 0
+    ? t('views.calendar.weather.textRain', { ...params, mm: MM.format(day.precipitation) })
+    : t('views.calendar.weather.text', params);
 }
 
 function weatherLabelSuffix(date) {
   const day = forecastFor(date);
-  return day ? `, Wetter: ${weatherText(day)}` : '';
+  return day ? t('views.calendar.weather.labelSuffix', { text: weatherText(day) }) : '';
 }
 
 function weatherBadgeHtml(date) {

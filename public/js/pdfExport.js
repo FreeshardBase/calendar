@@ -8,6 +8,7 @@ import { EventsAPI } from './api.js';
 import { openDialog, closeDialog } from './dialogFocus.js';
 import { calendarLabel, holdsEvents } from './calendarLabels.js';
 import { sanitizeColor } from './calendar.js';
+import { t, language } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
@@ -84,9 +85,9 @@ async function rangeEvents(from, to) {
   if (loaded.key === key) return loaded.events;
   const start = new Date(`${from}T00:00:00`);
   const end = new Date(`${to}T23:59:59.999`);
-  if (isNaN(start) || isNaN(end)) throw new Error('Ungültiger Zeitraum');
+  if (isNaN(start) || isNaN(end)) throw new Error(t('modules.pdf.error.range'));
   const { events, errors } = await EventsAPI.list(start.toISOString(), end.toISOString());
-  if (errors.length > 0) throw new Error('Nicht alle Kalender konnten gelesen werden');
+  if (errors.length > 0) throw new Error(t('modules.pdf.error.calendars'));
   const mapped = events.map(ev => ({
     calendarId: ev.calendarId,
     title: ev.title,
@@ -104,7 +105,8 @@ async function payload() {
   const settings = readSettings();
   const chosen = new Set(settings.calendars.map(c => c.id));
   const events = (await rangeEvents(settings.from, settings.to)).filter(ev => chosen.has(ev.calendarId));
-  return { ...settings, events };
+  // #627: the server draws the PDF in the UI language.
+  return { ...settings, events, language: language() };
 }
 
 async function postExport(kind, body) {
@@ -130,27 +132,27 @@ function setStatus(text, isError = false) {
 
 async function updatePreview() {
   const seq = ++previewSeq;
-  setStatus('Vorschau wird erstellt…');
+  setStatus(t('modules.pdf.preview.loading'));
   $('pdf-export-modal').setAttribute('aria-busy', 'true');
   try {
     const { res, type, blob } = await postExport('preview', await payload());
     if (seq !== previewSeq) return;
-    if (!type.startsWith('image/svg+xml')) throw new Error('Die Antwort ist keine Vorschau');
+    if (!type.startsWith('image/svg+xml')) throw new Error(t('modules.pdf.error.notPreview'));
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = URL.createObjectURL(blob);
     const img = $('pdf-preview-img');
     await new Promise((resolve, reject) => {
       img.onload = resolve;
-      img.onerror = () => reject(new Error('Die Vorschau konnte nicht angezeigt werden'));
+      img.onerror = () => reject(new Error(t('modules.pdf.error.previewDisplay')));
       img.src = previewUrl;
     });
     if (seq !== previewSeq) return;
     const pages = Number(res.headers.get('X-Export-Pages'));
-    setStatus(`Seite 1 von ${pages}`);
+    setStatus(t('modules.pdf.preview.page', { pages }));
   } catch (err) {
     if (seq !== previewSeq) return;
     console.error('[PDF Preview Error]', err);
-    setStatus(`Vorschau fehlgeschlagen: ${err.message}`, true);
+    setStatus(t('modules.pdf.preview.failed', { message: err.message }), true);
   } finally {
     if (seq === previewSeq) $('pdf-export-modal').removeAttribute('aria-busy');
   }
@@ -174,11 +176,11 @@ async function download() {
     const answer = await postExport('pdf', body);
     blob = answer.blob;
     if (!answer.type.startsWith('application/pdf') || await blob.slice(0, 5).text() !== '%PDF-') {
-      throw new Error('Die Antwort ist keine PDF-Datei');
+      throw new Error(t('modules.pdf.error.notPdf'));
     }
   } catch (err) {
     console.error('[PDF Export Error]', err);
-    showToast(`PDF-Export fehlgeschlagen: ${err.message}`, 'error');
+    showToast(t('modules.pdf.toast.failed', { message: err.message }), 'error');
     return;
   } finally {
     btn.disabled = false;
@@ -229,4 +231,8 @@ export function initPdfExport(options) {
   });
   $('pdf-export-form').addEventListener('change', schedulePreview);
   $('pdf-export-form').addEventListener('submit', (e) => e.preventDefault());
+  // The preview status line is this module's text; an open dialog redraws it in the new language.
+  window.addEventListener('ui-language-changed', () => {
+    if (!$('pdf-export-backdrop').classList.contains('hidden')) schedulePreview();
+  });
 }

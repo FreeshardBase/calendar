@@ -1,14 +1,32 @@
 'use strict';
 
+// #627: a classic script cannot import; it loads the same i18n.js module instance app.js uses.
+const workingHoursI18n = import(new URL('i18n.js', document.currentScript.src).href);
+
 window.WorkingHoursModule = {
   policy: null,
+  // The message key and colour of the save status line, redrawn on a language change.
+  status: null,
 
   async init() {
     this.bindEvents();
     await this.loadPolicy();
   },
 
+  async showStatus(key, color) {
+    const { t } = await workingHoursI18n;
+    this.status = key && { key, color };
+    const statusEl = document.getElementById('wh-save-status');
+    if (!statusEl) return;
+    statusEl.textContent = key ? t(key) : '';
+    if (color) statusEl.style.color = color;
+  },
+
   bindEvents() {
+    window.addEventListener('ui-language-changed', () => {
+      if (this.status) this.showStatus(this.status.key, this.status.color);
+    });
+
     const saveBtn = document.getElementById('wh-save-btn');
     if (saveBtn) {
       saveBtn.addEventListener('click', () => this.savePolicy());
@@ -52,7 +70,8 @@ window.WorkingHoursModule = {
       }
       if (oooStartInput) oooStartInput.value = policy.oooStart || '';
       if (oooEndInput) oooEndInput.value = policy.oooEnd || '';
-      if (oooMsgInput) oooMsgInput.value = policy.oooMessage || 'Out of Office / Abwesend';
+      const { t } = await workingHoursI18n;
+      if (oooMsgInput) oooMsgInput.value = policy.oooMessage || t('views.workingHours.oooDefault');
 
       // Work days checkboxes (1=Mon ... 5=Fri, 6=Sat, 0=Sun)
       const activeDays = (policy.workDays || '1,2,3,4,5').split(',');
@@ -67,11 +86,7 @@ window.WorkingHoursModule = {
       // #343: the form still shows defaults; saving them would overwrite the stored policy.
       console.error('[WorkingHours] Failed to load policy:', e);
       if (saveBtn) saveBtn.disabled = true;
-      const statusEl = document.getElementById('wh-save-status');
-      if (statusEl) {
-        statusEl.textContent = 'Arbeitszeiten konnten nicht geladen werden.';
-        statusEl.style.color = '#ef4444';
-      }
+      await this.showStatus('views.workingHours.loadError', '#ef4444');
     }
   },
 
@@ -101,7 +116,7 @@ window.WorkingHoursModule = {
         oooEnabled: oooToggle && oooToggle.checked ? 1 : 0,
         oooStart: oooStartInput ? oooStartInput.value : '',
         oooEnd: oooEndInput ? oooEndInput.value : '',
-        oooMessage: oooMsgInput ? oooMsgInput.value : 'Out of Office / Abwesend'
+        oooMessage: oooMsgInput ? oooMsgInput.value : (await workingHoursI18n).t('views.workingHours.oooDefault')
       };
 
       const res = await fetch('/api/working-hours', {
@@ -119,19 +134,13 @@ window.WorkingHoursModule = {
       if (window.__appStore) {
         window.__appStore.set({ workingHours: data.policy });
       }
-      const statusEl = document.getElementById('wh-save-status');
-      if (statusEl) {
-        statusEl.textContent = 'Gespeichert!';
-        statusEl.style.color = '#10b981';
-        setTimeout(() => { statusEl.textContent = ''; }, 3000);
-      }
+      await this.showStatus('views.workingHours.saved', '#10b981');
+      setTimeout(() => {
+        if (this.status?.key === 'views.workingHours.saved') this.showStatus(null);
+      }, 3000);
     } catch (e) {
       console.error('[WorkingHours] Save error:', e);
-      const statusEl = document.getElementById('wh-save-status');
-      if (statusEl) {
-        statusEl.textContent = 'Fehler beim Speichern!';
-        statusEl.style.color = '#ef4444';
-      }
+      await this.showStatus('views.workingHours.saveError', '#ef4444');
     }
   },
 

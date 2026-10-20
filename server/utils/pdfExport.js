@@ -17,9 +17,31 @@ const MARGIN = 28;
 const HEADER_HEIGHT = 44;
 const FOOTER_HEIGHT = 18;
 
-const WEEKDAYS_SHORT = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const WEEKDAYS_LONG = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+// #627: the PDF speaks the UI language the client sends ('de' when none is sent); names of days
+// and months come from Intl in that language. Deutsch (Sie) prints the same as Deutsch (Du).
+const LANGUAGES = { de: 'de', 'de-formal': 'de', en: 'en' };
+const TEXT = {
+  de: {
+    week: n => `KW ${n}`,
+    listHeading: range => `Termine ${range}`,
+    allDay: 'ganztägig',
+    noEvents: 'Keine Termine in diesem Zeitraum.',
+    page: (i, n) => `Seite ${i} von ${n}`,
+  },
+  en: {
+    week: n => `Week ${n}`,
+    listHeading: range => `Events ${range}`,
+    allDay: 'all day',
+    noEvents: 'No events in this period.',
+    page: (i, n) => `Page ${i} of ${n}`,
+  },
+};
+const text = o => TEXT[LANGUAGES[o.language]];
+const MONDAY = Date.UTC(2024, 0, 1);
+const fmt = (o, opts) => new Intl.DateTimeFormat(LANGUAGES[o.language], { timeZone: 'UTC', ...opts });
+const utc = n => new Date(Date.UTC(...ymdOf(n).split('-').map((v, i) => Number(v) - (i === 1 ? 1 : 0))));
+const weekdayShort = (o, idx) => fmt(o, { weekday: 'short' }).format(new Date(MONDAY + idx * 86400000)).replace(/\.$/, '');
+const monthYear = (o, n) => fmt(o, { month: 'long', year: 'numeric' }).format(utc(n));
 
 const INK = [0.12, 0.13, 0.15];
 const MUTED = [0.45, 0.46, 0.5];
@@ -120,14 +142,16 @@ function isoWeek(n) {
   return 1 + Math.floor((thursday - dayNum(`${year}-01-01`)) / 7);
 }
 
-function shortDate(n) {
-  const [y, m, d] = ymdOf(n).split('-');
-  return `${d}.${m}.${y}`;
+function shortDate(o, n) {
+  return fmt(o, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(utc(n));
 }
 
-function longDate(n) {
-  const [y, m, d] = ymdOf(n).split('-').map(Number);
-  return `${WEEKDAYS_LONG[weekdayIdx(n)]}, ${d}. ${MONTHS[m - 1]} ${y}`;
+function dayMonth(o, n) {
+  return fmt(o, { day: '2-digit', month: '2-digit' }).format(utc(n));
+}
+
+function longDate(o, n) {
+  return fmt(o, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(utc(n));
 }
 
 function hhmm(min) {
@@ -200,6 +224,8 @@ function parseExportOptions(body) {
     return { error: 'Kalenderauswahl fehlt' };
   }
   if (b.events !== undefined && !Array.isArray(b.events)) return { error: 'events muss eine Liste sein' };
+  const language = b.language === undefined ? 'de' : b.language;
+  if (!Object.hasOwn(LANGUAGES, language)) return { error: 'Ungültige Sprache (de, de-formal oder en)' };
   return {
     options: {
       view: b.view,
@@ -211,7 +237,8 @@ function parseExportOptions(body) {
       color: b.color !== false,
       title: typeof b.title === 'string' ? b.title.slice(0, 120) : '',
       calendars: b.calendars.map(c => ({ id: c.id, name: String(c.name || ''), color: String(c.color || DEFAULT_EVENT_COLOR) })),
-      events: b.events || []
+      events: b.events || [],
+      language
     }
   };
 }
@@ -285,7 +312,7 @@ function layoutMonths(o, events) {
     if (key > last) break;
     const monthStart = dayNum(`${key}-01`);
     const monthEnd = dayNum(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`) - 1;
-    const page = newPage(o, `${MONTHS[m - 1]} ${y}`);
+    const page = newPage(o, monthYear(o, monthStart));
     const box = contentBox(page);
     const colW = box.w / 7;
     const gridStart = monthStart - weekdayIdx(monthStart);
@@ -293,7 +320,7 @@ function layoutMonths(o, events) {
     const headH = 16;
     const rowH = (box.h - headH) / rows;
     page.rect(box.x, box.y, box.w, headH, { fill: HEADER_FILL, stroke: RULE });
-    WEEKDAYS_SHORT.forEach((d, i) => page.text(d, box.x + i * colW + 6, box.y + 11, { size: 8, fill: MUTED, bold: true }));
+    [0, 1, 2, 3, 4, 5, 6].map(i => weekdayShort(o, i)).forEach((d, i) => page.text(d, box.x + i * colW + 6, box.y + 11, { size: 8, fill: MUTED, bold: true }));
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < 7; c++) {
         const n = gridStart + r * 7 + c;
@@ -350,7 +377,7 @@ function layoutTimeGrid(page, o, days, events) {
 
   page.rect(box.x, box.y, box.w, headH, { fill: HEADER_FILL, stroke: RULE });
   days.forEach((n, i) => {
-    const label = days.length === 1 ? longDate(n) : `${WEEKDAYS_SHORT[weekdayIdx(n)]} ${shortDate(n).slice(0, 6)}`;
+    const label = days.length === 1 ? longDate(o, n) : `${weekdayShort(o, weekdayIdx(n))} ${dayMonth(o, n)}`;
     page.text(fitText(label, 8, colW - 8, true), box.x + gutter + i * colW + 5, box.y + 11, { size: 8, bold: true });
   });
   for (let h = h0; h <= h1; h++) {
@@ -413,7 +440,7 @@ function layoutWeeks(o, events) {
   const pages = [];
   for (let monday = o.from - weekdayIdx(o.from); monday <= o.to; monday += 7) {
     const days = [0, 1, 2, 3, 4, 5, 6].map(i => monday + i);
-    const page = newPage(o, `KW ${isoWeek(monday)} · ${shortDate(monday)} - ${shortDate(monday + 6)}`);
+    const page = newPage(o, `${text(o).week(isoWeek(monday))} · ${shortDate(o, monday)} - ${shortDate(o, monday + 6)}`);
     layoutTimeGrid(page, o, days, events);
     pages.push(page);
   }
@@ -423,7 +450,7 @@ function layoutWeeks(o, events) {
 function layoutDays(o, events) {
   const pages = [];
   for (let n = o.from; n <= o.to; n++) {
-    const page = newPage(o, longDate(n));
+    const page = newPage(o, longDate(o, n));
     layoutTimeGrid(page, o, [n], events);
     pages.push(page);
   }
@@ -431,7 +458,7 @@ function layoutDays(o, events) {
 }
 
 function layoutList(o, events) {
-  const heading = `Termine ${shortDate(o.from)} - ${shortDate(o.to)}`;
+  const heading = text(o).listHeading(`${shortDate(o, o.from)} - ${shortDate(o, o.to)}`);
   const pages = [];
   let page = null;
   let box = null;
@@ -450,7 +477,7 @@ function layoutList(o, events) {
     if (dayEvents.length === 0) continue;
     any = true;
     ensure(34);
-    page.text(longDate(n), box.x, y + 12, { size: 10, bold: true });
+    page.text(longDate(o, n), box.x, y + 12, { size: 10, bold: true });
     page.line(box.x, y + 16, box.x + box.w, y + 16, RULE, 0.75);
     y += 22;
     for (const ev of dayEvents) {
@@ -459,7 +486,7 @@ function layoutList(o, events) {
       ensure(h + 4);
       page.rect(box.x + 86, y, 3, h - 2, { fill: o.color ? hexToRgb(ev.color) : [0.25, 0.25, 0.25] });
       let when;
-      if (ev.allDay) when = 'ganztägig';
+      if (ev.allDay) when = text(o).allDay;
       else {
         const s = ev.start.day < n ? 0 : ev.start.min;
         const e = ev.end.day > n ? 1440 : ev.end.min;
@@ -482,7 +509,7 @@ function layoutList(o, events) {
       y += h + 4;
     }
   }
-  if (!any) page.text('Keine Termine in diesem Zeitraum.', box.x, y + 12, { size: 10, fill: MUTED });
+  if (!any) page.text(text(o).noEvents, box.x, y + 12, { size: 10, fill: MUTED });
   return pages;
 }
 
@@ -491,7 +518,7 @@ function layoutDocument(options) {
   const layout = { month: layoutMonths, week: layoutWeeks, day: layoutDays, list: layoutList }[options.view];
   const pages = layout(options, events);
   pages.forEach((p, i) => {
-    const t = `Seite ${i + 1} von ${pages.length}`;
+    const t = text(options).page(i + 1, pages.length);
     p.text(t, p.width - MARGIN - textWidth(t, 7), p.height - MARGIN, { size: 7, fill: MUTED });
   });
   return pages;
