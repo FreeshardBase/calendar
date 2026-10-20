@@ -5248,7 +5248,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
       });
 
       expect(await look('#welcome-btn-close')).toEqual({ color: accent, border: accent });
-      const addAccount = await look('#welcome-btn-add-account');
+      const addAccount = await look('#welcome-modal .provider-tile >> nth=0');
       expect(addAccount.color).not.toBe(accent);
       expect(addAccount.border).not.toBe(accent);
       await page.click('#welcome-btn-close');
@@ -6212,7 +6212,7 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     test('every inline form error box is an alert region', async ({ page }) => {
       await page.goto('/');
       await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
-      for (const id of ['onboarding-error', 'event-form-error', 'account-form-error', 'webcal-form-error']) {
+      for (const id of ['event-form-error', 'account-form-error', 'webcal-form-error']) {
         await expect(page.locator(`#${id}`), id).toHaveAttribute('role', 'alert');
       }
       await page.locator('#calendar-list [data-edit-cal]').first().click();

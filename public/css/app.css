@@ -1595,7 +1595,21 @@ textarea.form-input, .form-textarea {
 .onboarding-subtitle {
   font-size: var(--fs-small); color: var(--ink-muted); line-height: 1.5;
 }
-.onboarding-form { display: flex; flex-direction: column; }
+/* #353: provider tiles of the first run (onboarding and welcome dialog) */
+.provider-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--sp-2);
+}
+.provider-tile {
+  padding: 10px 8px;
+  font: 500 var(--fs-small)/1.2 var(--font-ui);
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.provider-tile:hover { border-color: var(--ink-muted); }
 
 .mini-calendar { padding: 0 var(--sp-1); }
 

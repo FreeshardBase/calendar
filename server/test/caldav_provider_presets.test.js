@@ -44,7 +44,7 @@ test('Issue #11 — Autoconfiguration presets for popular CalDAV providers (GMX,
   await t.test('caldavPresets utility exports required provider presets', async () => {
     const presets = getPresets();
     assert.ok(Array.isArray(presets));
-    assert.equal(presets.length, 4);
+    assert.equal(presets.length, 6);
 
     const ids = presets.map(p => p.id);
     assert.ok(ids.includes('gmx'));
@@ -81,7 +81,7 @@ test('Issue #11 — Autoconfiguration presets for popular CalDAV providers (GMX,
     assert.equal(resList.status, 200);
     const bodyList = await resList.json();
     assert.ok(Array.isArray(bodyList.presets));
-    assert.equal(bodyList.presets.length, 4);
+    assert.equal(bodyList.presets.length, 6);
 
     const resEmail = await fetch(`${baseUrl}/api/accounts/presets?email=testuser@posteo.de`);
     assert.equal(resEmail.status, 200);
