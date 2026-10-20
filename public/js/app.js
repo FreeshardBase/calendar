@@ -113,6 +113,7 @@ async function boot() {
         taskView: prefs.taskView,
         secondaryTimezone: prefs.secondaryTimezone,
         tasksHiddenInCalendar: new Set(prefs.tasksHiddenInCalendar),
+        showWeekNumbers: prefs.showWeekNumbers,
       });
       // #614: msgraph.js reports a Microsoft 365 account disconnected.
       window.addEventListener('linked-accounts-changed', async () => {
@@ -1031,16 +1032,60 @@ function renderCalendarView({ announceStatus = true } = {}) {
   }
   if (announceStatus) announce(eventStatusText(view, events.length, query));
 
-  // Mini calendar
+  renderMiniMonth();
+}
+
+// #517: the mini month marks every day of its month that has an event. The month view has loaded
+// that range already; the other views load less, so the month is fetched on its own (and cached).
+const miniMonthLoads = new Set();
+
+function miniMonthRange(date) {
+  return { start: new Date(date.getFullYear(), date.getMonth(), 1), end: new Date(date.getFullYear(), date.getMonth() + 1, 1) };
+}
+
+function miniMonthEvents(view, date) {
+  const shown = store.get('events') || [];
+  if (view === 'month') return shown;
+  const { start, end } = miniMonthRange(date);
+  const cacheKey = `minimonth_${start.toISOString()}_${end.toISOString()}`;
+  const cached = getCachedEvents(cacheKey);
+  if (cached) return shown.concat(cached);
+  if (!miniMonthLoads.has(cacheKey)) {
+    miniMonthLoads.add(cacheKey);
+    EventsAPI.list(start.toISOString(), end.toISOString())
+      .then(({ events, errors }) => {
+        // A partial result is not cached (as in loadEvents, which reports the failed calendars).
+        if (errors.length === 0) cacheEvents(cacheKey, events);
+        const current = store.get('currentDate');
+        if (current.getFullYear() === start.getFullYear() && current.getMonth() === start.getMonth()) renderMiniMonth(events);
+      })
+      .catch(err => {
+        console.error('[miniMonth] Loading the month failed:', err);
+        // When the main view's load failed too, its error already stands in the status bar.
+        if (!store.get('eventsError')) {
+          showToast('Die Termine des Mini-Monats konnten nicht geladen werden: ' + err.message, 'error');
+        }
+      })
+      .finally(() => miniMonthLoads.delete(cacheKey));
+  }
+  return shown;
+}
+
+function renderMiniMonth(loaded = []) {
+  const view = store.get('view');
+  const date = store.get('currentDate');
+  const hidden = store.get('hiddenCalendars');
+  const events = miniMonthEvents(view, date).concat(loaded).filter(ev => !hidden.has(ev.calendarId));
   renderMiniCalendar(
     $('mini-calendar'),
     date,
-    store.get('events') || [],
+    events,
     (d) => {
       store.set({ currentDate: d });
       loadEvents();
       announce(`Datum: ${d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
-    }
+    },
+    { range: view === 'list' ? null : getDateRange(view, date), showWeekNumbers: store.get('showWeekNumbers') }
   );
 }
 
@@ -2064,6 +2109,7 @@ function renderSettings() {
   renderSettingsTimezone();
   renderSettingsHolidays().catch(err => showToast('Feiertage konnten nicht geladen werden: ' + err.message, 'error'));
   renderSettingsWeather();
+  $('show-week-numbers-toggle').checked = store.get('showWeekNumbers');
   renderSettingsNotifications();
   renderSettingsTrash();
 }
@@ -3183,6 +3229,20 @@ function attachListeners() {
     }
     error.classList.add('hidden');
     saveWeatherLocation({ latitude, longitude });
+  });
+
+  // #517: ISO week numbers, a per-user setting on the server.
+  $('show-week-numbers-toggle').addEventListener('change', async e => {
+    const wanted = e.target.checked;
+    try {
+      const saved = (await PreferencesAPI.setShowWeekNumbers(wanted)).showWeekNumbers;
+      store.set({ showWeekNumbers: saved });
+      renderCalendarView();
+      announce(saved ? 'Kalenderwochen eingeblendet' : 'Kalenderwochen ausgeblendet');
+    } catch (err) {
+      e.target.checked = store.get('showWeekNumbers');
+      showToast('Die Einstellung konnte nicht gespeichert werden: ' + err.message, 'error');
+    }
   });
 
   // #509: second time zone — the checkbox opens the search, a hit switches the column on.

@@ -315,6 +315,7 @@ describe('Issue #108 — Search with No Hits & Empty Kanban Board Indicators', (
       renderView: (container) => { container.innerHTML = '<div class="month-view"></div>'; },
       renderKanbanBoard: () => {},
       renderMiniCalendar: () => {},
+      getDateRange: () => ({ start: new Date(2026, 7, 1), end: new Date(2026, 8, 30) }),
       checkAndTriggerAlarms: () => {},
       TasksAPI: { list: async () => [] },
       CalendarsAPI: { searchUsers: async () => [] },

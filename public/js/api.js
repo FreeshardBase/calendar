@@ -226,6 +226,7 @@ export const PreferencesAPI = {
   setTaskView: (taskView) => request('PUT', '/api/preferences', { taskView }),
   setSecondaryTimezone: (secondaryTimezone) => request('PUT', '/api/preferences', { secondaryTimezone }),
   setTaskListInCalendar: (calendarId, shown) => request('PUT', '/api/preferences', { taskListInCalendar: { calendarId, shown } }),
+  setShowWeekNumbers: (showWeekNumbers) => request('PUT', '/api/preferences', { showWeekNumbers }),
 };
 
 // ── Event and task templates (#515), per user, never synced ──────────────────

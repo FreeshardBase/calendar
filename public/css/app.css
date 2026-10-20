@@ -274,6 +274,15 @@ a { color: inherit; text-decoration: none; }
   background: var(--accent);
 }
 .mini-cal-day.other-month { color: var(--ink-muted); opacity: 0.75; }
+/* #517: the days the main view shows, and the ISO week column */
+.mini-cal-day.in-range:not(.selected) { background: color-mix(in srgb, var(--data) 12%, var(--surface)); color: var(--ink); }
+.mini-cal-grid.with-weeks { grid-template-columns: auto repeat(7, 1fr); }
+.mini-cal-week {
+  display: flex; align-items: center; justify-content: center;
+  padding-right: var(--sp-1);
+  font: 400 9px/1 var(--font-mono);
+  color: var(--ink-muted);
+}
 
 /* Calendar list */
 #calendar-list { display: flex; flex-direction: column; gap: 1px; }
@@ -517,6 +526,13 @@ a { color: inherit; text-decoration: none; }
   color: var(--ink); margin-bottom: var(--sp-2);
   display: inline-block;
 }
+/* #517: ISO week number beside the day number of a row's first day */
+.month-day-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-1); }
+.month-week-num, .week-num {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--ink-muted);
+}
+.week-num { padding: var(--sp-2) var(--sp-1) 0; text-align: center; }
 /* Events: a tinted fill with a coloured left edge (CONCEPTS.md). The calendar colour is
    user-chosen and unbounded, so it never colours text: titles stay --ink, and the tint is at
    most 30 % over --surface, which keeps --ink above 4.5:1 for any colour in both themes (#112). */

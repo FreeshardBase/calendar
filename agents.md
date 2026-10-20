@@ -267,6 +267,14 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   alone. The settings drawer searches every zone `Intl.supportedValuesOf('timeZone')` knows
   (`public/js/timezones.js`). The badges show abbreviation and UTC offset at noon of the shown day. Each hour label
   is the second zone's time at that exact instant, so DST changes in either zone land on the right hour.
+  Since #517 they also hold `showWeekNumbers` (boolean, default `false`, anything else 400): ISO 8601 week
+  numbers ("KW n") in the month grid (in each row's first day), above the week grid's hour axis and as a column
+  of the mini month. A row's number is the ISO week of its middle day, so it stays right for any week start.
+- Mini month (#517, `renderMiniCalendar` in `public/js/calendar.js`, `renderMiniMonth` in `app.js`): marks
+  every day of its month with an event (outside the month view it loads its month itself, cache key
+  `minimonth_…`), highlights the main view's range (`.in-range`) and is one tab stop (the selected day):
+  arrows move by day/week, Home/End to the row's ends, Page Up/Down by month, Enter/Space jump there. A move
+  out of the shown month moves the main view along and keeps focus on the target day.
 - CalDAV fan-out (#498): `GET /api/tasks`, `/api/events` and `/api/events/invitations` send one REPORT per
   collection, at most `CALDAV_REPORT_CONCURRENCY` (4, `utils/caldavFanout.js`) at a time per account; sent all
   at once, Radicale drops connections from about 60-100 on and those collections went missing.
