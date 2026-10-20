@@ -242,8 +242,9 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   pickers list collections with VEVENT, the Kanban view and task dialog those with VTODO; mixed ones show in both.
   The add dialog defaults to Aufgabenliste in the Kanban view, otherwise to Kalender.
 - Sidebar order (#504, `public/js/sidebarOrder.js`): entries move within their group (own calendars, one linked
-  account, subscriptions) by a pointer drag (as the Kanban cards; a reload during the drag waits for its end) or
-  Alt+↑/↓. `PUT /api/calendars/order {calendarIds}` stores one group's
+  account, subscriptions) by a pointer drag (as the Kanban cards; a reload during the drag waits for its end),
+  Alt+↑/↓, or "Nach oben"/"Nach unten" in the menu a tap on the entry's grip opens (#573). A touch drags only by
+  the grip (44 px on phones, `touch-action: none` there), so the rest of the entry still scrolls; see DESIGN.md. `PUT /api/calendars/order {calendarIds}` stores one group's
   order per user (`user_calendar_order`; subscriptions as `webcal::<id>`); `GET /api/calendars` and
   `GET /api/webcal/subscriptions` return entries in that order, unordered ones last. The user's own CalDAV
   collections also get `apple:calendar-order` (PROPPATCH; a refusal is logged), shared ones never.
