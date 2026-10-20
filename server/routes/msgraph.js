@@ -127,6 +127,8 @@ router.get('/callback/complete', async (req, res) => {
       await Db.updateMSGraphAccount(existing.id, { ...tokens, reconnectRequired: false });
     } else {
       await Db.addMSGraphAccount({ userId, accountEmail, ...tokens });
+      // #614: calendars kept from an earlier link of this account wait for the user's choice.
+      await Db.claimDetachedMirrors(userId);
     }
     await Db.addSyncJob(userId);
     res.redirect(`${config.baseUrl}/?msgraph=connected`);

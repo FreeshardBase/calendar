@@ -96,12 +96,13 @@ export async function loadMSGraphAccounts() {
     list.querySelectorAll('.btn-delete-msgraph').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
-        if (!(await confirmDialog('MS Graph Konto wirklich trennen?'))) return;
+        if (!(await confirmDialog('Microsoft-365-Konto trennen? Die Synchronisation endet; die Kalender bleiben als eigene Kalender erhalten, bei Microsoft wird nichts gelöscht.'))) return;
         try {
           btn.disabled = true;
           await MSGraphAPI.deleteAccount(id);
           showToast('MS Graph Konto getrennt.', 'info');
           loadMSGraphAccounts();
+          window.dispatchEvent(new Event('linked-accounts-changed'));
         } catch (e) {
           showToast(e.message, 'error');
           btn.disabled = false;

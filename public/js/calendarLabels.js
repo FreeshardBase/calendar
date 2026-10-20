@@ -27,6 +27,12 @@ export function calendarLabel(cal) {
   return account && cal.name === account.username ? accountLabel(account) : cal.name;
 }
 
+// #614: a disconnected mirror is a normal calendar that says where it came from.
+const PROVIDER_NAMES = { google: 'Google', caldav: 'CalDAV', msgraph: 'Microsoft 365' };
+export function formerLinkLabel(cal) {
+  return cal.formerLink ? `früher ${PROVIDER_NAMES[cal.formerLink.provider]}` : null;
+}
+
 // #500: a collection holds events (Kalender), tasks (Aufgabenliste) or, when mixed, both. Calendar
 // views list the ones with VEVENT, task views the ones with VTODO.
 export function holdsEvents(cal) {

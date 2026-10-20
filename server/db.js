@@ -7,7 +7,37 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { v4: uuidv4 } = require('uuid');
 const { getSchemaVersion, setSchemaVersion, runMigrations, migrations } = require('./utils/migrations');
-const { canonicalAccountUrl } = require('./utils/accountUrl');
+const { canonicalAccountUrl, sameAccountUrl } = require('./utils/accountUrl');
+
+// #614: the sync workers' mapping tables, per provider, with the column naming the remote calendar.
+const MIRROR_TABLES = {
+  google: { table: 'google_calendar_collections', remote: 'google_calendar_id' },
+  caldav: { table: 'caldav_calendar_collections', remote: 'remote_collection' },
+  msgraph: { table: 'msgraph_calendar_collections', remote: 'graph_calendar_id' }
+};
+// A mapping row whose collection starts with this is skipped by the workers (#614).
+const DETACHED_PREFIX = 'detached:';
+
+// #614: records the account's mirrors (or just `onlyCollection`) as detached, labelled by provider
+// and account identity. A mirror already detached keeps its row.
+async function detachMirrors(tx, providers, account, onlyCollection = null) {
+  for (const provider of providers) {
+    const { table, remote } = MIRROR_TABLES[provider];
+    const rows = await tx.all(
+      `SELECT local_collection, ${remote} AS remote_id FROM ${table}
+        WHERE account_id = ? AND substr(local_collection, 1, ?) != ? AND (? IS NULL OR local_collection = ?)`,
+      [account.id, DETACHED_PREFIX.length, DETACHED_PREFIX, onlyCollection, onlyCollection]
+    );
+    for (const row of rows) {
+      await tx.run(
+        `INSERT OR IGNORE INTO detached_mirrors
+          (user_id, local_collection, provider, account_url, account_username, remote_id, former_account_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [account.userId, row.local_collection, provider, account.url, account.username, row.remote_id, account.id, Date.now()]
+      );
+    }
+  }
+}
 
 // #248: params (userId, username, key, key, key). Stored basic-auth URLs are canonical
 // and end their path in "/", so a string prefix is a path-segment prefix.
@@ -318,6 +348,27 @@ db.serialize(() => {
       created_at INTEGER NOT NULL,
       PRIMARY KEY (account_id, graph_calendar_id),
       UNIQUE (user_id, local_collection)
+    )
+  `);
+  // #614: a mirror whose account (or which alone) was disconnected. The collection stays in Radicale
+  // as a normal calendar; this row labels it ("früher Google") and remembers the remote calendar, so
+  // linking the same account again can offer to re-attach it. While an offer is open, and while a
+  // single calendar is detached from a still-linked account, the account's mapping row for the
+  // remote calendar points at `detached:<collection>`: the sync workers skip it instead of creating
+  // a second mirror.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS detached_mirrors (
+      user_id TEXT NOT NULL,
+      local_collection TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      account_url TEXT,
+      account_username TEXT NOT NULL,
+      remote_id TEXT NOT NULL,
+      former_account_id TEXT NOT NULL,
+      claimed_account_id TEXT,
+      offer INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, local_collection)
     )
   `);
   // #597: trash items restored into a Microsoft 365 mirror; the worker creates each at Graph.
@@ -1080,16 +1131,122 @@ const Db = {
     });
   },
 
+  // #614: disconnecting stops the sync and deletes nothing: each mirror stays in Radicale as a normal
+  // calendar, remembered in detached_mirrors so linking the account again can offer to re-attach it.
   deleteAccount(id) {
-    return new Promise((resolve, reject) => {
-      db.run(
-        'DELETE FROM linked_accounts WHERE id = ?',
-        [id],
-        (err) => {
-          if (err) return reject(err);
-          resolve();
+    return this.withTransaction(async (tx) => {
+      const account = await tx.get('SELECT user_id, url, username FROM linked_accounts WHERE id = ?', [id]);
+      if (account) {
+        await detachMirrors(tx, ['google', 'caldav'], { id, userId: account.user_id, url: account.url, username: account.username });
+      }
+      await tx.run('UPDATE detached_mirrors SET claimed_account_id = NULL WHERE claimed_account_id = ?', [id]);
+      await tx.run('DELETE FROM linked_accounts WHERE id = ?', [id]);
+    });
+  },
+
+  // #614: { local collection → { provider, accountUsername } } for the user's detached mirrors.
+  async getDetachedMirrors(userId) {
+    const rows = await dbAll(db, 'SELECT local_collection, provider, account_username FROM detached_mirrors WHERE user_id = ?', [userId]);
+    return new Map(rows.map(r => [r.local_collection, { provider: r.provider, accountUsername: r.account_username }]));
+  },
+
+  // #614: detaches one mirrored calendar from its still-linked account; false if it is no mirror.
+  detachCalendar(userId, collection) {
+    return this.withTransaction(async (tx) => {
+      for (const [provider, { table }] of Object.entries(MIRROR_TABLES)) {
+        const row = await tx.get(`SELECT account_id FROM ${table} WHERE user_id = ? AND local_collection = ?`, [userId, collection]);
+        if (!row) continue;
+        const account = provider === 'msgraph'
+          ? await tx.get('SELECT NULL AS url, account_email AS username FROM msgraph_accounts WHERE id = ?', [row.account_id])
+          : await tx.get('SELECT url, username FROM linked_accounts WHERE id = ?', [row.account_id]);
+        if (!account) throw new Error(`Mirror ${collection} belongs to no account`);
+        await detachMirrors(tx, [provider], { id: row.account_id, userId, url: account.url, username: account.username }, collection);
+        await tx.run(`UPDATE ${table} SET local_collection = ? WHERE account_id = ? AND local_collection = ?`,
+          [`${DETACHED_PREFIX}${collection}`, row.account_id, collection]);
+        return true;
+      }
+      return false;
+    });
+  },
+
+  // #614: pairs each detached mirror whose account is linked again (same provider and identity, a new
+  // account row) with that account. Its mapping row points at `detached:<collection>`, so the workers
+  // neither sync the remote calendar nor mirror it a second time until the user decides.
+  claimDetachedMirrors(userId) {
+    return this.withTransaction(async (tx) => {
+      const rows = await tx.all(
+        'SELECT * FROM detached_mirrors WHERE user_id = ? AND offer = 1 AND claimed_account_id IS NULL', [userId]);
+      if (!rows.length) return;
+      const linked = await tx.all('SELECT id, url, username, auth_type FROM linked_accounts WHERE user_id = ?', [userId]);
+      const graph = await tx.all('SELECT id, account_email FROM msgraph_accounts WHERE user_id = ?', [userId]);
+      const existing = new Set([...linked.map(a => a.id), ...graph.map(a => a.id)]);
+      const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+      for (const row of rows) {
+        // A calendar detached on its own from a still-linked account is not offered.
+        if (existing.has(row.former_account_id)) continue;
+        let match;
+        if (row.provider === 'msgraph') {
+          match = graph.find(a => sameName(a.account_email, row.account_username));
+        } else if (row.provider === 'google') {
+          match = linked.find(a => a.auth_type === 'oauth2' && sameName(a.username, row.account_username));
+        } else {
+          match = linked.find(a => a.auth_type !== 'oauth2' && a.username === row.account_username &&
+            sameAccountUrl(a.url, row.account_url));
         }
-      );
+        if (!match) continue;
+        const { table, remote } = MIRROR_TABLES[row.provider];
+        // The account synced before this claim and already mirrors the remote calendar anew.
+        if (await tx.get(`SELECT 1 FROM ${table} WHERE account_id = ? AND ${remote} = ?`, [match.id, row.remote_id])) continue;
+        await tx.run(
+          `INSERT INTO ${table} (account_id, user_id, ${remote}, local_collection, created_at) VALUES (?, ?, ?, ?, ?)`,
+          [match.id, userId, row.remote_id, `${DETACHED_PREFIX}${row.local_collection}`, Date.now()]
+        );
+        await tx.run('UPDATE detached_mirrors SET claimed_account_id = ? WHERE user_id = ? AND local_collection = ?',
+          [match.id, userId, row.local_collection]);
+      }
+    });
+  },
+
+  // #614: the detached calendars a newly linked account can take back.
+  async getReattachOffers(userId) {
+    await this.claimDetachedMirrors(userId);
+    const rows = await dbAll(db,
+      `SELECT local_collection, provider, account_username FROM detached_mirrors
+        WHERE user_id = ? AND offer = 1 AND claimed_account_id IS NOT NULL ORDER BY created_at, local_collection`,
+      [userId]);
+    return rows.map(r => ({
+      calendarId: `internal-caldav::/${userId}/${r.local_collection}/`,
+      provider: r.provider,
+      accountUsername: r.account_username
+    }));
+  },
+
+  // #614: accepting re-attaches every offered calendar: its mapping points at the collection again,
+  // and a Microsoft 365 mirror's event mappings move to the new account, so the next sync matches each
+  // event instead of copying it. Declining leaves them normal calendars; the account mirrors anew.
+  resolveReattachOffers(userId, accept) {
+    return this.withTransaction(async (tx) => {
+      const rows = await tx.all(
+        'SELECT * FROM detached_mirrors WHERE user_id = ? AND offer = 1 AND claimed_account_id IS NOT NULL', [userId]);
+      for (const row of rows) {
+        const { table, remote } = MIRROR_TABLES[row.provider];
+        const where = `account_id = ? AND ${remote} = ? AND local_collection = ?`;
+        const params = [row.claimed_account_id, row.remote_id, `${DETACHED_PREFIX}${row.local_collection}`];
+        if (accept) {
+          await tx.run(`UPDATE ${table} SET local_collection = ? WHERE ${where}`, [row.local_collection, ...params]);
+          if (row.provider === 'msgraph') {
+            const prefix = `/${userId}/${row.local_collection}/`;
+            await tx.run('UPDATE msgraph_event_mappings SET account_id = ? WHERE account_id = ? AND substr(href, 1, ?) = ?',
+              [row.claimed_account_id, row.former_account_id, prefix.length, prefix]);
+          }
+          await tx.run('DELETE FROM detached_mirrors WHERE user_id = ? AND local_collection = ?', [userId, row.local_collection]);
+        } else {
+          await tx.run(`DELETE FROM ${table} WHERE ${where}`, params);
+          await tx.run('UPDATE detached_mirrors SET offer = 0, claimed_account_id = NULL WHERE user_id = ? AND local_collection = ?',
+            [userId, row.local_collection]);
+        }
+      }
+      return rows.length;
     });
   },
 
@@ -1143,6 +1300,8 @@ const Db = {
       await tx.run('DELETE FROM sync_queue WHERE user_id = ? OR user_id LIKE ?', [userId, `${userId}%`]);
       await tx.run('DELETE FROM user_calendar_shares WHERE sharee_user_id = ? OR calendar_id LIKE ?', [userId, calPattern]);
       await tx.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
+      await tx.run('DELETE FROM msgraph_event_mappings WHERE account_id IN (SELECT former_account_id FROM detached_mirrors WHERE user_id = ?)', [userId]);
+      await tx.run('DELETE FROM detached_mirrors WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM msgraph_restores WHERE account_id IN (SELECT id FROM msgraph_accounts WHERE user_id = ?)', [userId]);
       await tx.run('DELETE FROM msgraph_calendar_collections WHERE user_id = ?', [userId]);
       await tx.run('DELETE FROM msgraph_accounts WHERE user_id = ?', [userId]);
@@ -1189,6 +1348,11 @@ const Db = {
       await tx.run('DELETE FROM user_calendar_order WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM user_tasks_hidden_in_calendar WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM calendar_sync_cache WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
+      // #614: a deleted former mirror is no longer offered for re-attaching.
+      await tx.run(
+        "DELETE FROM detached_mirrors WHERE 'internal-caldav::/' || user_id || '/' || local_collection || '/' IN (?, ?)",
+        [calendarId, altId]
+      );
       await tx.run('DELETE FROM sync_conflicts WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM cross_user_deletions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
       await tx.run('DELETE FROM delegate_permissions WHERE calendar_id = ? OR calendar_id = ?', [calendarId, altId]);
@@ -2050,10 +2214,15 @@ const Db = {
 
   deleteMSGraphAccount(accountId) {
     return this.withTransaction(async (tx) => {
+      const account = await tx.get('SELECT user_id, account_email FROM msgraph_accounts WHERE id = ?', [accountId]);
+      if (account) {
+        await detachMirrors(tx, ['msgraph'], { id: accountId, userId: account.user_id, url: null, username: account.account_email });
+      }
+      await tx.run('UPDATE detached_mirrors SET claimed_account_id = NULL WHERE claimed_account_id = ?', [accountId]);
       await tx.run(`DELETE FROM msgraph_accounts WHERE id = ?`, [accountId]);
-      await tx.run(`DELETE FROM msgraph_event_mappings WHERE account_id = ?`, [accountId]);
       await tx.run(`DELETE FROM msgraph_restores WHERE account_id = ?`, [accountId]);
-      // #613: the mirrors stay in Radicale as the user's own calendars, no longer synced.
+      // #613/#614: the mirrors stay in Radicale as the user's own calendars, no longer synced. Their
+      // event mappings stay too, so a re-attach (#614) matches each event instead of copying it.
       await tx.run(`DELETE FROM msgraph_calendar_collections WHERE account_id = ?`, [accountId]);
     });
   },

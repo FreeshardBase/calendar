@@ -523,6 +523,11 @@ def local_caldav_verify_line():
     return ''
 
 
+# #614: a mapping row pointing here belongs to a mirror the user disconnected (or one a re-linked
+# account may take back): its remote calendar is neither synced nor mirrored anew.
+DETACHED_PREFIX = "detached:"
+
+
 def legacy_google_collection_name(display_name):
     """Collection name earlier worker versions derived from the Google display name."""
     slug = unicodedata.normalize('NFKD', display_name).encode('ascii', 'ignore').decode('ascii').lower()
@@ -580,6 +585,7 @@ def local_collection_for_google_calendar(conn, user_id, account_id, google_calen
     A collection an earlier worker version synced under the display-name-derived name is adopted
     instead of downloading the calendar a second time, but only if this account's pair has vdirsyncer
     status for it (<status>/<pair>/<collection>.items) and no other Google calendar of the user owns it.
+    None if the calendar's mirror is detached (#614).
     """
     google_calendar_id = google_calendar["id"]
     row = conn.execute(
@@ -587,7 +593,7 @@ def local_collection_for_google_calendar(conn, user_id, account_id, google_calen
         (account_id, google_calendar_id),
     ).fetchone()
     if row:
-        return row[0]
+        return None if row[0].startswith(DETACHED_PREFIX) else row[0]
 
     legacy = legacy_google_collection_name(google_calendar["name"])
     legacy_owned = conn.execute(
@@ -885,13 +891,14 @@ def local_collection_for_caldav_calendar(conn, user_id, account_id, remote_colle
 
     Opaque (`caldav-<uuid hex>`), created by the worker and persisted per (account, remote name),
     so neither the provider nor an app calendar decides which local collection a pair touches.
+    None if the calendar's mirror is detached (#614).
     """
     row = conn.execute(
         "SELECT local_collection FROM caldav_calendar_collections WHERE account_id = ? AND remote_collection = ?",
         (account_id, remote_collection),
     ).fetchone()
     if row:
-        return row[0]
+        return None if row[0].startswith(DETACHED_PREFIX) else row[0]
     local_collection = f"caldav-{uuid.uuid4().hex}"
     create_local_collection(user_id, local_collection, display_name)
     conn.execute(
@@ -1105,11 +1112,13 @@ def sync_basic_caldav_accounts(user_id, conn):
                     conn, user_id, acc["id"], remote_collection, display_name)
             except (RuntimeError, OSError) as map_err:
                 return False, f"Local collection for CalDAV calendar {remote_collection!r} of account {acc['id']} failed: {map_err}"
+            if local_collection is None:
+                continue
             items.append([local_collection, remote_collection, local_collection])
             mirrors.append(local_collection)
         if not items:
             mapped = conn.execute(
-                "SELECT 1 FROM caldav_calendar_collections WHERE account_id = ?", (acc["id"],)
+                "SELECT 1 FROM caldav_calendar_collections WHERE account_id = ? AND local_collection NOT LIKE 'detached:%'", (acc["id"],)
             ).fetchone()
             if mapped:
                 return False, f"CalDAV discovery returned no calendars for account {acc['id']}, which has synced calendars"
@@ -1325,6 +1334,8 @@ status_path = {ini_value(status_dir)}
                 except Exception as map_err:  # noqa: BLE001
                     conn.close()
                     return False, f"Local collection for Google calendar {col['id']} failed: {map_err}"
+                if local_collection is None:
+                    continue
                 items.append([local_collection, col["id"], local_collection])
                 mirrors.append(local_collection)
                 # A listing without a component set means every component (RFC 4791 5.2.3).
@@ -1342,7 +1353,7 @@ status_path = {ini_value(status_dir)}
             if not items:
                 # "from a" would let vdirsyncer name local collections itself, unmapped.
                 mapped = conn.execute(
-                    "SELECT 1 FROM google_calendar_collections WHERE account_id = ?", (acc_id,)
+                    "SELECT 1 FROM google_calendar_collections WHERE account_id = ? AND local_collection NOT LIKE 'detached:%'", (acc_id,)
                 ).fetchone()
                 if mapped:
                     conn.close()

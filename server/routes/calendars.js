@@ -516,11 +516,18 @@ router.get('/', async (req, res) => {
   // account's name. Mirrored collections live in the user's own Radicale principal; a live
   // account's calendars belong to the account itself.
   const mirroredAccounts = await Db.getMirroredCollectionAccounts(userId);
+  const detachedMirrors = await Db.getDetachedMirrors(userId);
   for (const cal of allCalendars) {
     if (cal.isShared) {
       cal.linkedAccountId = null;
     } else if (cal.accountId === 'internal-caldav') {
       const collectionName = cal.href.replace(/\/$/, '').split('/').pop();
+      // #614: a disconnected mirror is a normal shard calendar, labelled with where it came from.
+      const detached = detachedMirrors.get(collectionName);
+      if (detached) {
+        cal.formerLink = detached;
+        cal.source = 'local';
+      }
       const mirrored = mirroredAccounts.get(collectionName);
       cal.linkedAccountId = mirrored ? mirrored.accountId : null;
       // #613: a Microsoft 365 account is not in the client's account list; its name comes along.

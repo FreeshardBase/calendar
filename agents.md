@@ -183,7 +183,7 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `radicale_custom_auth` (username→uuid mapping, `SYSTEM_SYNC_SECRET` bypass, app-password check)
   and `radicale_custom_rights` (owner full access, others via `user_calendar_shares` — only reachable once
   shards have an OIDC provider and thus a second user, #121).
-- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph ↔ Radicale, one mirror per Microsoft calendar, the only Graph sync path). Disconnecting a Microsoft account or deleting one of its mirrors unpairs it; the local copy stays and nothing is deleted at Microsoft (a deleted mirror is mirrored afresh on the next sync).
+- `sync-worker/` — Python daemon polling `sync_queue`: `sync_worker.py` (vdirsyncer Google Calendar ↔ Radicale sync) and `msgraph_worker.py` (Microsoft Graph ↔ Radicale, one mirror per Microsoft calendar, the only Graph sync path). Disconnecting a Microsoft account or deleting one of its mirrors unpairs it; the local copy stays and nothing is deleted at Microsoft (a deleted mirror is mirrored afresh on the next sync). Disconnecting any linked account or a single mirror (#614) records it in `detached_mirrors` and keeps it as a normal calendar; a mapping row pointing at `detached:<collection>` (a single detached calendar, or a re-attach offer awaiting the user) is skipped by both workers.
   Each Google calendar syncs into its own opaque collection `/<user-uuid>/google-<hex>/`, persisted in
   `google_calendar_collections` per (account, Google calendar id). The worker MKCALENDARs it with the Google
   name as `displayname` and a VEVENT-only

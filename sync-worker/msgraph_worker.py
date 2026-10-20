@@ -267,7 +267,7 @@ def _sync_account(user_id, conn, acc_id):
         calendars = _graph_calendars(headers)
     except (urllib.error.URLError, ValueError) as ce:
         return False, f"Microsoft Graph calendar list failed for account {acc_id}: {ce}"
-    mirrors = [_mirror_for_graph_calendar(conn, user_id, acc_id, cal) for cal in calendars]
+    mirrors = [m for m in (_mirror_for_graph_calendar(conn, user_id, acc_id, cal) for cal in calendars) if m is not None]
 
     # Restores first: the delta round then reports each re-created event, already in place.
     restore_err = _push_restores(user_id, conn, acc_id, headers, now_ms)
@@ -324,7 +324,7 @@ def _mirror_for_graph_calendar(conn, user_id, acc_id, graph_calendar):
     The name is opaque (`msgraph-<uuid hex>`) and persisted per (account, Microsoft calendar id), so
     it never collides with another calendar, and the mirror takes VEVENT only (#572): Graph calendars
     hold events, Microsoft To Do is a separate API. A name or colour changed at Microsoft is applied
-    to the mirror.
+    to the mirror. None for a calendar whose mirror the user disconnected (#614).
     """
     import sync_worker
     graph_calendar_id = graph_calendar["id"]
@@ -334,6 +334,8 @@ def _mirror_for_graph_calendar(conn, user_id, acc_id, graph_calendar):
         "SELECT * FROM msgraph_calendar_collections WHERE account_id = ? AND graph_calendar_id = ?",
         (acc_id, graph_calendar_id),
     ).fetchone()
+    if row is not None and row["local_collection"].startswith(sync_worker.DETACHED_PREFIX):
+        return None
     if row is None:
         collection = f"msgraph-{uuid.uuid4().hex}"
         sync_worker.create_local_collection(user_id, collection, name, components=("VEVENT",), color=color)
