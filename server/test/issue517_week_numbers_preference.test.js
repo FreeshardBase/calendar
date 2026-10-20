@@ -58,7 +58,7 @@ test('Issue #517 — week numbers preference', async (t) => {
     await putPrefs(aliceCookie, { taskView: 'list' });
     const put = await putPrefs(aliceCookie, { showWeekNumbers: true });
     assert.strictEqual(put.status, 200);
-    assert.deepStrictEqual(await put.json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: true, conferenceBaseUrl: null, weekStart: null, timeFormat: null, defaultDuration: 60, defaultCalendarId: null, defaultReminder: null, timeZone: null });
+    assert.deepStrictEqual(await put.json(), { taskView: 'list', secondaryTimezone: null, tasksHiddenInCalendar: [], showWeekNumbers: true, conferenceBaseUrl: null, weekStart: null, timeFormat: null, defaultDuration: 60, defaultCalendarId: null, defaultReminder: null, timeZone: null, language: null });
     assert.strictEqual((await getPrefs(aliceCookie)).showWeekNumbers, true);
     assert.strictEqual((await getPrefs(bobCookie)).showWeekNumbers, false);
 
@@ -68,7 +68,7 @@ test('Issue #517 — week numbers preference', async (t) => {
 
     const off = await putPrefs(aliceCookie, { showWeekNumbers: false });
     assert.strictEqual(off.status, 200);
-    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'list', secondaryTimezone: 'Asia/Tokyo', tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null, weekStart: null, timeFormat: null, defaultDuration: 60, defaultCalendarId: null, defaultReminder: null, timeZone: null });
+    assert.deepStrictEqual(await getPrefs(aliceCookie), { taskView: 'list', secondaryTimezone: 'Asia/Tokyo', tasksHiddenInCalendar: [], showWeekNumbers: false, conferenceBaseUrl: null, weekStart: null, timeFormat: null, defaultDuration: 60, defaultCalendarId: null, defaultReminder: null, timeZone: null, language: null });
   });
 
   await t.test('a value that is not a boolean is refused and nothing changes', async () => {

@@ -10,6 +10,7 @@ import { calendarLabel, groupCalendarsByAccount, fillCalendarSelect, holdsEvents
 import { renderView, getToolbarTitle, navigate, getDateRange, renderMiniCalendar, sanitizeColor } from './calendar.js';
 import { searchTimeZones, zoneOffsetLabel, localTimeZone, allTimeZones } from './timezones.js';
 import { formatDate, formatNumber, allDayDate } from './locale.js';
+import { t, setLanguage, resolveLanguage, language } from './i18n.js';
 import { initEventModal, openCreateModal, openEditModal, openDuplicateModal, closeModal, chooseRecurrenceScope } from './eventModal.js';
 import { openContextMenu } from './contextMenu.js';
 import { isDragArmed } from './eventDrag.js';
@@ -57,7 +58,8 @@ function parseUrlDate() {
   return null;
 }
 
-const ACCOUNTS_LOAD_ERROR = 'Fehler beim Laden der Kontodaten';
+// The start of the server's own message for a failed account list (server/routes/accounts.js).
+const SERVER_ACCOUNTS_LOAD_ERROR = 'Fehler beim Laden der Kontodaten';
 
 // #351: the width below which the app takes its phone layout (app.css, section 20).
 const PHONE_LAYOUT = '(max-width: 768px)';
@@ -108,6 +110,9 @@ async function boot() {
   setUnauthorizedHandler(showReauth);
 
   try {
+    // #626: the language first, so even the onboarding screen shows the user's language.
+    const prefs = await PreferencesAPI.get();
+    setLanguage(resolveLanguage(prefs.language));
     const accounts = await AccountsAPI.list();
     store.set({ accounts });
 
@@ -117,7 +122,6 @@ async function boot() {
       hideLoading();
       showApp();
       // Preferences first: the first render of the grid already needs the second time zone.
-      const prefs = await PreferencesAPI.get();
       store.set({
         taskView: prefs.taskView,
         secondaryTimezone: prefs.secondaryTimezone,
@@ -155,7 +159,7 @@ async function boot() {
     hideLoading();
     showApp();
     // The server's own message for this request already names it; only add context to anything else.
-    const message = err.message.startsWith(ACCOUNTS_LOAD_ERROR) ? err.message : `${ACCOUNTS_LOAD_ERROR}: ${err.message}`;
+    const message = err.message.startsWith(SERVER_ACCOUNTS_LOAD_ERROR) ? err.message : t('app.toast.accountsLoadFailed', { error: err.message });
     showToast(message, 'error');
   }
 }
@@ -186,7 +190,7 @@ function showApp() {
   $('app').classList.remove('hidden');
   renderSidebar();
   renderCalendarView();
-  announce('Kalender geladen');
+  announce(t('app.announce.calendarsLoaded'));
 }
 
 // ── Data loading ──────────────────────────────────────────────────────────────
@@ -211,15 +215,14 @@ async function offerReattach() {
   if (!offers.length) return;
   const names = offers.map(o => {
     const cal = store.get('calendars').find(c => c.id === o.calendarId);
-    return `„${cal ? cal.name : o.calendarId}“`;
+    return t('app.reattach.quotedName', { name: cal ? cal.name : o.calendarId });
   }).join(', ');
   const accept = await confirmDialog(
-    `Dieses Konto war schon einmal verknüpft. Sollen die behaltenen Kalender ${names} wieder damit verbunden werden? ` +
-    'Die Synchronisation läuft dann in ihnen weiter, ohne Termine zu verdoppeln. Sonst bleiben sie eigene Kalender, und das Konto bekommt neue.',
-    'Kalender wieder verbinden'
+    t('app.reattach.confirm', { names }),
+    t('app.reattach.confirmButton')
   );
   await AccountsAPI.resolveReattachOffers(accept);
-  showToast(accept ? 'Kalender wieder verbunden.' : 'Kalender bleiben eigene Kalender.', 'info');
+  showToast(accept ? t('app.reattach.reattached') : t('app.reattach.keptSeparate'), 'info');
   await loadCalendars();
 }
 
@@ -237,7 +240,7 @@ async function loadCalendars() {
     }
   } catch (err) {
     store.set({ calendarsError: err.message });
-    showToast('Kalender konnten nicht geladen werden: ' + err.message, 'error');
+    showToast(t('app.toast.calendarsLoadFailed', { error: err.message }), 'error');
   } finally {
     store.set({ loadingCalendars: false });
     renderCalendarList();
@@ -290,9 +293,7 @@ function reportUnparseableEvents(info) {
   if (key === lastUnparseableNotice) return;
   lastUnparseableNotice = key;
   const n = info.count;
-  showToast(n === 1
-    ? '1 gespeicherter Termin konnte nicht gelesen werden und wird nicht angezeigt.'
-    : `${n} gespeicherte Termine konnten nicht gelesen werden und werden nicht angezeigt.`, 'error');
+  showToast(t('app.toast.eventsUnparseable', { count: n }), 'error');
   console.error('[loadEvents] Unparseable CalDAV resources:', info.resources);
 }
 
@@ -310,7 +311,7 @@ function reportEventLoadErrors(errors) {
   if (errors.length === 0) return;
   const failed = (store.get('calendars') || []).filter(c => calendarLoadError(c));
   const names = failed.length > 0 ? failed.map(calendarLabel).join(', ') : errors.map(e => e.accountId).join(', ');
-  showToast(`Termine konnten nicht vollständig geladen werden (${names}): ${errors[0].error}`, 'error');
+  showToast(t('app.toast.eventsPartlyLoaded', { names, error: errors[0].error }), 'error');
   console.error('[loadEvents] CalDAV fetch errors:', errors);
 }
 
@@ -340,7 +341,7 @@ async function loadEvents() {
     renderCalendarView();
   } else {
     store.set({ loadingEvents: true });
-    announce('Lade Termine…');
+    announce(t('app.announce.loadingEvents'));
   }
 
   try {
@@ -375,7 +376,7 @@ async function loadEvents() {
       invalidateEventCache();
       loadCalendars().catch(err => {
         console.error('[loadEvents] Calendar reload failed:', err);
-        showToast('Kalender konnten nicht geladen werden: ' + err.message, 'error');
+        showToast(t('app.toast.calendarsLoadFailed', { error: err.message }), 'error');
       });
     }
     // A partial result is not cached: the next load must ask the failed calendars again.
@@ -392,7 +393,7 @@ async function loadEvents() {
     store.set({ eventsError: cached ? null : err.message });
     renderCalendarView();
     if (!cached) {
-      showToast('Fehler beim Laden der Termine: ' + err.message, 'error');
+      showToast(t('app.toast.eventsLoadFailed', { error: err.message }), 'error');
     }
   } finally {
     if (seq === loadEventsSeq) {
@@ -410,9 +411,7 @@ function reportUnparseableTasks(info) {
   if (key === lastUnparseableTaskNotice) return;
   lastUnparseableTaskNotice = key;
   const n = info.count;
-  showToast(n === 1
-    ? '1 gespeicherte Aufgabe konnte nicht gelesen werden und wird nicht angezeigt.'
-    : `${n} gespeicherte Aufgaben konnten nicht gelesen werden und werden nicht angezeigt.`, 'error');
+  showToast(t('app.toast.tasksUnparseable', { count: n }), 'error');
   console.error('[loadTasks] Unparseable CalDAV resources:', info.resources);
 }
 
@@ -434,7 +433,7 @@ async function loadTasks() {
       renderCalendarView();
     }
     if (typeof showToast === 'function') {
-      showToast('Fehler beim Laden der Aufgaben: ' + err.message, 'error');
+      showToast(t('app.toast.tasksLoadFailed', { error: err.message }), 'error');
     }
   } finally {
     store.set({ loadingTasks: false });
@@ -472,7 +471,7 @@ async function loadWebcalSubscriptions() {
     mergeAndRenderEvents();
   } catch (err) {
     console.error('[webcal] Failed to load subscriptions:', err);
-    showToast('Abonnements konnten nicht geladen werden: ' + err.message, 'error');
+    showToast(t('app.toast.subscriptionsLoadFailed', { error: err.message }), 'error');
   }
 }
 
@@ -501,12 +500,12 @@ async function loadWebcalEvents(start, end) {
     }),
     loadHolidayEvents(start, end).then(evs => allEvents.push(...evs), e => {
       console.error('[holidays] Failed to load holidays:', e);
-      failed.push(`Feiertage: ${e.message}`);
+      failed.push(t('app.toast.holidaysFailure', { error: e.message }));
     })
   );
   // Every navigation reloads the range; the same failure is reported once, not once per page turn.
   const failure = failed.length > 0
-    ? 'Termine aus Abonnements konnten nicht geladen werden (' + failed.sort().join('; ') + ')'
+    ? t('app.toast.subscriptionEventsLoadFailed', { failures: failed.sort().join('; ') })
     : '';
   if (failure && failure !== lastWebcalEventsFailure) {
     showToast(failure, 'error');
@@ -547,13 +546,13 @@ function renderHolidaySidebar() {
     return;
   }
   const checked = !hiddenWebcal.has(HOLIDAY_SUB_ID);
-  const name = holidayName || 'Feiertage';
+  const name = holidayName || t('app.sidebar.holidays');
   list.innerHTML = `
     <div class="calendar-item${checked ? ' checked' : ''}" data-holiday-item tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(name)}">
       <div class="calendar-dot" style="background:${HOLIDAY_COLOR}"></div>
       <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
         <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(name)}">${escHtml(name)}</span>
-        <span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Gesetzliche Feiertage</span>
+        <span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escHtml(t('app.sidebar.publicHolidays'))}</span>
       </div>
       <div class="calendar-check" style="${checked ? 'background:' + HOLIDAY_COLOR : ''}">
         <svg class="calendar-check-icon" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" width="10" height="10" aria-hidden="true">
@@ -585,13 +584,13 @@ async function renderSettingsHolidays() {
   const countrySelect = $('holiday-country');
   const regionSelect = $('holiday-region');
   const countryCode = holidayRegion ? holidayRegion.split('-')[0] : '';
-  countrySelect.innerHTML = '<option value="">Keine Feiertage anzeigen</option>' + holidayCountries
+  countrySelect.innerHTML = `<option value="">${escHtml(t('app.settings.holidaysNone'))}</option>` + holidayCountries
     .map(c => `<option value="${escHtml(c.code)}">${escHtml(c.name)}</option>`).join('');
   countrySelect.value = countryCode;
   const country = holidayCountries.find(c => c.code === countryCode);
   $('holiday-region-group').classList.toggle('hidden', !country);
   regionSelect.innerHTML = country
-    ? '<option value="" disabled>Region wählen</option>' + country.regions
+    ? `<option value="" disabled>${escHtml(t('app.settings.holidaysChooseRegion'))}</option>` + country.regions
       .map(r => `<option value="${escHtml(r.code)}">${escHtml(r.name)}</option>`).join('')
     : '';
   regionSelect.value = holidayRegion || '';
@@ -606,7 +605,7 @@ async function changeHolidayRegion(region) {
   const holidays = await loadHolidayEvents(start, end);
   webcalEvents = [...webcalEvents.filter(ev => !ev.isHoliday), ...holidays];
   mergeAndRenderEvents();
-  announce(holidayRegion ? `Feiertage: ${holidayName}` : 'Feiertage ausgeblendet');
+  announce(holidayRegion ? t('app.announce.holidaysShown', { name: holidayName }) : t('app.announce.holidaysHidden'));
 }
 
 // #513: the weather forecast, opt-in. weatherSettings holds the stored location (null: off) and the
@@ -643,15 +642,15 @@ function renderSettingsWeather() {
     $('weather-provider-host').textContent = `Bright Sky (${weatherSettings.provider.host})`;
   }
   $('weather-status').textContent = location
-    ? `Eingeschaltet für ${location.latitude}, ${location.longitude}.`
-    : 'Ausgeschaltet.';
+    ? t('app.settings.weatherOn', { latitude: location.latitude, longitude: location.longitude })
+    : t('app.settings.weatherOff');
 }
 
 async function changeWeatherLocation(location) {
   const saved = (await WeatherAPI.setLocation(location)).location;
   weatherSettings = { ...weatherSettings, location: saved };
   renderSettingsWeather();
-  announce(saved ? 'Wettervorhersage eingeschaltet' : 'Wettervorhersage ausgeschaltet');
+  announce(saved ? t('app.announce.weatherOn') : t('app.announce.weatherOff'));
   await loadWeather();
 }
 
@@ -736,7 +735,7 @@ function renderWebcalSidebar() {
   if (renderLater(list, renderWebcalSidebar)) return;
 
   if (!webcalSubscriptions.length) {
-    list.innerHTML = '<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">Keine Abonnements vorhanden.</div>';
+    list.innerHTML = '<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">' + escHtml(t('app.sidebar.noSubscriptions')) + '</div>';
     return;
   }
 
@@ -744,22 +743,22 @@ function renderWebcalSidebar() {
   list.innerHTML = webcalSubscriptions.map(sub => {
     const checked = !hiddenWebcal.has(sub.id);
     return `
-      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" data-order-group="webcal" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.last_error ? `${sub.name} (Sync fehlgeschlagen: ${sub.last_error})` : sub.name)}">
+      <div class="calendar-item${checked ? ' checked' : ''}" data-webcal-id="${escHtml(sub.id)}" data-order-group="webcal" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(sub.last_error ? t('app.sidebar.webcalSyncFailedLabel', { name: sub.name, error: sub.last_error }) : sub.name)}">
         <div class="calendar-dot" style="background:${escHtml(sanitizeColor(sub.color))}"></div>
         <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
           <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.name)}">${escHtml(sub.name)}</span>
           ${sub.last_error
-            ? `<span class="webcal-sync-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.last_error)}">Sync fehlgeschlagen – zeige letzten Stand</span>`
-            : '<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Webcal-Feed</span>'}
+            ? `<span class="webcal-sync-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(sub.last_error)}">${escHtml(t('app.sidebar.webcalSyncFailed'))}</span>`
+            : `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escHtml(t('app.sidebar.webcalFeed'))}</span>`}
         </div>
         <div class="cal-item-actions">
-          <button class="cal-action-btn" data-sync-webcal="${escHtml(sub.id)}" title="Jetzt synchronisieren" aria-label="Jetzt synchronisieren">
+          <button class="cal-action-btn" data-sync-webcal="${escHtml(sub.id)}" title="${escHtml(t('app.sidebar.syncNow'))}" aria-label="${escHtml(t('app.sidebar.syncNow'))}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M23 4v6h-6M1 20v-6h6"/>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
           </button>
-          <button class="cal-action-btn" data-delete-webcal="${escHtml(sub.id)}" title="Abonnement löschen" aria-label="Abonnement löschen">
+          <button class="cal-action-btn" data-delete-webcal="${escHtml(sub.id)}" title="${escHtml(t('app.sidebar.deleteSubscription'))}" aria-label="${escHtml(t('app.sidebar.deleteSubscription'))}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -817,10 +816,10 @@ function renderWebcalSidebar() {
       try {
         btn.classList.add('rotating');
         const res = await WebcalAPI.sync(id);
-        showToast(`Abonnement synchronisiert (${res.eventCount || 0} Termine).`, 'success');
+        showToast(t('app.toast.subscriptionSynced', { count: res.eventCount || 0 }), 'success');
         await loadWebcalSubscriptions();
       } catch (err) {
-        showToast('Sync fehlgeschlagen: ' + err.message, 'error');
+        showToast(t('app.toast.syncFailed', { error: err.message }), 'error');
         await loadWebcalSubscriptions();
       } finally {
         btn.classList.remove('rotating');
@@ -834,16 +833,16 @@ function renderWebcalSidebar() {
       const id = btn.dataset.deleteWebcal;
       const sub = webcalSubscriptions.find(s => s.id === id);
       if (!sub) return;
-      if (!(await confirmDialog(`Abonnement „${sub.name}“ wirklich löschen?`))) return;
+      if (!(await confirmDialog(t('app.confirm.deleteSubscription', { name: sub.name })))) return;
       try {
         await WebcalAPI.remove(id);
-        showToast(`Abonnement „${sub.name}“ gelöscht.`, 'info');
+        showToast(t('app.toast.subscriptionDeleted', { name: sub.name }), 'info');
         webcalSubscriptions = webcalSubscriptions.filter(s => s.id !== id);
         webcalEvents = webcalEvents.filter(ev => ev.subscriptionId !== id);
         renderWebcalSidebar();
         mergeAndRenderEvents();
       } catch (err) {
-        showToast('Fehler beim Löschen: ' + err.message, 'error');
+        showToast(t('app.toast.deleteFailed', { error: err.message }), 'error');
       }
     });
   });
@@ -886,7 +885,7 @@ function initWebcalUI() {
 
       if (!url || !name) {
         if (errEl) {
-          errEl.textContent = 'Bitte URL und Bezeichnung angeben.';
+          errEl.textContent = t('app.webcal.urlAndNameRequired');
           errEl.classList.remove('hidden');
         }
         return;
@@ -902,11 +901,11 @@ function initWebcalUI() {
       try {
         await WebcalAPI.create({ name, url, color, refreshInterval });
         closeDialog(backdrop);
-        showToast(`Abonnement „${name}“ erfolgreich hinzugefügt.`, 'success');
+        showToast(t('app.toast.subscriptionAdded', { name }), 'success');
         await loadWebcalSubscriptions();
       } catch (err) {
         if (errEl) {
-          errEl.textContent = err.message || 'Fehler beim Abonnieren des Feeds';
+          errEl.textContent = err.message || t('app.webcal.subscribeFailed');
           errEl.classList.remove('hidden');
         } else {
           showToast(err.message, 'error');
@@ -938,29 +937,30 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-const EMPTY_RANGE_TEXT = {
-  month:    'Keine Termine in diesem Monat.',
-  week:     'Keine Termine in dieser Woche.',
-  workweek: 'Keine Termine in dieser Arbeitswoche.',
-  '3day':   'Keine Termine an diesen drei Tagen.',
-  day:      'Keine Termine an diesem Tag.',
-  agenda:   'Keine Termine im gewählten Zeitraum.'
+// The message key of each view's empty state (#626: looked up when shown, in the current language).
+const EMPTY_RANGE_KEY = {
+  month:    'app.status.emptyMonth',
+  week:     'app.status.emptyWeek',
+  workweek: 'app.status.emptyWorkweek',
+  '3day':   'app.status.emptyThreeDays',
+  day:      'app.status.emptyDay',
+  agenda:   'app.status.emptyAgenda'
 };
 
 // The status bar must say which state the view is in — failed, partial, free
 // or a count — never a bare "0" that reads like a failed load (#106).
 function eventStatusText(view, count, query) {
   const eventsError = store.get('eventsError');
-  if (eventsError) return `Fehler beim Laden der Termine: ${eventsError}`;
-  if (query) return `${count} Ergebnis${count !== 1 ? 'se' : ''} für „${query}“`;
+  if (eventsError) return t('app.toast.eventsLoadFailed', { error: eventsError });
+  if (query) return t('app.status.searchResults', { count, query });
   const partial = (store.get('eventErrors') || []).length > 0;
   if (count === 0) {
-    if (partial) return 'Keine Termine geladen – nicht alle Kalender konnten gelesen werden.';
-    if (!EMPTY_RANGE_TEXT[view]) throw new Error(`No empty-state text for view "${view}"`);
-    return EMPTY_RANGE_TEXT[view];
+    if (partial) return t('app.status.noEventsPartial');
+    if (!EMPTY_RANGE_KEY[view]) throw new Error(`No empty-state text for view "${view}"`);
+    return t(EMPTY_RANGE_KEY[view]);
   }
-  const text = `${count} Termin${count !== 1 ? 'e' : ''}`;
-  return partial ? `${text} – nicht alle Kalender konnten gelesen werden.` : text;
+  const text = t('app.status.eventCount', { count });
+  return partial ? t('app.status.eventsPartial', { events: text }) : text;
 }
 
 // #351: a quick horizontal finger stroke over the calendar goes one period back (rightwards) or
@@ -1019,7 +1019,7 @@ function renderCalendarView({ announceStatus = true } = {}) {
   const searchQuery = store.get('searchQuery');
 
   if (view === 'kanban') {
-    $('toolbar-title').textContent = 'Aufgaben';
+    $('toolbar-title').textContent = t('app.toolbar.tasks');
     document.querySelectorAll('.view-tab').forEach(btn => {
       const isActive = btn.dataset.view === 'kanban';
       btn.classList.toggle('active', isActive);
@@ -1033,13 +1033,13 @@ function renderCalendarView({ announceStatus = true } = {}) {
     });
     const count = tasks.length;
     if (tasksError) {
-      announce('Fehler beim Laden der Aufgaben');
+      announce(t('app.announce.tasksLoadFailed'));
     } else if (searchQuery && searchQuery.trim() && count === 0) {
-      announce(`0 Ergebnisse für „${searchQuery.trim()}“`);
+      announce(t('app.status.searchResults', { count: 0, query: searchQuery.trim() }));
     } else if (count === 0) {
-      announce('Keine Aufgaben vorhanden.');
+      announce(t('app.announce.noTasks'));
     } else {
-      announce(`${count} Aufgabe${count !== 1 ? 'n' : ''}`);
+      announce(t('app.announce.taskCount', { count }));
     }
     return;
   }
@@ -1080,7 +1080,7 @@ function renderCalendarView({ announceStatus = true } = {}) {
   if (query && events.length === 0 && !store.get('eventsError')) {
     const banner = document.createElement('div');
     banner.className = 'search-empty-banner';
-    banner.innerHTML = `<span class="search-empty-icon">🔍</span> Keine Termine für „${escapeHtml(query)}“ gefunden.`;
+    banner.innerHTML = `<span class="search-empty-icon">🔍</span> ${t('app.search.noEventsInView', { query: escapeHtml(query) })}`;
     container.insertBefore(banner, container.firstChild);
   }
   if (announceStatus) announce(eventStatusText(view, events.length, query));
@@ -1116,7 +1116,7 @@ function miniMonthEvents(view, date) {
         console.error('[miniMonth] Loading the month failed:', err);
         // When the main view's load failed too, its error already stands in the status bar.
         if (!store.get('eventsError')) {
-          showToast('Die Termine des Mini-Monats konnten nicht geladen werden: ' + err.message, 'error');
+          showToast(t('app.toast.miniMonthLoadFailed', { error: err.message }), 'error');
         }
       })
       .finally(() => miniMonthLoads.delete(cacheKey));
@@ -1136,7 +1136,7 @@ function renderMiniMonth(loaded = []) {
     (d) => {
       store.set({ currentDate: d });
       loadEvents();
-      announce(`Datum: ${formatDate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
+      announce(t('app.announce.date', { date: formatDate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) }));
     },
     { range: view === 'list' ? null : getDateRange(view, date), showWeekNumbers: store.get('showWeekNumbers') }
   );
@@ -1146,11 +1146,11 @@ function renderMiniMonth(loaded = []) {
 async function changeTaskView(taskView) {
   store.set({ taskView });
   renderCalendarView();
-  announce(taskView === 'list' ? 'Aufgaben als Liste' : 'Aufgaben als Kanban-Board');
+  announce(taskView === 'list' ? t('app.announce.tasksAsList') : t('app.announce.tasksAsKanban'));
   try {
     await PreferencesAPI.setTaskView(taskView);
   } catch (err) {
-    showToast('Die Ansicht konnte nicht gespeichert werden: ' + err.message, 'error');
+    showToast(t('app.toast.viewSaveFailed', { error: err.message }), 'error');
   }
 }
 
@@ -1200,7 +1200,7 @@ function scheduleServerSearch() {
 
 async function runServerSearch(query, seq) {
   const panel = $('search-results');
-  panel.innerHTML = '<div class="search-results-status">Suche in allen Kalendern…</div>';
+  panel.innerHTML = `<div class="search-results-status">${escHtml(t('app.search.searching'))}</div>`;
   panel.classList.remove('hidden');
   try {
     const result = await EventsAPI.search(query);
@@ -1209,7 +1209,7 @@ async function runServerSearch(query, seq) {
   } catch (err) {
     if (seq !== searchState.seq) return;
     console.error('[search] Server search failed:', err);
-    panel.innerHTML = `<div class="search-results-status" role="alert">Suche fehlgeschlagen: ${escHtml(err.message)}</div>`;
+    panel.innerHTML = `<div class="search-results-status" role="alert">${t('app.search.failed', { error: escHtml(err.message) })}</div>`;
   }
 }
 
@@ -1225,20 +1225,20 @@ function renderSearchResults(query, { events, total, errors }) {
     groups[groups.length - 1].items.push({ ev, index });
   });
   const summary = searchState.hits.length === 0
-    ? `Keine Termine für „${escHtml(query)}“ in allen Kalendern gefunden.`
+    ? t('app.search.noHits', { query: escHtml(query) })
     : total > events.length
-      ? `${events.length} von ${total} Treffern – bitte Suche verfeinern.`
-      : `${total} Treffer in allen Kalendern`;
+      ? t('app.search.tooManyHits', { shown: events.length, total })
+      : t('app.search.hitCount', { count: total });
   const partial = errors.length > 0
-    ? '<div class="search-results-status" role="alert">Nicht alle Kalender konnten durchsucht werden.</div>'
+    ? `<div class="search-results-status" role="alert">${escHtml(t('app.search.partial'))}</div>`
     : '';
   panel.innerHTML = `<div class="search-results-status" role="status">${summary}</div>${partial}` + groups.map(g => `
     <h3 class="search-results-day">${escHtml(g.label)}</h3>
     <ul>${g.items.map(({ ev, index }) => `
       <li><button type="button" class="search-result" data-index="${index}" data-event-uid="${escHtml(ev.uid)}">
         <span class="search-result-dot" style="background:${escHtml(ev.color || cals[ev.calendarId]?.color || '#6366f1')}"></span>
-        <span class="search-result-time">${ev.allDay ? 'Ganztägig' : escHtml(fmt(ev.start))}</span>
-        <span class="search-result-text">${escHtml(ev.title || '(Ohne Titel)')}${ev.location ? `<span class="search-result-location">${escHtml(ev.location)}</span>` : ''}</span>
+        <span class="search-result-time">${ev.allDay ? escHtml(t('app.event.allDay')) : escHtml(fmt(ev.start))}</span>
+        <span class="search-result-text">${escHtml(ev.title || t('app.event.untitled'))}${ev.location ? `<span class="search-result-location">${escHtml(ev.location)}</span>` : ''}</span>
       </button></li>`).join('')}</ul>`).join('');
   panel.classList.remove('hidden');
 }
@@ -1270,15 +1270,13 @@ function renderSidebar() {
   renderSettings();
 }
 
-const CALENDARS_LOAD_FAILED = 'Kalender konnten nicht geladen werden.';
-
 function calendarListItemHtml(c, hidden, orderGroup, taskView) {
   const checked = !hidden.has(c.id);
   const name = calendarLabel(c);
 
   // #518: in the task view, each task list says whether its due tasks show in the calendar views.
   const inCalendar = !store.get('tasksHiddenInCalendar').has(c.id);
-  const tasksInCalLabel = `Fällige Aufgaben von „${name}“ im Kalender anzeigen`;
+  const tasksInCalLabel = t('app.sidebar.tasksInCalendar', { name });
   const tasksInCalBtnHtml = !taskView ? '' :
     `<button class="cal-action-btn" data-tasks-in-cal="${escHtml(c.id)}" aria-pressed="${inCalendar}" title="${escHtml(tasksInCalLabel)}" aria-label="${escHtml(tasksInCalLabel)}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -1290,7 +1288,7 @@ function calendarListItemHtml(c, hidden, orderGroup, taskView) {
 
   const shareBtnHtml = c.isShared
     ? ''
-    : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="Teilen & Link" aria-label="Teilen & Link">
+    : `<button class="cal-action-btn" data-share-cal="${escHtml(c.id)}" title="${escHtml(t('app.sidebar.share'))}" aria-label="${escHtml(t('app.sidebar.share'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
             <polyline points="16 6 12 2 8 6"/>
@@ -1299,7 +1297,7 @@ function calendarListItemHtml(c, hidden, orderGroup, taskView) {
         </button>`;
 
   // A read-only calendar can still get the user's own colour (#4), which is never synced (#505).
-  const editLabel = c.readOnly ? 'Farbe ändern' : 'Umbenennen';
+  const editLabel = escHtml(c.readOnly ? t('app.sidebar.changeColor') : t('app.sidebar.rename'));
   const editBtnHtml =
     `<button class="cal-action-btn" data-edit-cal="${escHtml(c.id)}" title="${editLabel}" aria-label="${editLabel}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -1309,7 +1307,7 @@ function calendarListItemHtml(c, hidden, orderGroup, taskView) {
         </button>`;
 
   const exportBtnHtml =
-    `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="Als ICS exportieren" aria-label="Als ICS exportieren">
+    `<button class="cal-action-btn" data-export-cal="${escHtml(c.id)}" title="${escHtml(t('app.sidebar.exportIcs'))}" aria-label="${escHtml(t('app.sidebar.exportIcs'))}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
           <polyline points="7 10 12 15 17 10"/>
@@ -1318,7 +1316,7 @@ function calendarListItemHtml(c, hidden, orderGroup, taskView) {
       </button>`;
         
   const googleBadge = c.source === 'google'
-    ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="Mit Google Kalender synchronisiert">
+    ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="${escHtml(t('app.sidebar.googleSynced'))}">
         <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
         <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
         <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
@@ -1329,16 +1327,16 @@ function calendarListItemHtml(c, hidden, orderGroup, taskView) {
   const loadError = calendarLoadError(c);
 
   return `
-    <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" data-order-group="${escHtml(orderGroup)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? `${name} (Termine konnten nicht geladen werden: ${loadError.error})` : name)}">
+    <div class="calendar-item${checked ? ' checked' : ''}" data-cal-id="${escHtml(c.id)}" data-order-group="${escHtml(orderGroup)}" tabindex="0" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" aria-label="${escHtml(loadError ? t('app.sidebar.calendarLoadErrorLabel', { name, error: loadError.error }) : name)}">
       <div class="calendar-dot" style="background:${escHtml(sanitizeColor(c.color))}"></div>
       <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; justify-content: center; line-height: 1.2;">
         <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
           <span class="calendar-name" style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(name)}">${escHtml(name)}</span>
           ${googleBadge}
         </div>
-        ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">von ${escHtml(c.owner)}</span>` : ''}
+        ${c.isShared ? `<span style="font-size: 0.65rem; color: var(--ink-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${t('app.sidebar.sharedBy', { owner: escHtml(c.owner) })}</span>` : ''}
         ${c.formerLink ? `<span class="calendar-former-link">${escHtml(formerLinkLabel(c))}</span>` : ''}
-        ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">⚠ Nicht erreichbar – Termine fehlen</span>` : ''}
+        ${loadError ? `<span class="calendar-load-error" style="font-size: 0.65rem; color: var(--danger); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${escHtml(loadError.error)}">${escHtml(t('app.sidebar.calendarUnreachable'))}</span>` : ''}
       </div>
       <div class="cal-item-actions">
         ${tasksInCalBtnHtml}
@@ -1371,7 +1369,7 @@ function saveSidebarOrder(ids, reload) {
     try {
       await CalendarsAPI.saveOrder(ids);
     } catch (err) {
-      showToast('Reihenfolge konnte nicht gespeichert werden: ' + err.message, 'error');
+      showToast(t('app.toast.orderSaveFailed', { error: err.message }), 'error');
       // Not awaited: the reload itself waits for this save chain to settle.
       reload();
     }
@@ -1406,10 +1404,10 @@ async function toggleTasksInCalendar(calendarId) {
   try {
     const prefs = await PreferencesAPI.setTaskListInCalendar(calendarId, shown);
     apply(new Set(prefs.tasksHiddenInCalendar));
-    announce(shown ? 'Fällige Aufgaben werden im Kalender angezeigt' : 'Fällige Aufgaben werden im Kalender ausgeblendet');
+    announce(shown ? t('app.announce.tasksInCalendarShown') : t('app.announce.tasksInCalendarHidden'));
   } catch (err) {
     apply(before);
-    showToast('Die Einstellung konnte nicht gespeichert werden: ' + err.message, 'error');
+    showToast(t('app.toast.settingSaveFailed', { error: err.message }), 'error');
   }
 }
 
@@ -1420,17 +1418,17 @@ function renderCalendarList() {
   const taskView = inTaskView();
   const cals   = store.get('calendars').filter(taskView ? holdsTasks : holdsEvents);
 
-  $('calendar-list-title').textContent = taskView ? 'Aufgabenlisten' : 'Kalender';
-  const addLabel = taskView ? 'Aufgabenliste hinzufügen' : 'Kalender hinzufügen';
+  $('calendar-list-title').textContent = taskView ? t('app.sidebar.taskListsTitle') : t('app.sidebar.calendarsTitle');
+  const addLabel = taskView ? t('app.sidebar.addTaskList') : t('app.sidebar.addCalendar');
   $('add-calendar-btn').title = addLabel;
   $('add-calendar-btn').setAttribute('aria-label', addLabel);
 
   if (store.get('calendarsError')) {
-    list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${CALENDARS_LOAD_FAILED}</div>`;
+    list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${escHtml(t('app.sidebar.calendarsLoadFailed'))}</div>`;
     return;
   }
   if (!cals.length) {
-    list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${taskView ? 'Keine Aufgabenlisten gefunden.' : 'Keine Kalender gefunden.'}</div>`;
+    list.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);padding:4px 8px">${escHtml(taskView ? t('app.sidebar.noTaskLists') : t('app.sidebar.noCalendars'))}</div>`;
     return;
   }
 
@@ -1557,13 +1555,13 @@ function initIcsImport() {
 function openImportDialog(fileName, icsText) {
   const eventCount = (icsText.match(/BEGIN:VEVENT/g) || []).length;
   if (eventCount === 0) {
-    showToast('Die Datei enthält keine Termine.', 'error');
+    showToast(t('app.import.noEvents'), 'error');
     return;
   }
 
   const writableCals = (store.get('calendars') || []).filter(c => !c.readOnly && c.source !== 'google' && holdsEvents(c));
   if (!writableCals.length) {
-    showToast('Kein beschreibbarer Kalender verfügbar.', 'error');
+    showToast(t('app.import.noWritableCalendar'), 'error');
     return;
   }
 
@@ -1574,8 +1572,8 @@ function openImportDialog(fileName, icsText) {
   backdrop.innerHTML = `
     <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title" id="import-dialog-title">ICS importieren</h3>
-        <button class="icon-btn" id="import-close" aria-label="Schließen">
+        <h3 class="modal-title" id="import-dialog-title">${escHtml(t('app.import.title'))}</h3>
+        <button class="icon-btn" id="import-close" aria-label="${escHtml(t('app.dialog.close'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -1583,23 +1581,23 @@ function openImportDialog(fileName, icsText) {
       </div>
       <div class="modal-body">
         <p style="margin-bottom: 14px; line-height: 1.5;">
-          <strong>${escHtml(fileName)}</strong> enthält ${eventCount} Termin${eventCount === 1 ? '' : 'e'}.
+          ${t('app.import.fileContains', { file: `<strong>${escHtml(fileName)}</strong>`, count: eventCount })}
         </p>
         <div class="form-group">
-          <label class="fs-label" for="import-cal-select">Zielkalender</label>
+          <label class="fs-label" for="import-cal-select">${escHtml(t('app.import.targetCalendar'))}</label>
           <select id="import-cal-select" class="form-input"></select>
         </div>
         <div class="form-group" style="margin-top: 12px;">
-          <label class="fs-label" for="import-strategy-select">Konflikt- & Duplikat-Handhabung</label>
+          <label class="fs-label" for="import-strategy-select">${escHtml(t('app.import.strategy'))}</label>
           <select id="import-strategy-select" class="form-input">
-            <option value="SKIP" selected>Duplikate überspringen (Empfohlen)</option>
-            <option value="OVERWRITE">Existierende Termine überschreiben</option>
-            <option value="CREATE_NEW">Als neue Kopie anlegen</option>
+            <option value="SKIP" selected>${escHtml(t('app.import.strategySkip'))}</option>
+            <option value="OVERWRITE">${escHtml(t('app.import.strategyOverwrite'))}</option>
+            <option value="CREATE_NEW">${escHtml(t('app.import.strategyCreateNew'))}</option>
           </select>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 18px;">
-          <button type="button" class="btn btn-primary" id="import-confirm" style="flex: 1;">Importieren</button>
-          <button type="button" class="btn btn-ghost" id="import-cancel" style="flex: 1;">Abbrechen</button>
+          <button type="button" class="btn btn-primary" id="import-confirm" style="flex: 1;">${escHtml(t('app.import.confirm'))}</button>
+          <button type="button" class="btn btn-ghost" id="import-cancel" style="flex: 1;">${escHtml(t('app.dialog.cancel'))}</button>
         </div>
       </div>
     </div>`;
@@ -1617,13 +1615,13 @@ function openImportDialog(fileName, icsText) {
     const strategy = backdrop.querySelector('#import-strategy-select').value;
     const btn = backdrop.querySelector('#import-confirm');
     btn.disabled = true;
-    btn.textContent = 'Importiere…';
+    btn.textContent = t('app.import.importing');
     let job;
     try {
       job = await CalendarsAPI.importICS(calId, icsText, null, strategy);
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = 'Importieren';
+      btn.textContent = t('app.import.confirm');
       showToast(err.message, 'error');
       return;
     }
@@ -1648,7 +1646,7 @@ function renderImportProgress(job) {
     return;
   }
   $('import-progress-text').textContent =
-    `Import läuft: ${formatCount(job.processed)} von ${formatCount(job.total)} Terminen. Der Kalender ist schon nutzbar.`;
+    t('app.import.progress', { processed: formatCount(job.processed), total: formatCount(job.total) });
   const bar = $('import-progress-bar');
   bar.max = job.total;
   bar.value = job.processed;
@@ -1658,12 +1656,12 @@ function renderImportProgress(job) {
 function finishImport(job) {
   renderImportProgress(null);
   if (job.status === 'error') {
-    showToast(`Import abgebrochen nach ${formatCount(job.processed)} von ${formatCount(job.total)} Terminen: ${job.error}`, 'error');
+    showToast(t('app.import.aborted', { processed: formatCount(job.processed), total: formatCount(job.total), error: job.error }), 'error');
   } else {
-    const parts = [`${job.imported} importiert`];
-    if (job.skipped) parts.push(`${job.skipped} übersprungen`);
-    if (job.failed) parts.push(`${job.failed} fehlgeschlagen`);
-    showToast(`Import abgeschlossen: ${parts.join(', ')}.`, job.failed ? 'error' : 'success');
+    const parts = [t('app.import.imported', { count: job.imported })];
+    if (job.skipped) parts.push(t('app.import.skipped', { count: job.skipped }));
+    if (job.failed) parts.push(t('app.import.failed', { count: job.failed }));
+    showToast(t('app.import.done', { parts: parts.join(', ') }), job.failed ? 'error' : 'success');
   }
   invalidateEventCache();
   loadEvents();
@@ -1677,7 +1675,7 @@ async function trackImportJob(job) {
       job = await CalendarsAPI.getImportJob(job.id);
     } catch (err) {
       renderImportProgress(null);
-      showToast('Der Importfortschritt konnte nicht abgerufen werden: ' + err.message, 'error');
+      showToast(t('app.import.progressFailed', { error: err.message }), 'error');
       return;
     }
   }
@@ -1694,7 +1692,7 @@ function renderSyncProgress(jobs) {
   const banner = $('sync-progress');
   if (running && running.itemsDone > 0) {
     $('sync-progress-text').textContent =
-      `Synchronisierung läuft: ${formatCount(running.itemsDone)} Termine übertragen. Der Kalender ist schon nutzbar.`;
+      t('app.sync.progress', { count: running.itemsDone, done: formatCount(running.itemsDone) });
     banner.classList.remove('hidden');
   } else {
     banner.classList.add('hidden');
@@ -1720,8 +1718,8 @@ function openEditCalendarDialog(cal) {
   backdrop.innerHTML = `
     <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="edit-cal-dialog-title">
       <div class="modal-header">
-        <h3 class="modal-title" id="edit-cal-dialog-title">${colorOnly ? `Farbe von „${escHtml(cal.name)}“` : `${collectionNoun(cal)} bearbeiten`}</h3>
-        <button class="icon-btn" id="edit-cal-close" aria-label="Schließen">
+        <h3 class="modal-title" id="edit-cal-dialog-title">${colorOnly ? t('app.editCalendar.colorTitle', { name: escHtml(cal.name) }) : t('app.editCalendar.title', { noun: collectionNoun(cal) })}</h3>
+        <button class="icon-btn" id="edit-cal-close" aria-label="${escHtml(t('app.dialog.close'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -1730,24 +1728,24 @@ function openEditCalendarDialog(cal) {
       <div class="modal-body">
         <form id="edit-cal-form" novalidate>
           ${colorOnly ? '' : `<div class="form-group">
-            <label class="form-label" for="edit-cal-name">Name</label>
+            <label class="form-label" for="edit-cal-name">${escHtml(t('app.editCalendar.name'))}</label>
             <input class="form-input" id="edit-cal-name" type="text"
                    value="${escHtml(cal.name)}" required />
           </div>`}
           <div class="form-group">
-            <label class="form-label" for="edit-cal-color">Farbe</label>
+            <label class="form-label" for="edit-cal-color">${escHtml(t('app.editCalendar.color'))}</label>
             <input class="form-input" id="edit-cal-color" type="color"
                    value="${escHtml(sanitizeColor(cal.color, '#007080'))}"
                    ${colorOnly ? 'aria-describedby="edit-cal-color-hint"' : ''}
                    style="height:40px;padding:4px 8px;cursor:pointer;" />
-            ${colorOnly ? '<p class="form-hint" id="edit-cal-color-hint">Nur für dich. Die Farbe wird nicht synchronisiert.</p>' : ''}
+            ${colorOnly ? `<p class="form-hint" id="edit-cal-color-hint">${escHtml(t('app.editCalendar.colorHint'))}</p>` : ''}
           </div>
           <div id="edit-cal-error" class="form-error hidden" role="alert"></div>
           <div class="modal-actions">
             <div class="modal-actions-right">
-              <button type="button" class="btn btn-ghost" id="edit-cal-cancel">Abbrechen</button>
+              <button type="button" class="btn btn-ghost" id="edit-cal-cancel">${escHtml(t('app.dialog.cancel'))}</button>
               <button type="submit" class="btn btn-primary" id="edit-cal-submit">
-                <span class="btn-label">Speichern</span>
+                <span class="btn-label">${escHtml(t('app.dialog.save'))}</span>
                 <span class="btn-spinner hidden"></span>
               </button>
             </div>
@@ -1777,7 +1775,7 @@ function openEditCalendarDialog(cal) {
 
     if (!name) {
       const err = document.getElementById('edit-cal-error');
-      err.textContent = 'Name darf nicht leer sein.';
+      err.textContent = t('app.editCalendar.nameRequired');
       err.classList.remove('hidden');
       return;
     }
@@ -1796,7 +1794,7 @@ function openEditCalendarDialog(cal) {
       store.set({ calendars: cals });
       noteLocalEdit('calendars');
       close();
-      showToast(colorOnly ? 'Farbe gespeichert.' : `${collectionNoun(cal)} umbenannt in „${name}“.`, 'success');
+      showToast(colorOnly ? t('app.editCalendar.colorSaved') : t('app.editCalendar.renamed', { noun: collectionNoun(cal), name }), 'success');
       renderCalendarList();
       renderCalendarView();
     } catch (err) {
@@ -1822,9 +1820,9 @@ function openShareCalendarDialog(cal) {
     caldavSharingHtml = `
       <!-- Section 1: CalDAV Sharing Excluded -->
       <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
-        <h4 class="share-section-title">Mit anderen Nutzer*innen teilen (CalDAV)</h4>
+        <h4 class="share-section-title">${escHtml(t('app.share.caldavTitle'))}</h4>
         <div style="background: rgba(234, 67, 53, 0.06); color: #d93025; padding: 12px 14px; border-radius: var(--radius-control); font-size: 0.8rem; line-height: 1.45; border: 1px solid rgba(234, 67, 53, 0.15); margin-top: 8px;">
-          <strong>Teilen nicht möglich:</strong> Dieser Kalender wird über einen externen Server (${escHtml(serverHost)}) gehostet. Das direkte CalDAV-Teilen funktioniert nur mit Nutzer*innen auf demselben CalDAV-Server. Nutze stattdessen unten die öffentliche Link-Freigabe.
+          <strong>${escHtml(t('app.share.notPossible'))}</strong> ${t('app.share.externalServer', { host: escHtml(serverHost) })}
         </div>
       </div>
     `;
@@ -1832,23 +1830,23 @@ function openShareCalendarDialog(cal) {
     caldavSharingHtml = `
       <!-- Section 1: CalDAV Sharing -->
       <div class="share-section" style="border-top:none;margin-top:0;padding-top:0;">
-        <h4 class="share-section-title">Mit anderen Nutzer*innen teilen (CalDAV)</h4>
-        <p class="share-section-desc">Gib die E-Mail-Adresse oder den Namen einer Person auf dem CalDAV-Server (${escHtml(serverHost)}) ein, um sie einzuladen.</p>
-        
+        <h4 class="share-section-title">${escHtml(t('app.share.caldavTitle'))}</h4>
+        <p class="share-section-desc">${t('app.share.caldavDesc', { host: escHtml(serverHost) })}</p>
+
         <div class="share-input-row">
           <div class="autocomplete-container">
-            <input class="form-input" id="share-search-input" type="text" placeholder="Personen/Nutzer*innen suchen oder E-Mail eingeben..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="share-autocomplete-dropdown" aria-haspopup="listbox" />
-            <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown" role="listbox" aria-label="Nutzer-Vorschläge"></div>
+            <input class="form-input" id="share-search-input" type="text" placeholder="${escHtml(t('app.share.searchPlaceholder'))}" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="share-autocomplete-dropdown" aria-haspopup="listbox" />
+            <div class="autocomplete-dropdown hidden" id="share-autocomplete-dropdown" role="listbox" aria-label="${escHtml(t('app.share.suggestions'))}"></div>
           </div>
           <select class="form-select" id="share-role-select" style="width:140px; flex-shrink:0;">
-            <option value="false">Nur Lesen</option>
-            <option value="true" selected>Lesen & Schreiben</option>
+            <option value="false">${escHtml(t('app.share.readOnly'))}</option>
+            <option value="true" selected>${escHtml(t('app.share.readWrite'))}</option>
           </select>
-          <button class="btn btn-primary" id="share-add-btn" style="flex-shrink:0;">Hinzufügen</button>
+          <button class="btn btn-primary" id="share-add-btn" style="flex-shrink:0;">${escHtml(t('app.share.add'))}</button>
         </div>
-        
+
         <div class="share-list" id="share-list-container">
-          <div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade Freigaben...</div>
+          <div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">${escHtml(t('app.share.loadingShares'))}</div>
         </div>
       </div>
     `;
@@ -1860,8 +1858,8 @@ function openShareCalendarDialog(cal) {
   backdrop.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="share-cal-dialog-title" style="max-width:560px;">
       <div class="modal-header">
-        <h3 class="modal-title" id="share-cal-dialog-title">Freigabe & Sharing: ${escHtml(cal.name)}</h3>
-        <button class="icon-btn" id="share-cal-close" aria-label="Schließen">
+        <h3 class="modal-title" id="share-cal-dialog-title">${t('app.share.title', { name: escHtml(cal.name) })}</h3>
+        <button class="icon-btn" id="share-cal-close" aria-label="${escHtml(t('app.dialog.close'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -1873,30 +1871,30 @@ function openShareCalendarDialog(cal) {
 
         <!-- Section 2: Public ICS Sharing -->
         <div class="share-section">
-          <h4 class="share-section-title">Abonnement-Link (ICS / Webcal)</h4>
-          <p class="share-section-desc">Ermöglicht anderen Kalendern (z. B. Google, Outlook, Thunderbird), diesen Kalender schreibgeschützt zu abonnieren.</p>
-          
+          <h4 class="share-section-title">${escHtml(t('app.share.publicTitle'))}</h4>
+          <p class="share-section-desc">${escHtml(t('app.share.publicDesc'))}</p>
+
           <div class="form-group" style="margin-bottom: var(--sp-2);">
             <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
               <input type="checkbox" id="public-link-enable" />
-              <span>Link-Freigabe aktivieren</span>
+              <span>${escHtml(t('app.share.publicEnable'))}</span>
             </label>
           </div>
 
           <div class="public-link-container hidden" id="public-link-area">
             <input class="form-input" id="public-link-input" type="text" readonly style="background:var(--bg);" />
-            <button class="btn btn-secondary" id="public-link-copy-btn">Kopieren</button>
-            <button class="btn btn-ghost" id="public-link-regen-btn" title="Link neu generieren (alter Link verfällt)" aria-label="Link neu generieren (alter Link verfällt)">
+            <button class="btn btn-secondary" id="public-link-copy-btn">${escHtml(t('app.share.copy'))}</button>
+            <button class="btn btn-ghost" id="public-link-regen-btn" title="${escHtml(t('app.share.regenerate'))}" aria-label="${escHtml(t('app.share.regenerate'))}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/>
               </svg>
             </button>
           </div>
           <div class="form-group hidden" id="public-link-detail-group" style="margin-top: var(--sp-2);">
-            <label class="form-label" for="public-link-detail">Sichtbare Details</label>
+            <label class="form-label" for="public-link-detail">${escHtml(t('app.share.detail'))}</label>
             <select class="form-input" id="public-link-detail">
-              <option value="busy">Nur frei/belegt</option>
-              <option value="full">Alle Details (ohne private Termine und Teilnehmende)</option>
+              <option value="busy">${escHtml(t('app.share.detailBusy'))}</option>
+              <option value="full">${escHtml(t('app.share.detailFull'))}</option>
             </select>
           </div>
         </div>
@@ -1933,18 +1931,18 @@ function openShareCalendarDialog(cal) {
     addBtn.addEventListener('click', async () => {
       const sharee = searchInput.value.trim();
       if (!sharee) {
-        showToast('Bitte wähle eine/n Nutzer*in oder eine E-Mail-Adresse.', 'warning');
+        showToast(t('app.share.chooseSharee'), 'warning');
         return;
       }
       const readWrite = roleSelect.value === 'true';
       try {
         addBtn.disabled = true;
         await CalendarsAPI.addShare(cal.id, sharee, readWrite);
-        showToast('Freigabe-Einladung gesendet.', 'success');
+        showToast(t('app.share.inviteSent'), 'success');
         searchInput.value = '';
         loadShares();
       } catch (e) {
-        showToast('Einladung fehlgeschlagen: ' + e.message, 'error');
+        showToast(t('app.share.inviteFailed', { error: e.message }), 'error');
       } finally {
         addBtn.disabled = false;
       }
@@ -2064,18 +2062,18 @@ function openShareCalendarDialog(cal) {
     closeCleanups.push(() => document.removeEventListener('click', hideDropdownOnOutsideClick));
 
     async function loadShares() {
-      listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">Lade...</div>';
+      listContainer.innerHTML = `<div style="font-size:0.8rem;color:var(--ink-muted);padding:8px;text-align:center;">${escHtml(t('app.share.loading'))}</div>`;
       try {
         const res = await CalendarsAPI.getShares(cal.id);
         const shares = res.shares || [];
         if (shares.length === 0) {
-          listContainer.innerHTML = '<div style="font-size:0.8rem;color:var(--ink-muted);padding:12px;text-align:center;">Dieser Kalender ist aktuell mit niemandem geteilt.</div>';
+          listContainer.innerHTML = `<div style="font-size:0.8rem;color:var(--ink-muted);padding:12px;text-align:center;">${escHtml(t('app.share.none'))}</div>`;
           return;
         }
-        
+
         listContainer.innerHTML = shares.map(s => {
           const badgeClass = s.status === 'ACCEPTED' ? 'accepted' : s.status === 'DECLINED' ? 'declined' : 'pending';
-          const badgeLabel = s.status === 'ACCEPTED' ? 'aktiv' : s.status === 'DECLINED' ? 'abgelehnt' : 'ausstehend';
+          const badgeLabel = escHtml(s.status === 'ACCEPTED' ? t('app.share.statusAccepted') : s.status === 'DECLINED' ? t('app.share.statusDeclined') : t('app.share.statusPending'));
 
           let displayHref = s.href;
           if (displayHref.startsWith('principal:')) {
@@ -2091,11 +2089,11 @@ function openShareCalendarDialog(cal) {
               </div>
               <div class="share-user-actions">
                 <select class="form-select share-role-toggle" data-href="${escHtml(s.href)}" style="font-size:11px; padding: 2px 20px 2px 4px; width: auto; height: auto; flex-shrink: 0; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background-color: transparent; color: var(--ink);">
-                  <option value="false" ${!s.readWrite ? 'selected' : ''}>Lesen</option>
-                  <option value="true" ${s.readWrite ? 'selected' : ''}>Schreiben</option>
+                  <option value="false" ${!s.readWrite ? 'selected' : ''}>${escHtml(t('app.share.roleRead'))}</option>
+                  <option value="true" ${s.readWrite ? 'selected' : ''}>${escHtml(t('app.share.roleWrite'))}</option>
                 </select>
                 <span class="share-badge ${badgeClass}">${badgeLabel}</span>
-                <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="Entfernen" style="padding:4px;" aria-label="Entfernen">
+                <button class="icon-btn cal-action-delete btn-revoke-share" data-href="${escHtml(s.href)}" title="${escHtml(t('app.share.remove'))}" style="padding:4px;" aria-label="${escHtml(t('app.share.remove'))}">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -2112,10 +2110,10 @@ function openShareCalendarDialog(cal) {
             try {
               select.disabled = true;
               await CalendarsAPI.addShare(cal.id, href, readWrite);
-              showToast('Freigaberechte aktualisiert.', 'success');
+              showToast(t('app.share.rightsUpdated'), 'success');
               loadShares();
             } catch (e) {
-              showToast('Rechte-Aktualisierung fehlgeschlagen: ' + e.message, 'error');
+              showToast(t('app.share.rightsUpdateFailed', { error: e.message }), 'error');
               select.disabled = false;
               select.value = (!readWrite).toString();
             }
@@ -2125,11 +2123,11 @@ function openShareCalendarDialog(cal) {
         listContainer.querySelectorAll('.btn-revoke-share').forEach(btn => {
           btn.addEventListener('click', async () => {
             const href = btn.dataset.href;
-            if (!(await confirmDialog(`Freigabe für „${href}“ entziehen?`))) return;
+            if (!(await confirmDialog(t('app.share.confirmRevoke', { href })))) return;
             try {
               btn.disabled = true;
               await CalendarsAPI.removeShare(cal.id, href);
-              showToast('Freigabe entfernt.', 'info');
+              showToast(t('app.share.removed'), 'info');
               loadShares();
             } catch (e) {
               showToast(e.message, 'error');
@@ -2139,7 +2137,7 @@ function openShareCalendarDialog(cal) {
         });
 
       } catch (e) {
-        listContainer.innerHTML = `<div style="font-size:0.8rem;color:var(--danger);padding:8px;text-align:center;">Ladefehler: ${escHtml(e.message)}</div>`;
+        listContainer.innerHTML = `<div style="font-size:0.8rem;color:var(--danger);padding:8px;text-align:center;">${t('app.share.loadFailed', { error: escHtml(e.message) })}</div>`;
       }
     }
 
@@ -2183,18 +2181,18 @@ function openShareCalendarDialog(cal) {
         publicDetailGroup.classList.remove('hidden');
         publicInput.value = data.url;
         publicDetail.value = savedPublicDetail = data.detail;
-        showToast('Öffentlicher Link aktiviert.', 'success');
+        showToast(t('app.share.publicEnabled'), 'success');
       } else {
         await CalendarsAPI.disablePublicLink(cal.id);
         if (seq !== publicLinkSeq) return;
         publicArea.classList.add('hidden');
         publicDetailGroup.classList.add('hidden');
         publicInput.value = '';
-        showToast('Öffentlicher Link deaktiviert.', 'info');
+        showToast(t('app.share.publicDisabled'), 'info');
       }
     } catch (e) {
       if (seq !== publicLinkSeq) return;
-      showToast('Änderung fehlgeschlagen: ' + e.message, 'error');
+      showToast(t('app.share.changeFailed', { error: e.message }), 'error');
       publicEnable.checked = !targetState;
     }
   });
@@ -2206,10 +2204,10 @@ function openShareCalendarDialog(cal) {
       await CalendarsAPI.setPublicLinkDetail(cal.id, detail);
       savedPublicDetail = detail;
       if (seq !== publicLinkSeq) return;
-      showToast(detail === 'full' ? 'Abonnement zeigt jetzt alle Details.' : 'Abonnement zeigt jetzt nur frei/belegt.', 'success');
+      showToast(detail === 'full' ? t('app.share.detailFullSaved') : t('app.share.detailBusySaved'), 'success');
     } catch (e) {
       if (seq !== publicLinkSeq) return;
-      showToast('Änderung fehlgeschlagen: ' + e.message, 'error');
+      showToast(t('app.share.changeFailed', { error: e.message }), 'error');
       publicDetail.value = savedPublicDetail;
     }
   });
@@ -2217,21 +2215,21 @@ function openShareCalendarDialog(cal) {
   publicCopy.addEventListener('click', () => {
     publicInput.select();
     navigator.clipboard.writeText(publicInput.value)
-      .then(() => showToast('Link in Zwischenablage kopiert!', 'success'))
-      .catch(() => showToast('Kopieren fehlgeschlagen.', 'error'));
+      .then(() => showToast(t('app.share.copied'), 'success'))
+      .catch(() => showToast(t('app.share.copyFailed'), 'error'));
   });
 
   publicRegen.addEventListener('click', async () => {
-    if (!(await confirmDialog('Bestehenden Link wirklich ungültig machen und neuen Link generieren?'))) return;
+    if (!(await confirmDialog(t('app.share.confirmRegenerate')))) return;
     const seq = ++publicLinkSeq;
     try {
       const data = await CalendarsAPI.enablePublicLink(cal.id);
       if (seq !== publicLinkSeq) return;
       publicInput.value = data.url;
-      showToast('Neuer Freigabe-Link generiert.', 'success');
+      showToast(t('app.share.regenerated'), 'success');
     } catch (e) {
       if (seq !== publicLinkSeq) return;
-      showToast('Regenerierung fehlgeschlagen: ' + e.message, 'error');
+      showToast(t('app.share.regenerateFailed', { error: e.message }), 'error');
     }
   });
 
@@ -2244,7 +2242,7 @@ function renderSettings() {
   renderSettingsAppPasswords();
   renderSettingsTimezone();
   renderSettingsCalendarPrefs();
-  renderSettingsHolidays().catch(err => showToast('Feiertage konnten nicht geladen werden: ' + err.message, 'error'));
+  renderSettingsHolidays().catch(err => showToast(t('app.toast.holidaysLoadFailed', { error: err.message }), 'error'));
   renderSettingsWeather();
   $('show-week-numbers-toggle').checked = store.get('showWeekNumbers');
   renderGeoSettings();
@@ -2259,31 +2257,32 @@ function renderSettingsNotifications() {
   if (!statusEl || !btn) return;
 
   if (typeof Notification === 'undefined') {
-    statusEl.textContent = 'Status: Nicht unterstützt';
+    statusEl.textContent = t('app.notifications.statusUnsupported');
     btn.classList.add('hidden');
     return;
   }
 
   if (Notification.permission === 'granted') {
-    statusEl.textContent = 'Status: Aktiviert';
-    btn.textContent = 'Aktiviert';
+    statusEl.textContent = t('app.notifications.statusGranted');
+    btn.textContent = t('app.notifications.granted');
     btn.disabled = true;
     btn.classList.remove('hidden');
   } else if (Notification.permission === 'denied') {
-    statusEl.textContent = 'Status: Blockiert';
-    btn.textContent = 'Blockiert';
+    statusEl.textContent = t('app.notifications.statusDenied');
+    btn.textContent = t('app.notifications.denied');
     btn.disabled = true;
     btn.classList.remove('hidden');
   } else {
-    statusEl.textContent = 'Status: Nicht aktiviert';
-    btn.textContent = 'Aktivieren';
+    statusEl.textContent = t('app.notifications.statusDefault');
+    btn.textContent = t('app.notifications.enable');
     btn.disabled = false;
     btn.classList.remove('hidden');
   }
 }
 
 // #625: week start, 12/24 h, time zone and the defaults of new events; one store key per setting.
-const CALENDAR_PREF_KEYS = ['weekStart', 'timeFormat', 'defaultDuration', 'defaultCalendarId', 'defaultReminder', 'timeZone'];
+// #626: and the UI language.
+const CALENDAR_PREF_KEYS = ['weekStart', 'timeFormat', 'defaultDuration', 'defaultCalendarId', 'defaultReminder', 'timeZone', 'language'];
 
 function calendarPreferences(prefs) {
   return Object.fromEntries(CALENDAR_PREF_KEYS.map(key => [key, prefs[key]]));
@@ -2293,11 +2292,11 @@ function renderSettingsCalendarPrefs() {
   const writable = (store.get('calendars') || []).filter(c => holdsEvents(c) && !c.readOnly);
   const calSelect = $('pref-default-calendar');
   fillCalendarSelect(calSelect, writable);
-  calSelect.prepend(new Option('Der erste beschreibbare Kalender', ''));
+  calSelect.prepend(new Option(t('app.settings.firstWritableCalendar'), ''));
   const zoneSelect = $('pref-time-zone');
-  zoneSelect.replaceChildren(new Option(`Wie im Browser (${localTimeZone()})`, ''),
+  zoneSelect.replaceChildren(new Option(t('app.settings.browserTimeZone', { zone: localTimeZone() }), ''),
     ...allTimeZones().map(zone => new Option(zone, zone)));
-  for (const el of $('calendar-prefs').querySelectorAll('select[data-pref]')) {
+  for (const el of [$('pref-language'), ...$('calendar-prefs').querySelectorAll('select[data-pref]')]) {
     const value = store.get(el.dataset.pref);
     el.value = value === null || value === undefined ? '' : String(value);
   }
@@ -2309,12 +2308,21 @@ async function changeCalendarPreference(el) {
   try {
     const saved = await PreferencesAPI.set({ [key]: value });
     store.set(calendarPreferences(saved));
+    if (resolveLanguage(saved.language) !== language()) switchLanguage(resolveLanguage(saved.language));
     renderCalendarView();
-    announce('Einstellung gespeichert');
+    announce(t('app.settings.saved'));
   } catch (err) {
     renderSettingsCalendarPrefs();
-    showToast('Die Einstellung konnte nicht gespeichert werden: ' + err.message, 'error');
+    showToast(t('app.toast.settingSaveFailed', { error: err.message }), 'error');
   }
+}
+
+// #626: a new language re-renders the static markup (i18n.js) and everything app.js renders,
+// without a reload; an open dialog follows through the 'ui-language-changed' event.
+function switchLanguage(lang) {
+  setLanguage(lang);
+  renderSidebar();
+  renderSettingsCalendarPrefs();
 }
 
 // #509: the second time zone is switched on by choosing a zone and off by the checkbox.
@@ -2323,8 +2331,8 @@ function renderSettingsTimezone() {
   $('show-secondary-tz-toggle').checked = Boolean(zone);
   $('secondary-tz-picker').classList.toggle('hidden', !zone);
   $('secondary-tz-current').textContent = zone
-    ? `Gewählt: ${zone} (${zoneOffsetLabel(zone, new Date())})`
-    : 'Noch keine Zeitzone gewählt.';
+    ? t('app.settings.secondaryTzChosen', { zone, offset: zoneOffsetLabel(zone, new Date()) })
+    : t('app.settings.secondaryTzNone');
   $('secondary-tz-search').value = '';
   $('secondary-tz-results').innerHTML = '';
 }
@@ -2342,7 +2350,7 @@ async function changeSecondaryTimezone(zone) {
   store.set({ secondaryTimezone: saved });
   renderSettingsTimezone();
   renderCalendarView();
-  announce(saved ? `Zweite Zeitzone: ${saved}` : 'Zweite Zeitzone ausgeblendet');
+  announce(saved ? t('app.announce.secondaryTzShown', { zone: saved }) : t('app.announce.secondaryTzHidden'));
 }
 
 async function renderSettingsAppPasswords() {
@@ -2350,10 +2358,10 @@ async function renderSettingsAppPasswords() {
   if (!list) return;
 
   try {
-    list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Lade App-Passwörter...</div>';
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${escHtml(t('app.appPasswords.loading'))}</div>`;
     const listData = await AccountsAPI.listAppPasswords();
     if (!listData.length) {
-      list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine App-Passwörter eingerichtet.</div>';
+      list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${escHtml(t('app.appPasswords.none'))}</div>`;
       return;
     }
 
@@ -2363,10 +2371,10 @@ async function renderSettingsAppPasswords() {
         <div class="settings-item" style="padding: 6px 0">
           <div class="settings-item-info" style="display:flex; flex-direction:column; align-items:flex-start">
             <span style="font-weight: 500">${escHtml(asp.label)}</span>
-            <span style="font-size: 10px; color:var(--ink-muted)">Erstellt am ${dateStr}</span>
+            <span style="font-size: 10px; color:var(--ink-muted)">${escHtml(t('app.appPasswords.created', { date: dateStr }))}</span>
           </div>
           <div class="settings-item-actions">
-            <button class="settings-action-btn btn-danger" data-delete-asp="${escHtml(asp.id)}" title="Passwort löschen" style="padding:4px" aria-label="Passwort löschen">
+            <button class="settings-action-btn btn-danger" data-delete-asp="${escHtml(asp.id)}" title="${escHtml(t('app.appPasswords.delete'))}" style="padding:4px" aria-label="${escHtml(t('app.appPasswords.delete'))}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -2379,10 +2387,10 @@ async function renderSettingsAppPasswords() {
     list.querySelectorAll('[data-delete-asp]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.deleteAsp;
-        if (!(await confirmDialog('Dieses App-Passwort wirklich löschen? Externe Clients mit diesem Passwort verlieren den Zugriff.'))) return;
+        if (!(await confirmDialog(t('app.appPasswords.confirmDelete')))) return;
         try {
           await AccountsAPI.removeAppPassword(id);
-          showToast('App-Passwort gelöscht.', 'info');
+          showToast(t('app.appPasswords.deleted'), 'info');
           renderSettingsAppPasswords();
         } catch (err) {
           showToast(err.message, 'error');
@@ -2391,7 +2399,7 @@ async function renderSettingsAppPasswords() {
     });
 
   } catch (err) {
-    list.innerHTML = `<div style="font-size:0.75rem;color:var(--danger);padding:4px">Ladefehler: ${escHtml(err.message)}</div>`;
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--danger);padding:4px">${t('app.share.loadFailed', { error: escHtml(err.message) })}</div>`;
   }
 }
 
@@ -2408,11 +2416,11 @@ function accountSyncStatusHtml(jobs) {
   const lastSuccess = jobs.find(j => j.status === 'SUCCESS');
   const lines = [];
   if (latestFinished && latestFinished.status === 'ERROR') {
-    lines.push(`<div style="color:var(--danger, #ef4444)">Synchronisation fehlgeschlagen am ${escHtml(fmt(latestFinished.updatedAt))}: ${escHtml(latestFinished.errorMessage || 'unbekannter Fehler')}</div>`);
+    lines.push(`<div style="color:var(--danger, #ef4444)">${t('app.accounts.syncFailedAt', { date: escHtml(fmt(latestFinished.updatedAt)), error: escHtml(latestFinished.errorMessage || t('app.accounts.unknownError')) })}</div>`);
   }
   lines.push(lastSuccess
-    ? `<div>Zuletzt erfolgreich synchronisiert: ${escHtml(fmt(lastSuccess.updatedAt))}</div>`
-    : '<div>Noch keine erfolgreiche Synchronisation</div>');
+    ? `<div>${t('app.accounts.lastSynced', { date: escHtml(fmt(lastSuccess.updatedAt)) })}</div>`
+    : `<div>${escHtml(t('app.accounts.neverSynced'))}</div>`);
   return `<div class="account-sync-status" style="color:var(--ink-muted); font-size:0.68rem; margin-top:2px;">${lines.join('')}</div>`;
 }
 
@@ -2422,7 +2430,7 @@ function renderSettingsAccounts() {
   const accounts = store.get('accounts');
 
   if (!accounts.length) {
-    list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine Accounts eingerichtet.</div>';
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${escHtml(t('app.accounts.none'))}</div>`;
     return;
   }
 
@@ -2440,10 +2448,10 @@ function renderSettingsAccounts() {
             <div class="account-dot" style="width:8px; height:8px; border-radius:50%; background:var(--danger, #ef4444); flex-shrink:0"></div>
             <span class="settings-item-name" title="${escHtml(a.url)}">${escHtml(a.displayName || a.username)}</span>
           </div>
-          <div style="color:var(--danger, #ef4444); font-size:0.68rem; margin-top:2px;">Zugangsdaten nicht lesbar — Konto neu verbinden</div>
+          <div style="color:var(--danger, #ef4444); font-size:0.68rem; margin-top:2px;">${escHtml(t('app.accounts.credentialsUnreadable'))}</div>
         </div>
         <div class="settings-item-actions">
-          <button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen" aria-label="Account entfernen">
+          <button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="${escHtml(t('app.accounts.remove'))}" aria-label="${escHtml(t('app.accounts.remove'))}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -2459,7 +2467,7 @@ function renderSettingsAccounts() {
     const hasError = !!errObj;
 
     const reconnectBtn = (hasError && a.url.includes('googleusercontent.com'))
-      ? `<button class="settings-action-btn" data-reconnect-acc="${escHtml(a.id)}" title="Verbindung wiederherstellen" style="color:var(--warning, #f59e0b)" aria-label="Verbindung wiederherstellen">
+      ? `<button class="settings-action-btn" data-reconnect-acc="${escHtml(a.id)}" title="${escHtml(t('app.accounts.reconnect'))}" style="color:var(--warning, #f59e0b)" aria-label="${escHtml(t('app.accounts.reconnect'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/>
           </svg>
@@ -2468,7 +2476,7 @@ function renderSettingsAccounts() {
 
     const editBtn = isEnvDefault
       ? ''
-      : `<button class="settings-action-btn" data-edit-acc="${escHtml(a.id)}" title="Umbenennen" aria-label="Umbenennen">
+      : `<button class="settings-action-btn" data-edit-acc="${escHtml(a.id)}" title="${escHtml(t('app.sidebar.rename'))}" aria-label="${escHtml(t('app.sidebar.rename'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -2477,7 +2485,7 @@ function renderSettingsAccounts() {
 
     const deleteBtn = isEnvDefault
       ? ''
-      : `<button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="Account entfernen" aria-label="Account entfernen">
+      : `<button class="settings-action-btn btn-danger" data-delete-acc="${escHtml(a.id)}" title="${escHtml(t('app.accounts.remove'))}" aria-label="${escHtml(t('app.accounts.remove'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -2491,7 +2499,7 @@ function renderSettingsAccounts() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="flex-shrink:0" aria-hidden="true">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
           </svg>
-          Verbindungsfehler
+          ${escHtml(t('app.accounts.connectionError'))}
          </div>`
       : '';
 
@@ -2521,7 +2529,7 @@ function renderSettingsAccounts() {
       const id = btn.dataset.editAcc;
       const acc = accounts.find(a => a.id === id);
       if (!acc) return;
-      const newName = prompt('Neuer Name für diesen Account:', acc.displayName || acc.username);
+      const newName = prompt(t('app.accounts.renamePrompt'), acc.displayName || acc.username);
       if (newName === null) return;
       const trimmed = newName.trim();
       if (!trimmed) return;
@@ -2529,7 +2537,7 @@ function renderSettingsAccounts() {
         await AccountsAPI.update(id, { displayName: trimmed });
         const updated = store.get('accounts').map(a => a.id === id ? { ...a, displayName: trimmed } : a);
         store.set({ accounts: updated });
-        showToast('Account umbenannt.', 'success');
+        showToast(t('app.accounts.renamed'), 'success');
         renderSidebar();
       } catch (err) {
         showToast(err.message, 'error');
@@ -2543,12 +2551,12 @@ function renderSettingsAccounts() {
       const id = btn.dataset.deleteAcc;
       const acc = accounts.find(a => a.id === id);
       if (!acc) return;
-      if (!(await confirmDialog(`Möchtest du den Account „${acc.displayName || acc.username}“ wirklich entfernen? Die Synchronisation endet; die Kalender bleiben als eigene Kalender erhalten, beim Anbieter wird nichts gelöscht.`))) return;
+      if (!(await confirmDialog(t('app.accounts.confirmRemove', { name: acc.displayName || acc.username })))) return;
       try {
         await AccountsAPI.remove(id);
         const updated = store.get('accounts').filter(a => a.id !== id);
         store.set({ accounts: updated });
-        showToast('Account entfernt.', 'info');
+        showToast(t('app.accounts.removed'), 'info');
         if (updated.length === 0) {
           $('settings-drawer').classList.remove('open');
           showOnboarding();
@@ -2585,18 +2593,18 @@ function renderSettingsCalendars() {
   const cals = store.get('calendars');
 
   if (store.get('calendarsError')) {
-    list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${CALENDARS_LOAD_FAILED}</div>`;
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${escHtml(t('app.sidebar.calendarsLoadFailed'))}</div>`;
     return;
   }
   if (!cals.length) {
-    list.innerHTML = '<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">Keine Kalender gefunden.</div>';
+    list.innerHTML = `<div style="font-size:0.75rem;color:var(--ink-muted);padding:4px">${escHtml(t('app.sidebar.noCalendars'))}</div>`;
     return;
   }
 
   list.innerHTML = cals.map(c => {
     const deleteBtn = (c.isShared || c.readOnly || c.id.includes('env-default'))
       ? ''
-      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="${collectionNoun(c)} löschen" aria-label="${collectionNoun(c)} löschen">
+      : `<button class="settings-action-btn btn-danger" data-delete-cal-settings="${escHtml(c.id)}" title="${escHtml(t('app.settings.deleteCollection', { noun: collectionNoun(c) }))}" aria-label="${escHtml(t('app.settings.deleteCollection', { noun: collectionNoun(c) }))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -2606,7 +2614,7 @@ function renderSettingsCalendars() {
          </button>`;
 
     const googleBadge = c.source === 'google'
-      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="Mit Google Kalender synchronisiert">
+      ? `<svg class="google-badge-icon" viewBox="0 0 24 24" width="12" height="12" role="img" aria-label="${escHtml(t('app.sidebar.googleSynced'))}">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
@@ -2616,7 +2624,7 @@ function renderSettingsCalendars() {
 
     // #614: a mirror in the shard's own Radicale can be disconnected on its own.
     const disconnectBtn = c.linkedAccountId && c.accountId === 'internal-caldav'
-      ? `<button class="settings-action-btn" data-disconnect-cal="${escHtml(c.id)}">Verbindung trennen</button>`
+      ? `<button class="settings-action-btn" data-disconnect-cal="${escHtml(c.id)}">${escHtml(t('app.settings.disconnect'))}</button>`
       : '';
 
     return `
@@ -2641,10 +2649,10 @@ function renderSettingsCalendars() {
     btn.addEventListener('click', async () => {
       const cal = cals.find(c => c.id === btn.dataset.disconnectCal);
       if (!cal) return;
-      if (!(await confirmDialog(`Verbindung von „${cal.name}“ zum Konto trennen? Der Kalender bleibt mit allen Terminen als eigener Kalender erhalten, beim Anbieter wird nichts gelöscht.`))) return;
+      if (!(await confirmDialog(t('app.settings.confirmDisconnect', { name: cal.name })))) return;
       try {
         await AccountsAPI.disconnectMirror(cal.href.replace(/\/$/, '').split('/').pop());
-        showToast(`„${cal.name}“ ist nicht mehr verknüpft.`, 'info');
+        showToast(t('app.settings.disconnected', { name: cal.name }), 'info');
         await loadCalendars();
         renderSidebar();
         renderSettingsCalendars();
@@ -2661,15 +2669,15 @@ function renderSettingsCalendars() {
       const cal = cals.find(c => c.id === id);
       if (!cal) return;
       const noun = collectionNoun(cal);
-      const content = noun === 'Aufgabenliste' ? 'Aufgaben' : 'Termine';
+      const taskList = holdsTasks(cal) && !holdsEvents(cal);
       if (!(await typedConfirmDialog(
-        `${noun} „${cal.name}“ und alle darin enthaltenen ${content} löschen? Sie liegen danach 30 Tage im Papierkorb. Gib zur Bestätigung den Namen ein:`,
-        cal.name, `${noun} löschen`))) return;
+        t(taskList ? 'app.settings.confirmDeleteTaskList' : 'app.settings.confirmDeleteCalendar', { noun, name: cal.name }),
+        cal.name, t('app.settings.deleteCollection', { noun })))) return;
       try {
         const { trashId } = await CalendarsAPI.remove(id);
         store.set({ calendars: store.get('calendars').filter(c => c.id !== id) });
         noteLocalEdit('calendars');
-        showUndoToast(`${noun} „${cal.name}“ in den Papierkorb verschoben.`, trashId);
+        showUndoToast(t('app.settings.collectionTrashed', { noun, name: cal.name }), trashId);
         renderSettingsTrash();
         invalidateEventCache();
         await loadEvents();
@@ -2690,7 +2698,7 @@ function openAddCalendarDialog() {
 
   const accounts = store.get('accounts').filter(a => !a.credentialsUnreadable);
   if (!accounts.length) {
-    showToast('Bitte zuerst einen Account hinzufügen.', 'error');
+    showToast(t('app.addCalendar.noAccount'), 'error');
     return;
   }
 
@@ -2705,7 +2713,7 @@ function openAddCalendarDialog() {
     <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="add-cal-dialog-title">
       <div class="modal-header">
         <h3 class="modal-title" id="add-cal-dialog-title"></h3>
-        <button class="icon-btn modal-close" id="add-cal-close" aria-label="Schließen">
+        <button class="icon-btn modal-close" id="add-cal-close" aria-label="${escHtml(t('app.dialog.close'))}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -2714,34 +2722,34 @@ function openAddCalendarDialog() {
       <div class="modal-body">
         <form id="add-cal-form" novalidate>
           <div class="form-group">
-            <label class="form-label" for="add-cal-name">Name</label>
+            <label class="form-label" for="add-cal-name">${escHtml(t('app.editCalendar.name'))}</label>
             <input class="form-input" id="add-cal-name" type="text" required autofocus />
           </div>
           <div class="form-group">
-            <label class="form-label" for="add-cal-type">Typ</label>
+            <label class="form-label" for="add-cal-type">${escHtml(t('app.addCalendar.type'))}</label>
             <select class="form-select" id="add-cal-type">
-              <option value="calendar">Kalender (Termine)</option>
-              <option value="tasklist">Aufgabenliste (Aufgaben)</option>
-              <option value="mixed">Gemischt (Termine und Aufgaben)</option>
+              <option value="calendar">${escHtml(t('app.addCalendar.typeCalendar'))}</option>
+              <option value="tasklist">${escHtml(t('app.addCalendar.typeTaskList'))}</option>
+              <option value="mixed">${escHtml(t('app.addCalendar.typeMixed'))}</option>
             </select>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="add-cal-color">Farbe</label>
+              <label class="form-label" for="add-cal-color">${escHtml(t('app.editCalendar.color'))}</label>
               <input class="form-input" id="add-cal-color" type="color" value="#7c3aed"
                      style="height:40px;padding:4px 8px;cursor:pointer;" />
             </div>
             <div class="form-group">
-              <label class="form-label" for="add-cal-account">Account</label>
+              <label class="form-label" for="add-cal-account">${escHtml(t('app.addCalendar.account'))}</label>
               <select class="form-select" id="add-cal-account">${accountOptions}</select>
             </div>
           </div>
           <div id="add-cal-error" class="form-error hidden" role="alert"></div>
           <div class="modal-actions">
             <div class="modal-actions-right">
-              <button type="button" class="btn btn-ghost" id="add-cal-cancel">Abbrechen</button>
+              <button type="button" class="btn btn-ghost" id="add-cal-cancel">${escHtml(t('app.dialog.cancel'))}</button>
               <button type="submit" class="btn btn-primary" id="add-cal-submit">
-                <span class="btn-label">Erstellen</span>
+                <span class="btn-label">${escHtml(t('app.addCalendar.create'))}</span>
                 <span class="btn-spinner hidden"></span>
               </button>
             </div>
@@ -2754,9 +2762,9 @@ function openAddCalendarDialog() {
 
   // #500: created in the task view it is an Aufgabenliste, otherwise a Kalender.
   const ADD_TYPE_TEXT = {
-    calendar: { title: 'Neuer Kalender', placeholder: 'Mein Kalender', created: 'Kalender' },
-    tasklist: { title: 'Neue Aufgabenliste', placeholder: 'Meine Aufgaben', created: 'Aufgabenliste' },
-    mixed:    { title: 'Neuer gemischter Kalender', placeholder: 'Termine und Aufgaben', created: 'Kalender' },
+    calendar: { title: t('app.addCalendar.titleCalendar'), placeholder: t('app.addCalendar.placeholderCalendar'), created: 'app.addCalendar.createdCalendar' },
+    tasklist: { title: t('app.addCalendar.titleTaskList'), placeholder: t('app.addCalendar.placeholderTaskList'), created: 'app.addCalendar.createdTaskList' },
+    mixed:    { title: t('app.addCalendar.titleMixed'), placeholder: t('app.addCalendar.placeholderMixed'), created: 'app.addCalendar.createdCalendar' },
   };
   const typeSelect = backdrop.querySelector('#add-cal-type');
   const applyType = () => {
@@ -2783,7 +2791,7 @@ function openAddCalendarDialog() {
 
     if (!name) {
       const err = document.getElementById('add-cal-error');
-      err.textContent = 'Bitte einen Namen eingeben.';
+      err.textContent = t('app.addCalendar.nameRequired');
       err.classList.remove('hidden');
       return;
     }
@@ -2796,7 +2804,7 @@ function openAddCalendarDialog() {
     try {
       await CalendarsAPI.create({ accountId, name, color, type });
       closeDialog();
-      showToast(`${ADD_TYPE_TEXT[type].created} „${name}“ erstellt.`, 'success');
+      showToast(t(ADD_TYPE_TEXT[type].created, { name }), 'success');
       await loadCalendars();
       renderSidebar();
       renderCalendarView();
@@ -2828,7 +2836,7 @@ function showEventPopover(ev, mouseEvent) {
   const color   = ev.color || cal.color || '#6366f1';
 
   const timeStr = ev.allDay
-    ? 'Ganztägig'
+    ? escHtml(t('app.event.allDay'))
     : `${fmt(ev.start)} – ${fmt(ev.end)}`;
 
   const attHtml = ev.attendees?.length
@@ -2853,10 +2861,10 @@ function showEventPopover(ev, mouseEvent) {
 
   const isReadOnly = ev.readOnly || ev.isSubscription || cal.readOnly;
   const actionsHtml = isReadOnly
-    ? `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Details</button>
-       <span style="font-size:11px;color:var(--danger);margin-left:auto;padding-right:8px;font-weight:600;">${ev.isSubscription ? 'Abonnement (schreibgeschützt)' : 'Schreibgeschützt'}</span>`
-    : `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">Bearbeiten</button>
-       <button class="btn btn-ghost btn-sm btn-danger" id="popover-delete-btn">Löschen</button>`;
+    ? `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">${escHtml(t('app.popover.details'))}</button>
+       <span style="font-size:11px;color:var(--danger);margin-left:auto;padding-right:8px;font-weight:600;">${escHtml(ev.isSubscription ? t('app.popover.subscriptionReadOnly') : t('app.popover.readOnly'))}</span>`
+    : `<button class="btn btn-ghost btn-sm" id="popover-edit-btn">${escHtml(t('app.popover.edit'))}</button>
+       <button class="btn btn-ghost btn-sm btn-danger" id="popover-delete-btn">${escHtml(t('app.popover.delete'))}</button>`;
 
   popover.innerHTML = `
     <div class="popover-color-bar" style="background:${escHtml(sanitizeColor(color))}"></div>
@@ -2883,7 +2891,7 @@ function showEventPopover(ev, mouseEvent) {
 
   // Position near mouse or target element if keyboard activated
   _popoverUid = ev.uid;
-  announce(`Termindetails: ${ev.title}`);
+  announce(t('app.announce.eventDetails', { title: ev.title }));
 
   let mouseX = mouseEvent && typeof mouseEvent.clientX === 'number' && mouseEvent.clientX > 0 ? mouseEvent.clientX : null;
   let mouseY = mouseEvent && typeof mouseEvent.clientY === 'number' && mouseEvent.clientY > 0 ? mouseEvent.clientY : null;
@@ -2922,10 +2930,10 @@ function showEventPopover(ev, mouseEvent) {
       // The question names the event; the popover would otherwise sit over the dialog's buttons.
       closePopover();
       if (recId) {
-        scope = await chooseRecurrenceScope(`„${ev.title}“ löschen:`);
+        scope = await chooseRecurrenceScope(t('app.popover.deleteScope', { title: ev.title }));
         if (!scope) return;
       } else {
-        if (!(await confirmDialog(`„${ev.title}“ löschen?`))) return;
+        if (!(await confirmDialog(t('app.popover.confirmDelete', { title: ev.title })))) return;
       }
       try {
         const targetUid = ev.masterUid || (ev.uid ? ev.uid.split('::')[0] : '');
@@ -2935,8 +2943,8 @@ function showEventPopover(ev, mouseEvent) {
         });
         onEventDeleted(targetUid);
         // A deleted occurrence is an EXDATE in the series, not a trash entry.
-        if (trashId) showUndoToast('Termin gelöscht.', trashId);
-        else showToast('Termin gelöscht.', 'info');
+        if (trashId) showUndoToast(t('app.popover.deleted'), trashId);
+        else showToast(t('app.popover.deleted'), 'info');
       } catch(err) { showToast(err.message, 'error'); }
     };
   }
@@ -2982,9 +2990,9 @@ const EVENT_MODAL_CALLBACKS = {
 function eventDragPermission(ev) {
   const cal = calendarsById()[ev.calendarId] || {};
   if (!ev.readOnly && !ev.isSubscription && !cal.readOnly) return true;
-  if (ev.kind === 'task') return `Nur lesbar: Aufgabe aus ${cal.name || 'einer anderen Liste'}`;
-  const organizer = ev.organizer?.name || ev.organizer?.email || cal.name || 'einem anderen Kalender';
-  return `Nur lesbar: Termin von ${organizer}`;
+  if (ev.kind === 'task') return t('app.drag.readOnlyTask', { list: cal.name || t('app.drag.anotherList') });
+  const organizer = ev.organizer?.name || ev.organizer?.email || cal.name || t('app.drag.anotherCalendar');
+  return t('app.drag.readOnlyEvent', { organizer });
 }
 
 // Ja → true, Nein → false, closed → null (the drop is undone).
@@ -3013,7 +3021,7 @@ async function onEventDrop(ev, change) {
   const recurrenceId = recurrenceIdOf(ev);
   let scope = null;
   if (recurrenceId) {
-    scope = await chooseRecurrenceScope(`„${ev.title}“ verschieben:`);
+    scope = await chooseRecurrenceScope(t('app.drag.moveScope', { title: ev.title }));
     // Cancelling puts the event back: the view is drawn from the unchanged state.
     if (!scope) { renderCalendarView(); return; }
   }
@@ -3032,13 +3040,13 @@ async function onEventDrop(ev, change) {
   }
   const before = { start: ev.start, end: ev.end, allDay: Boolean(ev.allDay) };
   if (!(await saveEventTimes(ev, change, { scope, recurrenceId, attendees: sendAttendees }))) return;
-  announce(`„${ev.title}“ verschoben.`);
+  announce(t('app.drag.moved', { title: ev.title }));
   showUndoBar(async () => {
     const now = (store.get('events') || []).find(x => x.uid === ev.uid)
       || (store.get('events') || []).find(x => masterUidOf(x) === masterUidOf(ev)
         && new Date(x.start).getTime() === new Date(change.start).getTime());
     if (!now) {
-      showToast(`„${ev.title}“ konnte nicht zurückgesetzt werden: Der Termin ist nicht mehr geladen.`, 'error');
+      showToast(t('app.drag.undoEventGone', { title: ev.title }), 'error');
       return;
     }
     await saveEventTimes(now, before, { scope, recurrenceId: recurrenceIdOf(now), attendees });
@@ -3068,9 +3076,9 @@ async function saveEventTimes(ev, change, { scope, recurrenceId, attendees }) {
   } catch (err) {
     settlePendingSave(token);
     const reason = err.status === 409
-      ? 'Konflikt: Der Termin wurde von einem anderen Client geändert. Seite neu laden.'
+      ? t('app.drag.eventConflict')
       : err.message;
-    showToast(`„${ev.title}“ wurde nicht verschoben. ${reason}`, 'error');
+    showToast(t('app.drag.notMoved', { title: ev.title, reason }), 'error');
     return false;
   }
 }
@@ -3107,7 +3115,7 @@ function initItemContextMenu() {
     // A menu opened by keyboard (clientX/Y 0) sits at the item.
     const item = chip || taskEl;
     const anchor = item.getBoundingClientRect();
-    openContextMenu(e.clientX || anchor.left, e.clientY || anchor.bottom, [{ label: 'Duplizieren', action: duplicate }], item);
+    openContextMenu(e.clientX || anchor.left, e.clientY || anchor.bottom, [{ label: t('app.contextMenu.duplicate'), action: duplicate }], item);
   });
 }
 const TASK_BLOCK_MS = 30 * 60000;
@@ -3159,11 +3167,11 @@ function movedTaskTimes(task, change) {
 async function onTaskDrop(task, change) {
   const before = taskTimes(task);
   if (!(await saveTaskTimes(task, movedTaskTimes(task, change)))) return;
-  announce(`„${task.title}“ verschoben.`);
+  announce(t('app.drag.moved', { title: task.title }));
   showUndoBar(async () => {
-    const now = (store.get('tasks') || []).find(t => t.uid === task.uid);
+    const now = (store.get('tasks') || []).find(x => x.uid === task.uid);
     if (!now) {
-      showToast(`„${task.title}“ konnte nicht zurückgesetzt werden: Die Aufgabe ist nicht mehr geladen.`, 'error');
+      showToast(t('app.drag.undoTaskGone', { title: task.title }), 'error');
       return;
     }
     await saveTaskTimes(now, before);
@@ -3181,9 +3189,9 @@ async function saveTaskTimes(task, times) {
     replace(task);
     renderCalendarView();
     const reason = err.status === 409
-      ? 'Konflikt: Die Aufgabe wurde von einem anderen Client geändert. Seite neu laden.'
+      ? t('app.drag.taskConflict')
       : err.message;
-    showToast(`„${task.title}“ wurde nicht verschoben. ${reason}`, 'error');
+    showToast(t('app.drag.notMoved', { title: task.title, reason }), 'error');
     return false;
   }
   await reloadTasksAfterEdit();
@@ -3238,17 +3246,17 @@ function attachListeners() {
     store.set({ view: viewName });
     renderCalendarList();
     const viewLabels = {
-      month: 'Monatsansicht',
-      week: 'Wochenansicht',
-      workweek: 'Arbeitswoche',
-      '3day': 'Dreitagesansicht',
-      day: 'Tagesansicht',
-      agenda: 'Agendaansicht',
-      list: 'Listenansicht',
-      kanban: 'Aufgaben'
+      month: 'app.view.month',
+      week: 'app.view.week',
+      workweek: 'app.view.workweek',
+      '3day': 'app.view.threeDays',
+      day: 'app.view.day',
+      agenda: 'app.view.agenda',
+      list: 'app.view.list',
+      kanban: 'app.toolbar.tasks'
     };
-    const label = viewLabels[viewName] || viewName;
-    announce(`Ansicht gewechselt: ${label}`);
+    const label = viewLabels[viewName] ? t(viewLabels[viewName]) : viewName;
+    announce(t('app.announce.viewChanged', { view: label }));
     loadEvents();
   }
 
@@ -3276,16 +3284,16 @@ function attachListeners() {
     const newDate = navigate(store.get('view'), store.get('currentDate'), direction);
     store.set({ currentDate: newDate });
     loadEvents();
-    announce(`Datum: ${getToolbarTitle(store.get('view'), newDate)}`);
+    announce(t('app.announce.date', { date: getToolbarTitle(store.get('view'), newDate) }));
   }
   $('prev-btn').addEventListener('click', () => goPeriod(-1));
   $('next-btn').addEventListener('click', () => goPeriod(1));
   enablePeriodSwipe($('calendar-container'), goPeriod);
   $('today-btn').addEventListener('click', () => {
-    const t = new Date(); t.setHours(0,0,0,0);
-    store.set({ currentDate: t });
+    const today = new Date(); today.setHours(0,0,0,0);
+    store.set({ currentDate: today });
     loadEvents();
-    announce(`Datum: ${getToolbarTitle(store.get('view'), t)}`);
+    announce(t('app.announce.date', { date: getToolbarTitle(store.get('view'), today) }));
   });
 
   initPdfExport({ showToast });
@@ -3319,13 +3327,13 @@ function attachListeners() {
 
   // Add App-Specific Password
   $('settings-add-asp-btn').addEventListener('click', async () => {
-    const label = prompt('Bezeichnung für das neue App-Passwort (z. B. "Thunderbird"):');
+    const label = prompt(t('app.appPasswords.labelPrompt'));
     if (label === null) return;
     const trimmed = label.trim();
     if (!trimmed) return;
     try {
       const res = await AccountsAPI.addAppPassword(trimmed);
-      alert(`App-Passwort erfolgreich generiert!\n\nBezeichnung: ${res.label}\nPasswort: ${res.rawPassword}\n\nBitte kopiere das Passwort JETZT. Es wird aus Sicherheitsgründen nicht noch einmal angezeigt.`);
+      alert(t('app.appPasswords.generated', { label: res.label, password: res.rawPassword }));
       renderSettingsAppPasswords();
     } catch (err) {
       showToast(err.message, 'error');
@@ -3352,7 +3360,7 @@ function attachListeners() {
 
   // #514: a country opens the region picker; a region switches the holidays on, "none" off.
   const saveHolidayRegion = region => changeHolidayRegion(region)
-    .catch(err => showToast('Die Feiertage konnten nicht gespeichert werden: ' + err.message, 'error'))
+    .catch(err => showToast(t('app.toast.holidaysSaveFailed', { error: err.message }), 'error'))
     .then(() => renderSettingsHolidays());
   $('holiday-country').addEventListener('change', e => {
     if (!e.target.value) {
@@ -3361,17 +3369,17 @@ function attachListeners() {
     }
     const country = holidayCountries.find(c => c.code === e.target.value);
     $('holiday-region-group').classList.remove('hidden');
-    $('holiday-region').innerHTML = '<option value="" disabled selected>Region wählen</option>' + country.regions
+    $('holiday-region').innerHTML = `<option value="" disabled selected>${escHtml(t('app.settings.holidaysChooseRegion'))}</option>` + country.regions
       .map(r => `<option value="${escHtml(r.code)}">${escHtml(r.name)}</option>`).join('');
     $('holiday-region').focus();
   });
   $('holiday-region').addEventListener('change', e => saveHolidayRegion(e.target.value));
-  initGeoSettings(err => showToast('Adresssuche konnte nicht umgestellt werden: ' + err.message, 'error'));
-  initConferenceSettings(err => showToast('Videokonferenz-Einstellung konnte nicht gespeichert werden: ' + err.message, 'error'));
+  initGeoSettings(err => showToast(t('app.toast.geoSaveFailed', { error: err.message }), 'error'));
+  initConferenceSettings(err => showToast(t('app.toast.conferenceSaveFailed', { error: err.message }), 'error'));
 
   // #513: the checkbox opens the location form; only saving a location sends anything anywhere.
   const saveWeatherLocation = location => changeWeatherLocation(location)
-    .catch(err => showToast('Die Wettereinstellung konnte nicht gespeichert werden: ' + err.message, 'error'));
+    .catch(err => showToast(t('app.toast.weatherSaveFailed', { error: err.message }), 'error'));
   $('weather-enabled').addEventListener('change', e => {
     if (e.target.checked) {
       $('weather-location-form').classList.remove('hidden');
@@ -3392,7 +3400,7 @@ function attachListeners() {
     const longitude = parse('weather-longitude');
     const error = $('weather-error');
     if (!(Math.abs(latitude) <= 90) || !(Math.abs(longitude) <= 180)) {
-      error.textContent = 'Breitengrad von -90 bis 90 und Längengrad von -180 bis 180 eintragen, z. B. 52.52 und 13.40.';
+      error.textContent = t('app.settings.weatherInvalidLocation');
       error.classList.remove('hidden');
       $(Math.abs(latitude) <= 90 ? 'weather-longitude' : 'weather-latitude').focus();
       return;
@@ -3401,6 +3409,8 @@ function attachListeners() {
     saveWeatherLocation({ latitude, longitude });
   });
 
+  // #626: so is the language.
+  $('pref-language').addEventListener('change', e => changeCalendarPreference(e.target));
   // #625: each calendar preference is saved as soon as it is chosen.
   $('calendar-prefs').addEventListener('change', e => {
     if (e.target.matches('select[data-pref]')) changeCalendarPreference(e.target);
@@ -3413,10 +3423,10 @@ function attachListeners() {
       const saved = (await PreferencesAPI.setShowWeekNumbers(wanted)).showWeekNumbers;
       store.set({ showWeekNumbers: saved });
       renderCalendarView();
-      announce(saved ? 'Kalenderwochen eingeblendet' : 'Kalenderwochen ausgeblendet');
+      announce(saved ? t('app.announce.weekNumbersShown') : t('app.announce.weekNumbersHidden'));
     } catch (err) {
       e.target.checked = store.get('showWeekNumbers');
-      showToast('Die Einstellung konnte nicht gespeichert werden: ' + err.message, 'error');
+      showToast(t('app.toast.settingSaveFailed', { error: err.message }), 'error');
     }
   });
 
@@ -3427,7 +3437,7 @@ function attachListeners() {
       $('secondary-tz-search').focus();
     } else if (store.get('secondaryTimezone')) {
       changeSecondaryTimezone(null).catch(err => {
-        showToast('Die Zeitzone konnte nicht gespeichert werden: ' + err.message, 'error');
+        showToast(t('app.toast.timeZoneSaveFailed', { error: err.message }), 'error');
         renderSettingsTimezone();
       });
     } else {
@@ -3439,7 +3449,7 @@ function attachListeners() {
     const hit = e.target.closest('button[data-tz]');
     if (!hit) return;
     changeSecondaryTimezone(hit.dataset.tz).catch(err => {
-      showToast('Die Zeitzone konnte nicht gespeichert werden: ' + err.message, 'error');
+      showToast(t('app.toast.timeZoneSaveFailed', { error: err.message }), 'error');
     });
   });
 
@@ -3518,7 +3528,7 @@ function attachListeners() {
       if (modalBackdrop && !modalBackdrop.classList.contains('hidden')) {
         modalBackdrop.classList.add('hidden');
       }
-      showToast('Google Kalender erfolgreich verknüpft!', 'success');
+      showToast(t('app.toast.googleLinked'), 'success');
 
       const accounts = await AccountsAPI.list();
       store.set({ accounts });
@@ -3666,7 +3676,7 @@ export function showToast(message, type = 'info', { action, duration = 4000 } = 
   if (type === 'error') {
     toast.setAttribute('role', 'alert');
     toast.setAttribute('aria-live', 'assertive');
-    setStatus('Fehler: ' + message);
+    setStatus(t('app.toast.errorStatus', { message }));
   }
 
   const icons = {
@@ -3679,7 +3689,7 @@ export function showToast(message, type = 'info', { action, duration = 4000 } = 
     <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${icons[type] || icons.info}</svg>
     <span class="toast-msg">${escHtml(message)}</span>
     ${action ? `<button type="button" class="toast-action">${escHtml(action.label)}</button>` : ''}
-    <button type="button" class="toast-close" aria-label="Meldung schließen">×</button>`;
+    <button type="button" class="toast-close" aria-label="${escHtml(t('app.toast.close'))}">×</button>`;
 
   container.appendChild(toast);
   toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
@@ -3702,7 +3712,7 @@ export function showToast(message, type = 'info', { action, duration = 4000 } = 
 export function showUndoToast(message, trashId) {
   showToast(message, 'info', {
     duration: 8000,
-    action: { label: 'Rückgängig', onClick: () => restoreFromTrash(trashId) }
+    action: { label: t('app.trash.undo'), onClick: () => restoreFromTrash(trashId) }
   });
 }
 
@@ -3711,10 +3721,10 @@ async function restoreFromTrash(trashId) {
   try {
     restored = await TrashAPI.restore(trashId);
   } catch (err) {
-    showToast('Wiederherstellen fehlgeschlagen: ' + err.message, 'error');
+    showToast(t('app.trash.restoreFailed', { error: err.message }), 'error');
     return false;
   }
-  showToast('Wiederhergestellt.', 'success');
+  showToast(t('app.trash.restored'), 'success');
   if (restored.kind === 'calendar') await loadCalendars();
   invalidateEventCache();
   await loadEvents();
@@ -3725,9 +3735,9 @@ async function restoreFromTrash(trashId) {
   return true;
 }
 
-const TRASH_NOUNS = { event: 'Termin', task: 'Aufgabe', calendar: 'Kalender' };
+const TRASH_NOUNS = { event: 'app.trash.nounEvent', task: 'app.trash.nounTask', calendar: 'app.trash.nounCalendar' };
 // A collection that holds only tasks is a task list.
-const trashNoun = (item) => (item.kind === 'calendar' && !item.components.includes('VEVENT')) ? 'Aufgabenliste' : TRASH_NOUNS[item.kind];
+const trashNoun = (item) => t((item.kind === 'calendar' && !item.components.includes('VEVENT')) ? 'app.trash.nounTaskList' : TRASH_NOUNS[item.kind]);
 
 async function renderSettingsTrash() {
   const list = $('settings-trash-list');
@@ -3736,11 +3746,11 @@ async function renderSettingsTrash() {
   try {
     ({ items } = await TrashAPI.list());
   } catch (err) {
-    list.innerHTML = `<div class="trash-hint">Papierkorb konnte nicht geladen werden: ${escHtml(err.message)}</div>`;
+    list.innerHTML = `<div class="trash-hint">${t('app.trash.loadFailed', { error: escHtml(err.message) })}</div>`;
     return;
   }
   if (!items.length) {
-    list.innerHTML = '<div class="trash-hint">Der Papierkorb ist leer.</div>';
+    list.innerHTML = `<div class="trash-hint">${escHtml(t('app.trash.empty'))}</div>`;
     return;
   }
   const day = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
@@ -3748,11 +3758,11 @@ async function renderSettingsTrash() {
       <div class="settings-item trash-item" data-trash-id="${escHtml(item.id)}">
         <div class="settings-item-info">
           <div class="settings-item-name">${escHtml(item.title)}</div>
-          <div class="trash-hint">${trashNoun(item)}${item.kind === 'calendar' ? ` · ${item.itemCount} Einträge` : ''} · ${item.deletedAtProvider ? 'beim Anbieter gelöscht' : 'gelöscht'} ${escHtml(day.format(new Date(item.deletedAt)))} · endgültig weg ${escHtml(day.format(new Date(item.purgeAt)))}</div>
+          <div class="trash-hint">${escHtml(trashNoun(item))}${item.kind === 'calendar' ? ` · ${escHtml(t('app.trash.itemCount', { count: item.itemCount }))}` : ''} · ${escHtml(t(item.deletedAtProvider ? 'app.trash.deletedAtProvider' : 'app.trash.deleted', { date: day.format(new Date(item.deletedAt)) }))} · ${escHtml(t('app.trash.purgeAt', { date: day.format(new Date(item.purgeAt)) }))}</div>
         </div>
         <div class="settings-item-actions">
-          <button type="button" class="btn btn-secondary btn-sm" data-trash-restore="${escHtml(item.id)}">Wiederherstellen</button>
-          <button type="button" class="btn btn-danger btn-sm" data-trash-purge="${escHtml(item.id)}">Endgültig löschen</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-trash-restore="${escHtml(item.id)}">${escHtml(t('app.trash.restore'))}</button>
+          <button type="button" class="btn btn-danger btn-sm" data-trash-purge="${escHtml(item.id)}">${escHtml(t('app.trash.purge'))}</button>
         </div>
       </div>`).join('');
 
@@ -3760,17 +3770,17 @@ async function renderSettingsTrash() {
     btn.addEventListener('click', async () => {
       const item = items.find(i => i.id === btn.dataset.trashRestore);
       // #597: an item the provider deleted is created there again by the next sync.
-      const where = item.deletedAtProvider ? 'wurde beim Anbieter gelöscht und wird dort' : 'wird beim verknüpften Anbieter';
+      const question = item.deletedAtProvider ? 'app.trash.confirmRestoreDeletedAtProvider' : 'app.trash.confirmRestoreLinked';
       if (item.linked && !(await confirmDialog(
-        `„${item.title}“ ${where} neu angelegt. Die UID kann sich dabei ändern, und Gäste bekommen eventuell eine neue Einladung. Wiederherstellen?`,
-        'Wiederherstellen'))) return;
+        t(question, { title: item.title }),
+        t('app.trash.restore')))) return;
       if (await restoreFromTrash(item.id)) await renderSettingsTrash();
     });
   });
   list.querySelectorAll('[data-trash-purge]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const item = items.find(i => i.id === btn.dataset.trashPurge);
-      if (!(await confirmDialog(`„${item.title}“ endgültig löschen? Das lässt sich nicht rückgängig machen.`))) return;
+      if (!(await confirmDialog(t('app.trash.confirmPurge', { title: item.title })))) return;
       try {
         await TrashAPI.purge(item.id);
       } catch (err) {
@@ -3865,9 +3875,9 @@ export async function checkOAuthTokenStatus() {
       const textEl = $('oauth-warning-text');
       if (textEl) {
         if (expiredAccounts.length === 1) {
-          textEl.textContent = `Google-Konto „${expiredAccounts[0].displayName || expiredAccounts[0].username}“ erfordert eine erneute Anmeldung.`;
+          textEl.textContent = t('app.oauth.oneExpired', { name: expiredAccounts[0].displayName || expiredAccounts[0].username });
         } else {
-          textEl.textContent = `${expiredAccounts.length} Google-Konten erfordern eine erneute Anmeldung.`;
+          textEl.textContent = t('app.oauth.manyExpired', { count: expiredAccounts.length });
         }
       }
       banner.classList.remove('hidden');
@@ -3890,10 +3900,10 @@ export async function checkSyncStatus() {
   let jobs;
   try {
     ({ jobs } = await AccountsAPI.getSyncStatus());
-    if (!Array.isArray(jobs)) throw new Error('unerwartete Antwort');
+    if (!Array.isArray(jobs)) throw new Error(t('app.sync.unexpectedResponse'));
   } catch (err) {
     // Polled every minute — report in the banner rather than stacking toasts.
-    textEl.textContent = 'Sync-Status konnte nicht geladen werden: ' + err.message;
+    textEl.textContent = t('app.sync.statusLoadFailed', { error: err.message });
     $('sync-progress').classList.add('hidden');
     delete banner.dataset.jobId;
     banner.classList.remove('hidden');
@@ -3906,7 +3916,7 @@ export async function checkSyncStatus() {
   const latest = jobs.find(j => j.status === 'SUCCESS' || j.status === 'ERROR');
   if (latest && latest.status === 'ERROR' && latest.id !== dismissedSyncErrorId) {
     textEl.textContent =
-      'Hintergrund-Synchronisation fehlgeschlagen: ' + (latest.errorMessage || 'unbekannter Fehler');
+      t('app.sync.backgroundFailed', { error: latest.errorMessage || t('app.accounts.unknownError') });
     banner.dataset.jobId = latest.id;
     banner.classList.remove('hidden');
   } else {

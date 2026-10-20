@@ -503,6 +503,7 @@ db.serialize(() => {
       default_calendar_id TEXT,
       default_reminder INTEGER,
       time_zone TEXT,
+      language TEXT CHECK (language IN ('de', 'en')),
       updated_at INTEGER NOT NULL
     )
   `);
@@ -2936,10 +2937,11 @@ const Db = {
     });
   },
 
-  // #625: week start, 12/24 h, default duration/calendar/reminder and time zone; null = not chosen.
+  // #625: week start, 12/24 h, default duration/calendar/reminder and time zone; #626: the UI
+  // language. null = not chosen.
   getCalendarPreferences(userId) {
     return new Promise((resolve, reject) => {
-      db.get(`SELECT week_start, time_format, default_duration, default_calendar_id, default_reminder, time_zone
+      db.get(`SELECT week_start, time_format, default_duration, default_calendar_id, default_reminder, time_zone, language
               FROM user_preferences WHERE user_id = ?`, [userId], (err, row) => {
         if (err) return reject(err);
         resolve({
@@ -2949,6 +2951,7 @@ const Db = {
           defaultCalendarId: row ? row.default_calendar_id : null,
           defaultReminder: row ? row.default_reminder : null,
           timeZone: row ? row.time_zone : null,
+          language: row ? row.language : null,
         });
       });
     });
@@ -2959,6 +2962,7 @@ const Db = {
     const COLUMNS = {
       weekStart: 'week_start', timeFormat: 'time_format', defaultDuration: 'default_duration',
       defaultCalendarId: 'default_calendar_id', defaultReminder: 'default_reminder', timeZone: 'time_zone',
+      language: 'language',
     };
     const keys = Object.keys(values);
     for (const key of keys) {

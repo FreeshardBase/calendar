@@ -6,6 +6,7 @@
  * relabels everything without a reload.
  */
 import { store } from './store.js';
+import { t } from './i18n.js';
 
 // The user's custom name for a linked account; the provider user name only when none is set.
 export function accountLabel(account) {
@@ -30,7 +31,7 @@ export function calendarLabel(cal) {
 // #614: a disconnected mirror is a normal calendar that says where it came from.
 const PROVIDER_NAMES = { google: 'Google', caldav: 'CalDAV', msgraph: 'Microsoft 365' };
 export function formerLinkLabel(cal) {
-  return cal.formerLink ? `früher ${PROVIDER_NAMES[cal.formerLink.provider]}` : null;
+  return cal.formerLink ? t('labels.formerLink', { provider: PROVIDER_NAMES[cal.formerLink.provider] }) : null;
 }
 
 // #500: a collection holds events (Kalender), tasks (Aufgabenliste) or, when mixed, both. Calendar
@@ -43,14 +44,18 @@ export function holdsTasks(cal) {
   return cal.supportsVTODO === true;
 }
 
-// What the UI calls the collection: a task-only collection is an Aufgabenliste.
+const isTaskList = cal => holdsTasks(cal) && !holdsEvents(cal);
+
+// What the UI calls the collection inside a sentence: a task-only collection is an
+// Aufgabenliste (#626: lower case in English, "Edit task list").
 export function collectionNoun(cal) {
-  return holdsTasks(cal) && !holdsEvents(cal) ? 'Aufgabenliste' : 'Kalender';
+  return t(isTaskList(cal) ? 'labels.noun.taskList' : 'labels.noun.calendar');
 }
 
 // The type as the settings list names it; a mixed collection says so.
 export function collectionTypeLabel(cal) {
-  return holdsTasks(cal) && holdsEvents(cal) ? 'Gemischt' : collectionNoun(cal);
+  if (holdsTasks(cal) && holdsEvents(cal)) return t('labels.type.mixed');
+  return t(isTaskList(cal) ? 'labels.type.taskList' : 'labels.type.calendar');
 }
 
 // [{ label, calendars }] in first-seen order: the shard's own calendars (label null), then one

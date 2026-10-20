@@ -8,6 +8,8 @@ const path = require('path');
 const vm = require('vm');
 // app.js expects window.SafeUrl (loaded by index.html as a classic script).
 const SafeUrl = require('../../public/js/safeUrl');
+// #626: app.js takes its strings from the message catalogues through i18n.js.
+const { t } = require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.join(__dirname, '../../public/js', rel), 'utf8'));
 
 function createMockDomEnvironment() {
   const elements = new Map();
@@ -310,6 +312,7 @@ describe('Issue #108 — Search with No Hits & Empty Kanban Board Indicators', (
       window: env.window,
       $: (id) => env.document.getElementById(id),
       store,
+      t,
       setStatus: (txt) => { currentStatus = txt; },
       getToolbarTitle: () => 'August 2026',
       renderView: (container) => { container.innerHTML = '<div class="month-view"></div>'; },

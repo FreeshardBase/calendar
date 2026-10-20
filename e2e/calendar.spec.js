@@ -7583,7 +7583,16 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
     test.describe('in an English-speaking browser', () => {
       test.use({ locale: 'en-US' });
 
+      // #626: the browser's language would make the screen English; German is chosen in the
+      // settings, and a German screen keeps the 24-hour clock.
+      test.afterEach(async ({ page }) => {
+        const res = await page.request.put('/api/preferences', { headers: SAME_ORIGIN, data: { language: null } });
+        expect(res.ok()).toBeTruthy();
+      });
+
       test('Issue #166 — a reminder names the start time on the 24-hour clock', async ({ page }) => {
+        const res = await page.request.put('/api/preferences', { headers: SAME_ORIGIN, data: { language: 'de' } });
+        expect(res.ok()).toBeTruthy();
         const start = new Date(Date.now() + 10 * 60 * 1000);
         const title = `E2E 404 Reminder ${start.getTime()}`;
         await serveEvents(page, [timedEvent(`e2e-404-reminder-${start.getTime()}`, title, start.toISOString(), {

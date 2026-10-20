@@ -12,19 +12,19 @@
 </head>
 <body>
 
-<div id="offline-status-banner" style="display: none; background: #ef4444; color: #ffffff; text-align: center; padding: 6px 12px; font-size: 13px; font-weight: 500; position: sticky; top: 0; z-index: 99999;">
+<div id="offline-status-banner" style="display: none; background: #ef4444; color: #ffffff; text-align: center; padding: 6px 12px; font-size: 13px; font-weight: 500; position: sticky; top: 0; z-index: 99999;" data-i18n="shell.banner.offline">
   Offline-Modus aktiv — Es werden lokal gespeicherte Kalenderdaten verwendet.
 </div>
 
 <!-- #571: shown when a newly deployed service worker took over this page -->
 <div id="update-banner" class="update-banner hidden" role="status">
-  <span>Neue Version verfügbar.</span>
-  <button type="button" id="update-reload-btn" class="btn btn-primary btn-sm">Neu laden</button>
+  <span data-i18n="shell.banner.updateAvailable">Neue Version verfügbar.</span>
+  <button type="button" id="update-reload-btn" class="btn btn-primary btn-sm" data-i18n="shell.banner.reload">Neu laden</button>
 </div>
 
 <!-- ── Loading Screen ───────────────────────────────────────────────────────── -->
 <div id="loading-screen" class="loading-screen" role="status">
-  <span class="sr-only">Kalender wird geladen…</span>
+  <span class="sr-only" data-i18n="shell.loading.text">Kalender wird geladen…</span>
   <div class="loading-logo">
     <div class="loading-icon">
       <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40" aria-hidden="true">
@@ -47,10 +47,10 @@
 <div id="reauth-screen" class="onboarding hidden">
   <div class="onboarding-card">
     <div class="onboarding-header">
-      <h1 class="onboarding-title">Sitzung abgelaufen</h1>
-      <p class="onboarding-subtitle">Du bist nicht mehr angemeldet. Melde dich erneut an, um deine Kalender zu sehen.</p>
+      <h1 class="onboarding-title" data-i18n="shell.reauth.title">Sitzung abgelaufen</h1>
+      <p class="onboarding-subtitle" data-i18n="shell.reauth.subtitle">Du bist nicht mehr angemeldet. Melde dich erneut an, um deine Kalender zu sehen.</p>
     </div>
-    <a class="btn btn-primary btn-full" id="reauth-login-link" href="/api/auth/login">Erneut anmelden</a>
+    <a class="btn btn-primary btn-full" id="reauth-login-link" href="/api/auth/login" data-i18n="shell.reauth.login">Erneut anmelden</a>
   </div>
 </div>
 
@@ -70,16 +70,16 @@
         </svg>
         <span class="onboarding-logo-text">FreeShard Calendar</span>
       </div>
-      <h1 class="onboarding-title">Kalender verbinden</h1>
-      <p class="onboarding-subtitle">Wähle deinen Anbieter. Seine Kalender werden in deinen Shard gespiegelt und in beide Richtungen synchronisiert.</p>
+      <h1 class="onboarding-title" data-i18n="shell.onboarding.title">Kalender verbinden</h1>
+      <p class="onboarding-subtitle" data-i18n="shell.onboarding.subtitle">Wähle deinen Anbieter. Seine Kalender werden in deinen Shard gespiegelt und in beide Richtungen synchronisiert.</p>
     </div>
     <div class="onboarding-providers">
-      <div class="provider-tiles" role="group" aria-label="Anbieter">
+      <div class="provider-tiles" role="group" aria-label="Anbieter" data-i18n-aria-label="shell.onboarding.providers">
         <button type="button" class="provider-tile" data-provider="google">Google</button>
         <button type="button" class="provider-tile" data-provider="msgraph">Microsoft 365</button>
         <button type="button" class="provider-tile" data-provider="icloud">iCloud</button>
         <button type="button" class="provider-tile" data-provider="nextcloud">Nextcloud</button>
-        <button type="button" class="provider-tile" data-provider="custom">Andere (CalDAV)</button>
+        <button type="button" class="provider-tile" data-provider="custom" data-i18n="shell.onboarding.providerOther">Andere (CalDAV)</button>
       </div>
     </div>
   </div>
@@ -104,7 +104,7 @@
         </svg>
         <span class="sidebar-logo-name">FreeShard</span>
       </div>
-      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Sidebar schließen">
+      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Sidebar schließen" data-i18n-aria-label="shell.sidebar.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -119,14 +119,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M12 5v14M5 12h14"/>
           </svg>
-          Neuer Termin
+          <span data-i18n="shell.common.newEvent">Neuer Termin</span>
         </button>
         <button class="sidebar-secondary-btn" id="new-task-btn" style="flex:1;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M9 11l3 3L22 4"/>
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
           </svg>
-          Neue Aufgabe
+          <span data-i18n="shell.sidebar.newTask">Neue Aufgabe</span>
         </button>
       </div>
 
@@ -146,21 +146,21 @@
           </button>
         </div>
         <div id="calendar-list"></div>
-        <div id="ics-dropzone" tabindex="0" role="button" aria-label="ICS-Datei importieren" title="ICS-Datei importieren">
+        <div id="ics-dropzone" tabindex="0" role="button" aria-label="ICS-Datei importieren" title="ICS-Datei importieren" data-i18n-aria-label="shell.sidebar.importIcs" data-i18n-title="shell.sidebar.importIcs">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
-          <span>ICS-Datei hierher ziehen oder klicken</span>
+          <span data-i18n="shell.sidebar.importIcsHint">ICS-Datei hierher ziehen oder klicken</span>
         </div>
       </div>
 
       <!-- Webcal Subscriptions Section -->
       <div class="sidebar-section" id="webcal-sidebar-section">
         <div class="sidebar-section-header">
-          <span class="sidebar-section-title">Abonnements</span>
-          <button class="icon-btn" id="add-webcal-btn" title="Webcal-Abonnement hinzufügen" aria-label="Webcal-Abonnement hinzufügen">
+          <span class="sidebar-section-title" data-i18n="shell.sidebar.subscriptions">Abonnements</span>
+          <button class="icon-btn" id="add-webcal-btn" title="Webcal-Abonnement hinzufügen" aria-label="Webcal-Abonnement hinzufügen" data-i18n-title="shell.sidebar.addWebcal" data-i18n-aria-label="shell.sidebar.addWebcal">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 5v14M5 12h14"/>
             </svg>
@@ -173,7 +173,7 @@
       <!-- Tasks Sidebar Section -->
       <div class="sidebar-section" id="task-sidebar-section">
         <div class="sidebar-section-header">
-          <span class="sidebar-section-title">Aufgaben</span>
+          <span class="sidebar-section-title" data-i18n="shell.sidebar.tasks">Aufgaben</span>
           <span class="kanban-badge" id="sidebar-task-count">0</span>
         </div>
         <div id="sidebar-task-list" class="sidebar-task-list"></div>
@@ -187,15 +187,15 @@
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-        <span>Einstellungen</span>
+        <span data-i18n="shell.sidebar.settings">Einstellungen</span>
       </button>
     </div>
 
     <!-- Settings Drawer -->
     <div class="sidebar-settings-drawer hidden" id="settings-drawer" inert role="dialog" aria-modal="true" aria-labelledby="settings-drawer-title">
       <div class="settings-drawer-header">
-        <h2 id="settings-drawer-title">Einstellungen</h2>
-        <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen">
+        <h2 id="settings-drawer-title" data-i18n="shell.settings.title">Einstellungen</h2>
+        <button class="icon-btn" id="close-settings-btn" aria-label="Einstellungen schließen" data-i18n-aria-label="shell.settings.close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -205,8 +205,8 @@
         <!-- Accounts Section -->
         <div class="settings-section">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0">Accounts verwalten</h3>
-            <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px" aria-label="Account hinzufügen">
+            <h3 style="margin:0" data-i18n="shell.settings.accounts">Accounts verwalten</h3>
+            <button class="icon-btn" id="settings-add-account-btn" title="Account hinzufügen" style="padding:2px" aria-label="Account hinzufügen" data-i18n-title="shell.settings.addAccount" data-i18n-aria-label="shell.settings.addAccount">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
@@ -217,8 +217,8 @@
         <!-- Calendars Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0">Kalender &amp; Aufgabenlisten löschen</h3>
-            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender oder Aufgabenliste erstellen" style="padding:2px" aria-label="Kalender oder Aufgabenliste erstellen">
+            <h3 style="margin:0" data-i18n="shell.settings.calendars">Kalender &amp; Aufgabenlisten löschen</h3>
+            <button class="icon-btn" id="settings-add-calendar-btn" title="Kalender oder Aufgabenliste erstellen" style="padding:2px" aria-label="Kalender oder Aufgabenliste erstellen" data-i18n-title="shell.settings.createCalendar" data-i18n-aria-label="shell.settings.createCalendar">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
@@ -228,15 +228,15 @@
         </div>
         <!-- Trash Section (#348) -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Papierkorb</h3>
-          <p class="trash-hint">Gelöschte Kalender, Aufgabenlisten, Termine und Aufgaben bleiben 30 Tage wiederherstellbar.</p>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.trash">Papierkorb</h3>
+          <p class="trash-hint" data-i18n="shell.settings.trashHint">Gelöschte Kalender, Aufgabenlisten, Termine und Aufgaben bleiben 30 Tage wiederherstellbar.</p>
           <div class="settings-list" id="settings-trash-list"></div>
         </div>
         <!-- App-Specific Passwords Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-            <h3 style="margin:0">App-Passwörter (CalDAV)</h3>
-            <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" style="padding:2px" aria-label="App-Passwort erstellen">
+            <h3 style="margin:0" data-i18n="shell.settings.appPasswords">App-Passwörter (CalDAV)</h3>
+            <button class="icon-btn" id="settings-add-asp-btn" title="App-Passwort erstellen" style="padding:2px" aria-label="App-Passwort erstellen" data-i18n-title="shell.settings.createAppPassword" data-i18n-aria-label="shell.settings.createAppPassword">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
@@ -246,247 +246,256 @@
         </div>
         <!-- Theme / Appearance Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Erscheinungsbild</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.appearance">Erscheinungsbild</h3>
+          <!-- #626: the UI language; "Wie im Browser" leaves it to the browser, then Deutsch (Du) -->
+          <div class="form-group" style="margin-bottom:6px;">
+            <label class="form-label" for="pref-language" style="font-size:11px;" data-i18n="shell.settings.language">Sprache</label>
+            <select class="form-select" id="pref-language" data-pref="language" style="width:100%; font-size:12px; padding:4px 6px;">
+              <option value="" data-i18n="shell.settings.languageBrowser">Wie im Browser</option>
+              <option value="de" lang="de">Deutsch</option>
+              <option value="en" lang="en">English</option>
+            </select>
+          </div>
           <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" for="theme-select" style="font-size:11px;">Farbschema / Theme</label>
+            <label class="form-label" for="theme-select" style="font-size:11px;" data-i18n="shell.settings.theme">Farbschema / Theme</label>
             <select class="form-select" id="theme-select" style="width:100%; font-size:12px; padding:4px 6px;">
-              <option value="system">System (Automatisch)</option>
-              <option value="light">Helle Ansicht (Light)</option>
-              <option value="dark">Dunkle Ansicht (Dark)</option>
+              <option value="system" data-i18n="shell.settings.themeSystem">System (Automatisch)</option>
+              <option value="light" data-i18n="shell.settings.themeLight">Helle Ansicht (Light)</option>
+              <option value="dark" data-i18n="shell.settings.themeDark">Dunkle Ansicht (Dark)</option>
             </select>
           </div>
         </div>
         <!-- #625: calendar preferences; "Wie im Browser" leaves the choice to the browser's conventions -->
         <div class="settings-section" id="calendar-prefs" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Datum, Uhrzeit und neue Termine</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.prefs">Datum, Uhrzeit und neue Termine</h3>
           <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-week-start" style="font-size:11px;">Woche beginnt am</label>
+            <label class="form-label" for="pref-week-start" style="font-size:11px;" data-i18n="shell.settings.weekStart">Woche beginnt am</label>
             <select class="form-select" id="pref-week-start" data-pref="weekStart">
-              <option value="">Wie im Browser</option>
-              <option value="mon">Montag</option>
-              <option value="sun">Sonntag</option>
-              <option value="sat">Samstag</option>
+              <option value="" data-i18n="shell.settings.browserDefault">Wie im Browser</option>
+              <option value="mon" data-i18n="shell.weekday.mon">Montag</option>
+              <option value="sun" data-i18n="shell.weekday.sun">Sonntag</option>
+              <option value="sat" data-i18n="shell.weekday.sat">Samstag</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-time-format" style="font-size:11px;">Uhrzeit</label>
+            <label class="form-label" for="pref-time-format" style="font-size:11px;" data-i18n="shell.settings.timeFormat">Uhrzeit</label>
             <select class="form-select" id="pref-time-format" data-pref="timeFormat">
-              <option value="">Wie im Browser</option>
-              <option value="24h">24 Stunden (13:00)</option>
-              <option value="12h">12 Stunden (1:00 PM)</option>
+              <option value="" data-i18n="shell.settings.browserDefault">Wie im Browser</option>
+              <option value="24h" data-i18n="shell.settings.time24h">24 Stunden (13:00)</option>
+              <option value="12h" data-i18n="shell.settings.time12h">12 Stunden (1:00 PM)</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-time-zone" style="font-size:11px;">Zeitzone neuer Termine</label>
+            <label class="form-label" for="pref-time-zone" style="font-size:11px;" data-i18n="shell.settings.defaultTimeZone">Zeitzone neuer Termine</label>
             <select class="form-select" id="pref-time-zone" data-pref="timeZone"></select>
           </div>
           <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-default-duration" style="font-size:11px;">Dauer neuer Termine</label>
+            <label class="form-label" for="pref-default-duration" style="font-size:11px;" data-i18n="shell.settings.defaultDuration">Dauer neuer Termine</label>
             <select class="form-select" id="pref-default-duration" data-pref="defaultDuration" data-number>
-              <option value="15">15 Minuten</option>
-              <option value="30">30 Minuten</option>
-              <option value="45">45 Minuten</option>
-              <option value="60">1 Stunde</option>
-              <option value="90">1,5 Stunden</option>
-              <option value="120">2 Stunden</option>
+              <option value="15" data-i18n="shell.settings.duration15">15 Minuten</option>
+              <option value="30" data-i18n="shell.settings.duration30">30 Minuten</option>
+              <option value="45" data-i18n="shell.settings.duration45">45 Minuten</option>
+              <option value="60" data-i18n="shell.settings.duration60">1 Stunde</option>
+              <option value="90" data-i18n="shell.settings.duration90">1,5 Stunden</option>
+              <option value="120" data-i18n="shell.settings.duration120">2 Stunden</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:6px;">
-            <label class="form-label" for="pref-default-calendar" style="font-size:11px;">Kalender neuer Termine</label>
+            <label class="form-label" for="pref-default-calendar" style="font-size:11px;" data-i18n="shell.settings.defaultCalendar">Kalender neuer Termine</label>
             <select class="form-select" id="pref-default-calendar" data-pref="defaultCalendarId"></select>
           </div>
           <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" for="pref-default-reminder" style="font-size:11px;">Erinnerung neuer Termine</label>
+            <label class="form-label" for="pref-default-reminder" style="font-size:11px;" data-i18n="shell.settings.defaultReminder">Erinnerung neuer Termine</label>
             <select class="form-select" id="pref-default-reminder" data-pref="defaultReminder" data-number>
-              <option value="">Keine</option>
-              <option value="0">Zum Beginn</option>
-              <option value="5">5 Minuten vorher</option>
-              <option value="10">10 Minuten vorher</option>
-              <option value="15">15 Minuten vorher</option>
-              <option value="30">30 Minuten vorher</option>
-              <option value="60">1 Stunde vorher</option>
-              <option value="1440">1 Tag vorher</option>
+              <option value="" data-i18n="shell.common.none">Keine</option>
+              <option value="0" data-i18n="shell.settings.reminderAtStart">Zum Beginn</option>
+              <option value="5" data-i18n="shell.settings.reminder5">5 Minuten vorher</option>
+              <option value="10" data-i18n="shell.settings.reminder10">10 Minuten vorher</option>
+              <option value="15" data-i18n="shell.settings.reminder15">15 Minuten vorher</option>
+              <option value="30" data-i18n="shell.settings.reminder30">30 Minuten vorher</option>
+              <option value="60" data-i18n="shell.settings.reminder60">1 Stunde vorher</option>
+              <option value="1440" data-i18n="shell.settings.reminder1440">1 Tag vorher</option>
             </select>
           </div>
         </div>
         <!-- #517: Week numbers -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Kalenderwochen</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.weekNumbers">Kalenderwochen</h3>
           <div class="form-group" style="margin-bottom:4px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="show-week-numbers-toggle" />
-              Kalenderwochen (ISO) in Monat, Woche und Mini-Monat anzeigen
+              <span data-i18n="shell.settings.weekNumbersShow">Kalenderwochen (ISO) in Monat, Woche und Mini-Monat anzeigen</span>
             </label>
           </div>
         </div>
         <!-- Timezone Settings Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Zweite Zeitzone</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.secondaryTz">Zweite Zeitzone</h3>
           <div class="form-group" style="margin-bottom:8px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="show-secondary-tz-toggle" />
-              Zweite Zeitleiste in Woche und Tag anzeigen
+              <span data-i18n="shell.settings.secondaryTzShow">Zweite Zeitleiste in Woche und Tag anzeigen</span>
             </label>
           </div>
           <div class="form-group hidden" id="secondary-tz-picker" style="margin-bottom:4px;">
             <div id="secondary-tz-current" style="font-size:11px; margin-bottom:6px;" aria-live="polite"></div>
-            <label class="form-label" for="secondary-tz-search" style="font-size:11px;">Zeitzone suchen</label>
+            <label class="form-label" for="secondary-tz-search" style="font-size:11px;" data-i18n="shell.settings.secondaryTzSearch">Zeitzone suchen</label>
             <input type="search" class="form-input" id="secondary-tz-search" autocomplete="off" spellcheck="false"
-                   placeholder="Stadt oder Zone, z. B. Tokyo" aria-controls="secondary-tz-results"
+                   placeholder="Stadt oder Zone, z. B. Tokyo" data-i18n-placeholder="shell.settings.secondaryTzPlaceholder" aria-controls="secondary-tz-results"
                    style="width:100%; font-size:12px; padding:4px 6px;" />
-            <ul class="tz-results" id="secondary-tz-results" aria-label="Passende Zeitzonen"></ul>
+            <ul class="tz-results" id="secondary-tz-results" aria-label="Passende Zeitzonen" data-i18n-aria-label="shell.settings.secondaryTzResults"></ul>
           </div>
         </div>
         <!-- Public holidays (#514): a built-in, read-only subscription computed on the shard -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Feiertage</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.holidays">Feiertage</h3>
           <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label" for="holiday-country" style="font-size:11px;">Land</label>
+            <label class="form-label" for="holiday-country" style="font-size:11px;" data-i18n="shell.settings.holidaysCountry">Land</label>
             <select class="form-select" id="holiday-country" style="width:100%; font-size:12px; padding:4px 6px;">
               <option value="">Keine Feiertage anzeigen</option>
             </select>
           </div>
           <div class="form-group hidden" id="holiday-region-group" style="margin-bottom:4px;">
-            <label class="form-label" for="holiday-region" style="font-size:11px;">Region</label>
+            <label class="form-label" for="holiday-region" style="font-size:11px;" data-i18n="shell.settings.holidaysRegion">Region</label>
             <select class="form-select" id="holiday-region" style="width:100%; font-size:12px; padding:4px 6px;"></select>
           </div>
-          <p style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;">Werden auf dem Shard berechnet, ohne Anfrage an Dritte.</p>
+          <p style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;" data-i18n="shell.settings.holidaysNote">Werden auf dem Shard berechnet, ohne Anfrage an Dritte.</p>
         </div>
         <!-- Weather (#513): opt-in, because the location goes to a third party -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Wetter</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.weather">Wetter</h3>
           <div class="form-group" style="margin-bottom:8px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="weather-enabled" aria-describedby="weather-notice" />
-              Wettervorhersage in Woche und Tag anzeigen
+              <span data-i18n="shell.settings.weatherShow">Wettervorhersage in Woche und Tag anzeigen</span>
             </label>
           </div>
           <p id="weather-notice" style="font-size:11px; color:var(--ink-muted); margin:0 0 8px;">
-            Eingeschaltet sendet der Shard den hier eingetragenen Ort, auf etwa 1&nbsp;km gerundet, an
-            <span id="weather-provider-host">Bright Sky (api.brightsky.dev)</span>. Bright Sky liefert die offenen
-            Vorhersagen des Deutschen Wetterdienstes für Deutschland und Umgebung. Ausgeschaltet geht nichts dorthin.
+            <span data-i18n="shell.settings.weatherNoticeBefore">Eingeschaltet sendet der Shard den hier eingetragenen Ort, auf etwa 1&nbsp;km gerundet, an</span>
+            <span id="weather-provider-host">Bright Sky (api.brightsky.dev)</span><span data-i18n="shell.settings.weatherNoticeAfter">. Bright Sky liefert die offenen
+            Vorhersagen des Deutschen Wetterdienstes für Deutschland und Umgebung. Ausgeschaltet geht nichts dorthin.</span>
           </p>
           <form class="hidden" id="weather-location-form" novalidate>
             <div style="display:flex; gap:8px; margin-bottom:8px;">
               <div style="flex:1;">
-                <label class="form-label" for="weather-latitude" style="font-size:11px;">Breitengrad</label>
+                <label class="form-label" for="weather-latitude" style="font-size:11px;" data-i18n="shell.settings.latitude">Breitengrad</label>
                 <input type="text" inputmode="decimal" class="form-input" id="weather-latitude" placeholder="52.52" autocomplete="off"
                        style="width:100%; font-size:12px; padding:4px 6px;" />
               </div>
               <div style="flex:1;">
-                <label class="form-label" for="weather-longitude" style="font-size:11px;">Längengrad</label>
+                <label class="form-label" for="weather-longitude" style="font-size:11px;" data-i18n="shell.settings.longitude">Längengrad</label>
                 <input type="text" inputmode="decimal" class="form-input" id="weather-longitude" placeholder="13.40" autocomplete="off"
                        style="width:100%; font-size:12px; padding:4px 6px;" />
               </div>
             </div>
             <p id="weather-error" class="hidden" role="alert" style="font-size:11px; color:var(--danger); margin:0 0 8px;"></p>
-            <button type="submit" class="btn btn-ghost" id="weather-save-btn">Ort speichern und Wetter einschalten</button>
+            <button type="submit" class="btn btn-ghost" id="weather-save-btn" data-i18n="shell.settings.weatherSave">Ort speichern und Wetter einschalten</button>
           </form>
           <p id="weather-status" style="font-size:11px; margin:6px 0 0;" aria-live="polite"></p>
         </div>
         <!-- Video conference link (#521): off until the user sets a Jitsi server -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Videokonferenz</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.conference">Videokonferenz</h3>
           <div class="form-group" style="margin-bottom:8px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="conference-enabled" aria-describedby="conference-notice" />
-              „Videokonferenz hinzufügen“ im Termin-Dialog anbieten (Jitsi)
+              <span data-i18n="shell.settings.conferenceOffer">„Videokonferenz hinzufügen“ im Termin-Dialog anbieten (Jitsi)</span>
             </label>
           </div>
           <form class="hidden" id="conference-form" novalidate>
             <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label" for="conference-base-url" style="font-size:11px;">Jitsi-Server (eigener oder öffentlicher)</label>
+              <label class="form-label" for="conference-base-url" style="font-size:11px;" data-i18n="shell.settings.conferenceServer">Jitsi-Server (eigener oder öffentlicher)</label>
               <input type="url" class="form-input" id="conference-base-url" autocomplete="off"
                      style="width:100%; font-size:12px; padding:4px 6px;" />
             </div>
             <p id="conference-error" class="hidden" role="alert" style="font-size:11px; color:var(--danger); margin:0 0 8px;"></p>
-            <button type="submit" class="btn btn-ghost" id="conference-save-btn">Server speichern</button>
+            <button type="submit" class="btn btn-ghost" id="conference-save-btn" data-i18n="shell.settings.conferenceSave">Server speichern</button>
           </form>
           <p id="conference-notice" aria-live="polite" style="font-size:11px; color:var(--ink-muted); margin:6px 0 0;"></p>
         </div>
         <!-- Address lookup and map preview (#512): off until the user opts into a provider -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Adresssuche &amp; Karte</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.geo">Adresssuche &amp; Karte</h3>
           <div class="form-group" style="margin-bottom:4px;">
-            <label class="form-label" for="geo-provider" style="font-size:11px;">Dienst für Adressvorschläge im Feld „Ort“</label>
+            <label class="form-label" for="geo-provider" style="font-size:11px;" data-i18n="shell.settings.geoProvider">Dienst für Adressvorschläge im Feld „Ort“</label>
             <select class="form-select" id="geo-provider" style="width:100%; font-size:12px; padding:4px 6px;"></select>
           </div>
           <p id="geo-provider-notice" aria-live="polite" style="font-size:11px; color:var(--ink-muted); margin:4px 0 0;"></p>
         </div>
         <!-- Working Hours & Out of Office Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Arbeitszeiten & Abwesenheit</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.workingHours">Arbeitszeiten & Abwesenheit</h3>
           <div style="display:flex; gap:8px; margin-bottom:8px;">
             <div style="flex:1;">
-              <label class="form-label" for="wh-start-hour" style="font-size:11px;">Beginn</label>
+              <label class="form-label" for="wh-start-hour" style="font-size:11px;" data-i18n="shell.settings.whStart">Beginn</label>
               <select class="form-select" id="wh-start-hour" style="width:100%; font-size:12px; padding:4px 6px;">
-                <option value="6">06:00 Uhr</option>
-                <option value="7">07:00 Uhr</option>
-                <option value="8">08:00 Uhr</option>
-                <option value="9" selected>09:00 Uhr</option>
-                <option value="10">10:00 Uhr</option>
+                <option value="6" data-i18n="shell.settings.whHour6">06:00 Uhr</option>
+                <option value="7" data-i18n="shell.settings.whHour7">07:00 Uhr</option>
+                <option value="8" data-i18n="shell.settings.whHour8">08:00 Uhr</option>
+                <option value="9" selected data-i18n="shell.settings.whHour9">09:00 Uhr</option>
+                <option value="10" data-i18n="shell.settings.whHour10">10:00 Uhr</option>
               </select>
             </div>
             <div style="flex:1;">
-              <label class="form-label" for="wh-end-hour" style="font-size:11px;">Ende</label>
+              <label class="form-label" for="wh-end-hour" style="font-size:11px;" data-i18n="shell.settings.whEnd">Ende</label>
               <select class="form-select" id="wh-end-hour" style="width:100%; font-size:12px; padding:4px 6px;">
-                <option value="15">15:00 Uhr</option>
-                <option value="16">16:00 Uhr</option>
-                <option value="17" selected>17:00 Uhr</option>
-                <option value="18">18:00 Uhr</option>
-                <option value="19">19:00 Uhr</option>
-                <option value="20">20:00 Uhr</option>
+                <option value="15" data-i18n="shell.settings.whHour15">15:00 Uhr</option>
+                <option value="16" data-i18n="shell.settings.whHour16">16:00 Uhr</option>
+                <option value="17" selected data-i18n="shell.settings.whHour17">17:00 Uhr</option>
+                <option value="18" data-i18n="shell.settings.whHour18">18:00 Uhr</option>
+                <option value="19" data-i18n="shell.settings.whHour19">19:00 Uhr</option>
+                <option value="20" data-i18n="shell.settings.whHour20">20:00 Uhr</option>
               </select>
             </div>
           </div>
           <div class="form-group" style="margin-bottom:8px;">
-            <div class="form-label" id="wh-days-caption" style="font-size:11px; display:block; margin-bottom:4px;">Arbeitstage</div>
+            <div class="form-label" id="wh-days-caption" style="font-size:11px; display:block; margin-bottom:4px;" data-i18n="shell.settings.whDays">Arbeitstage</div>
             <div role="group" aria-labelledby="wh-days-caption" style="display:flex; flex-wrap:wrap; gap:6px; font-size:11px;">
-              <label><input type="checkbox" id="wh-day-1" checked /> Mo</label>
-              <label><input type="checkbox" id="wh-day-2" checked /> Di</label>
-              <label><input type="checkbox" id="wh-day-3" checked /> Mi</label>
-              <label><input type="checkbox" id="wh-day-4" checked /> Do</label>
-              <label><input type="checkbox" id="wh-day-5" checked /> Fr</label>
-              <label><input type="checkbox" id="wh-day-6" /> Sa</label>
-              <label><input type="checkbox" id="wh-day-0" /> So</label>
+              <label><input type="checkbox" id="wh-day-1" checked /> <span data-i18n="shell.weekday.monShort">Mo</span></label>
+              <label><input type="checkbox" id="wh-day-2" checked /> <span data-i18n="shell.weekday.tueShort">Di</span></label>
+              <label><input type="checkbox" id="wh-day-3" checked /> <span data-i18n="shell.weekday.wedShort">Mi</span></label>
+              <label><input type="checkbox" id="wh-day-4" checked /> <span data-i18n="shell.weekday.thuShort">Do</span></label>
+              <label><input type="checkbox" id="wh-day-5" checked /> <span data-i18n="shell.weekday.friShort">Fr</span></label>
+              <label><input type="checkbox" id="wh-day-6" /> <span data-i18n="shell.weekday.satShort">Sa</span></label>
+              <label><input type="checkbox" id="wh-day-0" /> <span data-i18n="shell.weekday.sunShort">So</span></label>
             </div>
           </div>
           <div class="form-group" style="margin-bottom:8px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="wh-auto-decline" />
-              Automatische Absage bei Termin außerhalb
+              <span data-i18n="shell.settings.whAutoDecline">Automatische Absage bei Termin außerhalb</span>
             </label>
           </div>
           <div class="form-group" style="margin-bottom:8px; border-top:1px dashed var(--border); padding-top:8px;">
             <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; font-weight:600;">
               <input type="checkbox" id="wh-ooo-enabled" />
-              Abwesenheitsmodus (Out of Office)
+              <span data-i18n="shell.settings.whOoo">Abwesenheitsmodus (Out of Office)</span>
             </label>
           </div>
           <div id="wh-ooo-fields" style="display:none; margin-bottom:8px;">
             <div style="display:flex; gap:8px; margin-bottom:6px;">
               <div style="flex:1;">
-                <label class="form-label" for="wh-ooo-start" style="font-size:11px;">Von</label>
+                <label class="form-label" for="wh-ooo-start" style="font-size:11px;" data-i18n="shell.common.from">Von</label>
                 <input type="date" class="form-input" id="wh-ooo-start" style="width:100%; font-size:11px; padding:3px 5px;" />
               </div>
               <div style="flex:1;">
-                <label class="form-label" for="wh-ooo-end" style="font-size:11px;">Bis</label>
+                <label class="form-label" for="wh-ooo-end" style="font-size:11px;" data-i18n="shell.common.to">Bis</label>
                 <input type="date" class="form-input" id="wh-ooo-end" style="width:100%; font-size:11px; padding:3px 5px;" />
               </div>
             </div>
             <div style="margin-bottom:4px;">
-              <label class="form-label" for="wh-ooo-message" style="font-size:11px;">Abwesenheitsnachricht</label>
+              <label class="form-label" for="wh-ooo-message" style="font-size:11px;" data-i18n="shell.settings.whOooMessage">Abwesenheitsnachricht</label>
               <input type="text" class="form-input" id="wh-ooo-message" value="Out of Office / Abwesend" style="width:100%; font-size:11px; padding:4px 6px;" />
             </div>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-            <button class="btn btn-primary" id="wh-save-btn" style="font-size:11px; padding:4px 10px;">Regeln speichern</button>
+            <button class="btn btn-primary" id="wh-save-btn" style="font-size:11px; padding:4px 10px;" data-i18n="shell.settings.whSave">Regeln speichern</button>
             <span id="wh-save-status" style="font-size:11px;"></span>
           </div>
         </div>
         <!-- Notifications Settings Section -->
         <div class="settings-section" style="border-top: var(--border-w) solid var(--border); padding-top:12px; margin-top:4px">
-          <h3 style="margin:0 0 8px 0">Benachrichtigungen</h3>
+          <h3 style="margin:0 0 8px 0" data-i18n="shell.settings.notifications">Benachrichtigungen</h3>
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span style="font-size:12px;" id="notification-status-text">Status: Standard</span>
             <button class="btn btn-sm btn-ghost" id="request-notification-btn" style="font-size:11px;">Aktivieren</button>
@@ -501,20 +510,20 @@
 
     <!-- Toolbar -->
     <header class="toolbar">
-      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menü öffnen">
+      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menü öffnen" data-i18n-aria-label="shell.toolbar.menu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M3 6h18M3 12h18M3 18h18"/>
         </svg>
       </button>
 
       <div class="toolbar-nav">
-        <button class="toolbar-btn" id="prev-btn" data-key-hint="P" aria-keyshortcuts="Alt+P" aria-label="Zurück">
+        <button class="toolbar-btn" id="prev-btn" data-key-hint="P" aria-keyshortcuts="Alt+P" aria-label="Zurück" data-i18n-aria-label="shell.toolbar.prev">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M15 18l-6-6 6-6"/>
           </svg>
         </button>
-        <button class="toolbar-today-btn" id="today-btn" data-key-hint="T" aria-keyshortcuts="Alt+T">Heute</button>
-        <button class="toolbar-btn" id="next-btn" data-key-hint="J" aria-keyshortcuts="Alt+J" aria-label="Vor">
+        <button class="toolbar-today-btn" id="today-btn" data-key-hint="T" aria-keyshortcuts="Alt+T" data-i18n="shell.toolbar.today">Heute</button>
+        <button class="toolbar-btn" id="next-btn" data-key-hint="J" aria-keyshortcuts="Alt+J" aria-label="Vor" data-i18n-aria-label="shell.toolbar.next">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M9 18l6-6-6-6"/>
           </svg>
@@ -523,36 +532,36 @@
 
       <h2 class="toolbar-title" id="toolbar-title"></h2>
 
-      <div class="view-tabs" role="group" aria-label="Ansicht wählen" style="margin-left:auto">
-        <button class="view-tab active" data-view="month"     id="view-month" data-key-hint="M" aria-keyshortcuts="Alt+M" aria-selected="true" aria-pressed="true">Monat</button>
-        <button class="view-tab"        data-view="week"      id="view-week" data-key-hint="W" aria-keyshortcuts="Alt+W" aria-selected="false" aria-pressed="false">Woche</button>
-        <button class="view-tab"        data-view="workweek"  id="view-workweek" aria-selected="false" aria-pressed="false">Arbeitswoche</button>
-        <button class="view-tab"        data-view="3day"      id="view-3day" aria-selected="false" aria-pressed="false">3 Tage</button>
-        <button class="view-tab"        data-view="day"       id="view-day" data-key-hint="D" aria-keyshortcuts="Alt+D" aria-selected="false" aria-pressed="false">Tag</button>
-        <button class="view-tab"        data-view="agenda"    id="view-agenda" data-key-hint="A" aria-keyshortcuts="Alt+A" aria-selected="false" aria-pressed="false">Agenda</button>
-        <button class="view-tab"        data-view="list"      id="view-list" aria-selected="false" aria-pressed="false">Liste</button>
-        <button class="view-tab"        data-view="kanban"    id="view-kanban" data-key-hint="K" aria-keyshortcuts="Alt+K" aria-selected="false" aria-pressed="false">Aufgaben</button>
+      <div class="view-tabs" role="group" aria-label="Ansicht wählen" data-i18n-aria-label="shell.toolbar.views" style="margin-left:auto">
+        <button class="view-tab active" data-view="month"     id="view-month" data-key-hint="M" aria-keyshortcuts="Alt+M" aria-selected="true" aria-pressed="true" data-i18n="shell.view.month">Monat</button>
+        <button class="view-tab"        data-view="week"      id="view-week" data-key-hint="W" aria-keyshortcuts="Alt+W" aria-selected="false" aria-pressed="false" data-i18n="shell.view.week">Woche</button>
+        <button class="view-tab"        data-view="workweek"  id="view-workweek" aria-selected="false" aria-pressed="false" data-i18n="shell.view.workweek">Arbeitswoche</button>
+        <button class="view-tab"        data-view="3day"      id="view-3day" aria-selected="false" aria-pressed="false" data-i18n="shell.view.threeDays">3 Tage</button>
+        <button class="view-tab"        data-view="day"       id="view-day" data-key-hint="D" aria-keyshortcuts="Alt+D" aria-selected="false" aria-pressed="false" data-i18n="shell.view.day">Tag</button>
+        <button class="view-tab"        data-view="agenda"    id="view-agenda" data-key-hint="A" aria-keyshortcuts="Alt+A" aria-selected="false" aria-pressed="false" data-i18n="shell.view.agenda">Agenda</button>
+        <button class="view-tab"        data-view="list"      id="view-list" aria-selected="false" aria-pressed="false" data-i18n="shell.view.list">Liste</button>
+        <button class="view-tab"        data-view="kanban"    id="view-kanban" data-key-hint="K" aria-keyshortcuts="Alt+K" aria-selected="false" aria-pressed="false" data-i18n="shell.view.tasks">Aufgaben</button>
       </div>
 
-      <button class="toolbar-btn" id="invitations-btn" title="Einladungen" style="margin-left: 8px; position: relative;">
-        <span>Einladungen</span>
+      <button class="toolbar-btn" id="invitations-btn" title="Einladungen" data-i18n-title="shell.toolbar.invitations" style="margin-left: 8px; position: relative;">
+        <span data-i18n="shell.toolbar.invitations">Einladungen</span>
         <span class="kanban-badge" id="invitations-badge" style="display:none; margin-left: 4px;">0</span>
       </button>
 
-      <button class="toolbar-btn" id="export-pdf-btn" title="PDF Export / Drucken" style="margin-left: 8px;">
+      <button class="toolbar-btn" id="export-pdf-btn" title="PDF Export / Drucken" data-i18n-title="shell.toolbar.pdfTitle" style="margin-left: 8px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;" aria-hidden="true">
           <path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
           <path d="M6 14h12v8H6z"/>
         </svg>
-        <span>PDF / Druck</span>
+        <span data-i18n="shell.toolbar.pdf">PDF / Druck</span>
       </button>
 
-      <button class="toolbar-btn" id="availability-btn" title="Buchbare Zeiten" style="margin-left: 8px;">
+      <button class="toolbar-btn" id="availability-btn" title="Buchbare Zeiten" data-i18n-title="shell.toolbar.availability" style="margin-left: 8px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="vertical-align:-2px; margin-right:4px;" aria-hidden="true">
           <circle cx="12" cy="12" r="10"/>
           <polyline points="12 6 12 12 16 14"/>
         </svg>
-        <span>Buchbare Zeiten</span>
+        <span data-i18n="shell.toolbar.availability">Buchbare Zeiten</span>
       </button>
 
 
@@ -562,8 +571,8 @@
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
         </span>
-        <input type="text" id="search-input" aria-keyshortcuts="Alt+S" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" aria-controls="search-results" />
-        <div id="search-results" class="search-results hidden" role="region" aria-label="Suchergebnisse in allen Kalendern"></div>
+        <input type="text" id="search-input" aria-keyshortcuts="Alt+S" class="search-input" placeholder="Suchen…" aria-label="Kalender durchsuchen" data-i18n-placeholder="shell.toolbar.searchPlaceholder" data-i18n-aria-label="shell.toolbar.searchLabel" aria-controls="search-results" />
+        <div id="search-results" class="search-results hidden" role="region" aria-label="Suchergebnisse in allen Kalendern" data-i18n-aria-label="shell.toolbar.searchResults"></div>
       </div>
     </header>
 
@@ -577,7 +586,7 @@
         </svg>
         <span id="oauth-warning-text">Ein oder mehrere Google-Konten erfordern eine erneute Anmeldung.</span>
       </div>
-      <button id="oauth-reauth-btn" class="btn-warning-reauth">Erneut anmelden</button>
+      <button id="oauth-reauth-btn" class="btn-warning-reauth" data-i18n="shell.banner.reauth">Erneut anmelden</button>
     </div>
 
     <!-- Background Sync Failure Banner (Issue #203 / #198) -->
@@ -590,7 +599,7 @@
         </svg>
         <span id="sync-error-text"></span>
       </div>
-      <button id="sync-error-dismiss" class="icon-btn" type="button" aria-label="Hinweis schließen">×</button>
+      <button id="sync-error-dismiss" class="icon-btn" type="button" aria-label="Hinweis schließen" data-i18n-aria-label="shell.banner.dismiss">×</button>
     </div>
 
     <!-- Progress of a long ICS import and of a running account sync (Issue #174) -->
@@ -608,7 +617,7 @@
     </div>
 
     <!-- #351: on a phone the one forward action floats above the bottom navigation -->
-    <button class="fab" id="fab-new-event" aria-label="Neuer Termin">
+    <button class="fab" id="fab-new-event" aria-label="Neuer Termin" data-i18n-aria-label="shell.common.newEvent">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M12 5v14M5 12h14"/>
       </svg>
@@ -624,7 +633,7 @@
   <div class="modal" id="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="event-modal-title">Neuer Termin</h3>
-      <button class="icon-btn modal-close" id="event-modal-close" aria-label="Schließen">
+      <button class="icon-btn modal-close" id="event-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -638,56 +647,56 @@
 
         <div class="form-row template-picker hidden" id="ev-template-row">
           <div class="form-group">
-            <label class="form-label" for="ev-template">Neu aus Vorlage</label>
+            <label class="form-label" for="ev-template" data-i18n="shell.common.fromTemplate">Neu aus Vorlage</label>
             <select class="form-select" id="ev-template"></select>
           </div>
-          <button type="button" class="btn btn-ghost" id="ev-template-delete" disabled>Vorlage löschen</button>
+          <button type="button" class="btn btn-ghost" id="ev-template-delete" disabled data-i18n="shell.common.deleteTemplate">Vorlage löschen</button>
         </div>
 
         <div class="form-group">
           <input class="form-input form-input-title" id="ev-title" type="text"
-                 placeholder="Titel des Termins" aria-label="Titel des Termins" required />
+                 placeholder="Titel des Termins" aria-label="Titel des Termins" data-i18n-placeholder="shell.eventModal.titleField" data-i18n-aria-label="shell.eventModal.titleField" required />
         </div>
 
         <div class="form-row">
           <div class="form-group form-group-calendar">
-            <label class="form-label" for="ev-calendar">Kalender</label>
+            <label class="form-label" for="ev-calendar" data-i18n="shell.common.calendar">Kalender</label>
             <select class="form-select" id="ev-calendar" required></select>
           </div>
           <div class="form-group">
             <label class="form-label">
               <input type="checkbox" id="ev-allday" class="form-checkbox" />
-              Ganztägig
+              <span data-i18n="shell.eventModal.allDay">Ganztägig</span>
             </label>
           </div>
         </div>
 
         <div class="form-row" id="ev-start-row">
           <div class="form-group">
-            <label class="form-label" for="ev-start-date">Von</label>
+            <label class="form-label" for="ev-start-date" data-i18n="shell.common.from">Von</label>
             <input class="form-input" id="ev-start-date" type="date" required />
           </div>
           <div class="form-group" id="ev-start-time-group">
-            <label class="form-label" for="ev-start-time">Uhrzeit</label>
+            <label class="form-label" for="ev-start-time" data-i18n="shell.eventModal.time">Uhrzeit</label>
             <input class="form-input" id="ev-start-time" type="time" required />
           </div>
           <div class="form-group hidden" id="ev-start-tz-group">
-            <label class="form-label" for="ev-start-tz">Zeitzone</label>
+            <label class="form-label" for="ev-start-tz" data-i18n="shell.eventModal.timeZone">Zeitzone</label>
             <select class="form-select" id="ev-start-tz"></select>
           </div>
         </div>
 
         <div class="form-row" id="ev-end-row">
           <div class="form-group">
-            <label class="form-label" for="ev-end-date">Bis</label>
+            <label class="form-label" for="ev-end-date" data-i18n="shell.common.to">Bis</label>
             <input class="form-input" id="ev-end-date" type="date" required />
           </div>
           <div class="form-group" id="ev-end-time-group">
-            <label class="form-label" for="ev-end-time">Uhrzeit</label>
+            <label class="form-label" for="ev-end-time" data-i18n="shell.eventModal.time">Uhrzeit</label>
             <input class="form-input" id="ev-end-time" type="time" required />
           </div>
           <div class="form-group hidden" id="ev-end-tz-group">
-            <label class="form-label" for="ev-end-tz">Zeitzone</label>
+            <label class="form-label" for="ev-end-tz" data-i18n="shell.eventModal.timeZone">Zeitzone</label>
             <select class="form-select" id="ev-end-tz"></select>
           </div>
         </div>
@@ -699,10 +708,10 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="ev-location">Ort</label>
+          <label class="form-label" for="ev-location" data-i18n="shell.eventModal.location">Ort</label>
           <div class="location-field">
-            <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" autocomplete="off" />
-            <ul class="location-suggestions hidden" id="ev-location-suggestions" role="listbox" aria-label="Adressvorschläge"></ul>
+            <input class="form-input" id="ev-location" type="text" placeholder="Ort oder Videolink" data-i18n-placeholder="shell.eventModal.locationPlaceholder" autocomplete="off" />
+            <ul class="location-suggestions hidden" id="ev-location-suggestions" role="listbox" aria-label="Adressvorschläge" data-i18n-aria-label="shell.eventModal.locationSuggestions"></ul>
           </div>
           <div class="location-status" id="ev-location-status" aria-live="polite"></div>
           <div class="location-map hidden" id="ev-location-map" role="img"></div>
@@ -710,32 +719,32 @@
 
         <!-- #521: video conference link, offered once the user has set a Jitsi server -->
         <div class="form-group conference-field">
-          <button type="button" class="btn btn-ghost btn-sm hidden" id="ev-conference-add">Videokonferenz hinzufügen</button>
+          <button type="button" class="btn btn-ghost btn-sm hidden" id="ev-conference-add" data-i18n="shell.eventModal.conferenceAdd">Videokonferenz hinzufügen</button>
           <div class="conference-link hidden" id="ev-conference">
-            <span class="form-label">Videokonferenz</span>
+            <span class="form-label" data-i18n="shell.eventModal.conference">Videokonferenz</span>
             <a id="ev-conference-link" target="_blank" rel="noopener noreferrer"></a>
-            <button type="button" class="btn btn-ghost btn-sm" id="ev-conference-remove" aria-label="Videokonferenz entfernen">Entfernen</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="ev-conference-remove" aria-label="Videokonferenz entfernen" data-i18n-aria-label="shell.eventModal.conferenceRemoveLabel" data-i18n="shell.eventModal.conferenceRemove">Entfernen</button>
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="ev-description">Beschreibung</label>
+          <label class="form-label" for="ev-description" data-i18n="shell.common.description">Beschreibung</label>
           <textarea class="form-input form-textarea" id="ev-description"
-                    placeholder="Optionale Beschreibung…" rows="3"></textarea>
+                    placeholder="Optionale Beschreibung…" data-i18n-placeholder="shell.eventModal.descriptionPlaceholder" rows="3"></textarea>
         </div>
 
         <!-- #506: rarely used fields, collapsed unless the event uses them -->
         <details class="form-section" id="ev-section-recurrence">
-          <summary class="form-section-summary">Wiederholung</summary>
+          <summary class="form-section-summary" data-i18n="shell.eventModal.recurrence">Wiederholung</summary>
           <div class="form-section-body">
             <div class="form-group">
-              <label class="form-label sr-only" for="ev-recurrence">Wiederholung</label>
+              <label class="form-label sr-only" for="ev-recurrence" data-i18n="shell.eventModal.recurrence">Wiederholung</label>
               <select class="form-select" id="ev-recurrence">
-                <option value="">Keine Wiederholung</option>
-                <option value="DAILY">Täglich</option>
-                <option value="WEEKLY">Wöchentlich</option>
-                <option value="MONTHLY">Monatlich</option>
-                <option value="YEARLY">Jährlich</option>
+                <option value="" data-i18n="shell.common.recurNone">Keine Wiederholung</option>
+                <option value="DAILY" data-i18n="shell.common.daily">Täglich</option>
+                <option value="WEEKLY" data-i18n="shell.common.weekly">Wöchentlich</option>
+                <option value="MONTHLY" data-i18n="shell.common.monthly">Monatlich</option>
+                <option value="YEARLY" data-i18n="shell.common.yearly">Jährlich</option>
               </select>
             </div>
 
@@ -750,21 +759,21 @@
 
             <!-- Weekly days selector (hidden by default) -->
             <div class="form-group hidden" id="recur-weekly-days">
-              <div class="form-label" id="recur-weekly-caption">Wiederholen am</div>
+              <div class="form-label" id="recur-weekly-caption" data-i18n="shell.eventModal.recurOn">Wiederholen am</div>
               <div class="weekdays-checkgrid" role="group" aria-labelledby="recur-weekly-caption">
-                <label class="weekday-check"><input type="checkbox" value="MO" class="recur-byday"> Mo</label>
-                <label class="weekday-check"><input type="checkbox" value="TU" class="recur-byday"> Di</label>
-                <label class="weekday-check"><input type="checkbox" value="WE" class="recur-byday"> Mi</label>
-                <label class="weekday-check"><input type="checkbox" value="TH" class="recur-byday"> Do</label>
-                <label class="weekday-check"><input type="checkbox" value="FR" class="recur-byday"> Fr</label>
-                <label class="weekday-check"><input type="checkbox" value="SA" class="recur-byday"> Sa</label>
-                <label class="weekday-check"><input type="checkbox" value="SU" class="recur-byday"> So</label>
+                <label class="weekday-check"><input type="checkbox" value="MO" class="recur-byday"> <span data-i18n="shell.weekday.monShort">Mo</span></label>
+                <label class="weekday-check"><input type="checkbox" value="TU" class="recur-byday"> <span data-i18n="shell.weekday.tueShort">Di</span></label>
+                <label class="weekday-check"><input type="checkbox" value="WE" class="recur-byday"> <span data-i18n="shell.weekday.wedShort">Mi</span></label>
+                <label class="weekday-check"><input type="checkbox" value="TH" class="recur-byday"> <span data-i18n="shell.weekday.thuShort">Do</span></label>
+                <label class="weekday-check"><input type="checkbox" value="FR" class="recur-byday"> <span data-i18n="shell.weekday.friShort">Fr</span></label>
+                <label class="weekday-check"><input type="checkbox" value="SA" class="recur-byday"> <span data-i18n="shell.weekday.satShort">Sa</span></label>
+                <label class="weekday-check"><input type="checkbox" value="SU" class="recur-byday"> <span data-i18n="shell.weekday.sunShort">So</span></label>
               </div>
             </div>
 
             <!-- Monthly options selector (hidden by default) -->
             <div class="form-group hidden" id="recur-monthly-opts">
-              <div class="form-label" id="recur-monthly-caption">Wiederholen am</div>
+              <div class="form-label" id="recur-monthly-caption" data-i18n="shell.eventModal.recurOn">Wiederholen am</div>
               <div class="radio-group" role="group" aria-labelledby="recur-monthly-caption">
                 <label class="radio-option">
                   <input type="radio" name="recur-monthly-type" value="BYMONTHDAY" checked>
@@ -773,24 +782,24 @@
                 <div class="radio-option-row">
                   <label class="radio-option">
                     <input type="radio" name="recur-monthly-type" value="BYDAY">
-                    Am:
+                    <span data-i18n="shell.eventModal.recurOnDate">Am:</span>
                   </label>
-                  <select class="form-select inline-select" id="recur-monthly-week-idx" aria-label="Woche des Monats">
-                    <option value="1">ersten</option>
-                    <option value="2">zweiten</option>
-                    <option value="3">dritten</option>
-                    <option value="4">vierten</option>
-                    <option value="5">fünften</option>
-                    <option value="-1">letzten</option>
+                  <select class="form-select inline-select" id="recur-monthly-week-idx" aria-label="Woche des Monats" data-i18n-aria-label="shell.eventModal.weekOfMonth">
+                    <option value="1" data-i18n="shell.eventModal.weekFirst">ersten</option>
+                    <option value="2" data-i18n="shell.eventModal.weekSecond">zweiten</option>
+                    <option value="3" data-i18n="shell.eventModal.weekThird">dritten</option>
+                    <option value="4" data-i18n="shell.eventModal.weekFourth">vierten</option>
+                    <option value="5" data-i18n="shell.eventModal.weekFifth">fünften</option>
+                    <option value="-1" data-i18n="shell.eventModal.weekLast">letzten</option>
                   </select>
-                  <select class="form-select inline-select" id="recur-monthly-weekday" aria-label="Wochentag">
-                    <option value="MO">Montag</option>
-                    <option value="TU">Dienstag</option>
-                    <option value="WE">Mittwoch</option>
-                    <option value="TH">Donnerstag</option>
-                    <option value="FR">Freitag</option>
-                    <option value="SA">Samstag</option>
-                    <option value="SU">Sonntag</option>
+                  <select class="form-select inline-select" id="recur-monthly-weekday" aria-label="Wochentag" data-i18n-aria-label="shell.eventModal.weekday">
+                    <option value="MO" data-i18n="shell.weekday.mon">Montag</option>
+                    <option value="TU" data-i18n="shell.weekday.tue">Dienstag</option>
+                    <option value="WE" data-i18n="shell.weekday.wed">Mittwoch</option>
+                    <option value="TH" data-i18n="shell.weekday.thu">Donnerstag</option>
+                    <option value="FR" data-i18n="shell.weekday.fri">Freitag</option>
+                    <option value="SA" data-i18n="shell.weekday.sat">Samstag</option>
+                    <option value="SU" data-i18n="shell.weekday.sun">Sonntag</option>
                   </select>
                 </div>
               </div>
@@ -798,26 +807,26 @@
 
             <!-- Recurrence End Section (hidden by default) -->
             <div class="form-group hidden" id="recur-end-section">
-              <div class="form-label" id="recur-end-caption">Ende der Wiederholung</div>
+              <div class="form-label" id="recur-end-caption" data-i18n="shell.eventModal.recurEnd">Ende der Wiederholung</div>
               <div class="radio-group" role="group" aria-labelledby="recur-end-caption">
                 <label class="radio-option">
                   <input type="radio" name="recur-end-type" value="NEVER" checked>
-                  <span>Nie</span>
+                  <span data-i18n="shell.eventModal.recurEndNever">Nie</span>
                 </label>
                 <div class="radio-option-row">
                   <label class="radio-option">
                     <input type="radio" name="recur-end-type" value="UNTIL">
-                    Am:
+                    <span data-i18n="shell.eventModal.recurOnDate">Am:</span>
                   </label>
-                  <input class="form-input inline-input" type="date" id="recur-end-date" aria-label="Enddatum der Wiederholung">
+                  <input class="form-input inline-input" type="date" id="recur-end-date" aria-label="Enddatum der Wiederholung" data-i18n-aria-label="shell.eventModal.recurEndDate">
                 </div>
                 <div class="radio-option-row">
                   <label class="radio-option">
                     <input type="radio" name="recur-end-type" value="COUNT">
-                    Nach:
+                    <span data-i18n="shell.eventModal.recurEndAfter">Nach:</span>
                   </label>
-                  <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;" aria-label="Anzahl Wiederholungen">
-                  <span>Wiederholungen</span>
+                  <input class="form-input inline-input" type="number" id="recur-end-count" min="1" value="10" style="width:70px !important;" aria-label="Anzahl Wiederholungen" data-i18n-aria-label="shell.eventModal.recurEndCount">
+                  <span data-i18n="shell.eventModal.recurEndOccurrences">Wiederholungen</span>
                 </div>
               </div>
             </div>
@@ -825,24 +834,24 @@
         </details>
 
         <details class="form-section" id="ev-section-alarm">
-          <summary class="form-section-summary">Erinnerungen</summary>
+          <summary class="form-section-summary" data-i18n="shell.common.reminders">Erinnerungen</summary>
           <div class="form-section-body">
             <div class="form-group">
-              <ul class="reminder-list" id="ev-reminder-list" aria-label="Erinnerungen"></ul>
-              <button type="button" class="btn btn-ghost" id="ev-add-reminder">Erinnerung hinzufügen</button>
+              <ul class="reminder-list" id="ev-reminder-list" aria-label="Erinnerungen" data-i18n-aria-label="shell.common.reminders"></ul>
+              <button type="button" class="btn btn-ghost" id="ev-add-reminder" data-i18n="shell.common.addReminder">Erinnerung hinzufügen</button>
             </div>
           </div>
         </details>
 
         <details class="form-section" id="ev-section-attendees">
-          <summary class="form-section-summary">Teilnehmende</summary>
+          <summary class="form-section-summary" data-i18n="shell.eventModal.attendees">Teilnehmende</summary>
           <div class="form-section-body">
             <div class="form-group">
-              <div class="form-label sr-only" id="ev-attendees-caption">Teilnehmende</div>
+              <div class="form-label sr-only" id="ev-attendees-caption" data-i18n="shell.eventModal.attendees">Teilnehmende</div>
               <div class="attendee-input-row" role="group" aria-labelledby="ev-attendees-caption">
-                <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" aria-label="Name der teilnehmenden Person" />
-                <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" aria-label="E-Mail der teilnehmenden Person" />
-                <button type="button" class="btn btn-ghost" id="add-attendee-btn">Hinzufügen</button>
+                <input class="form-input" id="ev-attendee-name" type="text" placeholder="Name" aria-label="Name der teilnehmenden Person" data-i18n-placeholder="shell.eventModal.attendeeName" data-i18n-aria-label="shell.eventModal.attendeeNameLabel" />
+                <input class="form-input" id="ev-attendee-email" type="email" placeholder="E-Mail" aria-label="E-Mail der teilnehmenden Person" data-i18n-placeholder="shell.eventModal.attendeeEmail" data-i18n-aria-label="shell.eventModal.attendeeEmailLabel" />
+                <button type="button" class="btn btn-ghost" id="add-attendee-btn" data-i18n="shell.common.add">Hinzufügen</button>
               </div>
               <ul class="attendee-list" id="ev-attendee-list"></ul>
             </div>
@@ -850,44 +859,44 @@
         </details>
 
         <details class="form-section" id="ev-section-link">
-          <summary class="form-section-summary">Link</summary>
+          <summary class="form-section-summary" data-i18n="shell.eventModal.link">Link</summary>
           <div class="form-section-body">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label" for="ev-attachment-url">Link</label>
+                <label class="form-label" for="ev-attachment-url" data-i18n="shell.eventModal.link">Link</label>
                 <input class="form-input" id="ev-attachment-url" type="url" placeholder="https://…" />
               </div>
               <div class="form-group">
-                <label class="form-label" for="ev-attachment-name">Name des Links (optional)</label>
-                <input class="form-input" id="ev-attachment-name" type="text" placeholder="z. B. Protokoll" />
+                <label class="form-label" for="ev-attachment-name" data-i18n="shell.eventModal.linkName">Name des Links (optional)</label>
+                <input class="form-input" id="ev-attachment-name" type="text" placeholder="z. B. Protokoll" data-i18n-placeholder="shell.eventModal.linkNamePlaceholder" />
               </div>
             </div>
           </div>
         </details>
 
         <details class="form-section" id="ev-section-more">
-          <summary class="form-section-summary">Weitere Angaben</summary>
+          <summary class="form-section-summary" data-i18n="shell.eventModal.more">Weitere Angaben</summary>
           <div class="form-section-body">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label" for="ev-transp">Verfügbarkeit</label>
+                <label class="form-label" for="ev-transp" data-i18n="shell.eventModal.transp">Verfügbarkeit</label>
                 <select class="form-select" id="ev-transp">
-                  <option value="OPAQUE">Beschäftigt</option>
-                  <option value="TRANSPARENT">Frei</option>
+                  <option value="OPAQUE" data-i18n="shell.eventModal.transpBusy">Beschäftigt</option>
+                  <option value="TRANSPARENT" data-i18n="shell.eventModal.transpFree">Frei</option>
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label" for="ev-class">Sichtbarkeit</label>
+                <label class="form-label" for="ev-class" data-i18n="shell.eventModal.class">Sichtbarkeit</label>
                 <select class="form-select" id="ev-class">
-                  <option value="PUBLIC">Öffentlich</option>
-                  <option value="PRIVATE">Privat</option>
-                  <option value="CONFIDENTIAL">Vertraulich</option>
+                  <option value="PUBLIC" data-i18n="shell.eventModal.classPublic">Öffentlich</option>
+                  <option value="PRIVATE" data-i18n="shell.eventModal.classPrivate">Privat</option>
+                  <option value="CONFIDENTIAL" data-i18n="shell.eventModal.classConfidential">Vertraulich</option>
                 </select>
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label" for="ev-categories">Kategorien</label>
-              <input class="form-input" id="ev-categories" type="text" placeholder="z. B. Arbeit, Meeting" />
+              <label class="form-label" for="ev-categories" data-i18n="shell.eventModal.categories">Kategorien</label>
+              <input class="form-input" id="ev-categories" type="text" placeholder="z. B. Arbeit, Meeting" data-i18n-placeholder="shell.eventModal.categoriesPlaceholder" />
             </div>
           </div>
         </details>
@@ -896,16 +905,16 @@
 
         <div class="modal-actions">
           <div class="modal-actions-left">
-            <button type="button" class="btn btn-danger" id="delete-event-btn" style="display:none">
+            <button type="button" class="btn btn-danger" id="delete-event-btn" style="display:none" data-i18n="shell.common.delete">
               Löschen
             </button>
-            <button type="button" class="btn btn-ghost hidden" id="event-duplicate-btn">Duplizieren</button>
-            <button type="button" class="btn btn-ghost" id="event-template-btn">Als Vorlage speichern</button>
+            <button type="button" class="btn btn-ghost hidden" id="event-duplicate-btn" data-i18n="shell.common.duplicate">Duplizieren</button>
+            <button type="button" class="btn btn-ghost" id="event-template-btn" data-i18n="shell.common.saveAsTemplate">Als Vorlage speichern</button>
           </div>
           <div class="modal-actions-right">
-            <button type="button" class="btn btn-ghost" id="event-cancel-btn">Abbrechen</button>
+            <button type="button" class="btn btn-ghost" id="event-cancel-btn" data-i18n="shell.common.cancel">Abbrechen</button>
             <button type="submit" class="btn btn-primary" id="event-save-btn">
-              <span class="btn-label">Speichern</span>
+              <span class="btn-label" data-i18n="shell.common.save">Speichern</span>
               <span class="btn-spinner hidden"></span>
             </button>
           </div>
@@ -919,8 +928,8 @@
 <div class="modal-backdrop hidden" id="account-modal-backdrop" inert>
   <div class="modal modal-sm" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="account-modal-title">Account hinzufügen</h3>
-      <button class="icon-btn modal-close" id="account-modal-close" aria-label="Schließen">
+      <h3 class="modal-title" id="account-modal-title" data-i18n="shell.accountModal.title">Account hinzufügen</h3>
+      <button class="icon-btn modal-close" id="account-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -936,25 +945,25 @@
             <path fill="#FBBC05" d="M5.34 14.5c-.23-.69-.36-1.42-.36-2.18s.13-1.49.36-2.18L1.48 7.15C.53 9.06 0 11.19 0 13.43s.53 4.37 1.48 6.28l3.86-3.21z"/>
             <path fill="#34A853" d="M12 23c3.24 0 5.95-1.07 7.93-2.91l-3.67-2.84c-1.02.68-2.33 1.09-4.26 1.09-3.09 0-5.75-2.53-6.66-5.46L1.48 16.09C3.4 19.94 7.35 23 12 23z"/>
           </svg>
-          Mit Google Kalender verbinden
+          <span data-i18n="shell.accountModal.linkGoogle">Mit Google Kalender verbinden</span>
         </button>
         <button type="button" class="btn btn-oauth btn-msgraph" id="btn-link-msgraph">
           <svg class="oauth-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
             <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
           </svg>
-          Mit Office 365 / Outlook verbinden
+          <span data-i18n="shell.accountModal.linkMsgraph">Mit Office 365 / Outlook verbinden</span>
         </button>
       </div>
 
       <div class="modal-divider">
-        <span>oder manuell einrichten</span>
+        <span data-i18n="shell.accountModal.manual">oder manuell einrichten</span>
       </div>
 
       <form id="account-form" novalidate>
         <div class="form-group">
-          <label class="form-label" for="acc-provider">Kalender-Anbieter (Preset)</label>
+          <label class="form-label" for="acc-provider" data-i18n="shell.accountModal.provider">Kalender-Anbieter (Preset)</label>
           <select class="form-input" id="acc-provider" name="provider">
-            <option value="custom">Benutzerdefiniert (Custom CalDAV)</option>
+            <option value="custom" data-i18n="shell.accountModal.providerCustom">Benutzerdefiniert (Custom CalDAV)</option>
             <option value="gmx">GMX (gmx.de, gmx.net...)</option>
             <option value="webde">WEB.DE (web.de)</option>
             <option value="mailbox">mailbox.org</option>
@@ -971,12 +980,12 @@
                  placeholder="https://dav.example.com/calendars/user/" required />
         </div>
         <div class="form-group">
-          <label class="form-label" for="acc-username">Benutzername</label>
+          <label class="form-label" for="acc-username" data-i18n="shell.accountModal.username">Benutzername</label>
           <input class="form-input" id="acc-username" type="text" name="username"
                  autocomplete="username" required />
         </div>
         <div class="form-group">
-          <label class="form-label" for="acc-password">Passwort</label>
+          <label class="form-label" for="acc-password" data-i18n="shell.accountModal.password">Passwort</label>
           <div class="input-with-action">
             <input class="form-input" id="acc-password" type="password" name="password"
                    autocomplete="current-password" required />
@@ -988,15 +997,15 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label" for="acc-displayname">Anzeigename <span class="optional">(optional)</span></label>
+          <label class="form-label" for="acc-displayname"><span data-i18n="shell.accountModal.displayName">Anzeigename</span> <span class="optional" data-i18n="shell.common.optional">(optional)</span></label>
           <input class="form-input" id="acc-displayname" type="text" name="displayName" />
         </div>
         <div id="account-form-error" class="form-error hidden" role="alert"></div>
         <div class="modal-actions">
           <div class="modal-actions-right">
-            <button type="button" class="btn btn-ghost" id="account-cancel-btn">Abbrechen</button>
+            <button type="button" class="btn btn-ghost" id="account-cancel-btn" data-i18n="shell.common.cancel">Abbrechen</button>
             <button type="submit" class="btn btn-primary" id="account-save-btn">
-              <span class="btn-label">Verbinden</span>
+              <span class="btn-label" data-i18n="shell.accountModal.connect">Verbinden</span>
               <span class="btn-spinner hidden"></span>
             </button>
           </div>
@@ -1010,8 +1019,8 @@
 <div class="modal-backdrop hidden" id="webcal-modal-backdrop" inert>
   <div class="modal modal-sm" id="webcal-modal" role="dialog" aria-modal="true" aria-labelledby="webcal-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="webcal-modal-title">Webcal-Abonnement hinzufügen</h3>
-      <button class="icon-btn modal-close" id="webcal-modal-close" aria-label="Schließen">
+      <h3 class="modal-title" id="webcal-modal-title" data-i18n="shell.webcalModal.title">Webcal-Abonnement hinzufügen</h3>
+      <button class="icon-btn modal-close" id="webcal-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1020,34 +1029,34 @@
     <div class="modal-body">
       <form id="webcal-form" novalidate>
         <div class="form-group">
-          <label class="form-label" for="webcal-url">Abonnement-URL (webcal:// oder https://)</label>
+          <label class="form-label" for="webcal-url" data-i18n="shell.webcalModal.url">Abonnement-URL (webcal:// oder https://)</label>
           <input type="url" class="form-input" id="webcal-url" name="url" placeholder="webcal://example.com/calendar.ics" required autocomplete="off">
         </div>
         <div class="form-group">
-          <label class="form-label" for="webcal-name">Bezeichnung</label>
-          <input type="text" class="form-input" id="webcal-name" name="name" placeholder="z. B. Feiertage oder Teamkalender" required autocomplete="off">
+          <label class="form-label" for="webcal-name" data-i18n="shell.webcalModal.name">Bezeichnung</label>
+          <input type="text" class="form-input" id="webcal-name" name="name" placeholder="z. B. Feiertage oder Teamkalender" data-i18n-placeholder="shell.webcalModal.namePlaceholder" required autocomplete="off">
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="webcal-color">Farbe</label>
+            <label class="form-label" for="webcal-color" data-i18n="shell.webcalModal.color">Farbe</label>
             <input type="color" class="form-input form-input-color" id="webcal-color" name="color" value="#3b82f6">
           </div>
           <div class="form-group">
-            <label class="form-label" for="webcal-refresh">Aktualisierung</label>
+            <label class="form-label" for="webcal-refresh" data-i18n="shell.webcalModal.refresh">Aktualisierung</label>
             <select class="form-input" id="webcal-refresh" name="refreshInterval">
-              <option value="1800">Alle 30 Minuten</option>
-              <option value="3600" selected>Jede Stunde</option>
-              <option value="21600">Alle 6 Stunden</option>
-              <option value="86400">Täglich</option>
+              <option value="1800" data-i18n="shell.webcalModal.refresh30m">Alle 30 Minuten</option>
+              <option value="3600" selected data-i18n="shell.webcalModal.refresh1h">Jede Stunde</option>
+              <option value="21600" data-i18n="shell.webcalModal.refresh6h">Alle 6 Stunden</option>
+              <option value="86400" data-i18n="shell.common.daily">Täglich</option>
             </select>
           </div>
         </div>
         <div id="webcal-form-error" class="form-error hidden" role="alert"></div>
         <div class="modal-actions" style="margin-top: 16px;">
           <div class="modal-actions-right">
-            <button type="button" class="btn btn-ghost" id="webcal-cancel-btn">Abbrechen</button>
+            <button type="button" class="btn btn-ghost" id="webcal-cancel-btn" data-i18n="shell.common.cancel">Abbrechen</button>
             <button type="submit" class="btn btn-primary" id="webcal-save-btn">
-              <span class="btn-label">Abonnieren</span>
+              <span class="btn-label" data-i18n="shell.webcalModal.subscribe">Abonnieren</span>
               <span class="btn-spinner hidden"></span>
             </button>
           </div>
@@ -1061,8 +1070,8 @@
 <div class="modal-backdrop hidden" id="welcome-modal-backdrop" inert>
   <div class="modal modal-sm" id="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="welcome-modal-title">Willkommen beim WebCalendar</h3>
-      <button class="icon-btn modal-close" id="welcome-modal-close" aria-label="Schließen">
+      <h3 class="modal-title" id="welcome-modal-title" data-i18n="shell.welcome.title">Willkommen beim WebCalendar</h3>
+      <button class="icon-btn modal-close" id="welcome-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1077,19 +1086,19 @@
           <line x1="3" y1="10" x2="21" y2="10"/>
         </svg>
       </div>
-      <p style="margin-bottom: 16px; line-height: 1.5; color: var(--text-muted);">
+      <p style="margin-bottom: 16px; line-height: 1.5; color: var(--text-muted);" data-i18n="shell.welcome.intro">
         Dein persönlicher Kalender und deine Aufgabenliste liegen auf deinem Shard und sind sofort einsatzbereit.
       </p>
-      <button type="button" class="btn btn-primary" id="welcome-btn-close" style="width: 100%;">Kalender jetzt nutzen</button>
-      <p style="margin: 24px 0 12px; line-height: 1.5; color: var(--text-muted);">
+      <button type="button" class="btn btn-primary" id="welcome-btn-close" style="width: 100%;" data-i18n="shell.welcome.start">Kalender jetzt nutzen</button>
+      <p style="margin: 24px 0 12px; line-height: 1.5; color: var(--text-muted);" data-i18n="shell.welcome.connect">
         Du hast schon Kalender bei einem anderen Anbieter? Verbinde ihn: Seine Kalender werden in deinen Shard gespiegelt und in beide Richtungen synchronisiert. Trennst du ihn später, bleibt die Kopie hier erhalten.
       </p>
-      <div class="provider-tiles" role="group" aria-label="Anbieter">
+      <div class="provider-tiles" role="group" aria-label="Anbieter" data-i18n-aria-label="shell.onboarding.providers">
         <button type="button" class="provider-tile" data-provider="google">Google</button>
         <button type="button" class="provider-tile" data-provider="msgraph">Microsoft 365</button>
         <button type="button" class="provider-tile" data-provider="icloud">iCloud</button>
         <button type="button" class="provider-tile" data-provider="nextcloud">Nextcloud</button>
-        <button type="button" class="provider-tile" data-provider="custom">Andere (CalDAV)</button>
+        <button type="button" class="provider-tile" data-provider="custom" data-i18n="shell.onboarding.providerOther">Andere (CalDAV)</button>
       </div>
     </div>
   </div>
@@ -1100,7 +1109,7 @@
   <div class="modal modal-sm" id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
     <div class="modal-header">
       <h3 class="modal-title" id="confirm-dialog-title">Bestätigung</h3>
-      <button class="icon-btn modal-close" id="confirm-dialog-close" aria-label="Schließen">
+      <button class="icon-btn modal-close" id="confirm-dialog-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1109,8 +1118,8 @@
     <div class="modal-body">
       <p id="confirm-dialog-text" style="margin-bottom: 20px; line-height: 1.5;"></p>
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button type="button" class="btn btn-secondary" id="confirm-dialog-cancel">Abbrechen</button>
-        <button type="button" class="btn btn-danger" id="confirm-dialog-ok">Bestätigen</button>
+        <button type="button" class="btn btn-secondary" id="confirm-dialog-cancel" data-i18n="shell.common.cancel">Abbrechen</button>
+        <button type="button" class="btn btn-danger" id="confirm-dialog-ok" data-i18n="shell.confirm.ok">Bestätigen</button>
       </div>
     </div>
   </div>
@@ -1126,8 +1135,8 @@
       <label class="form-label" id="typed-confirm-text" for="typed-confirm-input"></label>
       <input type="text" class="form-input" id="typed-confirm-input" autocomplete="off">
       <div class="typed-confirm-actions">
-        <button type="button" class="btn btn-secondary" id="typed-confirm-cancel">Abbrechen</button>
-        <button type="button" class="btn btn-danger" id="typed-confirm-ok" disabled>Löschen</button>
+        <button type="button" class="btn btn-secondary" id="typed-confirm-cancel" data-i18n="shell.common.cancel">Abbrechen</button>
+        <button type="button" class="btn btn-danger" id="typed-confirm-ok" disabled data-i18n="shell.common.delete">Löschen</button>
       </div>
     </div>
   </div>
@@ -1137,21 +1146,21 @@
 <div class="modal-backdrop hidden" id="scope-dialog-backdrop" inert>
   <div class="modal modal-sm" id="scope-dialog" role="dialog" aria-modal="true" aria-labelledby="scope-dialog-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="scope-dialog-title">Wiederkehrender Termin</h3>
+      <h3 class="modal-title" id="scope-dialog-title" data-i18n="shell.scope.title">Wiederkehrender Termin</h3>
     </div>
     <div class="modal-body">
       <p id="scope-dialog-text" style="margin-bottom: 20px; line-height: 1.5;"></p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button type="button" class="btn btn-primary" id="scope-occurrence-btn" style="width: 100%;">
+        <button type="button" class="btn btn-primary" id="scope-occurrence-btn" style="width: 100%;" data-i18n="shell.scope.occurrence">
           Nur diesen Termin
         </button>
-        <button type="button" class="btn btn-ghost" id="scope-following-btn" style="width: 100%;">
+        <button type="button" class="btn btn-ghost" id="scope-following-btn" style="width: 100%;" data-i18n="shell.scope.following">
           Diesen und alle folgenden Termine
         </button>
-        <button type="button" class="btn btn-ghost" id="scope-series-btn" style="width: 100%;">
+        <button type="button" class="btn btn-ghost" id="scope-series-btn" style="width: 100%;" data-i18n="shell.scope.series">
           Alle Termine der Serie
         </button>
-        <button type="button" class="btn btn-ghost" id="scope-cancel-btn" style="width: 100%;">
+        <button type="button" class="btn btn-ghost" id="scope-cancel-btn" style="width: 100%;" data-i18n="shell.common.cancel">
           Abbrechen
         </button>
       </div>
@@ -1163,25 +1172,25 @@
 <div class="modal-backdrop hidden" id="notify-dialog-backdrop" inert>
   <div class="modal modal-sm" id="notify-dialog" role="dialog" aria-modal="true" aria-labelledby="notify-dialog-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="notify-dialog-title">Termin verschoben</h3>
-      <button class="icon-btn modal-close" id="notify-cancel-btn" aria-label="Verschieben abbrechen">
+      <h3 class="modal-title" id="notify-dialog-title" data-i18n="shell.notify.title">Termin verschoben</h3>
+      <button class="icon-btn modal-close" id="notify-cancel-btn" aria-label="Verschieben abbrechen" data-i18n-aria-label="shell.notify.cancel">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
     </div>
     <div class="modal-body">
-      <p id="notify-dialog-text" style="margin-bottom: 20px; line-height: 1.5;">Teilnehmer über die Änderung informieren?</p>
+      <p id="notify-dialog-text" style="margin-bottom: 20px; line-height: 1.5;" data-i18n="shell.notify.text">Teilnehmer über die Änderung informieren?</p>
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button type="button" class="btn btn-ghost" id="notify-no-btn">Nein</button>
-        <button type="button" class="btn btn-primary" id="notify-yes-btn">Ja</button>
+        <button type="button" class="btn btn-ghost" id="notify-no-btn" data-i18n="shell.notify.no">Nein</button>
+        <button type="button" class="btn btn-primary" id="notify-yes-btn" data-i18n="shell.notify.yes">Ja</button>
       </div>
     </div>
   </div>
 </div>
-<div class="drag-cancel-zone hidden" id="drag-cancel-zone" aria-hidden="true">Hier loslassen zum Abbrechen</div>
+<div class="drag-cancel-zone hidden" id="drag-cancel-zone" aria-hidden="true" data-i18n="shell.drag.cancelZone">Hier loslassen zum Abbrechen</div>
 <div class="undo-bar hidden" id="undo-bar" role="status">
-  <span>Verschoben</span> · <button type="button" class="btn btn-ghost btn-sm" id="undo-bar-btn">Rückgängig</button>
+  <span data-i18n="shell.drag.moved">Verschoben</span> · <button type="button" class="btn btn-ghost btn-sm" id="undo-bar-btn" data-i18n="shell.drag.undo">Rückgängig</button>
 </div>
 
 <!-- ── Task Modal ───────────────────────────────────────────────────────────── -->
@@ -1189,7 +1198,7 @@
   <div class="modal" id="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
     <div class="modal-header">
       <h3 class="modal-title" id="task-modal-title">Neue Aufgabe</h3>
-      <button class="icon-btn" id="task-modal-close" aria-label="Schließen">
+      <button class="icon-btn" id="task-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1202,100 +1211,100 @@
       <div class="modal-body">
         <div class="form-row template-picker hidden" id="task-template-row">
           <div class="form-group">
-            <label class="form-label" for="task-template">Neu aus Vorlage</label>
+            <label class="form-label" for="task-template" data-i18n="shell.common.fromTemplate">Neu aus Vorlage</label>
             <select class="form-select" id="task-template"></select>
           </div>
-          <button type="button" class="btn btn-ghost" id="task-template-delete" disabled>Vorlage löschen</button>
+          <button type="button" class="btn btn-ghost" id="task-template-delete" disabled data-i18n="shell.common.deleteTemplate">Vorlage löschen</button>
         </div>
         <div class="form-group">
-          <label class="form-label" for="task-title">Titel *</label>
-          <input class="form-input" id="task-title" type="text" placeholder="Aufgabenbezeichnung" required />
+          <label class="form-label" for="task-title" data-i18n="shell.taskModal.titleField">Titel *</label>
+          <input class="form-input" id="task-title" type="text" placeholder="Aufgabenbezeichnung" data-i18n-placeholder="shell.taskModal.titlePlaceholder" required />
         </div>
         <div class="form-group">
-          <label class="form-label" for="task-description">Beschreibung</label>
-          <textarea class="form-input" id="task-description" rows="2" placeholder="Zusätzliche Details..."></textarea>
+          <label class="form-label" for="task-description" data-i18n="shell.common.description">Beschreibung</label>
+          <textarea class="form-input" id="task-description" rows="2" placeholder="Zusätzliche Details..." data-i18n-placeholder="shell.taskModal.descriptionPlaceholder"></textarea>
         </div>
         <!-- #518: subtasks (RELATED-TO;RELTYPE=PARENT) as a checklist; a saved task only -->
         <div class="form-group hidden" id="task-subtasks-group">
-          <span class="form-label" id="task-subtasks-label">Teilaufgaben</span>
+          <span class="form-label" id="task-subtasks-label" data-i18n="shell.taskModal.subtasks">Teilaufgaben</span>
           <ul class="task-subtask-list" id="task-subtask-list" aria-labelledby="task-subtasks-label"></ul>
           <div class="task-subtask-add" id="task-subtask-add">
-            <input class="form-input" id="task-subtask-new" type="text" placeholder="Neue Teilaufgabe" aria-label="Neue Teilaufgabe" />
-            <button type="button" class="btn btn-ghost" id="task-subtask-add-btn">Hinzufügen</button>
+            <input class="form-input" id="task-subtask-new" type="text" placeholder="Neue Teilaufgabe" aria-label="Neue Teilaufgabe" data-i18n-placeholder="shell.taskModal.newSubtask" data-i18n-aria-label="shell.taskModal.newSubtask" />
+            <button type="button" class="btn btn-ghost" id="task-subtask-add-btn" data-i18n="shell.common.add">Hinzufügen</button>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="task-status">Status</label>
+            <label class="form-label" for="task-status" data-i18n="shell.taskModal.status">Status</label>
             <select class="form-select" id="task-status">
-              <option value="NEEDS-ACTION">Zu erledigen (Offen)</option>
-              <option value="IN-PROCESS">In Bearbeitung</option>
-              <option value="COMPLETED">Erledigt</option>
+              <option value="NEEDS-ACTION" data-i18n="shell.taskModal.statusNeedsAction">Zu erledigen (Offen)</option>
+              <option value="IN-PROCESS" data-i18n="shell.taskModal.statusInProcess">In Bearbeitung</option>
+              <option value="COMPLETED" data-i18n="shell.taskModal.statusCompleted">Erledigt</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="task-calendar-id">Aufgabenliste</label>
+            <label class="form-label" for="task-calendar-id" data-i18n="shell.taskModal.list">Aufgabenliste</label>
             <select class="form-select" id="task-calendar-id"></select>
             <span class="form-hint hidden" id="task-stranded-hint"></span>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="task-dtstart">Startdatum</label>
+            <label class="form-label" for="task-dtstart" data-i18n="shell.taskModal.start">Startdatum</label>
             <input class="form-input" id="task-dtstart" type="datetime-local" />
           </div>
           <div class="form-group">
-            <label class="form-label" for="task-due">Fälligkeitsdatum</label>
+            <label class="form-label" for="task-due" data-i18n="shell.taskModal.due">Fälligkeitsdatum</label>
             <input class="form-input" id="task-due" type="datetime-local" />
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="task-duration">Dauer (z. B. PT2H)</label>
-            <input class="form-input" id="task-duration" type="text" placeholder="z. B. PT2H oder PT30M" />
+            <label class="form-label" for="task-duration" data-i18n="shell.taskModal.duration">Dauer (z. B. PT2H)</label>
+            <input class="form-input" id="task-duration" type="text" placeholder="z. B. PT2H oder PT30M" data-i18n-placeholder="shell.taskModal.durationPlaceholder" />
           </div>
           <div class="form-group">
-            <label class="form-label" for="task-percent-complete">Fortschritt (%)</label>
+            <label class="form-label" for="task-percent-complete" data-i18n="shell.taskModal.progress">Fortschritt (%)</label>
             <input class="form-input" id="task-percent-complete" type="number" min="0" max="100" placeholder="0 - 100" />
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="task-priority">Priorität</label>
+            <label class="form-label" for="task-priority" data-i18n="shell.taskModal.priority">Priorität</label>
             <select class="form-select" id="task-priority">
-              <option value="">Keine</option>
-              <option value="high">Hoch</option>
-              <option value="medium">Mittel</option>
-              <option value="low">Niedrig</option>
+              <option value="" data-i18n="shell.common.none">Keine</option>
+              <option value="high" data-i18n="shell.taskModal.priorityHigh">Hoch</option>
+              <option value="medium" data-i18n="shell.taskModal.priorityMedium">Mittel</option>
+              <option value="low" data-i18n="shell.taskModal.priorityLow">Niedrig</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="task-recurrence">Wiederholung (RRULE)</label>
+            <label class="form-label" for="task-recurrence" data-i18n="shell.taskModal.recurrence">Wiederholung (RRULE)</label>
             <select class="form-select" id="task-recurrence">
-              <option value="">Keine Wiederholung</option>
-              <option value="FREQ=DAILY">Täglich</option>
-              <option value="FREQ=WEEKLY">Wöchentlich</option>
-              <option value="FREQ=MONTHLY">Monatlich</option>
-              <option value="FREQ=YEARLY">Jährlich</option>
-              <option value="CUSTOM">Eigene Regel…</option>
+              <option value="" data-i18n="shell.common.recurNone">Keine Wiederholung</option>
+              <option value="FREQ=DAILY" data-i18n="shell.common.daily">Täglich</option>
+              <option value="FREQ=WEEKLY" data-i18n="shell.common.weekly">Wöchentlich</option>
+              <option value="FREQ=MONTHLY" data-i18n="shell.common.monthly">Monatlich</option>
+              <option value="FREQ=YEARLY" data-i18n="shell.common.yearly">Jährlich</option>
+              <option value="CUSTOM" data-i18n="shell.taskModal.recurrenceCustom">Eigene Regel…</option>
             </select>
           </div>
         </div>
         <div class="form-group hidden" id="task-recurrence-custom-group">
-          <label class="form-label" for="task-recurrence-custom">Eigene Regel (RRULE, RFC 5545)</label>
-          <input class="form-input" id="task-recurrence-custom" type="text" placeholder="z. B. FREQ=MONTHLY;INTERVAL=2;BYDAY=1MO;COUNT=10" />
+          <label class="form-label" for="task-recurrence-custom" data-i18n="shell.taskModal.recurrenceCustomLabel">Eigene Regel (RRULE, RFC 5545)</label>
+          <input class="form-input" id="task-recurrence-custom" type="text" placeholder="z. B. FREQ=MONTHLY;INTERVAL=2;BYDAY=1MO;COUNT=10" data-i18n-placeholder="shell.taskModal.recurrenceCustomPlaceholder" />
         </div>
         <div class="form-group">
-          <div class="form-label" id="task-reminders-caption">Erinnerungen</div>
+          <div class="form-label" id="task-reminders-caption" data-i18n="shell.common.reminders">Erinnerungen</div>
           <ul class="reminder-list" id="task-reminder-list" aria-labelledby="task-reminders-caption"></ul>
-          <button type="button" class="btn btn-ghost" id="task-add-reminder">Erinnerung hinzufügen</button>
+          <button type="button" class="btn btn-ghost" id="task-add-reminder" data-i18n="shell.common.addReminder">Erinnerung hinzufügen</button>
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-ghost hidden" id="task-duplicate-btn">Duplizieren</button>
-        <button type="button" class="btn btn-ghost" id="task-template-btn">Als Vorlage speichern</button>
-        <button type="button" class="btn btn-ghost" id="task-cancel-btn">Abbrechen</button>
-        <button type="submit" class="btn btn-primary" id="task-save-btn">Speichern</button>
+        <button type="button" class="btn btn-ghost hidden" id="task-duplicate-btn" data-i18n="shell.common.duplicate">Duplizieren</button>
+        <button type="button" class="btn btn-ghost" id="task-template-btn" data-i18n="shell.common.saveAsTemplate">Als Vorlage speichern</button>
+        <button type="button" class="btn btn-ghost" id="task-cancel-btn" data-i18n="shell.common.cancel">Abbrechen</button>
+        <button type="submit" class="btn btn-primary" id="task-save-btn" data-i18n="shell.common.save">Speichern</button>
       </div>
     </form>
   </div>
@@ -1312,8 +1321,8 @@
 <div class="modal-backdrop hidden" id="invitations-modal-backdrop" inert>
   <div class="modal" id="invitations-modal" style="max-width: 600px;" role="dialog" aria-modal="true" aria-labelledby="invitations-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="invitations-modal-title">Einladungen & RSVP</h3>
-      <button class="icon-btn modal-close" id="invitations-modal-close" aria-label="Schließen">
+      <h3 class="modal-title" id="invitations-modal-title" data-i18n="shell.invitations.title">Einladungen & RSVP</h3>
+      <button class="icon-btn modal-close" id="invitations-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1328,8 +1337,8 @@
 <div class="modal-backdrop hidden" id="pdf-export-backdrop" inert>
   <div class="modal pdf-export-modal" id="pdf-export-modal" role="dialog" aria-modal="true" aria-labelledby="pdf-export-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="pdf-export-title">PDF exportieren</h3>
-      <button class="icon-btn modal-close" id="pdf-export-close" aria-label="Schließen">
+      <h3 class="modal-title" id="pdf-export-title" data-i18n="shell.pdf.title">PDF exportieren</h3>
+      <button class="icon-btn modal-close" id="pdf-export-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1338,62 +1347,62 @@
     <div class="modal-body pdf-export-body">
       <form id="pdf-export-form" class="pdf-export-settings" novalidate>
         <div class="form-group">
-          <label class="form-label" for="pdf-view">Ansicht</label>
+          <label class="form-label" for="pdf-view" data-i18n="shell.pdf.view">Ansicht</label>
           <select class="form-input" id="pdf-view">
-            <option value="month">Monat</option>
-            <option value="week">Woche</option>
-            <option value="day">Tag</option>
-            <option value="list">Liste</option>
+            <option value="month" data-i18n="shell.view.month">Monat</option>
+            <option value="week" data-i18n="shell.view.week">Woche</option>
+            <option value="day" data-i18n="shell.view.day">Tag</option>
+            <option value="list" data-i18n="shell.view.list">Liste</option>
           </select>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="pdf-from">Von</label>
+            <label class="form-label" for="pdf-from" data-i18n="shell.common.from">Von</label>
             <input type="date" class="form-input" id="pdf-from" required>
           </div>
           <div class="form-group">
-            <label class="form-label" for="pdf-to">Bis</label>
+            <label class="form-label" for="pdf-to" data-i18n="shell.common.to">Bis</label>
             <input type="date" class="form-input" id="pdf-to" required>
           </div>
         </div>
         <fieldset class="form-group pdf-export-calendars">
-          <legend class="form-label">Kalender</legend>
+          <legend class="form-label" data-i18n="shell.common.calendar">Kalender</legend>
           <div id="pdf-calendars"></div>
         </fieldset>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="pdf-paper">Papier</label>
+            <label class="form-label" for="pdf-paper" data-i18n="shell.pdf.paper">Papier</label>
             <select class="form-input" id="pdf-paper">
               <option value="a4">A4</option>
               <option value="letter">Letter</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="pdf-orientation">Ausrichtung</label>
+            <label class="form-label" for="pdf-orientation" data-i18n="shell.pdf.orientation">Ausrichtung</label>
             <select class="form-input" id="pdf-orientation">
-              <option value="landscape">Querformat</option>
-              <option value="portrait">Hochformat</option>
+              <option value="landscape" data-i18n="shell.pdf.landscape">Querformat</option>
+              <option value="portrait" data-i18n="shell.pdf.portrait">Hochformat</option>
             </select>
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label" for="pdf-color">Druck</label>
+          <label class="form-label" for="pdf-color" data-i18n="shell.pdf.print">Druck</label>
           <select class="form-input" id="pdf-color">
-            <option value="color">Farbe</option>
-            <option value="bw">Schwarzweiß</option>
+            <option value="color" data-i18n="shell.pdf.color">Farbe</option>
+            <option value="bw" data-i18n="shell.pdf.blackWhite">Schwarzweiß</option>
           </select>
         </div>
-        <label class="pdf-export-check"><input type="checkbox" id="pdf-descriptions"> Beschreibungen drucken</label>
+        <label class="pdf-export-check"><input type="checkbox" id="pdf-descriptions"> <span data-i18n="shell.pdf.descriptions">Beschreibungen drucken</span></label>
       </form>
       <figure class="pdf-export-preview">
-        <img id="pdf-preview-img" alt="Vorschau der ersten Seite">
+        <img id="pdf-preview-img" alt="Vorschau der ersten Seite" data-i18n-alt="shell.pdf.previewAlt">
         <figcaption id="pdf-preview-status" aria-live="polite"></figcaption>
       </figure>
     </div>
     <div class="modal-footer">
       <div class="modal-actions-right">
-        <button type="button" class="btn btn-ghost" id="pdf-export-cancel">Abbrechen</button>
-        <button type="button" class="btn btn-primary" id="pdf-export-download">PDF herunterladen</button>
+        <button type="button" class="btn btn-ghost" id="pdf-export-cancel" data-i18n="shell.common.cancel">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="pdf-export-download" data-i18n="shell.pdf.download">PDF herunterladen</button>
       </div>
     </div>
   </div>
@@ -1402,25 +1411,25 @@
 <div class="modal-backdrop hidden" id="msgraph-modal-backdrop" inert>
   <div class="modal modal-sm" id="msgraph-modal" role="dialog" aria-modal="true" aria-labelledby="msgraph-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="msgraph-modal-title">Microsoft Office 365 / Outlook Sync</h3>
-      <button class="icon-btn modal-close" id="msgraph-modal-close" aria-label="Schließen">
+      <h3 class="modal-title" id="msgraph-modal-title" data-i18n="shell.msgraph.title">Microsoft Office 365 / Outlook Sync</h3>
+      <button class="icon-btn modal-close" id="msgraph-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
     </div>
     <div class="modal-body">
-      <p class="form-hint hidden" id="msgraph-unavailable">
+      <p class="form-hint hidden" id="msgraph-unavailable" data-i18n="shell.msgraph.unavailable">
         Microsoft 365 ist auf diesem Shard nicht eingerichtet: Die Shard-Administration muss dafür eine
         Azure-App-Registrierung hinterlegen (MSGRAPH_CLIENT_ID). Alle anderen Kalenderfunktionen sind davon nicht betroffen.
       </p>
       <div class="modal-actions hidden" id="msgraph-connect-actions">
         <div class="modal-actions-right">
-          <a class="btn btn-primary" id="btn-connect-msgraph" href="/api/msgraph/authorize">Bei Microsoft anmelden</a>
+          <a class="btn btn-primary" id="btn-connect-msgraph" href="/api/msgraph/authorize" data-i18n="shell.msgraph.signIn">Bei Microsoft anmelden</a>
         </div>
       </div>
       <div class="modal-divider" style="margin: 16px 0;">
-        <span>Verbundene Microsoft Konten</span>
+        <span data-i18n="shell.msgraph.connected">Verbundene Microsoft Konten</span>
       </div>
       <div id="msgraph-accounts-list">
         <p class="empty-state">Keine Office 365 Konten verbunden.</p>
@@ -1434,10 +1443,10 @@
   <div class="modal" id="availability-modal" style="max-width: 650px;" role="dialog" aria-modal="true" aria-labelledby="availability-modal-title" aria-describedby="availability-modal-subtitle">
     <div class="modal-header">
       <div>
-        <h3 class="modal-title" id="availability-modal-title">Buchbare Zeiten</h3>
-        <p id="availability-modal-subtitle" style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0;">Öffentliche Seite, auf der andere einen freien Termin bei dir wählen</p>
+        <h3 class="modal-title" id="availability-modal-title" data-i18n="shell.availability.title">Buchbare Zeiten</h3>
+        <p id="availability-modal-subtitle" style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0;" data-i18n="shell.availability.subtitle">Öffentliche Seite, auf der andere einen freien Termin bei dir wählen</p>
       </div>
-      <button class="icon-btn modal-close" id="availability-modal-close" aria-label="Schließen">
+      <button class="icon-btn modal-close" id="availability-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -1445,57 +1454,57 @@
     </div>
     <div class="modal-body" style="padding: 16px;">
       <form id="availability-form" style="margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px;">
-        <h4 style="margin-top:0; margin-bottom:12px;">Neue buchbare Zeiten anlegen</h4>
+        <h4 style="margin-top:0; margin-bottom:12px;" data-i18n="shell.availability.create">Neue buchbare Zeiten anlegen</h4>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="ap-title">Titel / Name</label>
-            <input class="form-input" id="ap-title" type="text" placeholder="z. B. 30 Min. Erstberatung" required />
+            <label class="form-label" for="ap-title" data-i18n="shell.availability.name">Titel / Name</label>
+            <input class="form-input" id="ap-title" type="text" placeholder="z. B. 30 Min. Erstberatung" data-i18n-placeholder="shell.availability.namePlaceholder" required />
           </div>
           <div class="form-group">
-            <label class="form-label" for="ap-slug">Kürzel (Slug)</label>
-            <input class="form-input" id="ap-slug" type="text" placeholder="beratung-30m" required />
+            <label class="form-label" for="ap-slug" data-i18n="shell.availability.slug">Kürzel (Slug)</label>
+            <input class="form-input" id="ap-slug" type="text" placeholder="beratung-30m" data-i18n-placeholder="shell.availability.slugPlaceholder" required />
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="ap-calendar">Ziel-Kalender</label>
+            <label class="form-label" for="ap-calendar" data-i18n="shell.availability.calendar">Ziel-Kalender</label>
             <select class="form-select" id="ap-calendar" required></select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="ap-duration">Dauer (Minuten)</label>
+            <label class="form-label" for="ap-duration" data-i18n="shell.availability.duration">Dauer (Minuten)</label>
             <input class="form-input" id="ap-duration" type="number" value="30" min="15" max="720" step="15" required />
           </div>
         </div>
         <fieldset class="form-group" id="ap-busy-fieldset" style="border: none; padding: 0; margin: 0 0 12px;">
-          <legend class="form-label">Belegt-Zeiten berücksichtigen aus</legend>
-          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;">Termine in diesen Kalendern blockieren Zeitslots. Der Ziel-Kalender zählt immer.</p>
+          <legend class="form-label" data-i18n="shell.availability.busy">Belegt-Zeiten berücksichtigen aus</legend>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;" data-i18n="shell.availability.busyHint">Termine in diesen Kalendern blockieren Zeitslots. Der Ziel-Kalender zählt immer.</p>
           <div id="ap-busy-calendars"></div>
         </fieldset>
         <fieldset class="form-group" id="ap-weekly-hours" style="border: none; padding: 0; margin: 0 0 12px;">
-          <legend class="form-label">Wochentage und Zeitfenster</legend>
-          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;">Nur in diesen Zeitfenstern sind Termine buchbar. Zeitfenster eines Tages dürfen sich nicht überschneiden.</p>
+          <legend class="form-label" data-i18n="shell.availability.weekly">Wochentage und Zeitfenster</legend>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px;" data-i18n="shell.availability.weeklyHint">Nur in diesen Zeitfenstern sind Termine buchbar. Zeitfenster eines Tages dürfen sich nicht überschneiden.</p>
           <div id="ap-weekdays"></div>
         </fieldset>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="ap-buffer">Puffer zwischen Terminen (Minuten)</label>
+            <label class="form-label" for="ap-buffer" data-i18n="shell.availability.buffer">Puffer zwischen Terminen (Minuten)</label>
             <input class="form-input" id="ap-buffer" type="number" value="0" min="0" max="1440" step="5" required />
           </div>
           <div class="form-group">
-            <label class="form-label" for="ap-max-per-day">Höchstens Buchungen pro Tag</label>
-            <input class="form-input" id="ap-max-per-day" type="number" min="1" max="1000" placeholder="unbegrenzt" />
+            <label class="form-label" for="ap-max-per-day" data-i18n="shell.availability.maxPerDay">Höchstens Buchungen pro Tag</label>
+            <input class="form-input" id="ap-max-per-day" type="number" min="1" max="1000" placeholder="unbegrenzt" data-i18n-placeholder="shell.availability.unlimited" />
           </div>
           <div class="form-group">
-            <label class="form-label" for="ap-min-notice">Mindestvorlauf (Stunden)</label>
+            <label class="form-label" for="ap-min-notice" data-i18n="shell.availability.minNotice">Mindestvorlauf (Stunden)</label>
             <input class="form-input" id="ap-min-notice" type="number" value="0" min="0" max="8760" required />
           </div>
         </div>
         <div class="modal-footer" style="padding-top:8px;">
-          <button type="submit" class="btn btn-primary" id="ap-save-btn">Buchbare Zeiten veröffentlichen</button>
+          <button type="submit" class="btn btn-primary" id="ap-save-btn" data-i18n="shell.availability.publish">Buchbare Zeiten veröffentlichen</button>
         </div>
       </form>
       <div>
-        <h4 style="margin-top:0; margin-bottom:12px;">Veröffentlichte buchbare Zeiten</h4>
+        <h4 style="margin-top:0; margin-bottom:12px;" data-i18n="shell.availability.published">Veröffentlichte buchbare Zeiten</h4>
         <div id="availability-pages-list">
           <p class="empty-state">Noch keine buchbaren Zeiten veröffentlicht.</p>
         </div>
@@ -1508,8 +1517,8 @@
 <div class="modal-backdrop hidden" id="shortcuts-modal-backdrop" inert>
   <div class="modal" id="shortcuts-modal" style="max-width: 520px;" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
     <div class="modal-header">
-      <h3 class="modal-title" id="shortcuts-modal-title">Tastaturkürzel für Power-User</h3>
-      <button class="icon-btn modal-close" id="shortcuts-modal-close" aria-label="Schließen">
+      <h3 class="modal-title" id="shortcuts-modal-title" data-i18n="shell.shortcuts.title">Tastaturkürzel für Power-User</h3>
+      <button class="icon-btn modal-close" id="shortcuts-modal-close" aria-label="Schließen" data-i18n-aria-label="shell.common.close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>

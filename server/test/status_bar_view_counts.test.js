@@ -8,6 +8,8 @@ const path = require('path');
 const vm = require('vm');
 // app.js expects window.SafeUrl (loaded by index.html as a classic script).
 const SafeUrl = require('../../public/js/safeUrl');
+// #626: app.js takes its strings from the message catalogues through i18n.js.
+const { t } = require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.join(__dirname, '../../public/js', rel), 'utf8'));
 
 const appJsCode = fs.readFileSync(path.resolve(__dirname, '../../public/js/app.js'), 'utf8');
 
@@ -52,6 +54,7 @@ function loadApp() {
       createElement: () => stub()
     },
     store,
+    t,
     invalidateEventCache: () => {},
     cacheEvents: () => {},
     getCachedEvents: () => null,

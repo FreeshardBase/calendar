@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const appJsPath = path.resolve(__dirname, '../../public/js/app.js');
+// #626: app.js takes its strings from the message catalogues through i18n.js.
+const i18n = require('./helpers/i18n').loadI18n(rel => fs.readFileSync(path.join(__dirname, '../../public/js', rel), 'utf8'));
 
 test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Response Protection', async (t) => {
   const appJsContent = fs.readFileSync(appJsPath, 'utf8');
@@ -110,6 +112,7 @@ test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Respo
       'CalendarsAPI',
       'showToast',
       'cal',
+      't',
       `
       ${shareDialogSectionMatch[0]}
       return { loadPublicLink, fireEnableChange: () => publicEnable._handler() };
@@ -126,7 +129,8 @@ test('Issue #215 — Public Link Dialog Unsequenced Writers & Out-Of-Order Respo
       mockPublicDetailGroup,
       mockCalendarsAPI,
       mockShowToast,
-      { id: 'cal-123' }
+      { id: 'cal-123' },
+      i18n.t
     );
 
     // 1. loadPublicLink triggered (seq = 1, getPublicLink pending)

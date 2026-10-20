@@ -14,6 +14,7 @@ import { allTimeZones, localTimeZone } from './timezones.js';
 import { preferredTimeZone } from './locale.js';
 import { createLocationLookup } from './geoLookup.js';
 import { createConferenceField } from './conference.js';
+import { t } from './i18n.js';
 
 export { formatAlarmTriggerLabel };
 
@@ -65,8 +66,8 @@ function setTimezonesExpanded(expanded) {
 function updateTimezoneToggleLabel() {
   const startTz = $('ev-start-tz').value;
   const endTz   = $('ev-end-tz').value;
-  $('ev-tz-toggle').textContent = _tzExpanded ? 'Zeitzonen ausblenden'
-    : startTz === endTz ? `Zeitzone: ${startTz}` : `Zeitzonen: ${startTz} → ${endTz}`;
+  $('ev-tz-toggle').textContent = _tzExpanded ? t('event.timezone.hide')
+    : startTz === endTz ? t('event.timezone.single', { zone: startTz }) : t('event.timezone.range', { start: startTz, end: endTz });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ export function openCreateModal(defaultDate, callbacks, range = null) {
   setCallbacks(callbacks);
 
   resetForm();
-  $('event-modal-title').textContent = 'Neuer Termin';
+  $('event-modal-title').textContent = t('event.title.new');
   $('delete-event-btn').style.display = 'none';
   $('event-duplicate-btn').classList.add('hidden');
   $('event-save-btn').style.display = '';
@@ -151,7 +152,7 @@ export function openEditModal(event, callbacks) {
   _currentEvent = event;
   setCallbacks(callbacks);
 
-  $('event-modal-title').textContent = 'Termin bearbeiten';
+  $('event-modal-title').textContent = t('event.title.edit');
 
   resetForm();
   populateCalendarSelect(event.calendarId);
@@ -175,8 +176,8 @@ export function openEditModal(event, callbacks) {
 
   if (isReadOnly) {
     warningEl.textContent = event.isSubscription
-      ? 'Dieser Termin stammt aus einem schreibgeschützten Webcal-Abonnement.'
-      : 'Dieser Termin ist schreibgeschützt (Kalender wurde schreibgeschützt geteilt).';
+      ? t('event.readOnly.subscription')
+      : t('event.readOnly.shared');
     warningEl.classList.remove('hidden');
     setFormDisabled(true);
   } else {
@@ -343,7 +344,7 @@ function duplicateCurrent() {
   const source = _currentEvent;
   _currentEvent = null;
   _formGeneration++;
-  $('event-modal-title').textContent = 'Termin duplizieren';
+  $('event-modal-title').textContent = t('event.title.duplicate');
   $('ev-uid').value  = '';
   $('ev-href').value = '';
   $('ev-etag').value = '';
@@ -362,7 +363,7 @@ function duplicateCurrent() {
 
 // #515: the dialog's fields without date, time and recurrence, for "Als Vorlage speichern".
 function templateFields() {
-  const reminders = _reminders.collect($('ev-title').value.trim() || 'Erinnerung');
+  const reminders = _reminders.collect($('ev-title').value.trim() || t('event.reminder.defaultSummary'));
   if (reminders.error) return reminders;
   const attachUrl = $('ev-attachment-url').value.trim();
   const attachName = $('ev-attachment-name').value.trim();
@@ -386,7 +387,7 @@ function templateFields() {
 
 async function saveAsTemplate() {
   if (!$('ev-title').value.trim()) {
-    showError('Bitte gib einen Titel ein.');
+    showError(t('event.validation.title'));
     return;
   }
   const { fields, error } = templateFields();
@@ -484,10 +485,9 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
   if (isNaN(date.getTime())) return;
 
   const day = date.getUTCDate();
-  const dayName = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][date.getUTCDay()];
   const weekNum = Math.ceil(day / 7);
 
-  $('recur-monthly-day-lbl').textContent = `Jeden Monat am ${day}. Tag`;
+  $('recur-monthly-day-lbl').textContent = t('event.recurrence.monthlyOnDay', { day });
 
   if (!skipDefaultSelects) {
     const wd = ['SU','MO','TU','WE','TH','FR','SA'][date.getUTCDay()];
@@ -513,20 +513,16 @@ function updateRecurrenceOptions(skipDefaultSelects = false) {
   $('recur-end-section').classList.toggle('hidden', freq === '');
 }
 
-// "Jede Woche" for INTERVAL=1, "Alle 3 Wochen" otherwise (#507).
-const INTERVAL_WORDS = {
-  DAILY:   { every: 'Jeden', one: 'Tag',   many: 'Tage' },
-  WEEKLY:  { every: 'Jede',  one: 'Woche', many: 'Wochen' },
-  MONTHLY: { every: 'Jeden', one: 'Monat', many: 'Monate' },
-  YEARLY:  { every: 'Jedes', one: 'Jahr',  many: 'Jahre' },
-};
+// "Jede Woche" for INTERVAL=1, "Alle 3 Wochen" otherwise (#507); the number is the input between.
+const INTERVAL_FREQS = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'];
 
 function updateIntervalLabel() {
-  const words = INTERVAL_WORDS[$('ev-recurrence').value];
-  if (!words) return;
-  const single = $('recur-interval').value === '1';
-  $('recur-interval-prefix').textContent = single ? words.every : 'Alle';
-  $('recur-interval-unit').textContent = single ? words.one : words.many;
+  const freq = $('ev-recurrence').value;
+  if (!INTERVAL_FREQS.includes(freq)) return;
+  // Anything but exactly "1" (an invalid entry too) reads as a plural, as before.
+  const count = $('recur-interval').value === '1' ? 1 : 2;
+  $('recur-interval-prefix').textContent = t(`event.recurrence.prefix.${freq}`, { count });
+  $('recur-interval-unit').textContent = t(`event.recurrence.unit.${freq}`, { count });
 }
 
 function resetForm() {
@@ -594,11 +590,11 @@ function populateCalendarSelect(selectedId) {
   if (filteredCals.length === 0) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = '— Kein beschreibbarer Kalender verfügbar —';
+    opt.textContent = t('event.calendar.noneWritable');
     sel.appendChild(opt);
   } else {
     fillCalendarSelect(sel, filteredCals, (opt, c) => {
-      if (c.readOnly) opt.textContent += ' (schreibgeschützt)';
+      if (c.readOnly) opt.textContent += t('event.calendar.readOnlySuffix');
       if (c.id === targetId) {
         opt.selected = true;
       }
@@ -627,7 +623,7 @@ function renderAttendeeList(attendees) {
       <span class="attendee-name">${escHtml(a.name || '')}</span>
       <span class="attendee-email">${escHtml(a.email)}</span>
       <span class="attendee-status ${attendeeStatus(a.status)}">${statusLabel(attendeeStatus(a.status))}</span>
-      <button type="button" class="attendee-remove" data-idx="${i}" aria-label="Entfernen">
+      <button type="button" class="attendee-remove" data-idx="${i}" aria-label="${escHtml(t('event.attendee.remove'))}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -652,20 +648,20 @@ async function handleSubmit(e) {
   const endDateVal   = $('ev-end-date').value;
 
   if (!$('ev-title').value.trim()) {
-    showError('Bitte gib einen Titel ein.');
+    showError(t('event.validation.title'));
     return;
   }
   const intervalVal = $('recur-interval').value;
   if ($('ev-recurrence').value && !/^[1-9]\d*$/.test(intervalVal)) {
-    showError('Bitte gib als Wiederholungsabstand eine ganze Zahl ab 1 ein.');
+    showError(t('event.validation.interval'));
     return;
   }
   if (!$('ev-calendar').value) {
-    showError('Bitte wähle einen Kalender aus.');
+    showError(t('event.validation.calendar'));
     return;
   }
   if (!startDateVal || !endDateVal) {
-    showError('Bitte fülle Datum und Uhrzeit aus.');
+    showError(t('event.validation.dateTime'));
     return;
   }
 
@@ -814,7 +810,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     }
   }
 
-  const reminders = _reminders.collect($('ev-title').value.trim() || 'Erinnerung');
+  const reminders = _reminders.collect($('ev-title').value.trim() || t('event.reminder.defaultSummary'));
   if (reminders.error) {
     $('ev-section-alarm').open = true;
     showError(reminders.error);
@@ -870,7 +866,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     payload.recurrenceId = recurrenceId;
   } else if (_currentEvent && recurrenceId) {
     setButtonLoading('event-save-btn', false);
-    const scope = await chooseRecurrenceScope('Diese Änderung anwenden auf:');
+    const scope = await chooseRecurrenceScope(t('event.scope.save'));
     if (!scope) return;
     if (scope === 'occurrence') {
       payload.scope        = 'occurrence';
@@ -902,17 +898,17 @@ function getUtcDate(dateStr, timeStr, timeZone) {
 
   try {
     const saved = original ? await EventsAPI.update(payload.uid, payload) : await EventsAPI.create(payload);
-    showToast(original ? 'Termin gespeichert.' : 'Termin erstellt.', 'success');
+    showToast(original ? t('event.toast.saved') : t('event.toast.created'), 'success');
     callbacks.onSaved?.(saved, token);
   } catch (err) {
     callbacks.onSettled?.(token);
     const reason = err.status === 409
-      ? 'Konflikt: Der Termin wurde von einem anderen Client geändert. Seite neu laden.'
+      ? t('event.toast.conflict')
       : err.message;
-    const title = `„${payload.title || 'Ohne Titel'}“`;
+    const title = payload.title || t('event.toast.untitled');
     showToast(original
-      ? `Die Änderung an ${title} wurde nicht gespeichert und ist zurückgenommen. ${reason}`
-      : `Der Termin ${title} wurde nicht gespeichert und ist wieder entfernt. ${reason}`, 'error');
+      ? t('event.toast.updateFailed', { title, reason })
+      : t('event.toast.createFailed', { title, reason }), 'error');
     // The form still holds the entries unless another event was opened since.
     if (formGeneration === _formGeneration && !isDialogOpen(backdrop())) {
       _currentEvent = original;
@@ -958,10 +954,10 @@ async function handleDelete() {
   let scope = 'series';
   const deleteRecurrenceId = _currentEvent.recurrenceId || (_currentEvent.uid && _currentEvent.uid.includes('::') ? _currentEvent.uid.split('::')[1] : null);
   if (deleteRecurrenceId) {
-    scope = await chooseRecurrenceScope(`„${_currentEvent.title}“ löschen:`);
+    scope = await chooseRecurrenceScope(t('event.scope.delete', { title: _currentEvent.title }));
     if (!scope) return;
   } else {
-    if (!(await confirmDialog(`„${_currentEvent.title}“ wirklich löschen?`))) return;
+    if (!(await confirmDialog(t('event.confirm.delete', { title: _currentEvent.title })))) return;
   }
 
   setButtonLoading('event-save-btn', true);
@@ -975,8 +971,8 @@ async function handleDelete() {
     });
     closeModal();
     // A deleted occurrence is an EXDATE in the series, not a trash entry.
-    if (trashId) showUndoToast('Termin gelöscht.', trashId);
-    else showToast('Termin gelöscht.', 'info');
+    if (trashId) showUndoToast(t('event.toast.deleted'), trashId);
+    else showToast(t('event.toast.deleted'), 'info');
     _onDeleted?.(targetUid);
   } catch (err) {
     showError(err.message);
@@ -1005,8 +1001,8 @@ function handleAddAttendee() {
   li.innerHTML = `
     <span class="attendee-name">${escHtml(name)}</span>
     <span class="attendee-email">${escHtml(email)}</span>
-    <span class="attendee-status NEEDS-ACTION">Ausstehend</span>
-    <button type="button" class="attendee-remove" data-idx="${idx}" aria-label="Entfernen">
+    <span class="attendee-status NEEDS-ACTION">${statusLabel('NEEDS-ACTION')}</span>
+    <button type="button" class="attendee-remove" data-idx="${idx}" aria-label="${escHtml(t('event.attendee.remove'))}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M18 6L6 18M6 6l12 12"/>
       </svg>
@@ -1098,7 +1094,7 @@ export function initEventModal() {
     btn.addEventListener('click', () => {
       const input = document.getElementById(btn.dataset.target);
       input.type = input.type === 'password' ? 'text' : 'password';
-      btn.setAttribute('aria-label', input.type === 'password' ? 'Passwort anzeigen' : 'Passwort verbergen');
+      btn.setAttribute('aria-label', input.type === 'password' ? t('event.password.show') : t('event.password.hide'));
     });
   });
 
@@ -1178,13 +1174,13 @@ function setButtonLoading(id, on) {
   btn.querySelector('.btn-spinner').classList.toggle('hidden', !on);
   btn.disabled = on;
 }
-const STATUS_LABELS = { ACCEPTED: 'Zugesagt', DECLINED: 'Abgelehnt', TENTATIVE: 'Vorläufig', DELEGATED: 'Delegiert', 'NEEDS-ACTION': 'Ausstehend' };
+const STATUSES = ['ACCEPTED', 'DECLINED', 'TENTATIVE', 'DELEGATED', 'NEEDS-ACTION'];
 // PARTSTAT comes from remote calendars; anything outside RFC 5545 counts as NEEDS-ACTION (#528).
 function attendeeStatus(s) {
-  return Object.hasOwn(STATUS_LABELS, s) ? s : 'NEEDS-ACTION';
+  return STATUSES.includes(s) ? s : 'NEEDS-ACTION';
 }
 function statusLabel(s) {
-  return Object.hasOwn(STATUS_LABELS, s) ? STATUS_LABELS[s] : escHtml(s);
+  return STATUSES.includes(s) ? escHtml(t(`event.attendee.status.${s}`)) : escHtml(s);
 }
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
