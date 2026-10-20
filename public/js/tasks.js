@@ -8,6 +8,7 @@ import { TasksAPI } from './api.js';
 import { openDialog, closeDialog, confirmDialog } from './dialogFocus.js';
 import { showToast, showUndoToast } from './app.js';
 import { createReminderEditor } from './reminderEditor.js';
+import { formatDate } from './locale.js';
 import { createTemplatePicker, templateAlarms } from './templates.js';
 
 function notifyToast(message, type = 'info') {
@@ -21,9 +22,7 @@ function notifyToast(message, type = 'info') {
 // Issue #167: one numeric date format across the UI, DIN 5008 with zero-padded day and month (05.03.2027).
 // A date-only due is a calendar date stored at UTC midnight; a timed due is shown in the browser's zone.
 function formatDueDate(d, isDate) {
-  return d.toLocaleDateString('de-DE', {
-    day: '2-digit', month: '2-digit', year: 'numeric', ...(isDate ? { timeZone: 'UTC' } : {}),
-  });
+  return formatDate(d, { day: '2-digit', month: '2-digit', year: 'numeric', ...(isDate ? { timeZone: 'UTC' } : {}) });
 }
 
 export function formatRecurrenceLabel(recurrence) {

@@ -6,6 +6,8 @@
  * anchor) is shown read-only and saved back as it was loaded; every row can be removed.
  */
 
+import { formatDate } from './locale.js';
+
 const UNITS = [
   ['M', 'Minuten'],
   ['H', 'Stunden'],
@@ -27,7 +29,7 @@ export function formatAlarmTriggerLabel(trigger, related = null) {
   if (abs) {
     const [, y, mo, d, h, mi, sec] = abs;
     const when = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec));
-    return `Am ${when.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+    return `Am ${formatDate(when, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
   }
 
   if (String(related || '').toUpperCase() === 'END') {
@@ -202,6 +204,12 @@ export function createReminderEditor(list, addBtn, { anchor, anchorName, onAdd =
   });
 
   return {
+    // #625: a new item starts with the user's default reminder, `minutes` before the anchor.
+    setNewReminder(minutes) {
+      rows = [{ original: null, loaded: null, state: { kind: 'relative', amount: String(minutes), unit: 'M', direction: '-' } }];
+      render();
+    },
+
     setAlarms(alarms) {
       rows = (Array.isArray(alarms) ? alarms : []).map(original => {
         const state = editableState(original, anchor);

@@ -17,14 +17,16 @@ const successBox = document.getElementById('booking-success');
 const bookingForm = document.getElementById('public-booking-form');
 
 // Default to today's date, or next business day (Monday) if weekend
+// #625: the visitor's local calendar date, never the UTC date of toISOString().
+const localDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const now = new Date();
-const today = now.toISOString().split('T')[0];
+const today = localDay(now);
 if (now.getDay() === 0) { // Sunday -> advance to Monday
   now.setDate(now.getDate() + 1);
 } else if (now.getDay() === 6) { // Saturday -> advance to Monday
   now.setDate(now.getDate() + 2);
 }
-const defaultDate = now.toISOString().split('T')[0];
+const defaultDate = localDay(now);
 dateInput.value = defaultDate;
 dateInput.min = today;
 

@@ -1,6 +1,8 @@
 // Issue #509: everything the week/day grid needs to show a second time zone.
 // All values come from Intl for the actual instant, so they stay right across DST changes.
 
+import { uiLocale, formatTime } from './locale.js';
+
 // Every IANA zone the browser knows. Engines leave UTC out of the list, though it is a zone.
 export function allTimeZones() {
   const zones = Intl.supportedValuesOf('timeZone');
@@ -21,7 +23,7 @@ export function zoneOffsetLabel(timeZone, instant) {
 // The zone's abbreviation at that instant ("MESZ", "EDT"), or null where Intl has none but a
 // GMT offset, which the offset label already says.
 export function zoneAbbreviation(timeZone, instant) {
-  for (const locale of ['de-DE', 'en-US']) {
+  for (const locale of [uiLocale(), 'en-US']) {
     const name = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: 'short' })
       .formatToParts(instant).find(p => p.type === 'timeZoneName').value;
     if (!/^(GMT|UTC)/.test(name)) return name;
@@ -29,10 +31,9 @@ export function zoneAbbreviation(timeZone, instant) {
   return null;
 }
 
-// "14:30" — the wall-clock time of the instant in that zone.
+// "14:30" / "2:30 PM" — the wall-clock time of the instant in that zone.
 export function timeInZone(timeZone, instant) {
-  return new Intl.DateTimeFormat('de-DE', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-    .format(instant);
+  return formatTime(instant, { timeZone });
 }
 
 // The browser's own zone, in which the grid lays out its hours.

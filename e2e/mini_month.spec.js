@@ -86,17 +86,17 @@ test.describe('Issue #517 — mini month navigator', () => {
 
     // Leaving the month: the mini month and the main view follow, focus stays on the day.
     await page.keyboard.press('PageDown');
-    await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jun 2039');
+    await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Juni 2039');
     await expect(miniDay(page, 16)).toBeFocused();
     await expect(page.locator('#toolbar-title')).toContainText('Juni 2039');
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowDown');
     await expect(miniDay(page, 30)).toBeFocused();
     await page.keyboard.press('ArrowRight');
-    await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jul 2039');
+    await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Juli 2039');
     await expect(miniDay(page, 1)).toBeFocused();
     await page.keyboard.press('PageUp');
-    await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Jun 2039');
+    await expect(page.locator('#mini-calendar .mini-cal-title')).toHaveText('Juni 2039');
     await expect(miniDay(page, 1)).toBeFocused();
   });
 });

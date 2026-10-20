@@ -19,6 +19,8 @@
  * `onCreateRange({ start, end, allDay })` opens the new-event dialog for a drawn range.
  */
 
+import { formatDate, formatTime } from './locale.js';
+
 const SNAP_MIN = 15;
 const LONG_PRESS_MS = 400;
 const MOUSE_THRESHOLD_PX = 5;
@@ -332,10 +334,8 @@ function clearKeyMove() {
   document.querySelectorAll('.drop-target').forEach(h => h.classList.remove('drop-target'));
 }
 
-const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-
 function describe(change) {
-  const day = d => `${WEEKDAYS[d.getDay()]}., ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
+  const day = d => formatDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
   if (change.allDay) {
     const { first, last } = daySpan(change);
     return first === last ? `ganztägig ${day(parseYmd(first))}` : `ganztägig ${day(parseYmd(first))} – ${day(parseYmd(last))}`;
@@ -546,9 +546,7 @@ function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function hhmm(d) {
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
+const hhmm = d => formatTime(d);
 
 function sameTimes(ev, change) {
   if (Boolean(ev.allDay) !== change.allDay) return false;

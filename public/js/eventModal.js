@@ -11,6 +11,7 @@ import { requestNotificationPermission } from './notifications.js';
 import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.js';
 import { createTemplatePicker, templateAlarms } from './templates.js';
 import { allTimeZones, localTimeZone } from './timezones.js';
+import { preferredTimeZone } from './locale.js';
 import { createLocationLookup } from './geoLookup.js';
 import { createConferenceField } from './conference.js';
 
@@ -87,6 +88,17 @@ export function openCreateModal(defaultDate, callbacks, range = null) {
   $('ev-start-date').value = toLocalInputDate(d);
   $('ev-end-date').value   = toLocalInputDate(d);
 
+  // #625: the user's zone for new events (the form's times are wall-clock times there), duration,
+  // calendar and reminder. A clicked or drawn time keeps its instant, shown in that zone.
+  const zone = preferredTimeZone();
+  const setTimes = (start, end) => {
+    $('ev-start-date').value = toInputDate(start, zone);
+    $('ev-start-time').value = toInputTime(start, zone);
+    $('ev-end-date').value   = toInputDate(end, zone);
+    $('ev-end-time').value   = toInputTime(end, zone);
+  };
+  const withDuration = start => new Date(start.getTime() + (store.get('defaultDuration') || 60) * 60000);
+
   if (range) {
     $('ev-allday').checked = range.allDay;
     updateAlldayUI(range.allDay);
@@ -97,29 +109,28 @@ export function openCreateModal(defaultDate, callbacks, range = null) {
       $('ev-start-date').value = range.start;
       $('ev-end-date').value   = toInputDate(last, null, true);
     } else {
-      const start = new Date(range.start);
-      const end = new Date(range.end);
-      $('ev-start-date').value = toLocalInputDate(start);
-      $('ev-start-time').value = toInputTime(start);
-      $('ev-end-date').value   = toLocalInputDate(end);
-      $('ev-end-time').value   = toInputTime(end);
+      setTimes(new Date(range.start), new Date(range.end));
     }
   } else if (defaultDate && (d.getHours() !== 0 || d.getMinutes() !== 0)) {
-    $('ev-start-time').value = toInputTime(d);
-    const end = new Date(d); end.setHours(end.getHours() + 1);
-    $('ev-end-time').value   = toInputTime(end);
+    setTimes(d, withDuration(d));
   } else {
-    // Default to next full hour from now
+    // The next full hour from now (in the event's zone), on the chosen day; the end is the
+    // default duration later on the wall clock.
     const now = new Date();
     now.setMinutes(0, 0, 0);
     now.setHours(now.getHours() + 1);
-    $('ev-start-time').value = toInputTime(now);
-    const end = new Date(now); end.setHours(end.getHours() + 1);
-    $('ev-end-time').value   = toInputTime(end);
+    $('ev-start-time').value = toInputTime(now, zone);
+    const [y, m, day] = $('ev-start-date').value.split('-').map(Number);
+    const [h, min] = $('ev-start-time').value.split(':').map(Number);
+    const end = new Date(Date.UTC(y, m - 1, day, h, min + (store.get('defaultDuration') || 60)));
+    $('ev-end-date').value = toInputDate(end, null, true);
+    $('ev-end-time').value = `${String(end.getUTCHours()).padStart(2, '0')}:${String(end.getUTCMinutes()).padStart(2, '0')}`;
   }
 
-  populateCalendarSelect();
-  populateTimezoneSelects();
+  populateCalendarSelect(store.get('defaultCalendarId'));
+  populateTimezoneSelects(zone, zone);
+  const reminder = store.get('defaultReminder');
+  if (reminder !== null && reminder !== undefined) _reminders.setNewReminder(reminder);
 
   // Pre-check the weekday of the start date
   document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);

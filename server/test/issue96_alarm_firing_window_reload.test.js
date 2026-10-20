@@ -58,6 +58,8 @@ function createNotificationsSandbox(options = {}) {
     Notification: MockNotification,
     store: mockStore,
     showToast: (msg, type) => toasts.push({ msg, type }),
+    // locale.js (#625), whose import is stripped below
+    formatTime: d => new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(d)),
     navigator: {
       serviceWorker: {
         register: () => Promise.resolve()

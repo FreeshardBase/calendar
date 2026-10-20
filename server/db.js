@@ -497,6 +497,12 @@ db.serialize(() => {
       show_week_numbers INTEGER NOT NULL DEFAULT 0 CHECK (show_week_numbers IN (0, 1)),
       geo_provider TEXT NOT NULL DEFAULT 'off',
       conference_base_url TEXT,
+      week_start TEXT CHECK (week_start IN ('mon', 'sun', 'sat')),
+      time_format TEXT CHECK (time_format IN ('12h', '24h')),
+      default_duration INTEGER NOT NULL DEFAULT 60,
+      default_calendar_id TEXT,
+      default_reminder INTEGER,
+      time_zone TEXT,
       updated_at INTEGER NOT NULL
     )
   `);
@@ -2926,6 +2932,45 @@ const Db = {
          ON CONFLICT(user_id) DO UPDATE SET conference_base_url = excluded.conference_base_url, updated_at = excluded.updated_at`,
         [userId, url, Date.now()],
         (err) => (err ? reject(err) : resolve(url))
+      );
+    });
+  },
+
+  // #625: week start, 12/24 h, default duration/calendar/reminder and time zone; null = not chosen.
+  getCalendarPreferences(userId) {
+    return new Promise((resolve, reject) => {
+      db.get(`SELECT week_start, time_format, default_duration, default_calendar_id, default_reminder, time_zone
+              FROM user_preferences WHERE user_id = ?`, [userId], (err, row) => {
+        if (err) return reject(err);
+        resolve({
+          weekStart: row ? row.week_start : null,
+          timeFormat: row ? row.time_format : null,
+          defaultDuration: row ? row.default_duration : 60,
+          defaultCalendarId: row ? row.default_calendar_id : null,
+          defaultReminder: row ? row.default_reminder : null,
+          timeZone: row ? row.time_zone : null,
+        });
+      });
+    });
+  },
+
+  // `values` maps keys of getCalendarPreferences to values the route has validated.
+  setCalendarPreferences(userId, values) {
+    const COLUMNS = {
+      weekStart: 'week_start', timeFormat: 'time_format', defaultDuration: 'default_duration',
+      defaultCalendarId: 'default_calendar_id', defaultReminder: 'default_reminder', timeZone: 'time_zone',
+    };
+    const keys = Object.keys(values);
+    for (const key of keys) {
+      if (!Object.hasOwn(COLUMNS, key)) throw new Error(`Unknown calendar preference: ${key}`);
+    }
+    const columns = keys.map(k => COLUMNS[k]);
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO user_preferences (user_id, ${columns.join(', ')}, updated_at) VALUES (?, ${columns.map(() => '?').join(', ')}, ?)
+         ON CONFLICT(user_id) DO UPDATE SET ${columns.map(c => `${c} = excluded.${c}`).join(', ')}, updated_at = excluded.updated_at`,
+        [userId, ...keys.map(k => values[k]), Date.now()],
+        (err) => (err ? reject(err) : resolve())
       );
     });
   },

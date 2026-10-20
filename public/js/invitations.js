@@ -5,6 +5,7 @@
 import { InvitationsAPI } from './api.js';
 import { openDialog, closeDialog } from './dialogFocus.js';
 import { showToast } from './app.js';
+import { formatDate } from './locale.js';
 
 function notifyToast(message, type = 'info') {
   if (typeof showToast === 'function') {
@@ -127,7 +128,7 @@ export function renderInvitationsHTML(invList, options = {}) {
       </div>`;
     }).join('');
 
-    const formattedDate = inv.start ? new Date(inv.start).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const formattedDate = inv.start ? formatDate(inv.start, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
     return `
       <div class="invitation-card" data-uid="${escHtml(inv.uid)}">
