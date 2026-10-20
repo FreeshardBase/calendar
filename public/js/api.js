@@ -212,6 +212,13 @@ export const WeatherAPI = {
   getForecast: (tz)       => request('GET', `/api/weather/forecast?tz=${encodeURIComponent(tz)}`),
 };
 
+// ── Address lookup and map preview (#512) ────────────────────────────────────
+export const GeoAPI = {
+  getSettings: ()         => request('GET', '/api/geo/settings'),
+  setProvider: (provider) => request('PUT', '/api/geo/settings', { provider }),
+  search:      (q)        => request('GET', `/api/geo/search?q=${encodeURIComponent(q)}`),
+};
+
 // ── Public holidays (#514) ────────────────────────────────────────────────────
 export const HolidaysAPI = {
   regions:     ()       => request('GET', '/api/holidays/regions'),

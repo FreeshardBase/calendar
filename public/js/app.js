@@ -17,6 +17,7 @@ import { initTaskUI, openTaskModal, openDuplicateTaskModal, renderTaskArea, rend
 import { initInvitations } from './invitations.js';
 import { initListView, loadListPage, renderListView } from './listView.js';
 import { initPdfExport } from './pdfExport.js';
+import { loadGeoSettings, renderGeoSettings, initGeoSettings } from './geoLookup.js';
 import { initAvailabilityManager } from './availability.js';
 import { initMSGraphModal, openMSGraphModal } from './msgraph.js';
 import { initDialogFocusManager, openDialog, closeDialog, confirmDialog, typedConfirmDialog, handleEscapeKey } from './dialogFocus.js';
@@ -127,6 +128,7 @@ async function boot() {
       // #513: the forecast loads beside the events and never holds them up.
       loadWeather();
       setInterval(() => { if (weatherSettings && weatherSettings.location) loadWeather(); }, WEATHER_REFRESH_MS);
+      await loadGeoSettings();
       await loadWebcalSubscriptions();
       await loadEvents();
       await loadTasks();
@@ -2110,6 +2112,7 @@ function renderSettings() {
   renderSettingsHolidays().catch(err => showToast('Feiertage konnten nicht geladen werden: ' + err.message, 'error'));
   renderSettingsWeather();
   $('show-week-numbers-toggle').checked = store.get('showWeekNumbers');
+  renderGeoSettings();
   renderSettingsNotifications();
   renderSettingsTrash();
 }
@@ -3198,6 +3201,7 @@ function attachListeners() {
     $('holiday-region').focus();
   });
   $('holiday-region').addEventListener('change', e => saveHolidayRegion(e.target.value));
+  initGeoSettings(err => showToast('Adresssuche konnte nicht umgestellt werden: ' + err.message, 'error'));
 
   // #513: the checkbox opens the location form; only saving a location sends anything anywhere.
   const saveWeatherLocation = location => changeWeatherLocation(location)

@@ -11,6 +11,7 @@ import { requestNotificationPermission } from './notifications.js';
 import { createReminderEditor, formatAlarmTriggerLabel } from './reminderEditor.js';
 import { createTemplatePicker, templateAlarms } from './templates.js';
 import { allTimeZones, localTimeZone } from './timezones.js';
+import { createLocationLookup } from './geoLookup.js';
 
 export { formatAlarmTriggerLabel };
 
@@ -25,6 +26,7 @@ let _currentEvent = null; // null = create mode, object = edit mode
 let _recurrenceTouched = false;
 let _reminders = null; // #508: reminder list editor, created in initEventModal
 let _templates = null; // #515: "Neu aus Vorlage" picker, created in initEventModal
+let _location = null; // #512: location field with address autocomplete and map preview
 
 // ── DOM refs (lazily grabbed) ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -175,7 +177,7 @@ export function openEditModal(event, callbacks) {
   $('ev-etag').value  = event.etag  || '';
 
   $('ev-title').value       = event.title       || '';
-  $('ev-location').value    = event.location    || '';
+  _location.set(event.location, event.geo);
   $('ev-description').value = event.description || '';
   if ($('ev-categories')) {
     const catList = Array.isArray(event.categories) ? event.categories : [];
@@ -391,7 +393,7 @@ function applyTemplate(fields) {
   }
   $('ev-allday').checked = Boolean(fields.allDay);
   updateAlldayUI(Boolean(fields.allDay));
-  $('ev-location').value    = fields.location || '';
+  _location.set(fields.location, null);
   $('ev-description').value = fields.description || '';
   $('ev-categories').value  = (fields.categories || []).join(', ');
   renderAttendeeList((fields.attendees || []).map(a => ({ ...a, status: 'NEEDS-ACTION' })));
@@ -522,6 +524,7 @@ function resetForm() {
   form().querySelectorAll('details.form-section').forEach(section => { section.open = false; });
   $('event-form-error').classList.add('hidden');
   $('ev-attendee-list').innerHTML = '';
+  _location.set('', null);
 
   document.querySelectorAll('.recur-byday').forEach(cb => cb.checked = false);
   const byMonthDayRadio = document.querySelector('input[name="recur-monthly-type"][value="BYMONTHDAY"]');
@@ -813,6 +816,7 @@ function getUtcDate(dateStr, timeStr, timeZone) {
     end:         endUtc,
     allDay,
     location:    $('ev-location').value.trim()    || null,
+    geo:         _location.geo(),
     description: $('ev-description').value.trim() || null,
     categories,
     attendees:   collectAttendees(),
@@ -912,6 +916,7 @@ function previewEvent(payload, original) {
     end: payload.end,
     allDay: payload.allDay,
     location: payload.location,
+    geo: payload.geo,
     description: payload.description,
     categories: payload.categories,
     attendees: payload.attendees,
@@ -1001,6 +1006,7 @@ export function initEventModal() {
   $('delete-event-btn').addEventListener('click', handleDelete);
   $('event-duplicate-btn').addEventListener('click', duplicateCurrent);
   $('event-template-btn').addEventListener('click', saveAsTemplate);
+  _location = createLocationLookup();
   _templates = createTemplatePicker({
     kind: 'event',
     row: $('ev-template-row'),

@@ -251,6 +251,24 @@ function assertValidTranspClass(event) {
   }
 }
 
+// #512: GEO (RFC 5545 §3.8.1.6) as { lat, lon } in decimal degrees; null/undefined means none.
+function assertValidGeo(event) {
+  const geo = event.geo;
+  if (geo == null) return;
+  const ok = typeof geo === 'object' && !Array.isArray(geo)
+    && Number.isFinite(geo.lat) && Number.isFinite(geo.lon)
+    && Math.abs(geo.lat) <= 90 && Math.abs(geo.lon) <= 180;
+  if (!ok) throw new Error('Invalid geo: must be { lat: -90..90, lon: -180..180 } or null');
+}
+
+// ical.js reads GEO as [lat, lon]; a value outside that shape (another client's typo) is no point.
+function parseGeo(value) {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const [lat, lon] = value.map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
+}
+
 function icalTimeToISO(icalTime) {
   if (!icalTime) return null;
   if (icalTime.isDate) {
@@ -428,6 +446,7 @@ function parseVEventToEvent(vevent, meta = {}) {
     duration:    duration     || null,
     allDay:      isAllDay,
     location:    ev.location  || null,
+    geo:         parseGeo(vevent.getFirstPropertyValue('geo')),
     description: ev.description || null,
     status:      vevent.getFirstPropertyValue('status') || null,
     sequence:    vevent.getFirstPropertyValue('sequence') || 0,
@@ -794,6 +813,7 @@ function eventToICS(event, existingIcs = null) {
   }
   assertValidAlarms(event.alarms);
   assertValidTranspClass(event);
+  assertValidGeo(event);
   const baseIcs = existingIcs || event.rawIcs || null;
 
   if (baseIcs && typeof baseIcs === 'string' && baseIcs.trim()) {
@@ -828,6 +848,10 @@ function eventToICS(event, existingIcs = null) {
         if ('location' in event) {
           if (event.location) setPropValue('location', event.location);
           else master.removeAllProperties('location');
+        }
+        if ('geo' in event) {
+          if (event.geo) setPropValue('geo', [event.geo.lat, event.geo.lon]);
+          else master.removeAllProperties('geo');
         }
         if ('status' in event) {
           if (event.status) setPropValue('status', String(event.status).toUpperCase());
@@ -1160,6 +1184,7 @@ function eventToICS(event, existingIcs = null) {
 
   if (event.description) lines.push(`DESCRIPTION:${escIcal(event.description)}`);
   if (event.location)    lines.push(`LOCATION:${escIcal(event.location)}`);
+  if (event.geo)         lines.push(`GEO:${event.geo.lat};${event.geo.lon}`);
   if (event.status)      lines.push(`STATUS:${String(event.status).replace(/[\r\n]/g, '')}`);
   if (event.transp)         lines.push(`TRANSP:${event.transp}`);
   if (event.classification) lines.push(`CLASS:${event.classification}`);
@@ -2325,6 +2350,7 @@ module.exports = {
   writeValarms,
   valarmLines,
   assertValidTranspClass,
+  assertValidGeo,
   parseVEventToEvent,
   parseICSToEvent,
   parseICSToEvents,

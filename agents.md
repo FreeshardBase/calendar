@@ -160,6 +160,17 @@ Radicale as the internal CalDAV server, a Python sync-worker for Google Calendar
   `WEATHER_BRIGHTSKY_URL`, default `https://api.brightsky.dev`, for a self-hosted instance) for the next 7 days,
   summarises them per local date, caches each location/zone for an hour, backs off 5 minutes after a failure and
   for Retry-After on 429/503. A failure answers 502 and the web app hides the `.weather-badge`s in the week/day headers.
+- Address autocomplete and map preview (#512) — `routes/geo.js` + `public/js/geoLookup.js`. Per-user provider
+  (`user_preferences.geo_provider`: `off` default, `osm` = Photon, `google` = Places Text Search, offered only with
+  `GOOGLE_PLACES_API_KEY`); switching one on in the settings asks via `confirmDialog`, naming the hosts. The browser
+  only talks to `/api/geo/search` and `/api/geo/tile/:z/:x/:y`, which answer 403 while the user's provider is `off`
+  (nothing leaves the shard). The shard sends `User-Agent: FreeShard-WebCalendar/<version> (+repo)`, allows one lookup
+  per second shard-wide (waits up to 3 s, then 429), refuses queries under 3 characters and caches repeats for an hour.
+  Tiles: at most 60 upstream fetches per minute shard-wide (then 429), tiles over 256 KiB refused (502) while they
+  stream in, fetched tiles cached in memory (200 tiles, 24 h).
+  Servers: `GEOCODER_PHOTON_URL` (default photon.komoot.io), `OSM_TILE_URL` (default tile.openstreetmap.org),
+  `GOOGLE_PLACES_URL`. A chosen suggestion is saved as LOCATION plus GEO (`event.geo = { lat, lon }`); editing the
+  text by hand drops GEO.
 - Microsoft 365 (#97) — optional, configured by `MSGRAPH_CLIENT_ID` (+ `MSGRAPH_CLIENT_SECRET` for a confidential
   client) and `BASE_URL`; without them `GET /api/msgraph/accounts` reports `available: false`, the modal says so and
   `/api/msgraph/authorize` answers 503. `server/utils/msgraph.js` + `routes/msgraph.js`: authorization code flow

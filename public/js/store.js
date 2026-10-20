@@ -86,6 +86,11 @@ export const store = createStore({
   // #517: ISO week numbers in the month/week grid and the mini month (per-user setting, #355).
   showWeekNumbers: false,
 
+  // #512: the address lookup / map provider the user opted into ('off' | 'osm' | 'google')
+  // and the providers this shard offers ({ id, searchHost, tileHost }).
+  geoProvider:  'off',
+  geoProviders: [],
+
   // Working Hours Policy
   workingHours:          { startHour: 9, endHour: 17, workDays: '1,2,3,4,5' },
 });

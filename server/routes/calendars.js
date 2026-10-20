@@ -355,6 +355,29 @@ const COLLECTION_COMPONENTS = {
   mixed: ['VEVENT', 'VTODO'],
 };
 
+// A new user's first page load sends several GET /api/calendars at once (the SPA, a second tab).
+// Each saw an empty home; the second MKCALENDAR then hit an existing collection, failed, and that
+// request listed no calendar at all. So the defaults are created once per principal, concurrent
+// requests wait for that one creation, and a failure reaches the caller as the account's error.
+const defaultCollectionsInFlight = new Map();
+
+function createDefaultCollections(client, account) {
+  const home = account.url.replace(/\/+$/, '');
+  if (!defaultCollectionsInFlight.has(home)) {
+    const creation = (async () => {
+      // An empty listing that arrives after another request finished the creation is stale.
+      const current = await client.getCalendars();
+      if (parseCalendarList(current, account.id, account.url, account.username).length > 0) return current;
+      console.log(`[calendars] Creating default collections 'personal' and 'tasks' for user: ${account.username}`);
+      await client.mkcalendar(home + '/personal/', 'Persönlich', '#7c3aed', COLLECTION_COMPONENTS.calendar);
+      await client.mkcalendar(home + '/tasks/', 'Aufgaben', '#0891b2', COLLECTION_COMPONENTS.tasklist);
+      return client.getCalendars();
+    })().finally(() => defaultCollectionsInFlight.delete(home));
+    defaultCollectionsInFlight.set(home, creation);
+  }
+  return defaultCollectionsInFlight.get(home);
+}
+
 // GET /api/calendars — fetch all calendars from all accounts
 router.get('/', async (req, res) => {
   if (!req.session?.userId) {
@@ -374,16 +397,8 @@ router.get('/', async (req, res) => {
       
       // Auto-create a default calendar and a default task list for new users on internal-caldav (#500)
       if (account.id === 'internal-caldav' && calendars.length === 0) {
-        console.log(`[calendars] Creating default collections 'personal' and 'tasks' for user: ${account.username}`);
-        try {
-          const home = account.url.replace(/\/+$/, '');
-          await client.mkcalendar(home + '/personal/', 'Persönlich', '#7c3aed', COLLECTION_COMPONENTS.calendar);
-          await client.mkcalendar(home + '/tasks/', 'Aufgaben', '#0891b2', COLLECTION_COMPONENTS.tasklist);
-          const newXml = await client.getCalendars();
-          calendars = parseCalendarList(newXml, account.id, account.url, account.username);
-        } catch (createErr) {
-          console.error('[calendars] Failed to create default calendar:', createErr.message);
-        }
+        const newXml = await createDefaultCollections(client, account);
+        calendars = parseCalendarList(newXml, account.id, account.url, account.username);
       }
       
       if (account.authType === 'oauth2') {
