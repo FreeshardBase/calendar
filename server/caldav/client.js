@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 const { dispatcherFor, isInternalUrl } = require('../utils/tlsDispatcher');
 const { assertPublicUrl, getGuardedDispatcher } = require('../utils/outboundFetch');
@@ -367,7 +368,7 @@ ${components.map(c => `        <c:comp name="${c}"/>`).join('\n')}
 </d:propertyupdate>`;
       // Best-effort — don't fail if color PROPPATCH doesn't work
       await this._request('PROPPATCH', url, { body: ppBody }).catch(e =>
-        console.warn('[mkcalendar] PROPPATCH color failed:', e.message)
+        log.warn('[mkcalendar] PROPPATCH color failed:', e.message)
       );
     }
 
@@ -605,7 +606,7 @@ ${components.map(c => `        <c:comp name="${c}"/>`).join('\n')}
     try {
       const xml = await this.report(calendarUrl, body);
       if (syncToken && (xml.includes('valid-sync-token') || xml.includes('invalid-sync-token'))) {
-        console.warn('[CalDAVClient] Sync token invalidated in multistatus XML response, falling back to initial sync');
+        log.warn('[CalDAVClient] Sync token invalidated in multistatus XML response, falling back to initial sync');
         return { xml: await this.syncCollection(calendarUrl, null, syncLevel), fallbackPerformed: true };
       }
       return { xml, fallbackPerformed: false };
@@ -613,7 +614,7 @@ ${components.map(c => `        <c:comp name="${c}"/>`).join('\n')}
       const statusMatch = err.message ? err.message.match(/REPORT (\d{3})/) : null;
       const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 0;
       if (syncToken && ([400, 403, 409, 412].includes(statusCode) || err.message.includes('valid-sync-token'))) {
-        console.warn(`[CalDAVClient] Sync token invalidated by server (status ${statusCode}), falling back to initial sync`);
+        log.warn(`[CalDAVClient] Sync token invalidated by server (status ${statusCode}), falling back to initial sync`);
         return { xml: await this.syncCollection(calendarUrl, null, syncLevel), fallbackPerformed: true };
       }
       throw err;
@@ -852,7 +853,7 @@ ${components.map(c => `        <c:comp name="${c}"/>`).join('\n')}
   </d:prop>
 </d:principal-property-search>`;
 
-    console.log('[searchUsers] Querying URL:', principalCollectionUrl);
+    log.info('[searchUsers] Querying URL:', principalCollectionUrl);
     const res = await this._request('REPORT', principalCollectionUrl, {
       body: xml,
       headers: { Depth: '0' }
@@ -874,20 +875,20 @@ ${components.map(c => `        <c:comp name="${c}"/>`).join('\n')}
     };
 
     const text = await res.text();
-    console.log('[searchUsers] Primary response status:', res.status, 'body length:', text.length, 'body:', text);
+    log.info('[searchUsers] Primary response status:', res.status, 'body length:', text.length, 'body:', text);
 
     if (!res.ok && res.status !== 207) {
-      console.log('[searchUsers] Primary failed, attempting fallback on baseUrl:', this.baseUrl);
+      log.info('[searchUsers] Primary failed, attempting fallback on baseUrl:', this.baseUrl);
       const res2 = await this._request('REPORT', this.baseUrl, {
         body: xml,
         headers: { Depth: '0' }
       });
       if (!res2.ok && res2.status !== 207) {
-        console.log('[searchUsers] Fallback failed status:', res2.status);
+        log.info('[searchUsers] Fallback failed status:', res2.status);
         return [];
       }
       const text2 = await res2.text();
-      console.log('[searchUsers] Fallback response status:', res2.status, 'body:', text2);
+      log.info('[searchUsers] Fallback response status:', res2.status, 'body:', text2);
       return parsePrincipalSearch(text2);
     }
 

@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 // Issue #512: address autocomplete and map preview for the location field.
 // Both send shard data to a third party, so they are off until a user picks a provider
@@ -228,7 +229,7 @@ router.get('/search', async (req, res, next) => {
     res.json({ results });
   } catch (err) {
     if (err instanceof UpstreamError || err.name === 'TimeoutError') {
-      console.error('[geo search]', err.message);
+      log.error('[geo search]', err.message);
       return res.status(502).json({ error: 'The address service is not reachable' });
     }
     next(err);
@@ -270,7 +271,7 @@ router.get('/tile/:z/:x/:y', async (req, res, next) => {
     res.send(png);
   } catch (err) {
     if (err instanceof UpstreamError || err.name === 'TimeoutError') {
-      console.error('[geo tile]', err.message);
+      log.error('[geo tile]', err.message);
       return res.status(502).json({ error: 'The map service is not reachable' });
     }
     next(err);

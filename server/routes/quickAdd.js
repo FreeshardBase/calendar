@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 const express = require('express');
 const router = express.Router();
@@ -17,7 +18,7 @@ router.post('/parse', (req, res) => {
     const result = parseQuickAdd(text, referenceDate);
     res.json(result);
   } catch (err) {
-    console.error('[quick-add parse]', err.message);
+    log.error('[quick-add parse]', err.message);
     res.status(400).json({ error: 'Der Text konnte nicht als Termin erkannt werden.' });
   }
 });

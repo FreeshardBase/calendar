@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 const Db = require('../db');
 
@@ -12,9 +13,9 @@ const BACKUP_INTERVAL_MS = 60 * 60 * 1000;
 function startDbBackupWorker({ intervalMs = BACKUP_INTERVAL_MS } = {}) {
   const run = async () => {
     const { backupPath, size } = await Db.createBackup(Db.backupPath);
-    console.log(`[DbBackup] Wrote database snapshot ${backupPath} (${size} bytes)`);
+    log.info(`[DbBackup] Wrote database snapshot ${backupPath} (${size} bytes)`);
   };
-  const logFailure = (err) => console.error('[DbBackup] Writing the database snapshot failed:', err.message);
+  const logFailure = (err) => log.error('[DbBackup] Writing the database snapshot failed:', err.message);
 
   const firstRun = run();
   firstRun.catch(logFailure);

@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 const express = require('express');
 const router = express.Router();
@@ -57,7 +58,7 @@ router.get('/login', async (req, res) => {
     const authUrl = client.buildAuthorizationUrl(config, params);
     res.redirect(authUrl.href);
   } catch (err) {
-    console.error('[OIDC login error]', err.message);
+    log.error('[OIDC login error]', err.message);
     res.status(500).type('text/plain').send('OIDC-Initialisierung fehlgeschlagen: ' + err.message);
   }
 });
@@ -102,7 +103,7 @@ router.get('/callback', async (req, res) => {
         username = userinfo.preferred_username || userinfo.username || userinfo.email || userinfo.name || userinfo.sub || username;
         userEmail = userEmail || userinfo.email;
       } catch (uiErr) {
-        console.warn('[OIDC callback] Failed to fetch UserInfo claims:', uiErr.message);
+        log.warn('[OIDC callback] Failed to fetch UserInfo claims:', uiErr.message);
       }
     }
 
@@ -119,7 +120,7 @@ router.get('/callback', async (req, res) => {
     // #535: the id_token_hint of the RP-initiated logout.
     req.session.oidcIdToken = tokens.id_token;
 
-    console.log(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
+    log.info(`[OIDC callback] Authentifiziert: ${username} (${userId})`);
     res.redirect('/');
   } catch (err) {
     // openid-client v6 names the failed check (e.g. a missing nonce claim) in the wrapped cause.
@@ -133,7 +134,7 @@ router.get('/callback', async (req, res) => {
     const providerDetail = providerError
       ? ` (provider error: ${logSafe(providerError.error)}${providerError.error_description ? ` — ${logSafe(providerError.error_description)}` : ''})`
       : '';
-    console.error('[OIDC callback error]', reason + providerDetail);
+    log.error('[OIDC callback error]', reason + providerDetail);
     res.status(400).type('text/plain').send('OIDC-Authentifizierung fehlgeschlagen: ' + reason);
   }
 });
@@ -195,7 +196,7 @@ router.get('/google/callback', async (req, res) => {
   const { code, error, state } = req.query;
 
   if (error) {
-    console.error('[Google OAuth error callback]', error);
+    log.error('[Google OAuth error callback]', error);
     return res.status(400).type('text/plain').send('Google OAuth fehlgeschlagen: ' + error);
   }
 
@@ -279,9 +280,9 @@ router.get('/google/callback', async (req, res) => {
     // Enqueue a sync job immediately to download calendars and events
     try {
       await Db.addSyncJob(userId);
-      console.log(`[Google OAuth callback] Enqueued sync job for user ${userId}`);
+      log.info(`[Google OAuth callback] Enqueued sync job for user ${userId}`);
     } catch (syncErr) {
-      console.error(`[Google OAuth callback] Failed to enqueue sync job:`, syncErr.message);
+      log.error(`[Google OAuth callback] Failed to enqueue sync job:`, syncErr.message);
     }
 
     if (email) {
@@ -289,7 +290,7 @@ router.get('/google/callback', async (req, res) => {
       await Db.upsertUser(userId, req.session.username || email, email);
     }
 
-    console.log(`[Google OAuth callback] Google-Konto erfolgreich verknüpft: ${email} für User ${userId}`);
+    log.info(`[Google OAuth callback] Google-Konto erfolgreich verknüpft: ${email} für User ${userId}`);
 
     // Return popup close message
     res.send(`
@@ -301,7 +302,7 @@ router.get('/google/callback', async (req, res) => {
       </html>
     `);
   } catch (err) {
-    console.error('[Google OAuth callback error]', err.message);
+    log.error('[Google OAuth callback error]', err.message);
     res.status(500).type('text/plain').send('Verknüpfung des Google-Kontos fehlgeschlagen: ' + err.message);
   }
 });
@@ -327,7 +328,7 @@ router.post(['/backchannel-logout', '/backchannel_logout'], express.urlencoded({
     res.setHeader('Pragma', 'no-cache');
     return res.status(200).send('OK');
   } catch (err) {
-    console.error('[Back-Channel Logout error]', err.message);
+    log.error('[Back-Channel Logout error]', err.message);
     return res.status(400).type('text/plain').send('Ungültiges logout_token: ' + err.message);
   }
 });

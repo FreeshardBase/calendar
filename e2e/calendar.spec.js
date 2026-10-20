@@ -4548,6 +4548,8 @@ test.describe('FreeShard WebCalendar E2E Suite', () => {
   });
 
   test('Issue #254 — a view opened on the changeover date 2026-10-25 creates events on that date', async ({ page }) => {
+    // A new event starts at the next full hour from now; a run at 22:xx would end it on the next day.
+    await page.clock.setFixedTime(new Date('2026-10-20T10:30:00+02:00'));
     await page.goto('/?date=2026-10-25');
     await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 10000 });
     await expect(page.locator('#calendar-list .calendar-item')).toBeVisible({ timeout: 10000 });

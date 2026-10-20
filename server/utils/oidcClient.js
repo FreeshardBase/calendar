@@ -1,4 +1,5 @@
 'use strict';
+const log = require('./logger');
 
 const crypto = require('crypto');
 const { parseBaseUrl } = require('./baseUrl');
@@ -74,7 +75,7 @@ async function probeClientAuth(client, serverMetadata, clientId, clientSecret, m
       if (answer === null) throw err;
     }
     if (answer === 'invalid_grant') {
-      console.log(`[oidc] client authentication: ${method} (accepted by ${serverMetadata.token_endpoint})`);
+      log.info(`[oidc] client authentication: ${method} (accepted by ${serverMetadata.token_endpoint})`);
       return config;
     }
     answers.push(`${method}: ${answer}`);

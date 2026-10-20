@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 
 const CalDAVClient = require('./client');
 const Db = require('../db');
@@ -28,7 +29,7 @@ async function getClientForAccount(account) {
   const isExpired = !account.expiresAt || (account.expiresAt - 60 * 1000 < Date.now());
 
   if (isExpired) {
-    console.log(`[oauth] Access token expired/near expiry for account ${account.id}. Refreshing...`);
+    log.info(`[oauth] Access token expired/near expiry for account ${account.id}. Refreshing...`);
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -64,7 +65,7 @@ async function getClientForAccount(account) {
     // Update local object referenced in current request context
     account.accessToken = accessToken;
     account.expiresAt = expiresAt;
-    console.log(`[oauth] Access token refreshed successfully for account ${account.id}`);
+    log.info(`[oauth] Access token refreshed successfully for account ${account.id}`);
   }
 
   return new CalDAVClient({

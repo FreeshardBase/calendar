@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 const { sendError } = require('../utils/errorSanitizer');
 
 const express = require('express');
@@ -99,7 +100,7 @@ router.get('/', async (req, res) => {
   try {
     unreadable = await Db.getUnreadableAccounts(req.session.userId);
   } catch (err) {
-    console.error('[accounts GET] Failed to load unreadable accounts:', err.message);
+    log.error('[accounts GET] Failed to load unreadable accounts:', err.message);
     return res.status(500).json({ error: 'Fehler beim Laden der Kontodaten.' });
   }
   const accounts = req.session?.accounts || [];

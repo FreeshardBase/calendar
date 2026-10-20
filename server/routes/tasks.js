@@ -1,4 +1,5 @@
 'use strict';
+const log = require('../utils/logger');
 const { sendError, describeError, userError } = require('../utils/errorSanitizer');
 const { setUnparseableHeader } = require('../utils/unparseableReport');
 const { CALDAV_REPORT_CONCURRENCY, forEachLimited } = require('../utils/caldavFanout');
@@ -57,7 +58,7 @@ router.get('/', async (req, res) => {
                 });
               }
             } catch (dbErr) {
-              console.error('[tasks GET] Failed to fetch shared calendars:', dbErr.message);
+              log.error('[tasks GET] Failed to fetch shared calendars:', dbErr.message);
             }
           }
 
@@ -74,13 +75,13 @@ router.get('/', async (req, res) => {
               for (const pe of parseErrors) unparseable.push({ calendarId: cal.id, href: pe.href, error: pe.error });
               successfulCalendars++;
             } catch (taskErr) {
-              console.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
+              log.error(`[tasks GET] Failed to fetch tasks for calendar ${cal.id}:`, taskErr.message);
               const { status, message } = describeError(taskErr);
               errors.push({ accountId: account.id, calendarId: cal.id, status, error: message });
             }
           });
         } catch (accountErr) {
-          console.error(`[tasks GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
+          log.error(`[tasks GET] Failed to fetch calendars for account ${account.id}:`, accountErr.message);
           const { status, message } = describeError(accountErr);
           errors.push({ accountId: account.id, status, error: message });
         }
@@ -545,7 +546,7 @@ async function moveTask(res, { source, target, taskUrl, current, targetCalendarU
     try {
       await target.client.delete(targetUrl, created.etag);
     } catch (rollbackErr) {
-      console.error('[tasks move] Removing the copy in the target list failed:', rollbackErr.message);
+      log.error('[tasks move] Removing the copy in the target list failed:', rollbackErr.message);
       throw new Error(`Move failed and the copy in the target list could not be removed again: ${delErr.message}`);
     }
     if (delErr.message === 'ETAG_CONFLICT') {
